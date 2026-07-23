@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -33,9 +34,21 @@ _WAF_COOLDOWN_S = 90.0
 _WAF_STATUS = frozenset({403, 429})
 _waf_blocked_until = 0.0
 
+# Global min-spacing between Schwab requests (the 07-22 outage follow-up). The
+# breaker alone converts a storm into one probe per cooldown — but the moment it
+# CLOSES, every queued fetch (charts + prewarm + quotes) fires concurrently, and
+# that burst trips Akamai again: a self-sustaining 429→cooldown→herd cycle
+# (observed live 07-23: ~90–120s clusters for four hours straight). Serializing
+# requests at 4/s stays far under Schwab's per-minute budget while adding at
+# most ~250ms latency per call; both call paths run in executor threads, so the
+# sleep never touches the event loop.
+_MIN_SPACING_S = 0.25
+_pace_lock = threading.Lock()
+_last_request_mono = 0.0
+
 
 def _waf_gate() -> None:
-    """Raise immediately if the WAF breaker is open (no Schwab call is made)."""
+    """Raise if the WAF breaker is open; otherwise pace the request globally."""
     import time as _time
 
     remaining = _waf_blocked_until - _time.monotonic()
@@ -43,6 +56,14 @@ def _waf_gate() -> None:
         raise BrokerError(
             f"Schwab WAF cooldown active ({remaining:.0f}s left) — skipping request"
         )
+    global _last_request_mono
+    # Holding the lock through the sleep is deliberate: concurrent callers queue
+    # and each departs _MIN_SPACING_S after the previous one — no burst survives.
+    with _pace_lock:
+        wait = _MIN_SPACING_S - (_time.monotonic() - _last_request_mono)
+        if wait > 0:
+            _time.sleep(wait)
+        _last_request_mono = _time.monotonic()
 
 
 def _waf_check(response: Any) -> None:

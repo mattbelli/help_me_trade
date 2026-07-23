@@ -620,3 +620,41 @@ def test_parse_candles_dedupes_duplicate_timestamps():
     assert len(times) == len(set(times)) == 2  # deduped
     assert times == sorted(times)  # ascending
     assert bars[0].close == 1.6  # last-wins on the duplicate
+
+
+# ---- WAF gate: breaker + global request pacing --------------------------------
+
+
+def test_waf_gate_paces_consecutive_requests(monkeypatch: pytest.MonkeyPatch):
+    """Back-to-back gate passes are spaced ≥ _MIN_SPACING_S (the herd killer)."""
+    import time
+
+    from brokers import schwab_market_data as smd
+
+    monkeypatch.setattr(smd, "_waf_blocked_until", 0.0)
+    monkeypatch.setattr(smd, "_MIN_SPACING_S", 0.05)
+    monkeypatch.setattr(smd, "_last_request_mono", 0.0)
+
+    smd._waf_gate()
+    start = time.monotonic()
+    smd._waf_gate()
+    smd._waf_gate()
+    elapsed = time.monotonic() - start
+    # Two more departures after the first must take at least 2 spacing gaps.
+    assert elapsed >= 0.09
+
+
+def test_waf_gate_cooldown_raises_before_pacing(monkeypatch: pytest.MonkeyPatch):
+    """An open breaker raises immediately — no pacing sleep, no stamp update."""
+    import time
+
+    from brokers import schwab_market_data as smd
+
+    monkeypatch.setattr(smd, "_waf_blocked_until", time.monotonic() + 60.0)
+    monkeypatch.setattr(smd, "_MIN_SPACING_S", 5.0)
+    monkeypatch.setattr(smd, "_last_request_mono", 0.0)
+
+    start = time.monotonic()
+    with pytest.raises(BrokerError, match="cooldown"):
+        smd._waf_gate()
+    assert time.monotonic() - start < 0.5  # never slept the 5s spacing

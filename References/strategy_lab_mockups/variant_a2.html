@@ -1,0 +1,1109 @@
+<meta charset="utf-8">
+<title>Strategy Lab</title>
+<!--
+  STRATEGY LAB — variant A2. Revision of variant A (the winner) per founder verdict 07-22.
+  ==========================================================================
+  WHAT CHANGED FROM A (each annotated inline at the point of change):
+  1. OVERVIEW REBUILT as a bordered, modular cockpit. A's overview was "a lot of text,
+     no clear borders" — the live elements are now discrete hairline-bordered modules
+     (flat: 1px var(--line) boxes, zero shadows, zero nesting). Borrowed FROM B's
+     overview (its strongest page) but re-spoken in A's visual grammar:
+       - a 6-tile cockpit summary strip (armed·auto / armed·propose / disarmed /
+         probation / waiting-on-you / net P&L) — B's tiles, rendered as A's .kpis row;
+       - typed roster tables (mechanical vs LLM as two tables, not group rows);
+       - inline 30d sparklines; probation-row amber tinting; a "did today" column.
+     The 10-second read governs: tiles → live modules → roster all land pre-scroll
+     at ~1440×900.
+  2. TYPE SCALE TOKENIZED. A had 13 ad-hoc font sizes (9.5 → 22px). Now ONE scale,
+     5 steps, declared as CSS vars and used everywhere:
+       --fs-title 20 (page/detail title) · --fs-metric 17 (KPI/tile values)
+       --fs-body 13 (default + all table text) · --fs-sub 11 (secondary annotations)
+       --fs-label 10 (uppercase tracked labels + micro/honesty annotations)
+     tabular-nums is set globally so every numeral column aligns.
+  3. Book detail + backtest kept structurally intact (founder: keep) — only the type
+     tokens and border-consistency touch-ups applied.
+  DESIGN THESIS (unchanged from A — this palette is now the app's shipped canon):
+  - Terminal-modernist: one dark plane, hairline dividers, typography + alignment
+    carry hierarchy. No pill chips: categorical state is a plain lowercase colored word.
+  - Saturated hue is RATIONED to direction/side/P&L. Structure is greyscale.
+  - Honesty is a visual primitive: `~sim`, `uncal · n=`, `perception` — a win% only
+    earns a headline number when its lane is calibrated.
+-->
+<style>
+:root{
+  /* ---- palette: CANON, shipped as the app theme. DO NOT TOUCH. ---- */
+  --bg:#0b0c0e;            /* base plane */
+  --bg-2:#101215;         /* zone fill (used sparingly, flat) */
+  --bg-3:#15181c;         /* hover / active row */
+  --line:rgba(255,255,255,.08);
+  --line-2:rgba(255,255,255,.14);
+  --tx:#e7eaed;           /* primary */
+  --tx-2:#9aa2ab;         /* secondary */
+  --tx-3:#666d76;         /* faint / axis */
+  --tx-4:#474d55;         /* ghost */
+  --pos:#3fce7c;          /* up / long / profit  — SATURATED, rationed */
+  --pos-dim:#2c8f57;
+  --neg:#ff5d5d;          /* down / short / loss — SATURATED, rationed */
+  --neg-dim:#b8434a;
+  --amber:#e0a13a;        /* honesty hedges + auto-mode + probation */
+  --amber-dim:#8a6a2e;
+  --cyan:#59b0c9;         /* neutral accent / propose / links */
+  --cyan-dim:#3a6f7e;
+  --violet:#9b8cff;       /* llm-actor accent (structural, low use) */
+  --font-mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  /* ---- NEW (A2): the type scale. Five steps, nothing off-scale.
+     title  = the one big thing on a detail page
+     metric = KPI / tile values (numbers you glance at)
+     body   = everything readable: tables, prose, controls, tabs
+     sub    = secondary annotation under/beside body text
+     label  = uppercase tracked section/column labels AND micro honesty marks ---- */
+  --fs-title:20px;
+  --fs-metric:17px;
+  --fs-body:13px;
+  --fs-sub:11px;
+  --fs-label:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);
+  font-family:var(--font-mono);font-size:var(--fs-body);line-height:1.45;
+  font-variant-numeric:tabular-nums; /* A2: tabular numerals globally — every column of numbers aligns */
+  -webkit-font-smoothing:antialiased}
+body{padding-bottom:80px}
+a{color:var(--cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:var(--font-mono)}
+.num{font-family:var(--font-mono);text-align:right;white-space:nowrap}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.side-buy{color:var(--pos)} .side-sell{color:var(--neg)}
+.muted{color:var(--tx-2)} .faint{color:var(--tx-3)} .ghost{color:var(--tx-4)}
+.wrap{max-width:1440px;margin:0 auto;padding:0 22px}
+
+/* ---------- top bar : account-wide truth in one strip ---------- */
+.topbar{position:sticky;top:0;z-index:40;background:linear-gradient(180deg,#0d0f12,#0b0c0e);
+  border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:26px;height:52px}
+.brand{font-weight:600;letter-spacing:.14em;font-size:var(--fs-body);text-transform:uppercase;color:var(--tx)}
+.brand b{color:var(--cyan);font-weight:600}
+.statstrip{display:flex;gap:22px;align-items:center;margin-left:auto}
+.stat{display:flex;flex-direction:column;line-height:1.15}
+.stat .k{font-size:var(--fs-label);letter-spacing:.09em;text-transform:uppercase;color:var(--tx-3)}
+.stat .v{font-size:var(--fs-body)}
+.clock{color:var(--tx-2)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.dot.g{background:var(--pos)} .dot.a{background:var(--amber)} .dot.r{background:var(--neg)}
+
+/* ---------- nav tabs ---------- */
+.tabs{border-bottom:1px solid var(--line);background:var(--bg)}
+.tabs .wrap{display:flex;gap:2px;align-items:center;height:40px}
+.tab{padding:0 16px;height:40px;line-height:40px;color:var(--tx-3);cursor:pointer;
+  font-size:var(--fs-body);letter-spacing:.03em;border-bottom:2px solid transparent;user-select:none}
+.tab:hover{color:var(--tx-2)}
+.tab.active{color:var(--tx);border-bottom-color:var(--cyan)}
+.crumb{margin-left:auto;color:var(--tx-3);font-size:var(--fs-sub)}
+.crumb b{color:var(--tx-2)}
+
+/* ---------- views ---------- */
+.view{display:none;padding-top:20px}
+.view.active{display:block}
+
+/* ---------- section scaffolding (label + hairline) ---------- */
+.sec{margin-bottom:26px}
+.sec-hd{display:flex;align-items:baseline;gap:12px;margin-bottom:8px;
+  padding-bottom:6px;border-bottom:1px solid var(--line)}
+.sec-label{font-size:var(--fs-label);letter-spacing:.11em;text-transform:uppercase;color:var(--tx-3);font-weight:600}
+.sec-hd .meta{margin-left:auto;color:var(--tx-3);font-size:var(--fs-sub)}
+.sec-note{color:var(--tx-3);font-size:var(--fs-sub)}
+
+/* ---------- tables : the workhorse ---------- */
+table.t{width:100%;border-collapse:collapse}
+.t th{font-size:var(--fs-label);letter-spacing:.07em;text-transform:uppercase;color:var(--tx-3);
+  font-weight:500;text-align:left;padding:4px 10px 6px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+.t th.num{text-align:right}
+.t td{padding:5px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.t tbody tr:hover{background:var(--bg-3)}
+.t tr.click{cursor:pointer}
+.name{color:var(--tx);font-weight:500}
+.sub{color:var(--tx-3);font-size:var(--fs-sub)}
+
+/* A2: probation-row tinting (borrowed from B) — the amber wash is the only row-level
+   background color on the page, so a struggling actor is visible from across the room. */
+.t tbody tr.prob{background:rgba(224,161,58,.035)}
+.t tbody tr.prob:hover{background:rgba(224,161,58,.07)}
+
+/* A2: framed table — the bordered-module discipline applied to the roster.
+   1px hairline box; header row uses the brighter line-2; last row loses its rule
+   so the frame closes the shape. Flat: no fill, no shadow. */
+.frame{border:1px solid var(--line)}
+.frame .t th{padding:6px 10px}
+.frame .t tbody tr:last-child td{border-bottom:none}
+
+/* ---------- A2: cockpit live modules (the founder's "widgeted or bordered") ----------
+   Each "right now" element is a discrete module: hairline box, uppercase label row
+   closed by a brighter hairline, table body, optional pinned footnote.
+   No cards-on-cards: modules sit directly on the base plane, zero fill, zero shadow. */
+.mods{display:grid;grid-template-columns:1.3fr 1fr 1fr 1.15fr;gap:14px;margin-bottom:26px}
+.mod{border:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.mod-hd{display:flex;align-items:baseline;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line-2)}
+.mod-label{font-size:var(--fs-label);letter-spacing:.11em;text-transform:uppercase;color:var(--tx-2);font-weight:600}
+.mod-count{font-size:var(--fs-body);font-weight:600}
+.mod-meta{margin-left:auto;color:var(--tx-3);font-size:var(--fs-sub);white-space:nowrap}
+.mod .t td{padding:6px 12px}
+.mod .t tbody tr:last-child td{border-bottom:none}
+.mod-ft{margin-top:auto;padding:6px 12px;border-top:1px solid var(--line);
+  color:var(--tx-3);font-size:var(--fs-sub)}
+/* the one module that is literally asking for the founder gets the 2px left edge —
+   same grammar as the honesty-bar: an edge color means "this strip wants attention". */
+.mod-attn{border-left:2px solid var(--cyan-dim)}
+
+/* ---------- tags : plain lowercase colored words, NO boxes ---------- */
+.tag{font-size:var(--fs-sub);letter-spacing:.01em}
+.tag.live{color:var(--pos-dim)}
+.tag.vpend{color:var(--amber)}
+.tag.parked{color:var(--tx-3)}
+.tag.armed{color:var(--pos)}
+.tag.disarmed{color:var(--tx-3)}
+.tag.propose{color:var(--cyan)}
+.tag.auto{color:var(--amber)}         /* auto = higher autonomy, warm-flag it */
+.tag.human{color:var(--violet)}
+.tag.mech{color:var(--tx-2)}
+.tag.llm{color:var(--violet)}
+.tag.probation{color:var(--amber)}
+.tag.clear{color:var(--pos-dim)}
+.tag.tripped{color:var(--neg)}
+
+/* ---------- honesty motif ---------- */
+.hedge{color:var(--amber);font-size:var(--fs-label);letter-spacing:.02em;
+  border-bottom:1px dotted var(--amber-dim);cursor:help}
+.calib{color:var(--pos-dim);font-size:var(--fs-label);letter-spacing:.02em}
+.wr{font-weight:600}
+.wr-int{color:var(--tx-3);font-size:var(--fs-sub)}
+.honesty-bar{display:flex;gap:10px;align-items:flex-start;background:var(--bg-2);
+  border-left:2px solid var(--amber);padding:9px 13px;margin-bottom:16px;color:var(--tx-2);font-size:var(--fs-body)}
+.honesty-bar b{color:var(--amber)}
+
+/* ---------- kpi row (also serves as the A2 cockpit tile strip) ---------- */
+.kpis{display:flex;gap:0;border:1px solid var(--line);border-radius:0;margin-bottom:16px;flex-wrap:wrap}
+.kpi{flex:1 1 0;min-width:118px;padding:9px 14px;border-right:1px solid var(--line)}
+.kpi:last-child{border-right:none}
+.kpi .k{font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;color:var(--tx-3);margin-bottom:3px}
+.kpi .v{font-size:var(--fs-metric)}
+.kpi .s{font-size:var(--fs-sub);color:var(--tx-3)}
+
+/* ---------- charts ---------- */
+.chart-hd{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+.chart-lg{display:flex;gap:16px;font-size:var(--fs-sub);color:var(--tx-3);margin-top:2px}
+.chart-lg i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.swatch{width:14px;height:0;border-top:2px solid}
+.svgbox{width:100%;display:block}
+.axis{display:flex;justify-content:space-between;color:var(--tx-4);font-size:var(--fs-label);margin-top:2px}
+
+/* A2: roster sparklines — 30d shape at a glance. Color follows the P&L-direction
+   ration (dim variants so a row of sparks doesn't shout); ghost = shadow ledger. */
+svg.spark{display:block}
+.sparkcell{width:104px}
+
+/* ---------- layout helpers ---------- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.grid-2-1{display:grid;grid-template-columns:1.6fr 1fr;gap:22px}
+.grid-1-2{display:grid;grid-template-columns:1fr 1.7fr;gap:22px}
+.col{min-width:0}
+
+/* ---------- detail header ---------- */
+.dhead{display:flex;align-items:flex-start;gap:18px;margin-bottom:16px;
+  padding-bottom:14px;border-bottom:1px solid var(--line-2)}
+.dhead h1{margin:0;font-size:var(--fs-title);font-weight:600;letter-spacing:.01em}
+.dhead .desc{color:var(--tx-2);font-size:var(--fs-body);margin-top:3px;max-width:640px}
+.dhead .facts{margin-left:auto;text-align:right;font-size:var(--fs-sub);color:var(--tx-3);line-height:1.7}
+.dhead .facts b{color:var(--tx-2);font-weight:500}
+.backlink{color:var(--tx-3);cursor:pointer;font-size:var(--fs-sub);margin-bottom:12px;display:inline-block}
+.backlink:hover{color:var(--tx-2)}
+.h1tag{font-size:var(--fs-body)} /* A2: tags riding a title sit at body size, on-scale */
+
+/* ---------- controls (arm / caps / mode) ---------- */
+.ctrls{display:flex;gap:0;border:1px solid var(--line);margin-bottom:20px;flex-wrap:wrap}
+.ctrl{padding:9px 15px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:5px}
+.ctrl:last-child{border-right:none}
+.ctrl .k{font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;color:var(--tx-3)}
+.btn{font-family:var(--font-mono);font-size:var(--fs-sub);background:transparent;color:var(--tx-2);
+  border:1px solid var(--line-2);padding:4px 11px;cursor:pointer;letter-spacing:.02em}
+.btn:hover{border-color:var(--tx-3);color:var(--tx)}
+.btn.arm{color:var(--pos);border-color:var(--pos-dim)}
+.btn.disarm{color:var(--neg);border-color:var(--neg-dim)}
+.btn.primary{color:var(--cyan);border-color:var(--cyan-dim)}
+.seg{display:inline-flex;border:1px solid var(--line-2)}
+.seg button{background:transparent;border:none;color:var(--tx-3);padding:4px 11px;
+  cursor:pointer;font-family:var(--font-mono);font-size:var(--fs-sub)}
+.seg button.on{background:var(--bg-3);color:var(--tx)}
+.capval{font-size:var(--fs-body)}
+.capbar{height:4px;background:var(--line);margin-top:4px;position:relative;width:130px}
+.capbar>i{position:absolute;left:0;top:0;bottom:0;background:var(--cyan-dim);display:block}
+.confirm-note{color:var(--amber);font-size:var(--fs-label);margin-top:2px}
+
+/* ---------- expandable rows ---------- */
+.exp-row>td{background:var(--bg-2);border-bottom:1px solid var(--line-2)}
+.exp-inner{padding:4px 6px 10px}
+.caret{color:var(--tx-3);display:inline-block;width:12px;transition:none}
+tr.click:hover .caret{color:var(--tx-2)}
+
+/* ---------- debate report (LLM book) ---------- */
+.report{border:1px solid var(--line);background:var(--bg-2)}
+.report-hd{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:baseline}
+.report-hd h3{margin:0;font-size:var(--fs-body);font-weight:600}
+.report-hd .when{color:var(--tx-3);font-size:var(--fs-sub);margin-left:auto}
+.cand{border-bottom:1px solid var(--line)}
+.cand-row{display:grid;grid-template-columns:20px 90px 1fr 90px 74px 70px;gap:10px;
+  align-items:center;padding:8px 14px;cursor:pointer}
+.cand-row:hover{background:var(--bg-3)}
+.cand-tk{font-weight:600;color:var(--tx)}
+.cand-verdict{font-size:var(--fs-sub)}
+.verdict-buy{color:var(--pos)} .verdict-trim{color:var(--amber)} .verdict-pass{color:var(--tx-3)}
+.score{text-align:right}
+.cand-body{display:none;padding:2px 14px 16px 44px;font-family:var(--font-sans);
+  color:var(--tx-2);font-size:var(--fs-body);line-height:1.6}
+.cand.open .cand-body{display:block}
+.case{border-left:2px solid var(--line-2);padding:6px 0 6px 14px;margin:10px 0}
+.case.bull{border-left-color:var(--pos-dim);background:rgba(63,206,124,.03)}
+.case.bear{border-left-color:var(--neg-dim);background:rgba(255,93,93,.03)}
+.case.macro{border-left-color:var(--cyan-dim)}
+.case.social{border-left-color:var(--violet)}
+.case.risk{border-left-color:var(--amber-dim)}
+.case .who{font-family:var(--font-mono);font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--tx-3);display:block;margin-bottom:3px}
+.rubric{margin-top:12px;width:100%;max-width:440px;font-family:var(--font-mono)}
+.rubric td{padding:3px 8px;border-bottom:1px solid var(--line);font-size:var(--fs-sub)}
+.rmeter{height:5px;background:var(--line);width:90px;display:inline-block;vertical-align:middle;position:relative}
+.rmeter>i{position:absolute;left:0;top:0;bottom:0;background:var(--cyan-dim)}
+.judge-final{font-family:var(--font-mono);font-size:var(--fs-body);color:var(--tx);margin-top:12px;
+  padding-top:10px;border-top:1px solid var(--line-2)}
+
+/* seat grading */
+.seat-tk{color:var(--tx);font-weight:500}
+.grade{font-weight:600;font-family:var(--font-mono)}
+.grade.a{color:var(--pos)} .grade.b{color:var(--cyan)} .grade.c{color:var(--amber)} .grade.d{color:var(--neg)}
+
+/* backtest bits */
+.killline{color:var(--neg);font-size:var(--fs-sub)}
+.split{display:inline-block;padding:1px 0;font-size:var(--fs-sub)}
+.pass{color:var(--pos-dim)} .warn{color:var(--amber)} .fail{color:var(--neg)}
+.qstate{font-size:var(--fs-sub)}
+.qstate.run{color:var(--cyan)} .qstate.queued{color:var(--tx-3)} .qstate.done{color:var(--pos-dim)}
+.progress{height:4px;background:var(--line);width:120px;display:inline-block;vertical-align:middle;position:relative}
+.progress>i{position:absolute;left:0;top:0;bottom:0;background:var(--cyan-dim)}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:11px}
+.field label{font-size:var(--fs-label);letter-spacing:.08em;text-transform:uppercase;color:var(--tx-3)}
+.field input,.field select{background:var(--bg);border:1px solid var(--line-2);color:var(--tx);
+  font-family:var(--font-mono);font-size:var(--fs-body);padding:5px 8px}
+.small{font-size:var(--fs-sub)}
+.pL{color:var(--tx-3)}
+.foot{color:var(--tx-4);font-size:var(--fs-label);letter-spacing:.04em;padding:26px 0 0;text-align:center}
+</style>
+
+<!-- ============================= TOP BAR ============================= -->
+<div class="topbar"><div class="wrap">
+  <div class="brand">strategy&nbsp;<b>lab</b></div>
+  <div class="statstrip">
+    <div class="stat"><span class="k">tracked equity</span><span class="v num">$1,018,240</span></div>
+    <div class="stat"><span class="k">day p&amp;l</span><span class="v num pos">+$3,412 &nbsp;+0.34%</span></div>
+    <!-- A2: was "5 / 12" — didn't cross-foot with the roster (6 armed of 9 actors). Fixed. -->
+    <div class="stat"><span class="k">armed</span><span class="v num">6 / 9</span></div>
+    <div class="stat"><span class="k">awaiting phone</span><span class="v num" style="color:var(--cyan)">3</span></div>
+    <!-- kill switch + live-trading state kept adjacent: the two things that can stop money moving -->
+    <div class="stat"><span class="k">kill-switch</span><span class="v"><span class="dot g"></span><span class="tag clear">clear</span></span></div>
+    <div class="stat"><span class="k">live trading</span><span class="v"><span class="dot a"></span><span class="tag" style="color:var(--amber)">paper-only</span></span></div>
+    <div class="stat"><span class="k">clock</span><span class="v clock">11:47:20 ET · open</span></div>
+  </div>
+</div></div>
+
+<!-- ============================= TABS ============================= -->
+<div class="tabs"><div class="wrap">
+  <div class="tab active" data-view="overview" onclick="showView('overview')">overview</div>
+  <div class="tab" data-view="strat" onclick="showView('strat')">strategy&nbsp;·&nbsp;earnings drift</div>
+  <div class="tab" data-view="book" onclick="showView('book')">book&nbsp;·&nbsp;claude panel</div>
+  <div class="tab" data-view="backtest" onclick="showView('backtest')">backtesting</div>
+  <div class="crumb" id="crumb">cockpit + roster</div>
+</div></div>
+
+<main class="wrap">
+
+<!-- ==================================================================== -->
+<!-- VIEW: OVERVIEW — the bordered, modular cockpit (rebuilt in A2)        -->
+<!-- Order of the 10-second read, top to bottom:                           -->
+<!--   1. tile strip  — system posture in six numbers                      -->
+<!--   2. live modules — what's waiting on ME / what happened today        -->
+<!--   3. typed roster — every actor, who's making money, who's on watch   -->
+<!-- ==================================================================== -->
+<section id="view-overview" class="view active">
+
+  <!-- COCKPIT TILE STRIP (borrowed from variant B's tiles; rendered as A's .kpis
+       hairline row — one border, internal hairline dividers, flat). Every number
+       here cross-foots with the roster below; nothing is decorative. -->
+  <div class="kpis" style="margin-bottom:14px">
+    <div class="kpi"><div class="k">armed · auto</div><div class="v num" style="color:var(--amber)">2</div><div class="s">res-mom · session-node</div></div>
+    <div class="kpi"><div class="k">armed · propose</div><div class="v num">4</div><div class="s">ask the phone first</div></div>
+    <div class="kpi"><div class="k">disarmed / parked</div><div class="v num muted">2</div><div class="s">+1 human-directed</div></div>
+    <div class="kpi"><div class="k">on probation</div><div class="v num" style="color:var(--amber)">1</div><div class="s">deep seek · −α trailing</div></div>
+    <div class="kpi"><div class="k">waiting on you</div><div class="v num" style="color:var(--cyan)">3</div><div class="s">2 orders · 1 report</div></div>
+    <div class="kpi"><div class="k">net p&amp;l · all books</div><div class="v num pos">+$43,410</div><div class="s">net-cash realized · source of truth</div></div>
+  </div>
+
+  <!-- LIVE MODULES — the founder's "widgeted or bordered" fix. Each "right now"
+       element is its own hairline-bordered module. The waiting-on-you module gets
+       the 2px cyan left edge (the page's "needs a human" accent, same grammar as
+       the amber honesty-bar edge). All four share one header treatment:
+       uppercase label · count · right-aligned meta, closed by a line-2 hairline. -->
+  <div class="mods">
+
+    <!-- what's waiting on the phone -->
+    <div class="mod mod-attn">
+      <div class="mod-hd"><span class="mod-label">waiting on you · phone</span>
+        <span class="mod-count" style="color:var(--cyan)">3</span>
+        <span class="mod-meta">oldest 8:15a</span></div>
+      <table class="t"><tbody>
+        <tr class="click" onclick="showView('strat')">
+          <td><span class="name">CRM</span> <span class="side-buy">buy</span> <span class="num">24</span>
+            <div class="sub">earnings drift · propose</div></td>
+          <td class="num">$6,432<div class="sub">9:41a</div></td></tr>
+        <tr class="click" onclick="showView('book')">
+          <td><span class="name">NVDA</span> <span class="side-buy">buy</span> <span class="num">12</span>
+            <div class="sub">fable · propose</div></td>
+          <td class="num">$1,421<div class="sub">9:52a</div></td></tr>
+        <tr class="click" onclick="showView('book')">
+          <td><span class="name">MELI</span> <span class="side-buy">buy</span> <span class="num">3</span> · <span class="name">PANW</span> <span class="side-sell">trim</span> <span class="num">8</span>
+            <div class="sub">claude panel · nightly</div></td>
+          <td class="num">net $2.1k<div class="sub">8:15a</div></td></tr>
+      </tbody></table>
+      <div class="mod-ft">approvals happen on the phone — this is the read-back.</div>
+    </div>
+
+    <!-- today's fills -->
+    <div class="mod">
+      <div class="mod-hd"><span class="mod-label">today's fills</span>
+        <span class="mod-count">9</span>
+        <span class="mod-meta">via the chokepoint</span></div>
+      <table class="t"><tbody>
+        <tr><td><span class="name">SPY</span> <span class="side-buy">buy</span> <span class="num">40</span> <div class="sub">session-node · auto</div></td><td class="num">$548.20<div class="sub">10:14a</div></td></tr>
+        <tr><td><span class="name">GOOGL</span> <span class="side-buy">buy</span> <span class="num">15</span> <div class="sub">matt + llm</div></td><td class="num">$178.04<div class="sub">9:36a</div></td></tr>
+        <tr><td><span class="muted">residual-mom rebalance</span> <div class="sub">4 sold · 4 bought</div></td><td class="num">$40k<div class="sub">9:30a</div></td></tr>
+      </tbody></table>
+      <div class="mod-ft">showing latest 3 · <a>full blotter ▸</a></div>
+    </div>
+
+    <!-- who's making money today -->
+    <div class="mod">
+      <div class="mod-hd"><span class="mod-label">today's p&amp;l · by book</span>
+        <span class="mod-meta"><span class="num pos">Σ +$3,412 · +0.34%</span></span></div>
+      <table class="t"><tbody>
+        <tr class="click" onclick="showView('book')"><td class="name">claude panel</td><td class="num pos">+$1,140 &nbsp;+1.09%</td></tr>
+        <tr class="click" onclick="showView('book')"><td class="name">fable</td><td class="num pos">+$684 &nbsp;+0.66%</td></tr>
+        <tr class="click" onclick="showView('book')"><td class="name">deep seek</td><td class="num pos">+$212 &nbsp;+0.21%</td></tr>
+        <tr class="click" onclick="showView('book')"><td class="name">matt + llm</td><td class="num neg">−$305 &nbsp;−0.29%</td></tr>
+        <tr><td class="muted">mechanical (agg)</td><td class="num pos">+$1,681</td></tr>
+      </tbody></table>
+    </div>
+
+    <!-- which agents ran today, links into their artifacts -->
+    <div class="mod">
+      <div class="mod-hd"><span class="mod-label">agents ran today</span>
+        <span class="mod-count">6</span>
+        <span class="mod-meta">click → artifact</span></div>
+      <table class="t"><tbody>
+        <tr class="click" onclick="showView('book')"><td>claude panel <span class="sub">nightly 2:00a</span></td><td class="num"><a>report ▸</a></td></tr>
+        <tr class="click" onclick="showView('book')"><td>fable <span class="sub">nightly 2:12a</span></td><td class="num"><a>report ▸</a></td></tr>
+        <tr class="click" onclick="showView('book')"><td>deep seek <span class="sub">nightly 2:05a</span></td><td class="num"><a>report ▸</a></td></tr>
+        <tr><td>matt + llm <span class="sub">snapshot 6:40a</span></td><td class="num"><a>snap ▸</a></td></tr>
+        <tr class="click" onclick="showView('strat')"><td>earnings drift <span class="sub">scan 9:31a</span></td><td class="num"><span class="muted">1 proposal</span></td></tr>
+        <!-- A2: sixth row added — the count said 6, the list showed 5. Cockpits don't get to miscount. -->
+        <tr><td>session-node <span class="sub">intraday · continuous</span></td><td class="num"><span class="muted">2 fills</span></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <!-- THE ROSTER — typed tables (borrowed from B): mechanical and LLM books get their
+       own framed table instead of A's group rows, so the family is carried by the
+       section itself and the `type` column disappears. Shared column grammar across
+       both tables ("one visual grammar, clearly typed"). vs A:
+       + 30d sparkline column (shape of the month at a glance)
+       + "did today" column (the founder's actual question) — replaces last-activity
+       − equity column (tile strip + detail pages own equity; roster answers WHO'S
+         MAKING MONEY via day + net p&l)
+       − per-row kill column (global kill lives in the topbar; a tripped actor would
+         show `tripped` in its stage cell — rationed, not a standing column) -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-label">mechanical strategies</span>
+      <span class="sec-note">deterministic rules · fixed universe</span>
+      <span class="meta">click any row for the why · win% shown only where the lane is calibrated</span></div>
+    <div class="frame">
+    <table class="t">
+      <thead><tr>
+        <th style="width:4px"></th>
+        <th>actor</th><th>30d</th><th>mode</th><th>stage</th>
+        <th class="num">day</th><th class="num">net p&amp;l</th>
+        <th class="num">α vs spy</th><th class="num">max dd</th><th class="num">open</th>
+        <th>grade / win%</th><th>did today</th>
+      </tr></thead>
+      <tbody>
+
+        <tr class="click" onclick="showView('strat')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Earnings Drift</span><div class="sub">enter 10td pre-print, exit before · paper-mech-1</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="7" data-drift="0.004" data-vol="0.05"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num pos">+$418</td><td class="num pos">+$14,208</td>
+          <td class="num pos">+6.2pp</td><td class="num neg">−4.1%</td><td class="num">7</td>
+          <td><span class="wr">61%</span> <span class="wr-int">[53–68 · n=124]</span> <span class="calib">calibrated</span></td>
+          <td class="sub">scan 9:31a · CRM proposal → phone</td>
+        </tr>
+
+        <tr class="click" onclick="showView('strat')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Residual-Momentum Portfolio</span><div class="sub">monthly S&amp;P rebalance · 10 slots × 10% · paper-mech-2</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="21" data-drift="0.005" data-vol="0.04"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag auto">auto</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num pos">+$602</td><td class="num pos">+$8,940</td>
+          <td class="num pos">+2.1pp</td><td class="num neg">−11.3%</td><td class="num">10</td>
+          <td><span class="grade b">B</span> <span class="hedge" title="n below calibration floor — grade only, no headline win%">uncal · n=36</span></td>
+          <td class="sub">rebal 9:30a · 4 sold · 4 bought</td>
+        </tr>
+
+        <tr class="click" onclick="showView('strat')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Session-Node Reversion</span><div class="sub">SPY intraday · volume-node fade · paper-mech-1</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="55" data-drift="0.002" data-vol="0.05"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag auto">auto</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num pos">+$661</td><td class="num pos">+$3,412</td>
+          <td class="num muted">+0.4pp</td><td class="num neg">−6.8%</td><td class="num">1</td>
+          <td><span class="wr">57%</span> <span class="wr-int">[49–64 · n=210]</span> <span class="calib">calibrated</span></td>
+          <td class="sub">2 fades · 1 open now</td>
+        </tr>
+
+        <tr class="click" onclick="showView('backtest')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Gap-Fade (Open)</span><div class="sub">fade large opening gaps · shadow ledger</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="88" data-drift="-0.001" data-vol="0.04" data-ghost="1"></svg></td>
+          <td><span class="tag disarmed">disarmed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag vpend">validation-pending</span></td>
+          <td class="num ghost">—</td><td class="num ghost">—</td>
+          <td class="num ghost">—</td><td class="num ghost">—</td><td class="num">0</td>
+          <td><span class="grade c">C</span> <span class="hedge" title="paper/shadow ledger only — never sized live">uncal · n=18 · shadow</span></td>
+          <td class="sub">shadow-graded 2 setups</td>
+        </tr>
+
+        <tr class="click" onclick="showView('backtest')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Overnight Drift (QQQ)</span><div class="sub">hold-overnight seasonality</div></td>
+          <td class="sparkcell"><span class="ghost">—</span></td>
+          <td><span class="tag disarmed">disarmed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag parked">parked</span></td>
+          <td class="num ghost">—</td><td class="num ghost">—</td>
+          <td class="num ghost">—</td><td class="num ghost">—</td><td class="num">0</td>
+          <td><span class="hedge" title="unvalidated signal — labeled perception, not edge">perception · not tested</span></td>
+          <td class="sub">— parked 06-28</td>
+        </tr>
+
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-label">llm-managed books</span>
+      <span class="sec-note">each on its own $100k paper account</span></div>
+    <div class="frame">
+    <table class="t">
+      <thead><tr>
+        <th style="width:4px"></th>
+        <th>actor</th><th>30d</th><th>mode</th><th>stage</th>
+        <th class="num">day</th><th class="num">net p&amp;l</th>
+        <th class="num">α vs spy</th><th class="num">max dd</th><th class="num">open</th>
+        <th>grade / win%</th><th>did today</th>
+      </tr></thead>
+      <tbody>
+
+        <tr class="click" onclick="showView('book')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Claude Panel</span><div class="sub">multi-agent debate · bull/bear/macro/social/risk/judge · paper-panel</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="311" data-drift="0.006" data-vol="0.05"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num pos">+$1,140</td><td class="num pos">+$7,610</td>
+          <td class="num pos">+4.4pp</td><td class="num neg">−4.4%</td><td class="num">9</td>
+          <td><span class="grade a">A−</span> <span class="hedge" title="strong grade but n below win%-calibration floor">uncal · n=44</span></td>
+          <td class="sub">report 2:00a · 2 orders → phone</td>
+        </tr>
+
+        <tr class="click" onclick="showView('book')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Fable</span><div class="sub">frontier single agent · paper-fable</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="404" data-drift="0.004" data-vol="0.05"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num pos">+$684</td><td class="num pos">+$4,820</td>
+          <td class="num pos">+1.9pp</td><td class="num neg">−3.9%</td><td class="num">8</td>
+          <td><span class="grade b">B+</span> <span class="hedge" title="n below calibration floor">uncal · n=39</span></td>
+          <td class="sub">report 2:12a · 1 order → phone</td>
+        </tr>
+
+        <!-- probation row: the amber wash + probation word — visible without reading -->
+        <tr class="click prob" onclick="showView('book')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Deep Seek</span><div class="sub">cheap single model · paper-ds</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="507" data-drift="-0.002" data-vol="0.05"></svg></td>
+          <td><span class="tag armed">armed</span> · <span class="tag propose">propose</span></td>
+          <td><span class="tag live">live</span> · <span class="tag probation" title="negative alpha vs SPY over trailing window">probation</span></td>
+          <td class="num pos">+$212</td><td class="num pos">+$1,240</td>
+          <td class="num neg">−0.8pp</td><td class="num neg">−5.2%</td><td class="num">6</td>
+          <td><span class="grade c">C+</span> <span class="hedge">uncal · n=41</span></td>
+          <td class="sub">report 2:05a · no orders</td>
+        </tr>
+
+        <tr class="click" onclick="showView('book')">
+          <td><span class="caret">▸</span></td>
+          <td><span class="name">Matt + LLM</span><div class="sub">human-directed · you decide, AI implements · paper-matt</div></td>
+          <td class="sparkcell"><svg class="spark" data-seed="609" data-drift="0.003" data-vol="0.035"></svg></td>
+          <td><span class="tag human">manual · never self-proposes</span></td>
+          <td><span class="tag live">live</span></td>
+          <td class="num neg">−$305</td><td class="num pos">+$3,180</td>
+          <td class="num pos">+1.1pp</td><td class="num neg">−7.1%</td><td class="num">5</td>
+          <td><span class="hedge" title="human-directed — not graded as an autonomous idea lane">n/a · human-directed</span></td>
+          <td class="sub">snapshot 6:40a · awaiting direction</td>
+        </tr>
+
+      </tbody>
+    </table>
+    </div>
+    <!-- honesty grammar legend — one quiet line, plain words, no boxes (A's no-pill rule) -->
+    <div class="sec-note" style="margin-top:8px">honesty grammar: <span class="wr" style="color:var(--tx-2)">win%</span> appears only on calibrated lanes (wilson bound + n shown) · <span class="hedge">uncal · n</span> = grade + count only, no headline win% · <span class="hedge">perception</span> = unvalidated context, never dressed as edge · <span class="tag auto">auto</span> spends within caps; <span class="tag propose">propose</span> asks your phone.</div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: STRATEGY DETAIL — Earnings Drift (mechanical)                   -->
+<!-- (structure unchanged from A; A2 = type tokens only)                   -->
+<!-- ==================================================================== -->
+<section id="view-strat" class="view">
+  <span class="backlink" onclick="showView('overview')">‹ roster</span>
+
+  <div class="dhead">
+    <div>
+      <h1>Earnings Drift <span class="tag mech h1tag">mech</span> <span class="tag live h1tag">live</span></h1>
+      <div class="desc">Deterministic scanner. Enters a long 10 trading days before a confirmed earnings date and
+        exits the trading day <b>before</b> the print — capturing pre-announcement drift while carrying zero event risk.</div>
+    </div>
+    <div class="facts">
+      <div>universe · <b>S&amp;P 500 + liquid mid-caps, EDGAR-confirmed dates</b></div>
+      <div>account · <b>paper-mech-1</b> &nbsp; inception · <b>2025-11-04</b></div>
+      <div>kill-switch · <span class="tag clear">clear</span> &nbsp; deployed · <b>$52,400 / $80,000</b></div>
+    </div>
+  </div>
+
+  <!-- CONTROLS: arming is an explicit human act. Kept as its own control with a confirm note. -->
+  <div class="ctrls">
+    <div class="ctrl"><span class="k">armed state</span>
+      <button class="btn disarm" onclick="toggleArm(this)">◼ disarm</button>
+      <span class="confirm-note" id="armnote">arm/disarm is a human act — not agent-toggleable</span></div>
+    <div class="ctrl"><span class="k">entry mode</span>
+      <span class="seg"><button class="on">propose</button><button>auto</button></span>
+      <span class="sub">agent asks the phone; nothing fires unattended</span></div>
+    <div class="ctrl"><span class="k">max concurrent</span><span class="capval num">7 / 10</span>
+      <span class="capbar"><i style="width:70%"></i></span></div>
+    <div class="ctrl"><span class="k">max deployed</span><span class="capval num">$52.4k / $80k</span>
+      <span class="capbar"><i style="width:65.5%"></i></span></div>
+    <div class="ctrl"><span class="k">edit caps</span>
+      <button class="btn">edit…</button><span class="sub">bounds the blast radius</span></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">realized p&amp;l (net-cash)</div><div class="v pos">+$14,208</div><div class="s">source of truth</div></div>
+    <div class="kpi"><div class="k">unrealized</div><div class="v pos">+$640</div><div class="s">7 open</div></div>
+    <div class="kpi"><div class="k">alpha vs spy</div><div class="v pos">+6.2pp</div><div class="s">since inception</div></div>
+    <div class="kpi"><div class="k">max drawdown</div><div class="v neg">−4.1%</div><div class="s">peak-to-trough</div></div>
+    <div class="kpi"><div class="k">sharpe</div><div class="v">1.42 <span class="hedge">~est</span></div><div class="s">realized, live</div></div>
+    <div class="kpi"><div class="k">calibrated win%</div><div class="v pos">61% <span class="wr-int">[53–68]</span></div><div class="s">wilson · n=124</div></div>
+  </div>
+
+  <div class="grid-2-1">
+    <div class="col">
+      <div class="chart-hd"><span class="sec-label">equity curve vs spy · since inception</span></div>
+      <div id="chart-strat"></div>
+      <div class="chart-lg">
+        <i><span class="swatch" style="border-color:var(--cyan)"></span>earnings drift</i>
+        <i><span class="swatch" style="border-color:var(--tx-4);border-top-style:dashed"></span>spy (rebased)</i>
+        <i><span class="swatch" style="border-color:var(--neg-dim)"></span>drawdown</i>
+      </div>
+    </div>
+
+    <!-- IDEA LEDGER: every idea graded whether taken or not. Calibrated → headline win%.
+         The not-taken comparison proves we aren't leaving edge on the table. -->
+    <div class="col">
+      <div class="sec-hd"><span class="sec-label">idea ledger</span><span class="meta">taken + not-taken, all graded</span></div>
+      <table class="t"><tbody>
+        <tr><td class="muted">setups generated</td><td class="num">124</td></tr>
+        <tr><td class="muted">taken</td><td class="num">96</td></tr>
+        <tr><td class="muted">skipped <span class="sub">(caps / liquidity)</span></td><td class="num">28</td></tr>
+        <tr><td class="muted">calibrated win% <span class="calib">calibrated</span></td><td class="num pos">61% <span class="wr-int">[53–68]</span></td></tr>
+        <tr><td class="muted">avg winner / loser</td><td class="num"><span class="pos">+2.9%</span> / <span class="neg">−1.6%</span></td></tr>
+        <tr><td class="muted">not-taken shadow return</td><td class="num muted">+0.4% <span class="sub">avg 20d</span></td></tr>
+        <tr><td class="pL">↳ reads as: skips cost ~nothing</td><td class="num sub">good gate</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="grid2" style="margin-top:24px">
+    <!-- OPEN POSITIONS with live P&L; each has an exit rule (before the print). -->
+    <div class="col">
+      <div class="sec-hd"><span class="sec-label">open positions · 7</span><span class="meta">exit = day before print</span></div>
+      <table class="t">
+        <thead><tr><th>symbol</th><th class="num">qty</th><th class="num">entry</th><th class="num">mark</th>
+          <th class="num">p&amp;l</th><th class="num">%</th><th class="num">td→print</th></tr></thead>
+        <tbody>
+          <tr><td class="name">CRM</td><td class="num">24</td><td class="num">262.10</td><td class="num">268.40</td><td class="num pos">+$151</td><td class="num pos">+2.4%</td><td class="num">3</td></tr>
+          <tr><td class="name">ADBE</td><td class="num">12</td><td class="num">548.00</td><td class="num">561.20</td><td class="num pos">+$158</td><td class="num pos">+2.4%</td><td class="num">5</td></tr>
+          <tr><td class="name">NKE</td><td class="num">60</td><td class="num">78.40</td><td class="num">77.10</td><td class="num neg">−$78</td><td class="num neg">−1.7%</td><td class="num">2</td></tr>
+          <tr><td class="name">COST</td><td class="num">6</td><td class="num">872.00</td><td class="num">889.30</td><td class="num pos">+$104</td><td class="num pos">+2.0%</td><td class="num">7</td></tr>
+          <tr><td class="name">FDX</td><td class="num">20</td><td class="num">248.60</td><td class="num">251.00</td><td class="num pos">+$48</td><td class="num pos">+1.0%</td><td class="num">1</td></tr>
+          <tr><td class="name">MU</td><td class="num">70</td><td class="num">98.20</td><td class="num">99.05</td><td class="num pos">+$60</td><td class="num pos">+0.9%</td><td class="num">6</td></tr>
+          <tr><td class="name">LEN</td><td class="num">28</td><td class="num">161.40</td><td class="num">159.90</td><td class="num neg">−$42</td><td class="num neg">−0.9%</td><td class="num">4</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- PROPOSAL HISTORY: asked / approved / rejected / outcome -->
+    <div class="col">
+      <div class="sec-hd"><span class="sec-label">proposal history</span><span class="meta">asked 96 · approved 88 · rejected 8</span></div>
+      <table class="t">
+        <thead><tr><th>date</th><th>symbol</th><th>ask</th><th>you</th><th class="num">outcome</th></tr></thead>
+        <tbody>
+          <tr><td class="sub">07-23</td><td class="name">CRM</td><td class="side-buy">buy 24</td><td class="muted">pending</td><td class="num muted">awaiting phone</td></tr>
+          <tr><td class="sub">07-22</td><td class="name">ADBE</td><td class="side-buy">buy 12</td><td class="pos">approved</td><td class="num pos">+$158 open</td></tr>
+          <tr><td class="sub">07-21</td><td class="name">ORCL</td><td class="side-buy">buy 30</td><td class="neg">rejected</td><td class="num muted">would-be −$44</td></tr>
+          <tr><td class="sub">07-18</td><td class="name">COST</td><td class="side-buy">buy 6</td><td class="pos">approved</td><td class="num pos">+$104 open</td></tr>
+          <tr><td class="sub">07-16</td><td class="name">DRI</td><td class="side-buy">buy 40</td><td class="pos">approved</td><td class="num pos">+$213 closed</td></tr>
+          <tr><td class="sub">07-15</td><td class="name">PAYX</td><td class="side-buy">buy 55</td><td class="neg">rejected</td><td class="num muted">would-be +$61</td></tr>
+        </tbody>
+      </table>
+      <div class="sec-note" style="margin-top:8px">rejected-outcome column is graded too → tells you if your vetoes help or hurt.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: BOOK DETAIL — Claude Panel (kept per founder verdict;           -->
+<!-- A2 = type tokens + h1tag class only, structure untouched)             -->
+<!-- ==================================================================== -->
+<section id="view-book" class="view">
+  <span class="backlink" onclick="showView('overview')">‹ roster</span>
+
+  <div class="dhead">
+    <div>
+      <h1>Claude Panel <span class="tag llm h1tag">llm · panel</span> <span class="tag live h1tag">live</span></h1>
+      <div class="desc">A multi-agent portfolio manager. Bull and bear advocates cross-examine the same candidates;
+        macro and social seats supply context; a portfolio/risk seat guards concentration; a <b>judge</b> scores a
+        fixed rubric and issues final decisions. Ships a nightly <b>report</b> plus proposed orders.</div>
+    </div>
+    <div class="facts">
+      <div>account · <b>paper-panel · $100k seed</b></div>
+      <div>equity · <b>$107,610</b> &nbsp; open · <b>9</b></div>
+      <div>kill-switch · <span class="tag clear">clear</span> &nbsp; mode · <span class="tag propose">propose</span></div>
+    </div>
+  </div>
+
+  <div class="ctrls">
+    <div class="ctrl"><span class="k">armed state</span>
+      <button class="btn disarm" onclick="toggleArm(this)">◼ disarm</button>
+      <span class="confirm-note">arming is a human act</span></div>
+    <div class="ctrl"><span class="k">entry mode</span>
+      <span class="seg"><button class="on">propose</button><button>auto</button></span>
+      <span class="sub">nightly orders route to the phone</span></div>
+    <div class="ctrl"><span class="k">max concurrent</span><span class="capval num">9 / 12</span><span class="capbar"><i style="width:75%"></i></span></div>
+    <div class="ctrl"><span class="k">max deployed</span><span class="capval num">$91k / $100k</span><span class="capbar"><i style="width:91%"></i></span></div>
+    <div class="ctrl"><span class="k">rubric</span><button class="btn">view /100 rubric</button><span class="sub">fixed, versioned</span></div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">realized p&amp;l (net-cash)</div><div class="v pos">+$7,610</div><div class="s">+7.6% on seed</div></div>
+    <div class="kpi"><div class="k">day p&amp;l</div><div class="v pos">+$1,140</div><div class="s">+1.09%</div></div>
+    <div class="kpi"><div class="k">alpha vs spy</div><div class="v pos">+4.4pp</div><div class="s">since seed</div></div>
+    <div class="kpi"><div class="k">max drawdown</div><div class="v neg">−4.4%</div></div>
+    <div class="kpi"><div class="k">idea grade</div><div class="v"><span class="grade a">A−</span></div><div class="s"><span class="hedge">uncal · n=44</span></div></div>
+    <div class="kpi"><div class="k">win%</div><div class="v muted">— <span class="hedge">not calibrated</span></div><div class="s">grade only until n≥ floor</div></div>
+  </div>
+
+  <div class="grid-1-2">
+    <!-- LEFT: metrics + per-seat grading (the panel's distinctive evidence) -->
+    <div class="col">
+      <div class="chart-hd"><span class="sec-label">equity vs spy</span></div>
+      <div id="chart-book"></div>
+      <div class="chart-lg">
+        <i><span class="swatch" style="border-color:var(--violet)"></span>claude panel</i>
+        <i><span class="swatch" style="border-color:var(--tx-4);border-top-style:dashed"></span>spy</i>
+      </div>
+
+      <!-- PER-SEAT GRADING: the panel's edge is auditable seat by seat.
+           Did the bear's vetoes dodge losers? Does the judge beat its own inputs? -->
+      <div class="sec-hd" style="margin-top:22px"><span class="sec-label">per-seat grading</span>
+        <span class="meta">is each seat pulling weight?</span></div>
+      <table class="t">
+        <thead><tr><th>seat</th><th class="num">acts</th><th>grade</th><th>read</th></tr></thead>
+        <tbody>
+          <tr><td class="seat-tk">bull advocate</td><td class="num">44</td><td><span class="grade b">B</span></td><td class="sub">theses that advanced: +1.4% / 20d</td></tr>
+          <tr><td class="seat-tk">bear advocate</td><td class="num">22 vetoes</td><td><span class="grade a">A−</span></td><td class="sub">vetoed names −4.1% / 20d → dodged losers</td></tr>
+          <tr><td class="seat-tk">macro context</td><td class="num">17 calls</td><td><span class="grade c">C+</span></td><td class="sub">regime tags weakly predictive</td></tr>
+          <tr><td class="seat-tk">social context</td><td class="num">31 reads</td><td><span class="grade c">C</span></td><td class="sub"><span class="hedge">perception</span> · not yet edge</td></tr>
+          <tr><td class="seat-tk">portfolio / risk</td><td class="num">3 blocks</td><td><span class="grade b">B+</span></td><td class="sub">caught 3 concentration breaches</td></tr>
+          <tr><td class="seat-tk">judge</td><td class="num">6 verdicts</td><td><span class="grade a">A−</span></td><td class="sub">final picks +2.3% vs own inputs +1.1% → beats inputs</td></tr>
+        </tbody>
+      </table>
+      <div class="sec-note" style="margin-top:8px">social seat is labeled <span class="hedge">perception</span> — carried for context, not scored as validated edge.</div>
+    </div>
+
+    <!-- RIGHT: the NIGHTLY REPORT as a first-class readable artifact. Candidates expand
+         to bull case / bear attack / judge verdict + rubric. -->
+    <div class="col">
+      <div class="report">
+        <div class="report-hd">
+          <h3>nightly debate report</h3>
+          <span class="tag propose">3 buys · 1 trim proposed</span>
+          <span class="when">2026-07-23 · 02:00 ET · v-rubric 4</span>
+        </div>
+
+        <div class="sec-note" style="padding:8px 14px;border-bottom:1px solid var(--line)">
+          screened <b class="mono">14</b> · advanced to debate <b class="mono">6</b> · final orders <b class="mono">4</b>. click a candidate to read the cross-examination.
+        </div>
+
+        <!-- candidate 1 -->
+        <div class="cand open" onclick="toggleCand(this)">
+          <div class="cand-row">
+            <span class="caret">▾</span>
+            <span class="cand-tk">MELI</span>
+            <span class="muted small">MercadoLibre · e-commerce</span>
+            <span class="cand-verdict verdict-buy">buy · 3</span>
+            <span class="score muted small">rubric</span>
+            <span class="score"><b class="pos">84</b><span class="pL">/100</span></span>
+          </div>
+          <div class="cand-body" onclick="event.stopPropagation()">
+            <div class="case bull"><span class="who">bull advocate</span>
+              Re-acceleration in Brazil GMV (+31% cc) plus fintech take-rate expansion; credit book losses stabilizing.
+              Setup is a clean higher-low above the 50d with a defined $1,540 invalidation. Asymmetric into a quiet-macro week.</div>
+            <div class="case bear"><span class="who">bear advocate</span>
+              FX is the whole story — cc growth flatters a real deceleration once you haircut ARS. Valuation prices perfection;
+              a single guide-down on credit provisions unwinds two quarters of multiple. I'd want it $80 lower. <b>Veto strength: moderate.</b></div>
+            <div class="case macro"><span class="who">macro context</span>
+              LatAm rates easing; USD soft this week. Mild tailwind, low event density through the horizon.</div>
+            <div class="case risk"><span class="who">portfolio / risk</span>
+              Adds 2.1% book weight; sector (e-comm/fintech) goes to 14% — under the 20% cap. Correlation to existing NU position 0.61 — acceptable.</div>
+            <table class="rubric"><tbody>
+              <tr><td>setup quality</td><td class="num">22/25</td><td><span class="rmeter"><i style="width:88%"></i></span></td></tr>
+              <tr><td>risk / reward</td><td class="num">20/25</td><td><span class="rmeter"><i style="width:80%"></i></span></td></tr>
+              <tr><td>catalyst</td><td class="num">15/20</td><td><span class="rmeter"><i style="width:75%"></i></span></td></tr>
+              <tr><td>portfolio fit</td><td class="num">14/15</td><td><span class="rmeter"><i style="width:93%"></i></span></td></tr>
+              <tr><td>downside bound</td><td class="num">13/15</td><td><span class="rmeter"><i style="width:86%"></i></span></td></tr>
+            </tbody></table>
+            <div class="judge-final"><b>judge verdict — BUY, 3 shares (2.1% book).</b>
+              Bear's FX critique is real but priced; the defined invalidation caps downside to ~1.6% of book, and the
+              risk seat confirms room under sector caps. Reward/risk clears the rubric floor at 84. Sized at the low end
+              of the range because the bear's provision risk is not fully resolvable pre-print.</div>
+          </div>
+        </div>
+
+        <!-- candidate 2 -->
+        <div class="cand" onclick="toggleCand(this)">
+          <div class="cand-row">
+            <span class="caret">▸</span>
+            <span class="cand-tk">PANW</span>
+            <span class="muted small">Palo Alto · security</span>
+            <span class="cand-verdict verdict-trim">trim · 8</span>
+            <span class="score muted small">rubric</span>
+            <span class="score"><b class="warn">58</b><span class="pL">/100</span></span>
+          </div>
+          <div class="cand-body" onclick="event.stopPropagation()">
+            <div class="case bear"><span class="who">bear advocate</span>
+              Position is up 19% and now 11% of book — thesis largely played out, billings decel visible in the last print.
+              Trim to bank the win and free risk budget. <b>Veto strength: strong on adds, neutral on hold.</b></div>
+            <div class="case bull"><span class="who">bull advocate</span>
+              Platformization story intact and next catalyst is the analyst day; I'd hold full. But I concede the risk/reward
+              has compressed versus entry.</div>
+            <div class="case risk"><span class="who">portfolio / risk</span>
+              At 11% this breaches the 10% single-name soft cap. A trim of 8 shares brings it to 8.4%. Recommend the trim on sizing grounds alone.</div>
+            <div class="judge-final"><b>judge verdict — TRIM 8 shares.</b>
+              Not a thesis reversal — a sizing decision. The risk seat's cap breach is dispositive; bull's catalyst point
+              justifies keeping the residual position rather than a full exit.</div>
+          </div>
+        </div>
+
+        <!-- candidate 3 -->
+        <div class="cand" onclick="toggleCand(this)">
+          <div class="cand-row">
+            <span class="caret">▸</span>
+            <span class="cand-tk">NVDA</span>
+            <span class="muted small">Nvidia · semis</span>
+            <span class="cand-verdict verdict-buy">buy · 6</span>
+            <span class="score muted small">rubric</span>
+            <span class="score"><b class="pos">79</b><span class="pL">/100</span></span>
+          </div>
+          <div class="cand-body" onclick="event.stopPropagation()">
+            <div class="case bull"><span class="who">bull advocate</span>
+              Data-center demand signal from three hyperscaler capex updates this week; pullback to the 20d gives a clean entry with the uptrend intact.</div>
+            <div class="case bear"><span class="who">bear advocate</span>
+              Crowded, high beta into a heavy macro print next week. Fine trade, wrong week. <b>Veto strength: mild (timing only).</b></div>
+            <div class="case macro"><span class="who">macro context</span>
+              CPI lands in the horizon window — elevates single-name event risk on a high-beta name. Judge should size for that.</div>
+            <div class="judge-final"><b>judge verdict — BUY, 6 shares (half size).</b>
+              Bull thesis clears the rubric; bear's timing objection and macro's CPI flag are both valid, so size is halved
+              rather than the trade skipped. Stop placed below the 20d.</div>
+          </div>
+        </div>
+
+        <!-- candidate 4 : a PASS, to show the debate can also reject -->
+        <div class="cand" onclick="toggleCand(this)">
+          <div class="cand-row">
+            <span class="caret">▸</span>
+            <span class="cand-tk">COIN</span>
+            <span class="muted small">Coinbase · exchange</span>
+            <span class="cand-verdict verdict-pass">pass</span>
+            <span class="score muted small">rubric</span>
+            <span class="score"><b class="neg">41</b><span class="pL">/100</span></span>
+          </div>
+          <div class="cand-body" onclick="event.stopPropagation()">
+            <div class="case bull"><span class="who">bull advocate</span>
+              Crypto beta re-rating; volumes ticking up. Momentum setup off the base.</div>
+            <div class="case bear"><span class="who">bear advocate</span>
+              No defined invalidation that isn't 12% away; reward/risk is a coin flip dressed as a trend. Downside is unbounded on a bad tape. <b>Veto strength: strong.</b></div>
+            <div class="judge-final"><b>judge verdict — PASS.</b>
+              Fails the downside-bound dimension (7/15) — no risk-controlled entry exists at this level. Bear veto sustained; revisit on a pullback to structure.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================================================================== -->
+<!-- VIEW: BACKTESTING — the evidence layer (kept per founder verdict;     -->
+<!-- A2 = type tokens only, structure untouched)                           -->
+<!-- ==================================================================== -->
+<section id="view-backtest" class="view">
+
+  <!-- HONESTY BAR: the load-bearing label of this whole page. -->
+  <div class="honesty-bar">
+    <span style="font-size:15px;line-height:1">⚠</span>
+    <span><b>Backtest LEVELS are approximate</b> — simulated fills &amp; costs. Read the P&amp;L as a shape, not an
+      achievable number. <b>RANKINGS are the trustworthy signal</b>: which strategy / parameter set beats which.
+      Every simulated figure below is marked <span class="hedge">~sim</span>. Unvalidated signals are labeled
+      <span class="hedge">perception</span>, never dressed as edge.</span>
+  </div>
+
+  <div class="grid-1-2">
+    <!-- LEFT: configure + run, run queue, validation queue -->
+    <div class="col">
+      <div class="sec-hd"><span class="sec-label">configure run</span></div>
+      <div class="field"><label>strategy</label>
+        <select><option>Earnings Drift</option><option>Gap-Fade (Open)</option><option>PEAD-Confirmed</option><option>Turn-of-Month</option><option>Session-Node Reversion</option></select></div>
+      <div class="field"><label>universe</label>
+        <select><option>S&amp;P 500 (point-in-time)</option><option>Russell 1000</option><option>Nasdaq-100</option></select></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><label>from</label><input value="2015-01-01"></div>
+        <div class="field"><label>to</label><input value="2024-12-31"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field"><label>entry (td pre-print)</label><input value="10"></div>
+        <div class="field"><label>min ADV ($)</label><input value="5,000,000"></div>
+      </div>
+      <div class="field"><label>train / validation split</label><input value="2015–2021  /  2022–2024"></div>
+      <button class="btn primary" style="width:100%;padding:7px">▶ queue backtest</button>
+      <div class="sec-note" style="margin-top:8px">costs modeled: 1bp commission + half-spread slippage <span class="hedge">~sim</span></div>
+
+      <!-- RUN QUEUE -->
+      <div class="sec-hd" style="margin-top:24px"><span class="sec-label">run queue</span></div>
+      <table class="t"><tbody>
+        <tr><td>PEAD-Confirmed <span class="sub">2010–2024</span></td><td class="num"><span class="progress"><i style="width:62%"></i></span> <span class="qstate run">62%</span></td></tr>
+        <tr><td>Turn-of-Month <span class="sub">param sweep ×24</span></td><td class="num"><span class="qstate queued">queued</span></td></tr>
+        <tr><td>Residual-Momentum <span class="sub">lookback sweep</span></td><td class="num"><span class="qstate queued">queued</span></td></tr>
+        <tr><td>Earnings Drift <span class="sub">2015–2024</span></td><td class="num"><span class="qstate done">done · 2h ago</span></td></tr>
+      </tbody></table>
+
+      <!-- VALIDATION QUEUE: candidates gated behind a passing backtest before they can go live -->
+      <div class="sec-hd" style="margin-top:24px"><span class="sec-label">validation queue</span>
+        <span class="meta">must pass before live</span></div>
+      <table class="t">
+        <thead><tr><th>candidate</th><th>status</th><th class="num">gate</th></tr></thead>
+        <tbody>
+          <tr><td class="name">PEAD-Confirmed</td><td><span class="qstate run">backtesting</span></td><td class="num sub">val Sharpe ≥ 0.3</td></tr>
+          <tr><td class="name">Turn-of-Month</td><td><span class="tag vpend">queued</span></td><td class="num sub">rank &gt; SPY</td></tr>
+          <tr><td class="name">Gap-Fade (Open)</td><td><span class="tag vpend">awaiting run</span></td><td class="num sub">val Sharpe ≥ 0.3</td></tr>
+          <tr><td class="name">Sector Rel-Strength</td><td><span class="hedge">perception</span></td><td class="num sub">not yet specified</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- RIGHT: results of the last completed run (Earnings Drift) -->
+    <div class="col">
+      <div class="sec-hd"><span class="sec-label">results · Earnings Drift · 2015–2024</span>
+        <span class="meta">completed 2h ago · <span class="hedge">levels ~sim · rankings trustworthy</span></span></div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="k">cagr <span class="hedge">~sim</span></div><div class="v pos">11.8%</div><div class="s">spy 9.9% ~sim</div></div>
+        <div class="kpi"><div class="k">sharpe <span class="hedge">~sim</span></div><div class="v">1.31</div></div>
+        <div class="kpi"><div class="k">max dd <span class="hedge">~sim</span></div><div class="v neg">−12.6%</div></div>
+        <div class="kpi"><div class="k">win% <span class="calib">rank-trust</span></div><div class="v">59%</div><div class="s">n=1,204</div></div>
+        <div class="kpi"><div class="k">profit factor</div><div class="v">1.44</div></div>
+        <div class="kpi"><div class="k">avg exposure</div><div class="v">38%</div></div>
+      </div>
+
+      <div class="chart-hd"><span class="sec-label">simulated equity vs spy <span class="hedge">~sim levels</span></span></div>
+      <div id="chart-bt"></div>
+      <div class="chart-lg">
+        <i><span class="swatch" style="border-color:var(--cyan)"></span>strategy ~sim</i>
+        <i><span class="swatch" style="border-color:var(--tx-4);border-top-style:dashed"></span>spy ~sim</i>
+        <i><span class="swatch" style="border-color:var(--neg-dim)"></span>drawdown</i>
+        <i><span class="swatch" style="border-color:var(--amber-dim)"></span>train/val split</i>
+      </div>
+
+      <!-- TRAIN/VALIDATION + PRE-REGISTERED KILL LINES -->
+      <div class="grid2" style="margin-top:18px">
+        <div class="col">
+          <div class="sec-hd"><span class="sec-label">train / validation</span></div>
+          <table class="t"><tbody>
+            <tr><td class="muted">train 2015–2021 <span class="hedge">~sim</span></td><td class="num">Sharpe 1.38 · <span class="pos">+82%</span></td></tr>
+            <tr><td class="muted">validation 2022–2024 <span class="hedge">~sim</span></td><td class="num">Sharpe 1.19 · <span class="pos">+29%</span></td></tr>
+            <tr><td class="pL">↳ holds out-of-sample</td><td class="num"><span class="pass">rank preserved ✓</span></td></tr>
+          </tbody></table>
+        </div>
+        <div class="col">
+          <div class="sec-hd"><span class="sec-label">pre-registered kill lines</span></div>
+          <table class="t"><tbody>
+            <tr><td class="killline">peak-to-trough −30% = dead</td><td class="num"><span class="pass">now −12.6% ✓</span></td></tr>
+            <tr><td class="killline">val Sharpe &lt; 0.3 = do not deploy</td><td class="num"><span class="pass">1.19 ✓</span></td></tr>
+            <tr><td class="killline">val rank &lt; SPY = shelve</td><td class="num"><span class="pass">above ✓</span></td></tr>
+          </tbody></table>
+          <div class="sec-note" style="margin-top:6px">lines set <b>before</b> the run — no post-hoc goalposts.</div>
+        </div>
+      </div>
+
+      <!-- PER-TRADE TABLE (sample, expandable) -->
+      <div class="sec-hd" style="margin-top:18px"><span class="sec-label">per-trade log <span class="hedge">~sim fills</span></span>
+        <span class="meta">1,204 trades · showing 6</span></div>
+      <table class="t">
+        <thead><tr><th>entry</th><th>symbol</th><th class="num">td held</th><th class="num">ret ~sim</th><th class="num">contrib</th><th>note</th></tr></thead>
+        <tbody>
+          <tr class="click" onclick="toggleExp(this)"><td class="sub">2024-11-14</td><td class="name">CRM</td><td class="num">9</td><td class="num pos">+3.1%</td><td class="num pos">+0.24%</td><td class="sub">▸ exit day-before print</td></tr>
+          <tr class="exp-row"><td colspan="6"><div class="exp-inner sub">entry $258.40 <span class="hedge">~sim fill</span> · exit $266.60 · modeled slippage $0.06/sh · commission $0.24 · held 9td, exited 1td pre-print as designed.</div></td></tr>
+          <tr class="click" onclick="toggleExp(this)"><td class="sub">2024-10-22</td><td class="name">GS</td><td class="num">10</td><td class="num neg">−1.9%</td><td class="num neg">−0.11%</td><td class="sub">▸ stopped early</td></tr>
+          <tr class="exp-row"><td colspan="6"><div class="exp-inner sub">entry $486.10 <span class="hedge">~sim fill</span> · gap-down on unrelated news day 4; risk rule flattened. Counts as a graded loss in the ledger.</div></td></tr>
+          <tr><td class="sub">2024-09-30</td><td class="name">NKE</td><td class="num">10</td><td class="num pos">+2.6%</td><td class="num pos">+0.19%</td><td class="sub">clean</td></tr>
+          <tr><td class="sub">2024-09-12</td><td class="name">ORCL</td><td class="num">8</td><td class="num pos">+4.4%</td><td class="num pos">+0.33%</td><td class="sub">clean</td></tr>
+          <tr><td class="sub">2024-08-19</td><td class="name">HD</td><td class="num">10</td><td class="num neg">−0.7%</td><td class="num neg">−0.04%</td><td class="sub">chop</td></tr>
+          <tr><td class="sub">2024-07-25</td><td class="name">COST</td><td class="num">9</td><td class="num pos">+1.8%</td><td class="num pos">+0.13%</td><td class="sub">clean</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="foot">strategy lab · variant a2 · mockup with fabricated data — no number here is a live claim. honesty marks (~sim · uncal · perception) are load-bearing.</div>
+
+<script>
+/* ---------- view switching ---------- */
+var CRUMBS={overview:'cockpit + roster',strat:'earnings drift · strategy detail',
+  book:'claude panel · book detail',backtest:'backtesting · evidence layer'};
+function showView(v){
+  document.querySelectorAll('.view').forEach(function(s){s.classList.remove('active')});
+  document.getElementById('view-'+v).classList.add('active');
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.view===v)});
+  document.getElementById('crumb').textContent=CRUMBS[v]||'';
+  window.scrollTo(0,0);
+}
+
+/* ---------- expandable rows / candidates ---------- */
+function toggleExp(tr){var n=tr.nextElementSibling; if(n&&n.classList.contains('exp-row')){
+  n.style.display=(n.style.display==='table-row')?'none':'table-row';}}
+function toggleCand(el){var open=el.classList.toggle('open');
+  el.querySelector('.caret').textContent=open?'▾':'▸';}
+/* exp rows start hidden */
+document.querySelectorAll('.exp-row').forEach(function(r){r.style.display='none'});
+
+/* ---------- arm/disarm : explicit human act, visual confirm only ---------- */
+function toggleArm(btn){
+  var on=btn.classList.contains('disarm');
+  if(on){btn.classList.remove('disarm');btn.classList.add('arm');btn.textContent='▶ arm';}
+  else  {btn.classList.remove('arm');btn.classList.add('disarm');btn.textContent='◼ disarm';}
+  var note=btn.parentElement.querySelector('.confirm-note');
+  if(note)note.textContent=on?'disarmed — confirm on phone to re-arm':'arm/disarm is a human act — not agent-toggleable';
+}
+
+/* ---------- seeded walk PRNG (shared by charts + sparklines) ---------- */
+function mul(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function walk(seed,n,drift,vol,start){var r=mul(seed),v=start,o=[v];
+  for(var i=1;i<n;i++){v=v*(1+drift+(r()-0.5)*vol);if(v<start*0.4)v=start*0.4;o.push(v);}return o;}
+function drawdown(s){var mx=s[0],o=[];for(var i=0;i<s.length;i++){if(s[i]>mx)mx=s[i];o.push((s[i]-mx)/mx);}return o;}
+
+/* ---------- A2: roster sparklines ----------
+   30d shape per actor. Color = P&L direction in DIM variants (the saturated hues stay
+   rationed to actual P&L numbers); data-ghost="1" renders in ghost grey (shadow ledger). */
+function renderSparks(){
+  document.querySelectorAll('svg.spark').forEach(function(svg){
+    var seed=+svg.dataset.seed, drift=+svg.dataset.drift||0, vol=+svg.dataset.vol||0.04;
+    var ghost=svg.dataset.ghost==='1';
+    var v=walk(seed,36,drift,vol,100);
+    var lo=Math.min.apply(0,v), hi=Math.max.apply(0,v), rng=(hi-lo)||1;
+    var W=96,H=22,P=2,d='';
+    for(var i=0;i<v.length;i++){
+      var x=(i/(v.length-1))*W, y=P+(1-(v[i]-lo)/rng)*(H-2*P);
+      d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+    }
+    var col=ghost?'var(--tx-4)':(v[v.length-1]>=v[0]?'var(--pos-dim)':'var(--neg-dim)');
+    var ly=P+(1-(v[v.length-1]-lo)/rng)*(H-2*P);
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    svg.setAttribute('width',W); svg.setAttribute('height',H);
+    svg.innerHTML='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.2" stroke-linejoin="round"/>'+
+      (ghost?'':'<circle cx="'+W+'" cy="'+ly.toFixed(1)+'" r="1.6" fill="'+col+'"/>');
+  });
+}
+
+/* ---------- charts : seeded walk → resolution-independent SVG ---------- */
+function renderChart(id,opt){
+  var el=document.getElementById(id); if(!el)return;
+  var n=opt.n||170, W=1000, H=opt.h||210, P=10, HD=44, GAP=8;
+  var s=walk(opt.seed,n,opt.drift,opt.vol,opt.start||100);
+  var b=walk(opt.seed+41,n,opt.bdrift,opt.bvol,opt.start||100);
+  var all=s.concat(b), lo=Math.min.apply(0,all), hi=Math.max.apply(0,all), rng=(hi-lo)||1;
+  function X(i){return (i/(n-1))*W;}
+  function Y(v){return P+(H-2*P)*(1-(v-lo)/rng);}
+  function line(arr){var d='';for(var i=0;i<n;i++){d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(arr[i]).toFixed(1);}return d;}
+  var area=line(s)+'L'+W+' '+(H-P)+'L0 '+(H-P)+'Z';
+  var sColor=opt.color||'var(--cyan)';
+  // drawdown strip
+  var dd=drawdown(s), ddMin=Math.min.apply(0,dd)||-0.01;
+  function DY(v){return 4+((-v)/(-ddMin))*(HD-8);}
+  var ddPath='M0 4';for(var i=0;i<n;i++){ddPath+='L'+X(i).toFixed(1)+' '+DY(dd[i]).toFixed(1);}
+  ddPath+='L'+W+' 4Z';
+  // train/val split marker (backtest only)
+  var split=opt.split? '<line x1="'+(opt.split*W)+'" y1="0" x2="'+(opt.split*W)+'" y2="'+H+'" stroke="var(--amber-dim)" stroke-width="1" stroke-dasharray="3 3"/>':'';
+  var grid='';[0.25,0.5,0.75].forEach(function(g){var y=P+(H-2*P)*g;
+    grid+='<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="var(--line)" stroke-width="1"/>';});
+  el.innerHTML=
+    '<svg class="svgbox" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" height="'+H+'">'+
+      grid+split+
+      '<path d="'+area+'" fill="'+sColor+'" fill-opacity="0.06"/>'+
+      '<path d="'+line(b)+'" fill="none" stroke="var(--tx-4)" stroke-width="1.3" stroke-dasharray="4 4"/>'+
+      '<path d="'+line(s)+'" fill="none" stroke="'+sColor+'" stroke-width="1.6"/>'+
+    '</svg>'+
+    '<svg class="svgbox" viewBox="0 0 '+W+' '+HD+'" preserveAspectRatio="none" height="'+HD+'" style="margin-top:'+GAP+'px">'+
+      '<path d="'+ddPath+'" fill="var(--neg)" fill-opacity="0.16"/>'+
+      '<path d="M0 4 '+ddPath.replace('M0 4','').replace(/L1000 4Z$/,'')+'" fill="none" stroke="var(--neg-dim)" stroke-width="1"/>'+
+    '</svg>'+
+    '<div class="axis"><span>'+(opt.x0||'inception')+'</span><span>drawdown ▾</span><span>'+(opt.x1||'today')+'</span></div>';
+}
+
+renderSparks();
+renderChart('chart-strat',{seed:7,drift:0.0016,vol:0.020,bdrift:0.0009,bvol:0.014,color:'var(--cyan)',x0:'2025-11-04',x1:'today'});
+renderChart('chart-book', {seed:23,drift:0.0021,vol:0.026,bdrift:0.0010,bvol:0.015,color:'var(--violet)',h:190,x0:'seed',x1:'today'});
+renderChart('chart-bt',   {seed:91,drift:0.0011,vol:0.017,bdrift:0.0009,bvol:0.013,color:'var(--cyan)',n:220,split:0.7,x0:'2015',x1:'2024 · | = train/val split'});
+</script>
