@@ -35,6 +35,16 @@ import {
 
 const LOCKED_STORAGE_KEY = "hmt-workspace-locked";
 
+/**
+ * Sentinel `activePageId` for the built-in Strategy Lab view. It is NOT a real
+ * page: it never appears in `pages`/`pageLibrary`, never counts against
+ * MAX_PAGES_PER_WORKSPACE, is exempt from all page CRUD, and is never persisted
+ * (activating the Lab is an ephemeral, in-memory switch — see setActivePage).
+ * The page switcher renders a hardcoded pill for it before the user pages, and
+ * workspace-page.tsx renders the Lab full-bleed when it is the active id.
+ */
+export const LAB_PAGE_ID = "__lab__";
+
 /** Inclusive grid-row range currently visible in the scroll viewport. */
 type VisibleRows = { top: number; bottom: number };
 
@@ -865,6 +875,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setActivePage: (id) => {
+    // Lab sentinel: an ephemeral, non-persisted active id. Skip the real-page
+    // guard and the persist — pages[LAB_PAGE_ID] intentionally doesn't exist.
+    if (id === LAB_PAGE_ID) {
+      if (get().activePageId === LAB_PAGE_ID) return;
+      set({ activePageId: LAB_PAGE_ID });
+      return;
+    }
     const { pages, activePageId } = get();
     if (!pages[id] || activePageId === id) return;
     set({ activePageId: id });

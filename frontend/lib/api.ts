@@ -247,9 +247,14 @@ export type BarsResponse = {
 
 export async function fetchPortfolioHistory(
   range: PnlRange,
+  accountId?: string,
 ): Promise<PortfolioHistory> {
+  const params = new URLSearchParams({ range });
+  // Optional per-account scope: the backend resolves the account's Alpaca
+  // adapter; omitting it keeps the original default-broker behavior.
+  if (accountId) params.set("account_id", accountId);
   const res = await apiFetch(
-    `${API_BASE}/api/portfolio/history?range=${encodeURIComponent(range)}`,
+    `${API_BASE}/api/portfolio/history?${params}`,
     { cache: "no-store" },
   );
   if (!res.ok) {
@@ -2046,4 +2051,170 @@ export function fetchStrategyLabCohorts(): Promise<StrategyLabCohortCatalog> {
 
 export function fetchStrategyLabPaper(): Promise<StrategyLabPaperCatalog> {
   return strategyLabJson("/api/strategy-lab/paper");
+}
+
+// ── Strategy Lab (workspace built-in view) ─────────────────────────────────
+// Typed fetchers for the Lab cockpit. All read-only; every number rendered in
+// the Lab is one of these live responses or an explicit honest empty state.
+
+export type LabStrategy = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  account_id: string | null;
+  account_label: string | null;
+  notional_usd: number;
+  notional_pct: number | null;
+  exit_mode: string;
+  entry_mode: string; // "auto" | "propose"
+  universe: string;
+  max_concurrent_positions: number | null;
+  max_deployed_usd: number | null;
+  alert_style: string;
+  params: Record<string, unknown>;
+};
+
+export async function fetchLabStrategies(): Promise<LabStrategy[]> {
+  const res = await apiFetch(`${API_BASE}/api/strategies`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Strategies error ${res.status}`);
+  const body = (await res.json()) as { strategies?: LabStrategy[] };
+  return body.strategies ?? [];
+}
+
+export type LabAccount = {
+  id: string;
+  label: string;
+  broker: string;
+  is_default: boolean;
+};
+
+export async function fetchLabAccounts(): Promise<LabAccount[]> {
+  const res = await apiFetch(`${API_BASE}/api/strategies/accounts`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Accounts error ${res.status}`);
+  const body = (await res.json()) as { accounts?: LabAccount[] };
+  return body.accounts ?? [];
+}
+
+export type LabDayPnl = {
+  day_pnl: number;
+  has_activity: boolean;
+  scope_fallback?: boolean | null;
+};
+
+export async function fetchLabDayPnl(accountId?: string): Promise<LabDayPnl> {
+  const params = new URLSearchParams();
+  if (accountId) params.set("account_id", accountId);
+  const qs = params.toString();
+  const res = await apiFetch(
+    `${API_BASE}/api/performance/day-pnl${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Day P&L error ${res.status}`);
+  return res.json();
+}
+
+export type LabExecution = {
+  id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  order_type: string;
+  limit_price: number | null;
+  status: string;
+  filled_qty: number | null;
+  avg_fill_price: number | null;
+  execution_mode: string;
+  submitted_at: string | null;
+  created_at: string;
+};
+
+export async function fetchLabExecutions(
+  limit = 100,
+): Promise<LabExecution[]> {
+  const res = await apiFetch(
+    `${API_BASE}/api/orders/executions?limit=${limit}`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`Executions error ${res.status}`);
+  const body = (await res.json()) as { executions?: LabExecution[] };
+  // qty/prices arrive as Decimal-serialized strings (trading stores money/qty
+  // as TEXT) — normalize to numbers so rendering/formatting is sane.
+  const num = (v: unknown): number | null =>
+    v == null || v === "" ? null : Number(v);
+  return (body.executions ?? []).map((e) => ({
+    ...e,
+    qty: num(e.qty) ?? 0,
+    filled_qty: num(e.filled_qty),
+    avg_fill_price: num(e.avg_fill_price),
+    limit_price: num(e.limit_price),
+  }));
+}
+
+export type LabPendingProposal = {
+  id: string;
+  summary: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  expires_at: string | null;
+  payload_hash: string | null;
+  score: Record<string, unknown> | null;
+};
+
+export async function fetchLabPendingProposals(): Promise<LabPendingProposal[]> {
+  const res = await apiFetch(`${API_BASE}/api/proposals/pending`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Proposals error ${res.status}`);
+  const body = (await res.json()) as { proposals?: LabPendingProposal[] };
+  return body.proposals ?? [];
+}
+
+export type LabIdeaRow = {
+  id: number;
+  as_of: string;
+  updated_at: string;
+  symbol: string;
+  direction: string; // "long" | "short"
+  origin: string;
+  status: string;
+  user_action: string;
+  entry_low: number;
+  entry_high: number;
+  stop: number;
+  ret_pct: number | null;
+  spy_ret_pct: number | null;
+  alpha_pct: number | null;
+};
+
+export async function fetchLabIdeaLedger(
+  origin: string,
+  limit = 50,
+): Promise<LabIdeaRow[]> {
+  const params = new URLSearchParams({ origin, limit: String(limit) });
+  const res = await apiFetch(`${API_BASE}/api/ideas/ledger?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Idea ledger error ${res.status}`);
+  const body = (await res.json()) as { rows?: LabIdeaRow[]; total?: number };
+  return body.rows ?? [];
+}
+
+export type LabJobHealth = {
+  name: string;
+  interval_s: number;
+  last_success_at: string | null;
+  lag_s: number | null;
+  consecutive_failures: number;
+  last_error: string | null;
+  enabled: boolean;
+};
+
+export async function fetchLabJobs(): Promise<LabJobHealth[]> {
+  const res = await apiFetch(`${API_BASE}/health`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Health error ${res.status}`);
+  const body = (await res.json()) as { jobs?: LabJobHealth[] };
+  return body.jobs ?? [];
 }

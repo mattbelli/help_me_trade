@@ -8,10 +8,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import { Plus } from "lucide-react";
+import { FlaskConical, Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import {
+  LAB_PAGE_ID,
+  useWorkspaceStore,
+} from "@/lib/workspace/use-workspace-store";
 import { MAX_PAGES_PER_WORKSPACE } from "@/lib/workspace/layout-persistence";
 
 type ContextMenuState = {
@@ -247,6 +250,25 @@ export function PageSwitcher() {
   return (
     <>
       <div className="hidden items-center gap-1 md:flex">
+        {/* Built-in Strategy Lab pill — always first, left of the user pages.
+            Not a real page: no context menu / rename / delete, never counted
+            against MAX_PAGES. Tracked by the LAB_PAGE_ID sentinel active id. */}
+        <button
+          type="button"
+          onClick={() => setActivePage(LAB_PAGE_ID)}
+          className={cn(
+            "flex max-w-[7rem] items-center gap-1 truncate rounded-full border px-2 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
+            activePageId === LAB_PAGE_ID
+              ? "border-[var(--c-accent)] bg-[var(--c-accent-soft)] text-foreground"
+              : "border-[var(--border)] text-[var(--fg-dim)] hover:border-[var(--border-strong)] hover:text-foreground",
+          )}
+          title="Strategy Lab — Alt+L"
+          aria-current={activePageId === LAB_PAGE_ID ? "page" : undefined}
+        >
+          <FlaskConical className="size-2.5 shrink-0" />
+          lab
+        </button>
+
         {pageIds.map((pageId) => {
           const page = pages[pageId];
           if (!page) return null;

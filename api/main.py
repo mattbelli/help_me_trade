@@ -3573,10 +3573,26 @@ def _require_alpaca() -> AlpacaAdapter | JSONResponse:
 
 
 @app.get("/api/portfolio/history")
-async def api_portfolio_history(range: str = "1W"):
-    broker = _require_alpaca()
-    if isinstance(broker, JSONResponse):
-        return broker
+async def api_portfolio_history(range: str = "1W", account_id: str | None = None):
+    # Default (no account_id): the primary Alpaca broker — behavior unchanged.
+    # With account_id: resolve that account's Alpaca adapter so the Lab can plot
+    # a specific paper book's equity curve. Non-Alpaca accounts are rejected.
+    if account_id:
+        try:
+            resolved = get_broker_for_account(account_id)
+        except BrokerError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=502)
+        if not isinstance(resolved, AlpacaAdapter):
+            return JSONResponse(
+                {"error": "Portfolio history requires an Alpaca account"},
+                status_code=400,
+            )
+        broker: AlpacaAdapter = resolved
+    else:
+        default_broker = _require_alpaca()
+        if isinstance(default_broker, JSONResponse):
+            return default_broker
+        broker = default_broker
 
     valid = {"1D", "3D", "1W", "1M", "1Y", "ALL"}
     if range not in valid:

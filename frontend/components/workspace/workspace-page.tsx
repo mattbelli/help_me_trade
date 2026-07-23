@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { motion } from "motion/react";
 
 import { CopilotSidebar } from "@/components/workspace/copilot-sidebar";
+import { LabPage } from "@/components/workspace/lab/lab-page";
 import { MobileWorkspace } from "@/components/workspace/mobile-workspace";
 import { NotificationBanner } from "@/components/workspace/notification-banner";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
@@ -14,6 +15,11 @@ import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
 import { useVersionCheck } from "@/lib/workspace/use-version-check";
 import { motionStd } from "@/lib/workspace/motion";
+import { isLabHash } from "@/components/workspace/lab/lab-nav";
+import {
+  LAB_PAGE_ID,
+  useWorkspaceStore,
+} from "@/lib/workspace/use-workspace-store";
 
 // Rendered under AppShell's WorkspaceToastProvider so the version-skew check
 // can toast.
@@ -24,6 +30,22 @@ function VersionCheck() {
 
 export default function WorkspacePageImpl() {
   usePageHotkeys();
+
+  const labActive = useWorkspaceStore((s) => s.activePageId === LAB_PAGE_ID);
+  const setActivePage = useWorkspaceStore((s) => s.setActivePage);
+
+  // Deep-link entry: a `#lab...` hash (e.g. shared from another surface) opens
+  // the Lab. Also honored if the hash is set while the app is already open.
+  useEffect(() => {
+    function maybeOpenLab() {
+      if (isLabHash(window.location.hash)) {
+        setActivePage(LAB_PAGE_ID);
+      }
+    }
+    maybeOpenLab();
+    window.addEventListener("hashchange", maybeOpenLab);
+    return () => window.removeEventListener("hashchange", maybeOpenLab);
+  }, [setActivePage]);
 
   const isMobile = useIsMobile();
   const collapsedHeight = TERMINAL_COLLAPSED_HEIGHT;
@@ -90,7 +112,10 @@ export default function WorkspacePageImpl() {
               animate={{ paddingRight: dockedPadding }}
               transition={motionStd}
             >
-              <WorkspaceGrid />
+              {/* The Lab is a built-in view (LAB_PAGE_ID sentinel): it renders
+                  full-bleed here in place of the widget grid, inside the same
+                  shell so the toolbar + terminal strip stay put. */}
+              {labActive ? <LabPage /> : <WorkspaceGrid />}
             </motion.div>
             <CopilotSidebar />
           </div>

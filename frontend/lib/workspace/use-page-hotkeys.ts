@@ -2,7 +2,10 @@
 
 import { useEffect } from "react";
 
-import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
+import {
+  LAB_PAGE_ID,
+  useWorkspaceStore,
+} from "@/lib/workspace/use-workspace-store";
 
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -64,6 +67,13 @@ export function usePageHotkeys() {
       // Match on event.code (physical key), not event.key — on Mac, Option+1
       // produces "¡" and Option+[ produces "“", so event.key would never match.
       const { code } = event;
+
+      // Alt+L → the built-in Strategy Lab view (its own slot, not a page index).
+      if (code === "KeyL") {
+        event.preventDefault();
+        setActivePage(LAB_PAGE_ID);
+        return;
+      }
 
       if (code.startsWith("Digit")) {
         const n = Number.parseInt(code.slice(5), 10);
