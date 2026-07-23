@@ -117,6 +117,7 @@ from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
 from db.earnings_alerts import init_earnings_alert_tables
 from db.earnings_calendar import earnings_hour, last_earnings_date, next_earnings_date
+from db.equity_history import equity_history
 from db.filings import init_filings_tables
 from db.idea_outcomes import init_idea_outcomes_tables
 from db.live_activities import init_live_activity_tables
@@ -3658,10 +3659,30 @@ def _require_alpaca() -> AlpacaAdapter | JSONResponse:
 
 
 @app.get("/api/portfolio/history")
-async def api_portfolio_history(range: str = "1W", account_id: str | None = None):
-    # Default (no account_id): the primary Alpaca broker — behavior unchanged.
-    # With account_id: resolve that account's Alpaca adapter so the Lab can plot
-    # a specific paper book's equity curve. Non-Alpaca accounts are rejected.
+async def api_portfolio_history(
+    range: str = "1W", account_id: str | None = None, source: str | None = None
+):
+    valid = {"1D", "3D", "1W", "1M", "1Y", "ALL"}
+    if range not in valid:
+        return JSONResponse(
+            {"error": f"Invalid range. Use one of: {', '.join(sorted(valid))}"},
+            status_code=400,
+        )
+
+    # Two scoped sources. `all_paper` (or an explicit source=snapshots) is served
+    # from the poller's own snapshot tables — aggregate/per-account curves the
+    # broker API can't provide, plus window change/realized/unrealized (mobile
+    # Home). A bare acct_* keeps the Lab's broker-backed passthrough; no
+    # account_id keeps the original default-broker behavior.
+    if account_id == "all_paper" or (account_id and source == "snapshots"):
+        data = equity_history(account_id, range)
+        if data is None:
+            return JSONResponse(
+                {"error": f"Unknown or non-paper account: {account_id}"},
+                status_code=404,
+            )
+        return data
+
     if account_id:
         try:
             resolved = get_broker_for_account(account_id)
@@ -3678,13 +3699,6 @@ async def api_portfolio_history(range: str = "1W", account_id: str | None = None
         if isinstance(default_broker, JSONResponse):
             return default_broker
         broker = default_broker
-
-    valid = {"1D", "3D", "1W", "1M", "1Y", "ALL"}
-    if range not in valid:
-        return JSONResponse(
-            {"error": f"Invalid range. Use one of: {', '.join(sorted(valid))}"},
-            status_code=400,
-        )
 
     try:
         points = await broker.aget_portfolio_history(range)
