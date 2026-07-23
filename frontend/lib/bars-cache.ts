@@ -1,4 +1,10 @@
 import { fetchBars, type BarsResponse } from "@/lib/api";
+import {
+  BARS_CACHE_PERSIST_BUDGET_BYTES,
+  BARS_CACHE_STORAGE_KEY,
+  parsePersisted,
+  selectPersistable,
+} from "@/lib/bars-cache-persist";
 
 // In-memory bars cache so navigating back to a chart you just viewed reads from
 // memory instead of re-hitting the network on every mount (the chart component
@@ -101,4 +107,62 @@ export function invalidateBars(
   extended: boolean,
 ): void {
   cache.delete(keyOf(symbol, timeframe, days, extended));
+}
+
+// --- Persist across a full page reload -----------------------------------------
+//
+// The cache above is a plain in-memory Map, so a hard reload (F5, restored tab)
+// dropped every chart back to cold — even though the entries were still within
+// their TTL. We mirror the cache into sessionStorage: rehydrate on load, flush on
+// tab-hide. Persistence is transparent to callers — fetchBarsCached still applies
+// the TTL, so a rehydrated-but-expired entry refetches exactly as before; the win
+// is that a within-TTL reload paints instantly with no network round-trip.
+//
+// sessionStorage (not local): survives reload + same-tab nav, clears on tab close —
+// the exact lifetime we want, with no unbounded cross-session growth. All access is
+// best-effort and guarded: private-mode/quota failures degrade to a cold start.
+
+function barsStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null; // sessionStorage getter can throw under strict privacy settings
+  }
+}
+
+function hydrateCacheFromStorage(): void {
+  const store = barsStorage();
+  if (!store) return;
+  for (const [key, entry] of parsePersisted(store.getItem(BARS_CACHE_STORAGE_KEY))) {
+    if (cache.size >= MAX_ENTRIES) break;
+    // Shape validated by parsePersisted (data + fetchedAt present); the payload is
+    // our own prior serialization, so narrow back to Entry at this trust boundary.
+    cache.set(key, entry as Entry);
+  }
+}
+
+function persistCacheToStorage(): void {
+  const store = barsStorage();
+  if (!store) return;
+  try {
+    const kept = selectPersistable([...cache.entries()], BARS_CACHE_PERSIST_BUDGET_BYTES);
+    store.setItem(BARS_CACHE_STORAGE_KEY, JSON.stringify(kept));
+  } catch {
+    // QuotaExceeded / serialization failure — drop the blob rather than half-write.
+    try {
+      store.removeItem(BARS_CACHE_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+if (typeof window !== "undefined") {
+  hydrateCacheFromStorage();
+  const flush = () => persistCacheToStorage();
+  // pagehide covers reload/close; visibilitychange→hidden is the reliable mobile path.
+  window.addEventListener("pagehide", flush);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flush();
+  });
 }

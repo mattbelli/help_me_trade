@@ -1,11 +1,11 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
 
-// Scoped to the chart engine's pure modules — no jsdom, no React. The rest of
-// the frontend is verified by typecheck + the headless-browser screenshot loop.
+// Scoped to pure, dependency-free modules — no jsdom, no React. The rest of the
+// frontend is verified by typecheck + the headless-browser screenshot loop.
 export default defineConfig({
   test: {
-    include: ["lib/chart-engine/**/*.test.ts"],
+    include: ["lib/chart-engine/**/*.test.ts", "lib/bars-cache-persist.test.ts"],
     environment: "node",
   },
   resolve: {

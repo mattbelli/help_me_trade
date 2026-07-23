@@ -34,6 +34,20 @@ amendments override its body; detail: BUILD_LOG 2026-07-21/22 rows). Lane stays 
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
+## ▶ Chart load perf — all 3 audit fixes in draft PR; deploy + verify open
+
+From the chart-perf audit (watchlist charts loaded slowly on non-default timeframes: only the 1Day view
+was prewarmed; other timeframes were cold on first view). Draft PR (card `chart-bars-incremental-refresh`;
+BUILD_LOG 2026-07-23 rows) ships all three: **#1 incremental fetch-since-last-bar refresh** (warm refreshes
+merge a small trailing window, no full re-walk), **#2 broadened prewarm** (broadcast the K most-recent
+timeframes across the whole watchlist — bounded by K + `_BARS_PREWARM_MAX_ENTRIES`; safe only because #1
+made warm refreshes cheap), **#3 reload-persistent frontend cache** (sessionStorage mirror so a full reload
+rehydrates instead of going cold). **Open — deploy + verify only:**
+- ⏳ deploy: `tools/serv-deploy.sh backend` for #1/#2, **frontend build+deploy** for #3 (build first, verify
+  BUILD_ID mtime — see `serv-deploy-procedure`). Founder verifies charts in-browser.
+- ⏳ watch `/health` bars_prewarm `lag_s` stays well under the shortest TTL after #2 goes live (storm
+  invariant, `chart-bars-prewarm-storms`); `_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the dials.
+
 ## ▶ Waiting on founder
 
 - **Multi-angle reasoning A/B go/no-go** — design ready + double-audited
