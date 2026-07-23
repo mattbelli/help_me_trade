@@ -4064,6 +4064,19 @@ _BARS_PREWARM_PACE = 0.25  # sleep between actual fetches (s)
 _BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {
     ("1Day", 1825)
 }  # the default chart view, warm from boot
+# Broadcast the K most-recently-used distinct specs across the whole watchlist (the
+# timeframes the user is actively working in) so switching symbols — or switching to a
+# timeframe on a symbol not yet viewed there — is served warm, not cold. Kept small and
+# entry-capped because it multiplies the watchlist by (1 + K); safe now ONLY because
+# incremental refresh (fix #1) makes each warm refresh a tiny trailing-window fetch
+# rather than a full range walk (the cross-product the 07-22 storm forbade).
+_BARS_HOT_SPECS_MAX = 2
+# Hard backstop on (symbol, spec) entries warmed per cycle — bounds the cross-product
+# for large/dynamic watchlists (future users: 200-300 names). Trimmed from the tail with
+# default-1Day pushed first, so the baseline view is never sacrificed to a hot-spec
+# broadcast. Judge a full cold pass stays < the shortest TTL it maintains via /health
+# bars_prewarm lag_s (chart-bars-prewarm-storms).
+_BARS_PREWARM_MAX_ENTRIES = 160
 
 
 @app.get("/api/bars")
@@ -4281,24 +4294,61 @@ async def _bars_prewarm_once() -> None:
     extra = max(0, _BARS_PREWARM_MAX_SYMBOLS - len(watch))
     symbols = watch + recent[:extra]
     allowed = set(symbols)
-    # Warm queue: the cheap one-page default view for every symbol, plus the
-    # EXACT (symbol, timeframe, days) combos actually viewed recently. Never
-    # the seen-specs × symbols cross-product — with 40 symbols and one long
-    # intraday spec (a 10–30-page walk each) that cycle runs LONGER than the
-    # TTLs it refreshes, i.e. a permanent slow-motion refetch storm that also
-    # starves interactive loads (07-22 round 2, watchdog-caught).
-    queue: list[tuple[str, str, int]] = [
-        (sym, timeframe, days)
-        for sym in symbols
-        for timeframe, days in _BARS_PREWARM_DEFAULT_SPECS
+
+    # The timeframes the user is ACTUALLY working in: the most-recently-viewed distinct
+    # (timeframe, days) specs across any symbol, capped to a small K (default specs
+    # excluded — they're always broadcast). Collapsed to the latest view per spec.
+    spec_last_seen: dict[tuple[str, int], float] = {}
+    for (_sym, timeframe, days), ts in _BARS_SEEN_SPECS.items():
+        spec = (timeframe, int(days))
+        if now - ts >= _BARS_SEEN_TTL or spec in _BARS_PREWARM_DEFAULT_SPECS:
+            continue
+        if ts > spec_last_seen.get(spec, 0.0):
+            spec_last_seen[spec] = ts
+    hot_specs = sorted(spec_last_seen, key=lambda s: spec_last_seen[s], reverse=True)[
+        :_BARS_HOT_SPECS_MAX
     ]
-    queue += [
-        (sym, timeframe, days)
-        for (sym, timeframe, days), ts in _BARS_SEEN_SPECS.items()
-        if now - ts < _BARS_SEEN_TTL
-        and sym in allowed
-        and (timeframe, days) not in _BARS_PREWARM_DEFAULT_SPECS
-    ]
+    # Broadcast order for hot specs = symbols by view-recency (NOT alphabetical) so that
+    # under the entry cap the symbols the user is actively switching between keep their
+    # hot-spec warmth — never a blind SPY/TSLA clip (flow-sub-cap-alphabetical-clip).
+    symbols_by_recency = sorted(
+        symbols, key=lambda s: _BARS_SEEN_SYMBOLS.get(s, 0.0), reverse=True
+    )
+
+    # Warm queue, priority order: (1) the default 1Day view for every symbol — the
+    # baseline everyone needs and the cheapest; (2) the hot specs broadcast across the
+    # watchlist (the fix-#2 cross-product, affordable now via incremental refresh);
+    # (3) any other exact combo actually viewed on an allowed symbol (one-off long-range
+    # views). The entry cap trims from the tail, so 1Day coverage is never dropped.
+    queue: list[tuple[str, str, int]] = []
+    seen_q: set[tuple[str, str, int]] = set()
+
+    def _push(sym: str, timeframe: str, days: int) -> None:
+        item = (sym, timeframe, int(days))
+        if item not in seen_q:
+            seen_q.add(item)
+            queue.append(item)
+
+    for timeframe, days in _BARS_PREWARM_DEFAULT_SPECS:
+        for sym in symbols:
+            _push(sym, timeframe, days)
+    for timeframe, days in hot_specs:
+        for sym in symbols_by_recency:
+            _push(sym, timeframe, days)
+    for (sym, timeframe, days), ts in _BARS_SEEN_SPECS.items():
+        if now - ts < _BARS_SEEN_TTL and sym in allowed:
+            _push(sym, timeframe, days)
+
+    if len(queue) > _BARS_PREWARM_MAX_ENTRIES:
+        dropped = len(queue) - _BARS_PREWARM_MAX_ENTRIES
+        queue = queue[:_BARS_PREWARM_MAX_ENTRIES]
+        logger.info(
+            "bars prewarm: queue capped at %d entries (dropped %d hot-spec/exact "
+            "entries this cycle; 1Day coverage preserved)",
+            _BARS_PREWARM_MAX_ENTRIES,
+            dropped,
+        )
+
     for sym, timeframe, days in queue:
         # Heartbeat per queue item, not per cycle: a cold full warm (post-restart)
         # legitimately runs minutes, and an end-of-cycle-only mark would

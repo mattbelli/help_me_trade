@@ -34,18 +34,18 @@ amendments override its body; detail: BUILD_LOG 2026-07-21/22 rows). Lane stays 
 - acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
   broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
 
-## ▶ Chart load perf — incremental refresh in draft PR; #2/#3 open
+## ▶ Chart load perf — fixes #1+#2 in draft PR; #3 open
 
-From the chart-perf audit (why watchlist charts still load slowly on non-default timeframes: only the
-1Day default view is prewarmed; every other timeframe is cold on first view and only kept warm 30 min
-after being viewed). **Fix #1 (incremental fetch-since-last-bar refresh)** is code-complete in a draft PR
-(BUILD_LOG 2026-07-23 row; card `chart-bars-incremental-refresh`): warm refreshes now merge a small
-trailing window instead of re-walking the whole range. **Now unblocked / open:**
-- #2 — broaden prewarm beyond the 1Day default to the timeframes the founder actually uses; incremental
-  refresh gives the cycle-time headroom to do this without outrunning the TTLs (the storm invariant that
-  forced the 1Day-only scope — see `chart-bars-prewarm-storms`).
+From the chart-perf audit (watchlist charts loaded slowly on non-default timeframes: only the 1Day view
+was prewarmed; other timeframes were cold on first view). Draft PR (card `chart-bars-incremental-refresh`;
+BUILD_LOG 2026-07-23 rows) ships **#1 incremental fetch-since-last-bar refresh** (warm refreshes merge a
+small trailing window, no full re-walk) and **#2 broadened prewarm** (broadcast the K most-recent
+timeframes across the whole watchlist — bounded by K + a `_BARS_PREWARM_MAX_ENTRIES` cap; safe only
+because #1 made warm refreshes cheap). ⏳ deploy (`tools/serv-deploy.sh backend`) + founder verify; watch
+`/health` bars_prewarm `lag_s` stays well under the shortest TTL (storm invariant, `chart-bars-prewarm-storms`);
+`_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the tuning dials. **Still open:**
 - #3 — persist the frontend `bars-cache` (sessionStorage/IndexedDB) so a full page reload doesn't drop
-  every chart back to cold.
+  every chart back to cold (frontend-only; independent of #1/#2).
 
 ## ▶ Waiting on founder
 

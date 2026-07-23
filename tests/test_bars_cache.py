@@ -40,6 +40,18 @@ class _Provider:
         return [_Bar()]
 
 
+class _SpecProvider:
+    """Records the full (symbol, timeframe, days) of each fetch — for asserting which
+    specs the prewarm loop broadcasts across the watchlist."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, int]] = []
+
+    async def aget_stock_bars(self, sym, *, timeframe, days, extended_hours=None):
+        self.calls.append((sym, timeframe, days))
+        return [_Bar()]
+
+
 @pytest.fixture(autouse=True)
 def _clean_cache():
     api_main._BARS_CACHE.clear()
@@ -79,18 +91,22 @@ async def test_prewarm_skip_check_matches_the_real_cache_key(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
-async def test_prewarm_warms_viewed_combos_not_the_cross_product(monkeypatch) -> None:
-    """Round 2 (watchdog-caught): seen specs are per-(symbol, timeframe, days)
-    combo. One symbol viewed on 4Hour must NOT drag every watchlist symbol
-    through its own 10–30-page 4Hour walk — that cycle runs longer than the
-    TTLs it refreshes, i.e. a permanent slow-motion refetch storm."""
+async def test_prewarm_broadcasts_hot_spec_across_the_watchlist(monkeypatch) -> None:
+    """Fix #2: a timeframe the user is working in is broadcast to the WHOLE watchlist so
+    switching symbols is served warm — the seen-specs × symbols cross-product the 07-22
+    storm forbade, now affordable because incremental refresh (fix #1) makes each warm
+    refresh a tiny trailing-window fetch instead of a full range walk."""
     import time as _time
 
-    provider = _Provider()
+    provider = _SpecProvider()
     monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ"])
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(
+        api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ", "NVDA"]
+    )
     monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
     monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 2)
     monkeypatch.setattr(
         api_main, "_BARS_SEEN_SPECS", {("SPY", "4Hour", 365): _time.monotonic()}
     )
@@ -98,7 +114,74 @@ async def test_prewarm_warms_viewed_combos_not_the_cross_product(monkeypatch) ->
     monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
 
     await api_main._bars_prewarm_once()
-    assert provider.calls == ["SPY"]  # QQQ never dragged through 4Hour
+    warmed = {(s, tf) for s, tf, _d in provider.calls}
+    # 4Hour reaches EVERY watchlist symbol now, not just the one that viewed it
+    assert warmed == {("SPY", "4Hour"), ("QQQ", "4Hour"), ("NVDA", "4Hour")}
+
+
+@pytest.mark.asyncio
+async def test_prewarm_hot_specs_are_bounded_older_spec_not_broadcast(monkeypatch) -> None:
+    """Only the K most-recently-used distinct specs broadcast; an older spec is still
+    warmed on the symbol that viewed it (exact-combo path) but never dragged across the
+    whole watchlist — bounding the cross-product."""
+    import time as _time
+
+    t = _time.monotonic()
+    provider = _SpecProvider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ"])
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 1)  # only the newest spec broadcasts
+    monkeypatch.setattr(
+        api_main,
+        "_BARS_SEEN_SPECS",
+        {("SPY", "1Hour", 180): t, ("SPY", "15Min", 60): t - 100},
+    )
+    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {})
+    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+
+    await api_main._bars_prewarm_once()
+    warmed = {(s, tf) for s, tf, _d in provider.calls}
+    assert ("SPY", "1Hour") in warmed and ("QQQ", "1Hour") in warmed  # newest → broadcast
+    assert ("SPY", "15Min") in warmed  # older spec still warmed on the symbol that viewed it
+    assert ("QQQ", "15Min") not in warmed  # but NOT broadcast to the watchlist
+
+
+@pytest.mark.asyncio
+async def test_prewarm_entry_cap_preserves_1day_and_trims_hot_by_recency(
+    monkeypatch, caplog
+) -> None:
+    """The hard entry cap trims the queue tail (hot-spec broadcast) but never the 1Day
+    baseline, and the surviving hot slots go to the most-recently-viewed symbols — never
+    a blind alphabetical clip (flow-sub-cap-alphabetical-clip). And it logs the drop."""
+    import time as _time
+
+    t = _time.monotonic()
+    provider = _SpecProvider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    watch = [f"S{i:02d}" for i in range(6)]
+    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: watch)
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", {("1Day", 1825)})
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 1)
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_MAX_ENTRIES", 8)  # 6×1Day + only 2 hot fit
+    monkeypatch.setattr(api_main, "_BARS_SEEN_SPECS", {("S00", "1Hour", 180): t})
+    # S05 most-recently viewed, S04 next — they should keep the scarce hot slots
+    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {"S05": t, "S04": t - 1})
+    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+
+    with caplog.at_level("INFO"):
+        await api_main._bars_prewarm_once()
+
+    warmed = {(s, tf) for s, tf, _d in provider.calls}
+    for s in watch:
+        assert (s, "1Day") in warmed  # every symbol keeps its baseline
+    hourly = {s for s, tf in warmed if tf == "1Hour"}
+    assert hourly == {"S05", "S04"}  # scarce hot slots → most-recent symbols
+    assert any("queue capped" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.asyncio
