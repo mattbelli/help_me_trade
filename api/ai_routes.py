@@ -211,9 +211,13 @@ async def api_create_proposal(body: dict = Body(...)):
 
 @router.get("/proposals/pending")
 def api_list_pending_proposals():
+    from db.accounts import account_label
     from db.paper_orders import list_pending_proposals
 
-    return {"proposals": list_pending_proposals()}
+    rows = list_pending_proposals()
+    for row in rows:
+        row["account_label"] = account_label(row.get("account_id"))
+    return {"proposals": rows}
 
 
 @router.get("/proposals/missed")
@@ -251,11 +255,13 @@ def api_proposal_score(
 
 @router.get("/proposals/{proposal_id}")
 def api_get_proposal(proposal_id: str):
+    from db.accounts import account_label
     from db.paper_orders import get_proposal
 
     row = get_proposal(proposal_id.strip())
     if row is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    row["account_label"] = account_label(row.get("account_id"))
     return row
 
 

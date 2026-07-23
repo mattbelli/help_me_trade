@@ -723,6 +723,99 @@ async def test_stop_guard_waits_on_fresh_partial(monkeypatch, tmp_path: Path) ->
     assert await place_protective_stops("alpaca", db_path=db) == 0
 
 
+# ── founder "no caps" for book accounts (07-23) ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_book_account_moo_buy_exempt_from_value_and_concentration(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """$65k on a $100k book must pass — the analyst sizes its own book; the
+    remaining walls are buying power / cash / daily backstops / approval."""
+    db = tmp_path / "r.db"
+    _patch_risk_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine._book_account_ids", lambda _db: frozenset({"acct_book"})
+    )
+    monkeypatch.setattr(
+        "trading.risk_engine.account_is_execution_capable", lambda *_a, **_k: True
+    )
+
+    async def _no_live(_symbol: str):
+        return None
+
+    async def _reference(_symbol: str):
+        return Decimal("320.00")
+
+    monkeypatch.setattr("trading.risk_engine._live_market_price", _no_live)
+    monkeypatch.setattr("trading.risk_engine._offhours_reference_price", _reference)
+    result = await RiskEngine.validate(
+        _intent(
+            symbol="GOOGL",
+            qty=Decimal("203"),  # ≈ $65k at the reference close
+            time_in_force="opg",
+            moo_entry=True,
+            account_id="acct_book",
+        ),
+        db_path=db,
+    )
+    assert result.passed is True, result.blocked_reason
+    assert result.checks["order_value_cap"] == "exempt: book account self-sizing"
+    assert result.checks["concentration"] == "exempt: book account self-sizing"
+
+
+@pytest.mark.asyncio
+async def test_non_book_moo_keeps_caps(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "r.db"
+    _patch_risk_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine._book_account_ids", lambda _db: frozenset()
+    )
+    monkeypatch.setattr(
+        "trading.risk_engine.account_is_execution_capable", lambda *_a, **_k: True
+    )
+
+    async def _no_live(_symbol: str):
+        return None
+
+    async def _reference(_symbol: str):
+        return Decimal("320.00")
+
+    monkeypatch.setattr("trading.risk_engine._live_market_price", _no_live)
+    monkeypatch.setattr("trading.risk_engine._offhours_reference_price", _reference)
+    result = await RiskEngine.validate(
+        _intent(
+            symbol="GOOGL",
+            qty=Decimal("203"),
+            time_in_force="opg",
+            moo_entry=True,
+            account_id="acct_book",
+        ),
+        db_path=db,
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "order exceeds max value"
+
+
+def test_book_account_ids_reads_strategies(tmp_path: Path) -> None:
+    from db.strategies import seed_default_strategies
+    from trading.risk_engine import _book_account_ids
+
+    db = tmp_path / "s.db"
+    seed_default_strategies(db_path=db)
+    ids = _book_account_ids(db)
+    assert "acct_alpaca_deepseek" in ids
+    assert "acct_alpaca_fable" in ids
+    assert "acct_alpaca_open" in ids
+
+
+def test_account_label_fail_soft(tmp_path: Path) -> None:
+    from db.accounts import account_label
+
+    assert account_label(None, db_path=tmp_path / "a.db") is None
+    assert account_label("acct_missing", db_path=tmp_path / "a.db") is None
+
+
 # ── book driver stop parsing ───────────────────────────────────────────────
 
 

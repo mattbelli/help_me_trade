@@ -46,3 +46,19 @@ Delivery per report:
   flow is unchanged and will carry them when that happens.
 
 Spec, if needed: `References/LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md`.
+
+## 4. Addendum (07-23 late) — books ARMED; approval card needs account attribution
+
+The books went LIVE tonight (all three armed, propose mode). Two things now concern mobile:
+
+1. **Approval card must show WHICH account/book is trading** (founder caught it missing on the
+   first live proposal). The backend now provides, everywhere a proposal travels:
+   - APNs proposal push payload: new top-level keys `account_id` and `account_label`
+     (e.g. `"acct_alpaca_fable"` / `"Fable (LLM book)"`); the alert body is also label-prefixed
+     ("Fable (LLM book) · BUY 12 MU @ market").
+   - `GET /api/ai/proposals/pending` and `GET /api/ai/proposals/{id}`: each row now carries
+     `account_label` (nullable, fail-soft) alongside the existing `account_id`.
+   Render the label prominently on the approval card (and anywhere proposals list).
+2. **Book proposals are overnight objects now**: created after hours, `expires_at` = next session
+   close (not 30 min). Approval before ~9:28 ET fills at the opening auction; the card's expiry
+   countdown should handle a ~20h TTL gracefully.

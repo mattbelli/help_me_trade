@@ -227,6 +227,27 @@ def account_is_execution_capable(
     return bool(account["enabled"]) and bool(account["execution_capable"])
 
 
+def account_label(
+    account_id: str | None,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str | None:
+    """Human label for an account id, fail-soft (None on unknown/any error).
+
+    Display attribution only — approval cards and pushes say WHICH book/account
+    a proposal trades (founder 07-23: the card didn't). Never used for routing."""
+    if not account_id:
+        return None
+    try:
+        account = get_account(account_id, db_path=db_path)
+    except Exception:
+        return None
+    if account is None:
+        return None
+    label = str(account.get("label") or "").strip()
+    return label or None
+
+
 def resolve_account_broker(
     account_id: str,
     *,

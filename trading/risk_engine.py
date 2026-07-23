@@ -469,6 +469,23 @@ class RiskEngine:
 
         exposure_increasing = (intent.side == "buy" and not is_buy_to_cover) or is_short_open
 
+        # Founder 07-23 ("let the deepseek through… i said no caps"): book
+        # analysts size their own book — the per-trade value and concentration
+        # caps do NOT apply to a book account's MOO entry. Scoped to BOTH
+        # signals (moo_entry AND an account owned by a book_% strategy);
+        # fail-soft to capped. Precisely: any HUMAN-APPROVED moo buy into a
+        # book account is uncapped — every path that can set these signals
+        # still ends at a pending phone proposal, never a direct submit
+        # (adversarial review, 07-23). The walls that
+        # remain for books are physical: buying power (below), the book's own
+        # cash, the global daily-notional runaway backstop, the daily-loss
+        # breaker, and the founder's approval tap.
+        book_uncapped = (
+            intent.moo_entry
+            and intent.account_id is not None
+            and intent.account_id in _book_account_ids(db_path)
+        )
+
         # HALT (entries_halted) — blocks every exposure-INCREASING order (strategy
         # entries, adds, short-opens) while app-managed reduce-only EXITS keep
         # flowing. A plain sell closing a long (and a buy-to-cover) is
@@ -676,7 +693,9 @@ class RiskEngine:
             )
 
         # 7. Per-order value cap (buys + short-opens — closes must not be blocked)
-        if exposure_increasing:
+        if exposure_increasing and book_uncapped:
+            checks["order_value_cap"] = "exempt: book account self-sizing"
+        elif exposure_increasing:
             max_order_value = Decimal(str(cfg["max_order_value_usd"]))
             if risk_notional > max_order_value:
                 checks["order_value_cap"] = "fail: order exceeds max value"
@@ -694,7 +713,9 @@ class RiskEngine:
             )
 
         # 8. Concentration (buys + short-opens — bound the position size either way)
-        if exposure_increasing:
+        if exposure_increasing and book_uncapped:
+            checks["concentration"] = "exempt: book account self-sizing"
+        elif exposure_increasing:
             if portfolio_value <= Decimal("0"):
                 checks["concentration"] = "fail: portfolio value unknown"
                 return RiskCheckResult(
@@ -856,6 +877,23 @@ async def _rest_quote_price(symbol: str) -> float | None:
     except Exception:
         logger.warning("REST quote fallback (bars) failed for %s", symbol, exc_info=True)
     return None
+
+
+def _book_account_ids(db_path: Path) -> frozenset[str]:
+    """Accounts owned by LLM book strategies (`book_%`). Fail-soft to EMPTY —
+    on any error the caps apply as normal (deny-by-default)."""
+    try:
+        from db.base import connect
+
+        with connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT account_id FROM strategies "
+                "WHERE id LIKE 'book_%' AND account_id IS NOT NULL"
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
+    except Exception:
+        logger.warning("book account lookup failed — caps apply", exc_info=True)
+        return frozenset()
 
 
 async def _offhours_reference_price(symbol: str) -> Decimal | None:

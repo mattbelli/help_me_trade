@@ -47,15 +47,28 @@ _JWT_MAX_AGE_S = 50 * 60  # APNs caps provider-token age at 60m; refresh before 
 _jwt_cache: dict[tuple[str, str], tuple[str, int]] = {}
 
 
-def _proposal_body(proposal: dict[str, Any]) -> str:
+def _proposal_account_label(proposal: dict[str, Any]) -> str | None:
+    """Fail-soft account attribution for pushes/cards (founder 07-23: the
+    approval card didn't say which book was trading)."""
+    try:
+        from db.accounts import account_label
+
+        return account_label(proposal.get("account_id"))
+    except Exception:
+        return None
+
+
+def _proposal_body(proposal: dict[str, Any], *, label: str | None = None) -> str:
+    label = label if label is not None else _proposal_account_label(proposal)
+    prefix = f"{label} · " if label else ""
     summary = proposal.get("summary")
     if summary:
-        return str(summary)
+        return f"{prefix}{summary}"
     inner = proposal.get("proposal") if isinstance(proposal.get("proposal"), dict) else {}
     side = str(inner.get("side") or proposal.get("side") or "buy").upper()
     qty = inner.get("qty") if inner.get("qty") is not None else proposal.get("qty")
     symbol = inner.get("symbol") or proposal.get("symbol") or "?"
-    return f"{side} {qty} {symbol}"
+    return f"{prefix}{side} {qty} {symbol}"
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +231,10 @@ def _apns_jwt(key_pem: bytes, key_id: str, team_id: str) -> str:
 
 def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
     # Custom keys sit alongside `aps`; expo-notifications surfaces them as data.
+    label = _proposal_account_label(proposal)
     return {
         "aps": {
-            "alert": {"title": "Trade proposal", "body": _proposal_body(proposal)},
+            "alert": {"title": "Trade proposal", "body": _proposal_body(proposal, label=label)},
             "sound": "default",
             "category": "TRADE_PROPOSAL",
         },
@@ -228,6 +242,8 @@ def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
         "proposal_id": proposal["id"],
         "payload_hash": proposal.get("payload_hash"),
         "expires_at": proposal.get("expires_at"),
+        "account_id": proposal.get("account_id"),
+        "account_label": label,
     }
 
 
