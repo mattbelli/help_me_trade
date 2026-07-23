@@ -1775,12 +1775,12 @@
     {
       "id": "fr-1783787088",
       "title": "terminal chat: wall of text + no timestamps",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "2026-07-11 founder: loves the terminal LLM chat but it reads as a wall of text; wants a research pass on cleaning up the visual format. Also wants timestamps visible (at least be able to see when a message/turn happened) so he can back-check what price/context was being referenced at that time.",
-      "owner": "founder",
-      "updated_at": "2026-07-11"
+      "notes": "2026-07-11 founder: loves the terminal LLM chat but it reads as a wall of text; wants a research pass on cleaning up the visual format. Also wants timestamps visible (at least be able to see when a message/turn happened) so he can back-check what price/context was being referenced at that time.\n\n2026-07-23 SHIPPED (founder re-asked in the idea-ramble round: brighter-on-dark/darker-on-light focus surface, no blur, wall-of-text relief): (1) dedicated --terminal-surface/-focus tokens (color-mix toward --text-primary \u2014 moves toward CONTRAST on every theme incl. custom; solid, zero backdrop-blur per founder rule); open drawer = focus surface + shadow-xl + border-strong (was --bg-raised/90 + blur = blended in); chat widget sits on the base surface and LIGHTS UP one step on focus-within. (2) TIMESTAMPS: turn stamps (HH:MM today, 'Jul 22 14:03' older, browser-local) on user rows \u2014 stamped at the runtime's onFinish so ONLY live turns get times (loaded history renders none, never fabricated; honesty rule), persisted in localStorage (cap 600) so reloads keep watched turns. (3) wall-of-text: hairline + breathing room at each turn boundary. Deeper info-design pass reopens on founder word. Pending founder in-browser check.",
+      "owner": "agent",
+      "updated_at": "2026-07-23"
     },
     {
       "id": "fr-1783787089",

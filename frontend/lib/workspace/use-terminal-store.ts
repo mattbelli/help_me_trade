@@ -146,6 +146,39 @@ function saveHistory(history: string[]): void {
   }
 }
 
+// Turn timestamps: message-id → epoch-ms, stamped by the chat runtime's
+// onFinish for turns that actually RAN in this browser. History restored from
+// the server carries no trustworthy client time — those rows show no stamp
+// rather than a fabricated one (honesty rule). Persisted so a reload keeps the
+// stamps of turns you watched happen; capped so it can never grow unbounded.
+const STAMPS_STORAGE_KEY = "hmt-terminal-turn-stamps";
+const STAMPS_MAX = 600;
+
+function loadStamps(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(STAMPS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed).filter(([, v]) => typeof v === "number"),
+      ) as Record<string, number>;
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function saveStamps(stamps: Record<string, number>): void {
+  try {
+    localStorage.setItem(STAMPS_STORAGE_KEY, JSON.stringify(stamps));
+  } catch {
+    // ignore
+  }
+}
+
 // Drawer lock: when on, clicking away does NOT collapse the open drawer (Esc and
 // ⌘K still do). Lets the founder keep the terminal parked while working the grid.
 const LOCKED_STORAGE_KEY = "hmt-terminal-locked";
@@ -218,7 +251,9 @@ type TerminalState = {
   hydrated: boolean;
   scrollback: ScrollbackEntry[];
   history: string[];
+  turnStamps: Record<string, number>;
   hydrate: () => void;
+  stampTurn: (id: string, at?: number) => void;
   toggle: () => void;
   toggleDrawerLock: () => void;
   addTab: (id: string) => void;
@@ -246,6 +281,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   hydrated: false,
   scrollback: [],
   history: [],
+  turnStamps: {},
   hydrate: () =>
     set({
       height: loadHeight(),
@@ -254,8 +290,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       drawerLocked: loadLocked(),
       tabIds: loadTabs(),
       history: loadHistory(),
+      turnStamps: loadStamps(),
       hydrated: true,
     }),
+  stampTurn: (id, at) => {
+    const prev = get().turnStamps;
+    if (!id || prev[id]) return; // first stamp wins (approval resumes re-finish)
+    let next: Record<string, number> = { ...prev, [id]: at ?? Date.now() };
+    const ids = Object.keys(next);
+    if (ids.length > STAMPS_MAX) {
+      const keep = new Set(
+        ids.sort((a, b) => next[a] - next[b]).slice(ids.length - STAMPS_MAX),
+      );
+      next = Object.fromEntries(
+        Object.entries(next).filter(([k]) => keep.has(k)),
+      );
+    }
+    set({ turnStamps: next });
+    saveStamps(next);
+  },
   toggle: () => set((s) => ({ open: !s.open })),
   toggleDrawerLock: () =>
     set((s) => {

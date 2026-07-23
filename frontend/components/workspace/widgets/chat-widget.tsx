@@ -67,7 +67,10 @@ export function ChatWidget() {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col text-[length:var(--fs-terminal)]"
+      // Dedicated terminal surface (a step off the widget plane) that lights up
+      // one more step while the prompt owns focus — the chat reads as the focus
+      // point, not another grid panel.
+      className="flex h-full min-h-0 flex-col bg-[var(--terminal-surface)] text-[length:var(--fs-terminal)] transition-colors duration-150 focus-within:bg-[var(--terminal-surface-focus)]"
       style={{ fontFamily: "var(--font-terminal)" }}
     >
       <div className="min-h-0 flex-1 overflow-hidden">

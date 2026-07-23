@@ -184,6 +184,19 @@ function AnchoredCommands({ afterMessageId }: { afterMessageId: string | null })
   );
 }
 
+/** Turn stamp: HH:MM for today, "Jul 22 14:03" for older — browser-local, so
+ *  it matches the clock the founder back-checks prices against. */
+function formatStamp(at: number): string {
+  const d = new Date(at);
+  const hm = d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  if (d.toDateString() === new Date().toDateString()) return hm;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm}`;
+}
+
 const TerminalUserMessage: FC = () => {
   const transform = useContext(TransformContext);
   const id = useAuiState((s) => s.message.id);
@@ -193,18 +206,31 @@ const TerminalUserMessage: FC = () => {
       .map((p) => (p.type === "text" ? (p as { text: string }).text : ""))
       .join(""),
   );
+  // Stamped at the runtime's onFinish for live turns only — loaded history has
+  // no stamp and renders nothing (no fabricated times).
+  const stamp = useTerminalStore((s) => s.turnStamps[id]);
 
   return (
     <MessagePrimitive.Root
       data-role="user"
-      className="fade-in animate-in py-0.5 duration-150 motion-reduce:animate-none"
+      className={cn(
+        "fade-in animate-in py-0.5 duration-150 motion-reduce:animate-none",
+        // Turn boundary: a hairline + breathing room chunk the transcript into
+        // turns instead of one continuous wall of text.
+        !isFirst && "mt-2 border-t border-[var(--line-divider)] pt-2",
+      )}
     >
       {isFirst ? <AnchoredCommands afterMessageId={null} /> : null}
       <div className="flex items-start gap-2">
         <span className="shrink-0 select-none text-[var(--c-command)]">›</span>
-        <div className="min-w-0 whitespace-pre-wrap break-words text-[var(--fg-dim)]">
+        <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-[var(--fg-dim)]">
           {transform(text)}
         </div>
+        {stamp ? (
+          <span className="shrink-0 select-none pl-2 pt-[3px] text-[length:var(--fs-micro)] text-[var(--fg-faint)] tabular-nums">
+            {formatStamp(stamp)}
+          </span>
+        ) : null}
       </div>
       <AnchoredCommands afterMessageId={id} />
     </MessagePrimitive.Root>

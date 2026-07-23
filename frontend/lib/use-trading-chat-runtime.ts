@@ -18,6 +18,7 @@ import { useChatSettings } from "@/lib/chat-settings-context";
 import { useLearnedMemories } from "@/lib/learned-memories-context";
 import { extractTurnMemories, listSessionMemories } from "@/lib/memories";
 import { usePythonThreadListAdapter } from "@/lib/python-thread-adapter";
+import { useTerminalStore } from "@/lib/workspace/use-terminal-store";
 
 const SUGGESTIONS = [
   { prompt: "How is my portfolio doing today?" },
@@ -65,9 +66,16 @@ function useChatThreadRuntime(): AssistantRuntime {
       const msgs = opts.messages;
       const assistant = opts.message;
       if (!assistant) return;
+      const userMsg = [...msgs].reverse().find((m) => m.role === "user");
+      // Timestamp the turn for the terminal transcript — only turns that ran
+      // live get a stamp (loaded history shows none; never fabricate a time).
+      // Runs before the extraction dedupe: approval-resume re-finishes must
+      // still stamp, and stampTurn itself is first-stamp-wins.
+      const { stampTurn } = useTerminalStore.getState();
+      if (userMsg) stampTurn(userMsg.id);
+      stampTurn(assistant.id);
       if (extractedForMessageRef.current.has(assistant.id)) return;
       const assistantText = messageText(assistant);
-      const userMsg = [...msgs].reverse().find((m) => m.role === "user");
       const userText = userMsg ? messageText(userMsg) : "";
       if (!assistantText || !userText) return;
       extractedForMessageRef.current.add(assistant.id);

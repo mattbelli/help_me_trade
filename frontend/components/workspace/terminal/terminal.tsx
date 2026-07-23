@@ -750,11 +750,14 @@ export function Terminal() {
           Absolutely positioned per vAnchor; the flush band mirrors top⇄bottom. */}
       <div
         className={cn(
-          "pointer-events-auto absolute overflow-hidden bg-[var(--bg-raised)]/90 backdrop-blur-md",
-          open && "shadow-lg",
-          open && isBottom && (partialWidth ? "border-t border-x border-[var(--border)]" : "border-t border-[var(--border)]"),
-          open && isTop && (partialWidth ? "border-b border-x border-[var(--border)]" : "border-b border-[var(--border)]"),
-          open && isFloat && "border border-[var(--border)]",
+          // Solid dedicated surface — the open drawer is the focus point, one
+          // clear luminance step off the widget plane (no translucency/blur:
+          // the cockpit behind it must stay crisp, founder rule).
+          "pointer-events-auto absolute overflow-hidden bg-[var(--terminal-surface-focus)]",
+          open && "shadow-xl",
+          open && isBottom && (partialWidth ? "border-t border-x border-[var(--border-strong)]" : "border-t border-[var(--border-strong)]"),
+          open && isTop && (partialWidth ? "border-b border-x border-[var(--border-strong)]" : "border-b border-[var(--border-strong)]"),
+          open && isFloat && "border border-[var(--border-strong)]",
         )}
         style={{
           ...vStyle,
