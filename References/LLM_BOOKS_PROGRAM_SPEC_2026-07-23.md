@@ -155,6 +155,12 @@ memory already flagged the revision).
 - ~~Execution style at approval~~ **DECIDED 07-23: MOO default, market fallback after the auction
   cutoff (§5.5).**
 - Panel cadence: nightly vs Tue/Thu (Opus budget vs signal freshness).
-- Per-book notional caps at arming time (RiskEngine values, founder sets when arming).
+- ~~Per-book notional caps at arming time~~ **DECIDED 07-23 (founder): NO imposed per-trade
+  sizing — "this is the whole test… to see how they can effectively manage a portfolio." Every
+  advanced pick must state its own `notional_usd` (unsized = dropped); the walls are the book's
+  cash, the RiskEngine's account-level checks, and founder approval in propose mode. Sizing
+  discipline is JUDGED (lanes, risk seat, pre-mortems), never fenced. The strategy-record
+  `max_deployed_usd`/`max_concurrent_positions` fields remain available as OPTIONAL founder
+  rails, unset by default.**
 - When (if ever) a book graduates from propose → bounded-auto: NOT in this spec's scope; would ride
   the Rung-3 design (rung3-bounded-auto-design-intel), never a side door.

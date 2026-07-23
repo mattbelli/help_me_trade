@@ -219,9 +219,11 @@ def test_double_parse_fail_saves_failure_report_registers_nothing(tmp_path: Path
     assert again == {"status": "skipped", "reason": "already_ran_today"}
 
 
-def test_armed_cycle_proposes_longs_blocks_shorts_clamps_notional(
+def test_armed_cycle_self_sized_proposals_block_shorts_drop_unsized(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
+    """Founder 07-23: the analyst sizes its own book — the model's notional
+    passes through UNCLAMPED; an advanced pick without a size is dropped."""
     db = tmp_path / "t.db"
     seed_default_strategies(db_path=db)
     update_strategy("book_deepseek", enabled=True, notional_usd=300.0, db_path=db)
@@ -235,18 +237,32 @@ def test_armed_cycle_proposes_longs_blocks_shorts_clamps_notional(
     import trading.proposal_intake as intake
 
     monkeypatch.setattr(intake, "propose_trade", fake_propose)
-    out = asyncio.run(
-        run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=FakeLLM([GOOD_RESPONSE]))
+    decision = json.loads(json.dumps(GOOD_DECISION))
+    decision["candidates"][0]["notional_usd"] = 22_000  # the analyst's own size
+    decision["candidates"].append(
+        {
+            "symbol": "CVX",
+            "direction": "long",
+            "thesis": "energy breakout",
+            "entry_low": "160",
+            "entry_high": "162",
+            "stop": "155",
+            "targets": ["175"],
+            "plan_horizon": "10d",
+            "advanced": True,  # no notional_usd → dropped as unfinished work
+        }
     )
+    response = "## r\n\n```json\n" + json.dumps(decision) + "\n```"
+    out = asyncio.run(run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=FakeLLM([response])))
     assert out["status"] == "ok" and out["armed"] is True
-    # AAPL proposed (notional clamped to the strategy's 300 < the model's 400);
-    # IWM short blocked; MSFT not advanced.
+    # AAPL proposed at the model's OWN 22k (strategy notional_usd=300 ignored);
+    # IWM short blocked; CVX dropped unsized; MSFT not advanced.
     assert [c.symbol for c in captured] == ["AAPL"]
-    assert float(captured[0].notional_usd) == 300.0
+    assert float(captured[0].notional_usd) == 22_000.0
     assert captured[0].account_id == "acct_alpaca_deepseek"
     assert captured[0].source == "book_deepseek"
     statuses = {p["symbol"]: p["status"] for p in out["proposals"]}
-    assert statuses == {"AAPL": "proposed", "IWM": "short_blocked"}
+    assert statuses == {"AAPL": "proposed", "IWM": "short_blocked", "CVX": "no_size"}
 
 
 def test_analysis_crash_retries_then_stamps_error_report(tmp_path: Path) -> None:

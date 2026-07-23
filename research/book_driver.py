@@ -129,7 +129,9 @@ _DECISION_CONTRACT = (
     "Rules for the block:\n"
     "- List EVERY candidate you seriously weighed, not just what you advance — considered "
     "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
-    "- advanced=true ONLY for what you actually propose for entry.\n"
+    "- advanced=true ONLY for what you actually propose for entry, and it REQUIRES "
+    "notional_usd — you size your own book, and your sizing is part of what this study "
+    "judges. An advanced pick without a size is dropped as unfinished work.\n"
     "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
     "execution is not yet unlocked for this book).\n"
     "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n"
@@ -546,7 +548,6 @@ async def _propose_advanced(
     measurement lanes carry them; execution waits for the increment-5 round."""
     from trading.proposal_intake import TradeCandidate, propose_trade
 
-    cap = Decimal(str(strategy["notional_usd"]))
     results: list[dict[str, Any]] = []
     for cand in decision.candidates:
         if not cand.advanced:
@@ -558,9 +559,18 @@ async def _propose_advanced(
             )
             results.append({"symbol": cand.symbol, "status": "short_blocked"})
             continue
-        notional = cap
-        if cand.notional_usd is not None and Decimal(str(cand.notional_usd)) > 0:
-            notional = min(cap, Decimal(str(cand.notional_usd)))
+        # Founder 07-23: the analyst sizes its own book — no imposed clamp, no
+        # default. An advanced pick without a stated size is unfinished work.
+        # The walls that remain are physical: the book's cash, the RiskEngine
+        # at the chokepoint, and the founder's approval tap in propose mode.
+        if cand.notional_usd is None or Decimal(str(cand.notional_usd)) <= 0:
+            logger.warning(
+                "book %s advanced %s without notional_usd — no proposal",
+                book_id, cand.symbol,
+            )
+            results.append({"symbol": cand.symbol, "status": "no_size"})
+            continue
+        notional = Decimal(str(cand.notional_usd))
         outcome = await propose_trade(
             TradeCandidate(
                 symbol=cand.symbol.strip().upper(),

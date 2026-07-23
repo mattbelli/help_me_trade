@@ -31,8 +31,11 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
 - Never state a numeric win probability. Confidence is low/medium/high only.
 - List EVERY candidate you seriously weighed, not just what you advance — considered candidates
   are tracked for calibration. Advancing nothing is a perfectly good night.
-- `advanced: true` ONLY for what you actually propose for entry. Shorts may appear as candidates
-  for tracking but must have `advanced: false` (short execution is not yet unlocked).
+- `advanced: true` ONLY for what you actually propose for entry, and it REQUIRES `notional_usd`:
+  **you size your own book** — sizing discipline is part of what this study judges (home runs when
+  they present themselves, never sized to go belly up). An advanced pick without a size is dropped
+  as unfinished work. Shorts may appear as candidates for tracking but must have
+  `advanced: false` (short execution is not yet unlocked).
 - Never touch `trading/`, never place or propose orders outside the decision JSON, never modify
   app code or data.
 

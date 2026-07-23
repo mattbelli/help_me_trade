@@ -401,9 +401,9 @@ def _earnings_section(book: Book, db_path: Path) -> str:
 
 
 def _mandate_section(book: Book, db_path: Path) -> str:
-    """The book's actual operating constraints — without this the analyst
-    invents sizing untethered from the caps the chokepoint will enforce
-    (founder caught Fable writing $12k plans against a $500 clamp)."""
+    """The book's actual operating rules. Founder 07-23: NO imposed sizing —
+    the analyst sizes its own book and is judged on it; the walls are the
+    book's cash, the RiskEngine, and founder approval in propose mode."""
     from db.strategies import get_strategy
 
     s = get_strategy(book.strategy_id, db_path=db_path) if book.strategy_id else None
@@ -415,13 +415,15 @@ def _mandate_section(book: Book, db_path: Path) -> str:
             if s.get("enabled")
             else "- status: DRY (proving period) — nothing you advance is executed yet"
         ),
-        f"- per-trade notional cap: ${float(s['notional_usd']):,.0f} — proposals are CLAMPED to"
-        " this at intake; size your advanced ideas within it",
+        "- sizing: YOURS. Every advanced pick must state notional_usd — you manage this"
+        " book's capital and your sizing discipline is part of what the study judges"
+        " (home runs when they present themselves, never sized to go belly up). The"
+        " book's own cash is the wall; there is no per-trade clamp.",
     ]
     if s.get("max_deployed_usd"):
-        lines.append(f"- max deployed: ${float(s['max_deployed_usd']):,.0f}")
+        lines.append(f"- founder-set max deployed: ${float(s['max_deployed_usd']):,.0f}")
     if s.get("max_concurrent_positions"):
-        lines.append(f"- max concurrent positions: {int(s['max_concurrent_positions'])}")
+        lines.append(f"- founder-set max concurrent positions: {int(s['max_concurrent_positions'])}")
     lines.append("- shorts: tracked in your lanes for calibration, NOT executable yet")
     return "\n".join(lines)
 
