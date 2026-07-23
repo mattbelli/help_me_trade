@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "strategy-lab-redesign",
+      "title": "Strategy Lab redesign: zero-context mockup round (backtesting + live look-in + LLM books)",
+      "lane": "in_progress",
+      "type": "ui",
+      "priority": "high",
+      "owner": "agent",
+      "updated_at": "2026-07-23",
+      "notes": "Founder 07-23: not happy with current Strategy Lab; wants backtesting + live look-in at mechanical AND LLM-managed accounts, 'essentially everything', via context-free agents returning HTML mockups (= the codified fresh-eyes doctrine). Self-contained brief written: References/STRATEGY_LAB_REDESIGN_PROMPT_2026-07-23.md (content inventory incl. the 4 LLM books + per-seat ledger grading + honesty labels as design elements; design-language card). 3 zero-context Opus agents dispatched 07-23 \u2192 References/strategy_lab_mockups/variant_{a,b,c}.html (A=house style, B=blue-sky, C=house style + phone-width bottom-tab). Next: founder reviews mockups \u2192 synthesize winner \u2192 build round."
+    },
+    {
       "id": "watchlist-aggregate-panel",
       "title": "Watchlist aggregate return: equal-weight index curve in a floating panel",
       "lane": "done",
@@ -1195,7 +1205,8 @@
       "lane": "backlog",
       "type": "bug",
       "priority": "normal",
-      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5. | 2026-07-16 exit-engine review follow-ups (same M5 fallback family, pre-existing): proposal_intake._size_candidate + RiskEngine.validate consume get_latest_snapshot WITHOUT the account-mismatch guard \u2014 no snapshot for the target account silently sizes/validates against the broker-wide fallback (another account's buying power); ai/chat/tools.py:333 falls back to the broker UUID for display on NULL account_id."
+      "notes": "data-correctness audit M-findings not in #37: M6 hours-old Schwab cache shown as live to UI + LLM (decision-quality risk); M5 get_latest_snapshot(unknown id) silently returns another account's snapshot (cross-account leak, sector_breakdown inherits); M3 dividends/interest never synced via API path; M1 parse_dollar\u2192$0 on unparseable; M2 weekend double-count; M7 sync denylist should be allowlist. Plus low tail L1/L3-L5. | 2026-07-16 exit-engine review follow-ups (same M5 fallback family, pre-existing): proposal_intake._size_candidate + RiskEngine.validate consume get_latest_snapshot WITHOUT the account-mismatch guard \u2014 no snapshot for the target account silently sizes/validates against the broker-wide fallback (another account's buying power); ai/chat/tools.py:333 falls back to the broker UUID for display on NULL account_id. | 2026-07-23 NEW FORENSIC (same M5 family): during the Matt+LLM account swap, reconcile_account_external_id one-shot stamped STRAT1's external id onto the DEFAULT account row in the concurrent six-account poll window (registered=17efe48b while both processes' default fetches returned b07ddebb \u2014 neither explains the value). The id-mismatch guard (api/main.py ~319) correctly skipped saves, no corruption. Suspect: cross-credential adapter aliasing or a stamp race under concurrent cycles + mid-cycle NULL. Investigate when this card runs: factory cache keying + reconcile's NULL-guard atomicity.",
+      "updated_at": "2026-07-23"
     },
     {
       "id": "decision-engine-phase1",

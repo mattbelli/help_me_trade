@@ -27,6 +27,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 |---|---|
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |
 | `MULTI_ANGLE_REASONING_AB_2026-07-19.md` | Design: bull/bear/judge panel A/B vs the single veto-grade voice — paired shadow, alternating control, alpha-adjudicated prereg metrics. Opus-reviewed (fixes folded); AWAITING FOUNDER GO |
+| `STRATEGY_LAB_REDESIGN_PROMPT_2026-07-23.md` | Self-contained zero-context designer brief for the Strategy Lab redesign (content inventory: mechanical strategies + 4 LLM books + backtesting + live look-in; honesty labels as design elements). Mockups land in `strategy_lab_mockups/` |
 | `IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md` | Phase 1 implementation spec — DEPLOYED 07-16; audit gaps fixed in Round 0 (07-18) |
 | `FUSION_EVIDENCE_BUS_SPEC_2026-07-17.md` | ★ v3 BUILD spec for the fusion layer — the Phase 2 delta set ON the Unified Design (grill + 4 audits). Roadmap §4 item 2 builds to THIS. §2 scoring/lifecycle now has a proposed delta: see the Horizon Redesign |
 | `FUSION_HORIZON_REDESIGN_2026-07-21.md` | Converged direction from 3 independent passes (orchestrator + zero-context Fable + zero-context Grok): decayed directional masses + conviction ratio replace day-buckets/binary contested; swing-only product lane; armed→triggered→expired lifecycle — DIRECTION BLESSED 07-21; supersedes C6-as-specced |
