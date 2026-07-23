@@ -10,6 +10,16 @@
   ],
   "cards": [
     {
+      "id": "llm-books-program",
+      "title": "LLM paper books program: 4-book forward-test (Deep Seek / Fable / Claude Panel / Matt + LLM)",
+      "lane": "in_progress",
+      "type": "feature",
+      "priority": "high",
+      "owner": "agent",
+      "updated_at": "2026-07-23",
+      "notes": "Founder 07-23: accounts wired + verified paper; panel design settled (Opus seats cross-examining + Fable judge, pre-registered rubric); shorts AUTHORIZED for books via per-strategy allow_short (own reviewed round). BUILD SPEC written 07-23: References/LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md \u2014 nightly deterministic context pack -> driver session -> register EVERY candidate in book:*/seat lanes (journal-class) -> ONE batched push -> morning approve -> chokepoint. 6 increments: (1) plumbing (strategy records disabled/propose, origins+cooldowns, pack script), (2) Deep Seek book e2e, (3) Matt+LLM snapshot job, (4) Fable+Panel sessions, (5) shorts unlock, (6) Lab UI lane wiring. One-way valve: mechanical signals flow IN, book output never back. Founder-lane opens: execution style (market-at-approval vs MOO), panel cadence, per-book caps at arming."
+    },
+    {
       "id": "strategy-lab-redesign",
       "title": "Strategy Lab redesign: zero-context mockup round (backtesting + live look-in + LLM books)",
       "lane": "in_progress",
