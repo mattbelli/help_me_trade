@@ -872,7 +872,12 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       try {
         const data = await fetchWatchlists();
         if (cancelled) return;
-        setState(data);
+        // Watchlists are edited server-side by more than this widget (chat
+        // tools on web AND mobile, other tabs/devices) — converge on server
+        // truth, but only re-render when the payload actually changed.
+        setState((prev) =>
+          prev && JSON.stringify(prev) === JSON.stringify(data) ? prev : data,
+        );
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -885,16 +890,28 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     }
 
     void load();
+    const id = window.setInterval(() => void load(), 30_000);
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
 
     return () => {
       cancelled = true;
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
   const displayList = useMemo(() => {
     if (!state) return null;
     const listId = config.watchlistId ?? state.active_id;
-    return state.lists.find((list) => list.id === listId) ?? null;
+    return (
+      state.lists.find((list) => list.id === listId) ??
+      // A persisted per-widget list id can dangle (list deleted elsewhere) —
+      // degrade to the active list, then the first list, before giving up.
+      state.lists.find((list) => list.id === state.active_id) ??
+      state.lists[0] ??
+      null
+    );
   }, [config.watchlistId, state]);
 
   const symbols = useMemo(
