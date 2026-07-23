@@ -572,28 +572,45 @@ async def _canary_launch(today: date, db_path: Path) -> None:
     # Register a synthetic idea in the canary namespace (fail-soft, lazy import —
     # register_idea is a sibling slice). Summaries filter WHERE synthetic = 0, so
     # this row is invisible to every calibration/summary read path.
+    # 2026-07-23 incident: a long writer starved the 5s busy timeout and this
+    # INSERT died on "database is locked" while the push beneath still receipted
+    # — verify correctly paged "ledger row missing". Bounded loop-safe retries:
+    # each attempt already waits out the busy timeout inside sqlite, so three
+    # attempts + backoff ride out a seconds-scale lock burst.
     try:
+        import sqlite3
+
         from db.idea_outcomes import register_idea
 
-        register_idea(
-            origin="canary",
-            signal_family="canary",
-            symbol="SPY",
-            direction="long",
-            entry_zone={"low": "1.00", "high": "1.01"},
-            stop="0.90",
-            targets=["1.10"],
-            thesis="synthetic liveness canary",
-            bear_case="synthetic",
-            plan_horizon="5d",
-            grading_basis="plan",
-            synthetic=1,
-            # Pinned to the canary's day: register_idea's default as_of is UTC
-            # now, whose DATE drifts past today after 20:00 ET — the verify
-            # pass probes this row by (origin, date) and must find it.
-            as_of=f"{today.isoformat()}T12:00:00+00:00",
-            db_path=db_path,
-        )
+        for attempt in range(3):
+            try:
+                register_idea(
+                    origin="canary",
+                    signal_family="canary",
+                    symbol="SPY",
+                    direction="long",
+                    entry_zone={"low": "1.00", "high": "1.01"},
+                    stop="0.90",
+                    targets=["1.10"],
+                    thesis="synthetic liveness canary",
+                    bear_case="synthetic",
+                    plan_horizon="5d",
+                    grading_basis="plan",
+                    synthetic=1,
+                    # Pinned to the canary's day: register_idea's default as_of is UTC
+                    # now, whose DATE drifts past today after 20:00 ET — the verify
+                    # pass probes this row by (origin, date) and must find it.
+                    as_of=f"{today.isoformat()}T12:00:00+00:00",
+                    db_path=db_path,
+                )
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt == 2:
+                    raise
+                logger.warning(
+                    "canary register_idea hit a locked db — retry %d/2", attempt + 1
+                )
+                await asyncio.sleep(1.5 * (attempt + 1))
     except Exception:
         logger.exception("canary register_idea failed")
 

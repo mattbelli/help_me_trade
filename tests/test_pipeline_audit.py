@@ -165,6 +165,45 @@ async def test_canary_registers_synthetic_namespace(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_canary_register_retries_through_lock_burst(tmp_path, monkeypatch):
+    """2026-07-23 incident: a >5s writer starved the busy timeout and the canary
+    row was lost while its push still receipted. The launch now rides out a
+    seconds-scale lock burst with bounded retries."""
+    import sqlite3
+
+    db = tmp_path / "t.db"
+    monkeypatch.setattr(pa, "is_trading_day", lambda d: True)
+
+    async def fake_push(*args, **kwargs):
+        return 1
+
+    monkeypatch.setattr("signals.push.send_alert_push", fake_push)
+
+    async def _nosleep(_s):
+        return None
+
+    monkeypatch.setattr(pa.asyncio, "sleep", _nosleep)
+
+    attempts: list[int] = []
+
+    def flaky_register(**kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise sqlite3.OperationalError("database is locked")
+        return 1
+
+    monkeypatch.setattr("db.idea_outcomes.register_idea", flaky_register, raising=False)
+
+    async def fake_notify(**kw):
+        return {"id": "persisted"}
+
+    monkeypatch.setattr(pa, "notify", fake_notify)
+
+    await pa.run_audit(_now_at(15, 0), db)
+    assert len(attempts) == 3  # two locked failures, third succeeds
+
+
+@pytest.mark.asyncio
 async def test_critical_notify_bypasses_inbox_only(tmp_path, monkeypatch):
     """Asserts the real notify.py logic: an inbox-only kind at severity=critical
     still pushes; the same kind at severity=info is demoted to inbox."""
