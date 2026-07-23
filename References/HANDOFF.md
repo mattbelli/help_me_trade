@@ -86,13 +86,6 @@ founder-approved (gpt-5.6-sol mains / orchestrator surgical / Opus simple — th
 Zero-context composition audit of hmt-backend verified claim-by-claim and archived
 (`References/BACKEND_COMPOSITION_AUDIT_2026-07-18.md` — read its header first). Step-1 fixes SHIPPED
 (blind jobs registered; EOD scan / fill_outcomes / fusion ATR off-loop — BUILD_LOG 2026-07-18). **Open:**
-- ▶ **Rank-1 nightly research worker — APPROVED 07-19; R1a LIVE, R1b open (founder-held)**
-  (`References/RESEARCH_WORKER_DESIGN_2026-07-18.md`, board `rank1-research-worker-design`): R1a
-  went live Mon 06:00Z — the Schwab-reauth cron's backend restart picked up the 07-19 commits
-  before the planned with-verdict deploy (inert as designed: flag off, backend owns all five
-  jobs; detail: BUILD_LOG 2026-07-21). R1b (worker shell + lease ticker + unit + flag flip +
-  dead-man receipts + /health block) is spec'd + recon-complete, ON HOLD per founder 07-20
-  ("No need to start now")
 - ▶ **Rank-2 exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent →
   max depth + adversarial review. NOTE: audit argues AGAINST extracting the order path out-of-process
   (conflicts with the old rung-3 "extract trading loops" note — resolve at design time)

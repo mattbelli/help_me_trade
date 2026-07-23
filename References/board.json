@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-22",
+  "updated_at": "2026-07-23",
   "lanes": [
     "inbox",
     "founder",
@@ -124,13 +124,13 @@
     {
       "id": "rank1-research-worker-design",
       "title": "Rank-1 nightly research worker \u2014 APPROVED; R1a shipped, R1b pending (References/RESEARCH_WORKER_DESIGN_2026-07-18.md)",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "design",
       "priority": "high",
       "owner": "agent",
-      "notes": "FOUNDER APPROVED 07-19 (after Opus adversarial review + external Grok audit both folded). R1a mechanical extraction SHIPPED 07-19: api/research_jobs.py (five job bodies + register_research_jobs(), one gating source), signals/universe.py (watchlist/liquid-core/profile-universe helpers + _fresh variant), Job.run_on_start (momentum/VP register True under both owners -- preserves boot-first loop semantics), flow-EOD dedup restart-safe via lane_stats options_flow_eod/ran ET-day counter (bump at the exact old mark position, read-back verify), reflection at-most-once-per-ET-day, momentum upsert to_thread'd, momentum boot-freshness skip (latest_universe_bar_date >= last completed weekday). Backend still owns all five. Opus diff review: PASS, 0 HIGH/MED (3 informational: backoff-on-failure now applies to 24h jobs; loop-level log lines dropped, fns log their own; dedups deliberately fail-open flow-EOD / fail-closed reflection). 82 targeted tests green, ruff clean, tsc clean. NOT DEPLOYED YET by design: Mon 07-20 night probe must measure step-1 code -- deploy R1a with the verdict read. NEXT: R1b split (worker shell + 60s lease ticker + systemd unit + disown-before-own flag flip + dead-man receipts + /health research block + flow-EOD silent-lane rule + Schwab-cron checklist). || 07-21: R1a found LIVE since Mon 06:00Z (reauth-cron restart picked up the weekend commits; inert, flag off) \u2014 the planned with-verdict deploy was moot. Probe verdict: 30-41s overnight class EXTINCT (3 days data); culprit of the surviving 5s/15min class = pipeline_audit sync rate rules, fixed via to_thread same night (BUILD_LOG 07-21). R1b spec'd + recon-complete, ON HOLD per founder 07-20.",
+      "notes": "FOUNDER APPROVED 07-19 (after Opus adversarial review + external Grok audit both folded). R1a mechanical extraction SHIPPED 07-19: api/research_jobs.py (five job bodies + register_research_jobs(), one gating source), signals/universe.py (watchlist/liquid-core/profile-universe helpers + _fresh variant), Job.run_on_start (momentum/VP register True under both owners -- preserves boot-first loop semantics), flow-EOD dedup restart-safe via lane_stats options_flow_eod/ran ET-day counter (bump at the exact old mark position, read-back verify), reflection at-most-once-per-ET-day, momentum upsert to_thread'd, momentum boot-freshness skip (latest_universe_bar_date >= last completed weekday). Backend still owns all five. Opus diff review: PASS, 0 HIGH/MED (3 informational: backoff-on-failure now applies to 24h jobs; loop-level log lines dropped, fns log their own; dedups deliberately fail-open flow-EOD / fail-closed reflection). 82 targeted tests green, ruff clean, tsc clean. NOT DEPLOYED YET by design: Mon 07-20 night probe must measure step-1 code -- deploy R1a with the verdict read. NEXT: R1b split (worker shell + 60s lease ticker + systemd unit + disown-before-own flag flip + dead-man receipts + /health research block + flow-EOD silent-lane rule + Schwab-cron checklist). || 07-21: R1a found LIVE since Mon 06:00Z (reauth-cron restart picked up the weekend commits; inert, flag off) \u2014 the planned with-verdict deploy was moot. Probe verdict: 30-41s overnight class EXTINCT (3 days data); culprit of the surviving 5s/15min class = pipeline_audit sync rate rules, fixed via to_thread same night (BUILD_LOG 07-21). R1b spec'd + recon-complete, ON HOLD per founder 07-20. || 07-23 FOUNDER DECISION: R1b CANCELLED \u2014 not splitting the night worker; the backend keeps owning all five jobs. R1a extraction stands as shipped (live since 07-20, flag off, inert). Thread closed.",
       "created_at": "2026-07-18",
-      "updated_at": "2026-07-19"
+      "updated_at": "2026-07-23"
     },
     {
       "id": "loop-lag-probe-2026-07-18",
@@ -241,12 +241,12 @@
     {
       "id": "options-data-plan-decision",
       "title": "Greenlight: options data plan \u2014 stop squeezing the quote cap, or buy headroom (~$199/mo)?",
-      "lane": "founder",
+      "lane": "done",
       "type": "decision",
       "priority": "high",
       "owner": "founder",
-      "notes": "Founder's own framing 2026-07-16: 'switching plans rather than squeezing an elephant through a mouse hole'. The squeeze is QUOTES only (1,000-sub cap measured; trades wildcard works). Grounded options: (a) Databento OPRA Standard $199/mo \u2014 TBBO schema pairs EVERY trade with the BBO at trade time = DIR-1 classification with NO standing quote subs at all (architecturally ideal; full consolidated OPRA incl SPX/SPXW); (b) Polygon/Massive Advanced $199/mo \u2014 unlimited ws subs + real-time greeks/IV; (c) ThetaData ~$80/mo tick options; (d) ask Alpaca if any tier lifts the 1k quote cap (self-serve tiers suggest no; broker tiers are $1k/mo class). Recommendation: trial Databento Standard month-to-month as the collector's DATA plane (execution stays Alpaca, decoupled by design); run both feeds in parallel for a validation window (gauge same-day cross-check \u2014 coverage stamps were built for exactly this transition). Concentration study stays valuable for cost/CPU sizing + already caught the SPXW trap. Decision = spend authority: founder.\n\n2026-07-19 Schwab evaluated at founder request (first time): /chains is rich real-time (greeks/IV/OI + STRATEGY chains \u2014 server-side VERTICAL/STRADDLE/CONDOR pricing + ANALYTICAL custom-vol theoreticals) and free with the funded account, BUT zero options history of any kind (pricehistory = equities/indices only; confirmed vs schwab-py docs) and the streamer is capped per-contract subs behind the Akamai WAF. Verdict: NOT a candidate for the collector data plane (this decision unchanged); useful as a free second IV/greeks cross-check source + spread pricer at gentle daily cadence, founder-only per the never-a-hard-dependency doctrine.",
-      "updated_at": "2026-07-19"
+      "notes": "Founder's own framing 2026-07-16: 'switching plans rather than squeezing an elephant through a mouse hole'. The squeeze is QUOTES only (1,000-sub cap measured; trades wildcard works). Grounded options: (a) Databento OPRA Standard $199/mo \u2014 TBBO schema pairs EVERY trade with the BBO at trade time = DIR-1 classification with NO standing quote subs at all (architecturally ideal; full consolidated OPRA incl SPX/SPXW); (b) Polygon/Massive Advanced $199/mo \u2014 unlimited ws subs + real-time greeks/IV; (c) ThetaData ~$80/mo tick options; (d) ask Alpaca if any tier lifts the 1k quote cap (self-serve tiers suggest no; broker tiers are $1k/mo class). Recommendation: trial Databento Standard month-to-month as the collector's DATA plane (execution stays Alpaca, decoupled by design); run both feeds in parallel for a validation window (gauge same-day cross-check \u2014 coverage stamps were built for exactly this transition). Concentration study stays valuable for cost/CPU sizing + already caught the SPXW trap. Decision = spend authority: founder.\n\n2026-07-19 Schwab evaluated at founder request (first time): /chains is rich real-time (greeks/IV/OI + STRATEGY chains \u2014 server-side VERTICAL/STRADDLE/CONDOR pricing + ANALYTICAL custom-vol theoreticals) and free with the funded account, BUT zero options history of any kind (pricehistory = equities/indices only; confirmed vs schwab-py docs) and the streamer is capped per-contract subs behind the Akamai WAF. Verdict: NOT a candidate for the collector data plane (this decision unchanged); useful as a free second IV/greeks cross-check source + spread pricer at gentle daily cadence, founder-only per the never-a-hard-dependency doctrine. || 07-23 founder cleared this decision card \u2014 no purchase authorized; staying on the current Alpaca lanes. Reopen only on founder word.",
+      "updated_at": "2026-07-23"
     },
     {
       "id": "index-pressure-gauge",
@@ -1764,12 +1764,12 @@
     {
       "id": "fr-1783787089",
       "title": "decision journal is useless \u2014 needs real outcome tracking, and clarify vs idea outcomes",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "2026-07-11 founder: decision journal shows AI decisions but just says 'never filled' \u2014 wants to actively track what was recommended, whether/when it filled, running P&L while open, when the trade closes, and a ping when it's executed (tagged to the strategy it's following). Currently it's just an inert list. Also confused whether decision-journal and idea-outcomes ([[idea-outcomes]]/[[idea-outcomes-ui]], already shipped) are meant to be two different things or should be merged/reconciled \u2014 needs a design pass to decide, likely backend + frontend work either way.",
+      "notes": "2026-07-11 founder: decision journal shows AI decisions but just says 'never filled' \u2014 wants to actively track what was recommended, whether/when it filled, running P&L while open, when the trade closes, and a ping when it's executed (tagged to the strategy it's following). Currently it's just an inert list. Also confused whether decision-journal and idea-outcomes ([[idea-outcomes]]/[[idea-outcomes-ui]], already shipped) are meant to be two different things or should be merged/reconciled \u2014 needs a design pass to decide, likely backend + frontend work either way. || 07-23 founder: cleared from the lane \u2014 closed without build.",
       "owner": "founder",
-      "updated_at": "2026-07-11"
+      "updated_at": "2026-07-23"
     },
     {
       "id": "fr-1783787090",
@@ -1804,12 +1804,12 @@
     {
       "id": "fr-1783787093",
       "title": "themes: deep founder-driven pass \u2014 too many settings with no visible effect",
-      "lane": "inbox",
+      "lane": "done",
       "type": "idea",
       "priority": "normal",
-      "notes": "2026-07-11 founder: wants another really deep pass on themes, founder-driven. Right now a lot of theme controls don't visibly change anything unless he changes a value and goes hunting for it, and often he still can't spot the difference. Needs someone to actually identify which components/vars are genuinely tweakable and make the editor only expose those (or make the effect obvious). Related prior rounds: [[theme-round-fg-bg-green]], [[theme-editor-floating]], [[theme-ember]].",
+      "notes": "2026-07-11 founder: wants another really deep pass on themes, founder-driven. Right now a lot of theme controls don't visibly change anything unless he changes a value and goes hunting for it, and often he still can't spot the difference. Needs someone to actually identify which components/vars are genuinely tweakable and make the editor only expose those (or make the effect obvious). Related prior rounds: [[theme-round-fg-bg-green]], [[theme-editor-floating]], [[theme-ember]]. || 07-23 founder: cleared from the lane \u2014 closed without build.",
       "owner": "founder",
-      "updated_at": "2026-07-11"
+      "updated_at": "2026-07-23"
     },
     {
       "id": "settings-rmw-race",

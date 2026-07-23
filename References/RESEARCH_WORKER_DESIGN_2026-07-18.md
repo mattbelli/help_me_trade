@@ -1,5 +1,11 @@
 # Rank-1 Nightly Research Worker — design (2026-07-18)
 
+> **⛔ R1b CANCELLED 2026-07-23 (founder): the night worker will NOT be split out of the backend.**
+> R1a (the mechanical extraction, shipped 07-19, live since 07-20, flag off) stands and is the end
+> state — the backend keeps owning all five jobs. The R1b sections below (worker shell, lease
+> ticker, systemd unit, flag flip, dead-man receipts, /health block) are historical design, not a
+> pending build. Do not resume them without a fresh founder go.
+
 *Status: APPROVED (founder, 2026-07-19). **R1a SHIPPED 2026-07-19** (mechanical extraction —
 `api/research_jobs.py` + `signals/universe.py` + `Job.run_on_start`, backend still owns all five;
 Opus adversarial diff review PASS, zero HIGH/MED; committed, deploy held until the Mon 07-20 probe
