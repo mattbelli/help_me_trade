@@ -8,7 +8,7 @@ import {
 
 const pair = (key: string, fetchedAt: number): StoredPair => [
   key,
-  { data: { bars: "x".repeat(10) }, fetchedAt },
+  { data: { bars: ["x".repeat(10)] }, fetchedAt },
 ];
 
 const sizeOf = (p: StoredPair) => p[0].length + JSON.stringify(p[1]).length + 4;
@@ -47,5 +47,17 @@ describe("parsePersisted", () => {
     // entry missing fetchedAt, and entry missing data — both filtered out
     expect(parsePersisted(JSON.stringify([["k", { data: 1 }]]))).toEqual([]);
     expect(parsePersisted(JSON.stringify([["k", { fetchedAt: 5 }]]))).toEqual([]);
+  });
+
+  it("rejects entries whose data is not a bars response (bars must be an array)", () => {
+    // A stale-schema blob whose data survived JSON round-trip but isn't a
+    // BarsResponse would crash the chart at data.bars.map — must be dropped here.
+    for (const data of [42, "bars", {}, { bars: "not-an-array" }, { bars: {} }]) {
+      expect(
+        parsePersisted(JSON.stringify([["k", { data, fetchedAt: 5 }]])),
+      ).toEqual([]);
+    }
+    const good: StoredPair = ["k", { data: { bars: [] }, fetchedAt: 5 }];
+    expect(parsePersisted(JSON.stringify([good]))).toHaveLength(1);
   });
 });

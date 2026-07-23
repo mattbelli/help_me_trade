@@ -4032,6 +4032,10 @@ _BARS_INCREMENTAL_DAYS = {
     "1Week": 30,
     "1Month": 90,
 }
+# Timeframes Schwab builds by aggregating 1Day/30Min in-process — their bucket
+# stamps/contents depend on the fetch window, so futures skip incremental for these
+# (see the guard in _fetch_bars_incremental).
+_FUTURES_AGGREGATED_TIMEFRAMES = {"1Hour", "4Hour", "1Week", "1Month"}
 # Incremental merge preserves old history verbatim, so a split adjustment (Alpaca
 # fetches with adjustment=split) would leave the pre-split price scale on the
 # retained bars forever. Force a full re-fetch (re-baseline) at least this often so
@@ -4237,6 +4241,16 @@ async def _fetch_bars_incremental(
     inc_days = _BARS_INCREMENTAL_DAYS.get(timeframe, 7)
     if inc_days >= days:
         return None  # window already covers the whole range — no saving, do full
+    # Futures aggregated timeframes are built in-process from 1Day/30Min groups whose
+    # bucket stamps depend on the fetch window (weekly/monthly buckets stamp
+    # group[0].time = first day IN the window; hourly buckets aggregate only in-window
+    # 30Min bars) — a truncated window duplicates or downgrades the boundary bucket
+    # when merged over a full-walk baseline. Raw timeframes merge cleanly.
+    if timeframe in _FUTURES_AGGREGATED_TIMEFRAMES:
+        from brokers.symbol_class import classify_symbol
+
+        if classify_symbol(sym) == "future":
+            return None
     try:
         provider = get_market_data_provider()
         recent = await provider.aget_stock_bars(
@@ -4356,13 +4370,20 @@ async def _bars_prewarm_once() -> None:
             _push(sym, timeframe, days)
 
     if len(queue) > _BARS_PREWARM_MAX_ENTRIES:
-        dropped = len(queue) - _BARS_PREWARM_MAX_ENTRIES
+        cut = queue[_BARS_PREWARM_MAX_ENTRIES:]
         queue = queue[:_BARS_PREWARM_MAX_ENTRIES]
+        # 1Day baseline entries sit first in the queue, so they're only cut once
+        # the watchlist itself exceeds the cap (200+ names) — say so honestly
+        # instead of claiming coverage that a big list wouldn't have.
+        dropped_default = sum(
+            1 for _s, tf, d in cut if (tf, d) in _BARS_PREWARM_DEFAULT_SPECS
+        )
         logger.info(
-            "bars prewarm: queue capped at %d entries (dropped %d hot-spec/exact "
-            "entries this cycle; 1Day coverage preserved)",
+            "bars prewarm: queue capped at %d entries (dropped %d this cycle, "
+            "of which %d are 1Day-baseline symbols left cold)",
             _BARS_PREWARM_MAX_ENTRIES,
-            dropped,
+            len(cut),
+            dropped_default,
         )
 
     for sym, timeframe, days in queue:

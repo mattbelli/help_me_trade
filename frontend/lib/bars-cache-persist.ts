@@ -51,9 +51,20 @@ export function parsePersisted(raw: string | null): StoredPair[] {
         typeof e[0] === "string" &&
         e[1] != null &&
         typeof (e[1] as StoredEntry).fetchedAt === "number" &&
-        (e[1] as StoredEntry).data != null,
+        looksLikeBarsPayload((e[1] as StoredEntry).data),
     );
   } catch {
     return [];
   }
+}
+
+// The chart renders a rehydrated entry via data.bars.map(...) — a non-array there
+// (a stale-schema blob that survived a shape change without a storage-key bump)
+// would crash every chart on the page. Shape-check it at the trust boundary.
+function looksLikeBarsPayload(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    Array.isArray((data as { bars?: unknown }).bars)
+  );
 }

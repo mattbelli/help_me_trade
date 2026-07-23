@@ -338,3 +338,32 @@ async def test_incremental_empty_window_falls_back_to_full(monkeypatch) -> None:
     out = await api_main._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825, 7, 1825]  # tried window (7), empty → full walk
     assert out is not None and [b["close"] for b in out["bars"]] == [12.0]
+
+
+@pytest.mark.asyncio
+async def test_futures_aggregated_timeframe_skips_incremental(monkeypatch) -> None:
+    """Futures 1Hour/4Hour/1Week/1Month are aggregated in-process from 1Day/30Min
+    groups whose bucket stamps depend on the fetch window — a truncated incremental
+    window duplicates (weekly/monthly) or downgrades (hourly) the boundary bucket.
+    Warm refreshes for these must take the full walk; raw timeframes still merge."""
+    full = [_TBar("2026-06-22T04:00:00Z", 10.0), _TBar("2026-06-29T04:00:00Z", 11.0)]
+    tail = [_TBar("2026-06-30T04:00:00Z", 11.5)]
+    provider = _SeriesProvider(full, tail)
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    ext = api_main._bars_extended_default("1Week")
+    key = ("/ES", "1Week", 1825, ext)
+
+    await api_main._get_bars_cached("/ES", "1Week", 1825)
+    assert provider.calls == [1825]
+    _expire(key)
+    await api_main._get_bars_cached("/ES", "1Week", 1825)
+    # fresh baseline exists, but the futures+aggregated guard forces full anyway
+    assert provider.calls == [1825, 1825]
+
+    # same timeframe on an equity DOES use the incremental window (guard is
+    # futures-scoped, not timeframe-wide)
+    eq_key = ("SPY", "1Week", 1825, ext)
+    await api_main._get_bars_cached("SPY", "1Week", 1825)
+    _expire(eq_key)
+    await api_main._get_bars_cached("SPY", "1Week", 1825)
+    assert provider.calls[-1] == 30  # 1Week incremental window, not a full walk
