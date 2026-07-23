@@ -196,8 +196,13 @@ class ExecutionService:
                         if intent.limit_price is not None
                         else None
                     ),
-                    time_in_force="day",
+                    time_in_force=intent.time_in_force,
                     position_intent=position_intent,
+                    stop_price=(
+                        str(intent.stop_price)
+                        if intent.stop_price is not None
+                        else None
+                    ),
                 )
                 try:
                     resp = await adapter.aplace_order(req)

@@ -17,6 +17,20 @@ waiting on the origins defined in §4.*
 >    registers in BOTH its seat lane and `book:panel`.
 > 3. Lane registry + registration helper + pack builder live in `research/books.py` (the
 >    reason-lane precedent); the CLI wrapper is `tools/book_context_pack.py`.
+> 4. **ARMING NIGHT (2026-07-23 late, founder: "arm the books… all of these are going live").**
+>    The execution round §5.5 pointed at shipped as `entry_style="moo"` through the normal
+>    chokepoint: book proposals may be created AFTER HOURS (sized off the last close,
+>    whole-share), expire at the NEXT session close (not 30 min), and approval computes TIF
+>    at tap time — `opg` before the ~9:28 ET cutoff, market-at-approval after
+>    (`trading/market_hours.moo_time_in_force`). NEW same round, closing the founder's
+>    "blind between cycles" gap: every advanced pick now ALSO requires a **numeric stop**,
+>    and once the entry fills, `trading/stop_guard.py` places that stop as a **resting GTC
+>    stop sell** at the broker through the chokepoint (idempotent via durable
+>    `stop|<proposal_id>` execution rows; retry w/ backoff; pages the founder if a filled
+>    entry can't be protected). RiskEngine grew order-shape gates (tif whitelist; stops =
+>    reduce-only whole-share equity sells; opg = whole-share) and a NARROW off-hours
+>    reference-close price used ONLY for opg intents and protective stop sells. Panel
+>    cadence (§9) resolved by the arming order: **nightly**.
 
 ## 1. What this is (and is not)
 
@@ -153,8 +167,8 @@ memory already flagged the revision).
 ## 9. Founder-lane decisions (open)
 
 - ~~Execution style at approval~~ **DECIDED 07-23: MOO default, market fallback after the auction
-  cutoff (§5.5).**
-- Panel cadence: nightly vs Tue/Thu (Opus budget vs signal freshness).
+  cutoff (§5.5). SHIPPED 07-23 late (amendment 4).**
+- ~~Panel cadence~~ **RESOLVED 07-23 by the arming order ("all of these are going live"): nightly.**
 - ~~Per-book notional caps at arming time~~ **DECIDED 07-23 (founder): NO imposed per-trade
   sizing — "this is the whole test… to see how they can effectively manage a portfolio." Every
   advanced pick must state its own `notional_usd` (unsized = dropped); the walls are the book's

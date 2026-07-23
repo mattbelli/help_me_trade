@@ -313,7 +313,26 @@ async def reconcile_open_executions(
                 db_path=db_path,
             )
         else:
-            update_execution_status(execution_id, new_status, db_path=db_path)
+            # Terminal canceled/expired can still carry a partial fill when the
+            # order died between polls (first observation is already terminal).
+            # Persist the real share count so downstream consumers — the stop
+            # guard protecting a terminal-partial book entry — see the shares
+            # (adversarial review M2-lifecycle, 2026-07-23).
+            update_execution_status(
+                execution_id,
+                new_status,
+                filled_qty=(
+                    order.filled_qty
+                    if _filled_qty_positive(getattr(order, "filled_qty", None))
+                    else None
+                ),
+                avg_fill_price=(
+                    getattr(order, "filled_avg_price", None)
+                    if _filled_qty_positive(getattr(order, "filled_qty", None))
+                    else None
+                ),
+                db_path=db_path,
+            )
 
         # Record strategy attribution into the managed-position ledger so the exit
         # engine knows whose rules apply. Bookkeeping only — fail-closed inside.

@@ -56,6 +56,48 @@ def is_after_close(now: datetime) -> bool:
     return t.hour * 60 + t.minute >= close_h * 60 + close_m
 
 
+def moo_time_in_force(now: datetime | None = None) -> str:
+    """TIF for a market-on-open entry approved at `now` (book MOO decision, spec §5.5).
+
+    - Market open → "day": a queued opg would execute a stale thesis at
+      TOMORROW's auction; market-at-approval is the decided fallback.
+    - Closed, but 09:28+ on a trading day before the open → "day": Alpaca
+      queues opg submitted after ~09:28 ET to the NEXT day's auction — the
+      same stale-thesis hazard — while a day market order releases at this
+      morning's open. (Weekends/holidays hit this window too and get a day
+      order that queues to the next open — equivalent fill, no hazard.)
+    - Any other closed time (overnight, pre-09:28, post-close) → "opg": the
+      next opening auction is exactly the intended fill.
+    """
+    t = now.astimezone(_ET) if now is not None else datetime.now(_ET)
+    if is_market_open(t):
+        return "day"
+    minutes = t.hour * 60 + t.minute
+    cutoff = 9 * 60 + 28
+    open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+    if minutes >= cutoff and minutes < open_minutes:
+        return "day"
+    return "opg"
+
+
+def next_session_close(now: datetime | None = None) -> datetime:
+    """Instant of the next regular-session close strictly after `now` (ET).
+
+    Book proposals expire here: the founder may approve any time up to that
+    close (MOO before the auction cutoff, market-at-approval after); past it
+    the thesis is the next nightly cycle's job. Half-days close at 13:00.
+    """
+    t = now.astimezone(_ET) if now is not None else datetime.now(_ET)
+    d = t.date()
+    while True:
+        if is_trading_day(d):
+            close_h, close_m = session_close_time(d)
+            close = datetime(d.year, d.month, d.day, close_h, close_m, tzinfo=_ET)
+            if close > t:
+                return close
+        d += timedelta(days=1)
+
+
 def last_session_close(now: datetime) -> datetime:
     """Instant of the most recent regular-session close at or before `now` (ET).
 

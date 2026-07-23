@@ -171,6 +171,7 @@ from trading.exit_engine import run_exit_engine
 from trading.fill_tracker import reconcile_open_executions, reconcile_pending_executions
 from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
 from trading.proposal_intake import propose_from_scan_fire
+from trading.stop_guard import place_protective_stops
 from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -350,6 +351,10 @@ async def _poll_account(account: dict) -> bool:
             await reconcile_pending_executions(broker_name, account_id=account_id)
         if count_submitted_executions(broker_name, account_id=account_id) > 0:
             await reconcile_open_executions(broker_name, account_id=account_id)
+        # Book protective stops ride the same pass: the snapshot saved above
+        # already shows a just-filled entry, so the stop validates first try.
+        if broker_name == "alpaca":
+            await place_protective_stops(broker_name, account_id=account_id)
         # Analytics + rules-eval stay default-account-only (broker-keyed display +
         # watchlist-global rules) — unchanged.
         if not account.get("is_default"):
@@ -4009,10 +4014,12 @@ def api_grade_idea_outcome(outcome_id: int, request: Request, body: dict = Body(
 
 
 @app.get("/api/reports")
-def api_list_reports(limit: int = 30):
-    from db.reports import list_reports
+def api_list_reports(limit: int = 30, kind: str | None = None):
+    from db.reports import list_reports, recent_reports_by_kind
 
     cap = max(1, min(int(limit), 100))
+    if kind:
+        return {"reports": recent_reports_by_kind(kind.strip(), limit=cap)}
     return {"reports": list_reports(limit=cap)}
 
 

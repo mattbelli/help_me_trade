@@ -37,6 +37,19 @@ async function readError(res: Response, fallback: string): Promise<string> {
   return (body as { error?: string }).error ?? fallback;
 }
 
+export async function fetchReportsByKind(
+  kind: string,
+  limit = 5,
+): Promise<ReportRow[]> {
+  const params = new URLSearchParams({ kind, limit: String(limit) });
+  const res = await apiFetch(`${API_BASE}/api/reports?${params}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Reports error ${res.status}`);
+  const body = (await res.json()) as { reports?: ReportRow[] };
+  return body.reports ?? [];
+}
+
 export async function fetchReports(limit = 30): Promise<ReportRow[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   const res = await apiFetch(`${API_BASE}/api/reports?${params}`, {

@@ -34,6 +34,17 @@ def order_intent_from_fields(
     limit_raw = intent_fields.get("limit_price")
     broker = str(intent_fields["broker"])
     account_id = intent_fields.get("account_id")
+    # MOO entries (book approvals): TIF is decided at INTENT-BUILD time — i.e.
+    # at approval, against the clock right then — never frozen at proposal
+    # creation. Before the ~9:28 ET auction cutoff that's opg; after it, a
+    # plain day market order (market-at-approval, spec §5.5).
+    moo_entry = str(intent_fields.get("entry_style") or "") == "moo"
+    if moo_entry:
+        from trading.market_hours import moo_time_in_force
+
+        time_in_force = moo_time_in_force()
+    else:
+        time_in_force = "day"
     if not account_id:
         default = default_execution_account(db_path=db_path)
         if default is not None:
@@ -58,6 +69,8 @@ def order_intent_from_fields(
         multiplier=int(str(intent_fields.get("multiplier", "1"))),
         account_id=account_id,
         allow_fractional=bool(intent_fields.get("allow_fractional", False)),
+        time_in_force=time_in_force,
+        moo_entry=moo_entry,
     )
 
 
@@ -74,8 +87,10 @@ def intent_fields_from_order(
     multiplier: int,
     account_id: str | None = None,
     allow_fractional: bool = False,
+    entry_style: str = "immediate",
+    stop_price: Decimal | None = None,
 ) -> dict[str, Any]:
-    return {
+    fields: dict[str, Any] = {
         "symbol": symbol,
         "side": side,
         "qty": str(qty),
@@ -88,6 +103,13 @@ def intent_fields_from_order(
         "account_id": account_id,
         "allow_fractional": allow_fractional,
     }
+    if entry_style != "immediate":
+        fields["entry_style"] = entry_style
+    if stop_price is not None:
+        # Metadata, not an entry-order param: the stop guard places this as a
+        # resting GTC stop AFTER the entry fills. Never set on the entry intent.
+        fields["stop_price"] = str(stop_price)
+    return fields
 
 
 def build_order_proposal_from_args(
@@ -173,6 +195,26 @@ def build_order_proposal_from_args(
     if order_type not in ("market", "limit"):
         return {"error": "order_type must be market or limit"}
 
+    entry_style = str(args.get("entry_style", "immediate")).strip().lower()
+    if entry_style not in ("immediate", "moo"):
+        return {"error": "entry_style must be immediate or moo"}
+    if entry_style == "moo" and (
+        side != "buy" or order_type != "market" or opt is not None
+    ):
+        return {"error": "moo entries are whole-share equity market BUYS"}
+
+    stop_price: Decimal | None = None
+    stop_raw = args.get("stop_price")
+    if stop_raw is not None:
+        if side != "buy" or opt is not None:
+            return {"error": "stop_price only applies to equity buy entries"}
+        try:
+            stop_price = Decimal(str(stop_raw))
+        except Exception:
+            return {"error": "stop_price must be a number"}
+        if stop_price <= 0:
+            return {"error": "stop_price must be positive"}
+
     limit_price: Decimal | None = None
     if limit_price_raw is not None:
         try:
@@ -188,6 +230,10 @@ def build_order_proposal_from_args(
         "limit_price": float(limit_price) if limit_price is not None else None,
         "asset_class": asset_class,
     }
+    if entry_style != "immediate":
+        proposal_payload["entry_style"] = entry_style
+    if stop_price is not None:
+        proposal_payload["stop_price"] = float(stop_price)
     account_id_arg = args.get("account_id")
     if account_id_arg:
         account = get_account(str(account_id_arg), db_path=db_path)
@@ -273,6 +319,8 @@ def build_order_proposal_from_args(
         multiplier=multiplier,
         account_id=resolved_account_id,
         allow_fractional=allow_fractional,
+        entry_style=entry_style,
+        stop_price=stop_price,
     )
 
     return {

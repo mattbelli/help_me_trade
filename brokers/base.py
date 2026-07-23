@@ -61,6 +61,8 @@ class PlaceOrderRequest:
     limit_price: str | None
     time_in_force: str
     position_intent: str | None = None
+    # Trigger price for order_type="stop" — omitted from the wire when None.
+    stop_price: str | None = None
 
 
 @dataclass(frozen=True)

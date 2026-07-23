@@ -30,6 +30,7 @@ from db.risk_breaker import current_stage, get_or_create_baseline, trip
 from db.sqlite import get_latest_snapshot
 from imports.option_symbol import parse_occ_symbol
 from signals.notify import notify
+from trading.market_hours import is_market_open
 from trading.models import OrderIntent, RiskCheckResult
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,50 @@ class RiskEngine:
                 blocked_reason="kill switch active",
             )
         checks["kill_switch"] = "pass"
+
+        # Order-shape sanity — deny-by-default for the new tif/stop surface
+        # (books round, 2026-07-23). Everything outside the three known TIFs,
+        # or a stop order that isn't a whole-share reduce-only equity sell,
+        # is rejected before any pricing happens.
+        if intent.time_in_force not in ("day", "opg", "gtc"):
+            checks["order_shape"] = f"fail: unknown time_in_force {intent.time_in_force!r}"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason=f"unknown time_in_force {intent.time_in_force!r}",
+            )
+        if intent.order_type == "stop":
+            if (
+                intent.side != "sell"
+                or is_option
+                or intent.stop_price is None
+                or intent.stop_price <= Decimal("0")
+            ):
+                checks["order_shape"] = (
+                    "fail: stop orders are protective equity sells with a positive stop_price"
+                )
+                return RiskCheckResult(
+                    passed=False,
+                    checks=checks,
+                    blocked_reason="invalid stop order shape",
+                )
+        elif intent.stop_price is not None:
+            checks["order_shape"] = "fail: stop_price on a non-stop order"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="stop_price on a non-stop order",
+            )
+        if intent.time_in_force == "opg" and intent.qty != intent.qty.to_integral_value():
+            # Alpaca fractional orders are market+day only — an opg fractional
+            # would be rejected at the broker; fail it here with a clear reason.
+            checks["order_shape"] = "fail: opg orders must be whole-share"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="opg orders must be whole-share",
+            )
+        checks["order_shape"] = "pass"
 
         # Account must be execution-capable — deny-by-default AT THE CHOKEPOINT.
         # approve_proposal also guards this, but enforcing it here makes submit
@@ -324,12 +369,16 @@ class RiskEngine:
                         ),
                     )
                 checks["sell_position"] = f"pass: closing {qty} of {held} long"
-            elif short_allowed and not is_option:
+            elif short_allowed and not is_option and intent.order_type != "stop":
                 # No held long → this OPENS/extends a short. Allowed only because
                 # the toggle is on and we're not live. EQUITY ONLY — options stay
                 # long-only (no naked writing), so the toggle must not enable a
                 # sell-to-open on an option. Exposure caps (buying power / value /
-                # concentration) apply below, same as a buy.
+                # concentration) apply below, same as a buy. STOP orders are
+                # excluded: a protective stop is strictly reduce-only, and letting
+                # one validate against a flat position would arm a RESTING
+                # short-to-open (adversarial review H1, 2026-07-23) — it must
+                # fail below and let the stop guard retry/page instead.
                 is_short_open = True
                 checks["sell_position"] = f"pass: short-to-open {qty} (no held long)"
             else:
@@ -373,6 +422,25 @@ class RiskEngine:
             risk_notional = qty * risk_price * multiplier
         else:
             market_price = await _live_market_price(concentration_symbol)
+            if market_price is None and (
+                intent.time_in_force == "opg"
+                or (intent.moo_entry and not is_market_open())
+                or (intent.order_type == "stop" and intent.side == "sell")
+            ):
+                # Narrow, documented exception to the RTH-only quote gate: these
+                # shapes fill at a FUTURE market event (the opening auction / the
+                # open's release of a dead-zone-approved MOO day order / a stop
+                # trigger), never at the current instant, so the honest risk
+                # basis off-hours is the last session close. Every cap then
+                # bounds against that reference; overnight gap risk is inherent
+                # to a MOO and was accepted with it (spec §5.5). The moo_entry
+                # arm is additionally closed-market-gated so a mid-session
+                # quote outage can never re-price a live market order off a
+                # stale close. All other order shapes keep the fail-closed
+                # no-live-quote gate untouched.
+                market_price = await _offhours_reference_price(concentration_symbol)
+                if market_price is not None:
+                    checks["live_quote"] = "pass: off-hours reference close"
             if market_price is None:
                 checks["live_quote"] = "fail: no live quote"
                 return RiskCheckResult(
@@ -380,7 +448,7 @@ class RiskEngine:
                     checks=checks,
                     blocked_reason="no live quote",
                 )
-            checks["live_quote"] = "pass"
+            checks.setdefault("live_quote", "pass")
 
             if intent.order_type == "limit":
                 if intent.limit_price is None:
@@ -677,6 +745,18 @@ class RiskEngine:
             checks["open_orders_cap"] = "exempt: portfolio rebalance"
             checks["daily_orders"] = "exempt: portfolio rebalance"
             checks["daily_orders_account"] = "exempt: portfolio rebalance"
+        elif intent.order_type == "stop":
+            # Protective stops are strictly reduce-only (shape gate + sell gate
+            # above) and idempotent at the stop guard, and each book position
+            # legitimately costs two orders (entry + resting GTC stop) with the
+            # stop HOLDING an open-order slot for the position's life. Counting
+            # them would let the throttles block a protective order on exactly
+            # the day it matters (adversarial review M3, 2026-07-23). Same
+            # doctrine as HALT exempting exits: throttles bound exposure-adding
+            # runaways; a reduce-only stop adds none.
+            checks["open_orders_cap"] = "exempt: protective stop"
+            checks["daily_orders"] = "exempt: protective stop"
+            checks["daily_orders_account"] = "exempt: protective stop"
         else:
             # 9. Open-orders cap
             max_open_orders = int(cfg["max_open_orders"])
@@ -776,6 +856,32 @@ async def _rest_quote_price(symbol: str) -> float | None:
     except Exception:
         logger.warning("REST quote fallback (bars) failed for %s", symbol, exc_info=True)
     return None
+
+
+async def _offhours_reference_price(symbol: str) -> Decimal | None:
+    """Last completed daily close — the off-hours risk basis for auction (opg)
+    entries and resting protective stops ONLY (see the callsite comment in
+    validate). Refuses anything older than 5 calendar days so a stale data
+    pipeline fails closed rather than pricing risk off ancient bars. Fail-soft:
+    returns None on any error, never raises into validate."""
+    from brokers.factory import get_market_data_provider
+
+    try:
+        provider = get_market_data_provider()
+        bars = (
+            await provider.aget_stock_bars_batch([symbol], timeframe="1Day", days=7)
+        ).get(symbol) or []
+        if not bars or bars[-1].close is None or float(bars[-1].close) <= 0:
+            return None
+        bar_dt = datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
+        if bar_dt.tzinfo is None:
+            bar_dt = bar_dt.replace(tzinfo=UTC)
+        if datetime.now(UTC) - bar_dt > timedelta(days=5):
+            return None
+        return Decimal(str(bars[-1].close))
+    except Exception:
+        logger.warning("off-hours reference price failed for %s", symbol, exc_info=True)
+        return None
 
 
 async def _live_market_price(symbol: str) -> Decimal | None:

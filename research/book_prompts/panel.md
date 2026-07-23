@@ -53,7 +53,9 @@ what happened?" Put it in the candidate's `bear_case`.
   (or lose) credibility over time. Advancing nothing is a perfectly good night.
 - Every advanced pick REQUIRES `notional_usd` — the desk sizes its own book, and sizing
   discipline is judged (home runs when they present themselves, never sized to go belly up).
-  The risk seat weighs in; you decide. An advanced pick without a size is dropped as
+  The risk seat weighs in; you decide. It also REQUIRES a **numeric** `stop` (e.g. `"314.90"`):
+  once the entry fills, that stop is placed as a RESTING GTC stop order at the broker — the
+  book's only protection between cycles. An advanced pick missing either is dropped as
   unfinished work.
 - Shorts may appear as candidates (any seat) but must have `advanced: false` — short execution is
   not yet unlocked.

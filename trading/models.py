@@ -21,9 +21,20 @@ class OrderIntent:
     symbol: str
     side: str  # "buy" | "sell"
     qty: Decimal
-    order_type: str  # "market" | "limit"
+    order_type: str  # "market" | "limit" | "stop"
     limit_price: Decimal | None
     broker: str
+    # Trigger price for order_type="stop" (protective stop sells placed by the
+    # stop guard after a book entry fills). None for market/limit orders.
+    stop_price: Decimal | None = None
+    # "day" (default), "opg" (opening-auction MOO — book approvals before the
+    # ~9:28 ET cutoff), or "gtc" (resting protective stops).
+    time_in_force: str = "day"
+    # Market-on-open entry (book approvals). Distinct from time_in_force: an
+    # approval in the 9:28–9:30 dead zone submits tif="day" (releases at this
+    # morning's open), and validate needs to know it may still price off the
+    # reference close pre-open (adversarial review H1-lifecycle, 2026-07-23).
+    moo_entry: bool = False
     asset_class: str = "us_equity"
     occ_symbol: str | None = None
     multiplier: int = 1

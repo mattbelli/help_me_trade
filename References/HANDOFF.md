@@ -43,24 +43,37 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
 - ⏳ next few sessions: `/health` bars_prewarm `lag_s` stays well under the shortest TTL (storm
   invariant, `chart-bars-prewarm-storms`); `_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the dials.
 
-## ▶ LLM paper books — increment 1 live; increments 2–6 open
+## ▶ LLM paper books — ARMED + LIVE (07-23 late); shorts unlock open
 
-Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body); card
-`llm-books-program`; detail in BUILD_LOG 2026-07-23 rows. Increments 1 (plumbing) AND 2 (Deep Seek
-driver, `research/book_driver.py` + `book_deepseek` job) are built; execution style DECIDED 07-23
-(MOO default, market fallback after the ~9:28 ET cutoff — spec §5.5). **Open:**
-- ⏳ TONIGHT: first cycles for ALL FOUR books — deepseek + matt in-process (~17:05+ ET), fable
-  cron 17:20 ET, panel cron 17:40 ET (4 Opus seats + Fable judge). Verify per book: report row +
-  inbox notification + phone push + (decision books) lane rows + journal in payload; dead-man
-  fires 20:00 ET for anything missing. Session logs: `data/book_sessions/`
-- remaining increments: 5 (shorts unlock — own adversarially-reviewed round) → 6 (Lab lane
-  wiring); ALSO session-book research depth v2 (read-only API access beyond the pack)
-- ARMING round prereqs (before any book goes enabled=true): opg-at-approval chokepoint change
-  (adversarial review) + verify ONE-batched-push (moot while `alerts.max_push_per_day=0`)
-- founder-lane (spec §9): panel cadence (nightly vs Tue/Thu), per-book notional caps at arming
+Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body — see
+amendment 4, the arming-night execution round); card `llm-books-program`; detail in BUILD_LOG
+2026-07-23 rows. Founder ordered all three books armed + analysts rerun + Lab wired 07-23 evening.
+Live now: after-hours `entry_style="moo"` proposals (TTL = next session close), opg-at-approval
+before ~9:28 ET, `trading/stop_guard.py` resting GTC stops after entry fills (advanced picks
+REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + nightly report).
+**Open:**
+- ⏳ TOMORROW MORNING (first armed session): founder approves/rejects the replayed proposals on
+  the phone; verify at ~9:30: opg fill at auction → stop guard places GTC stops within a poll
+  tick (`journalctl -u hmt-backend | grep "stop guard"`); Deep Seek's $65k GOOGL pick should
+  show `risk_blocked` (order-value $50k + concentration 30% walls — the founder's belly-up wall
+  working; his call if book accounts deserve their own caps → `per-strategy attribution` thread)
+- ⏳ tomorrow 17:05/17:20/17:40 ET: first fully-armed nightly cycles end-to-end (proposals fire
+  straight from the cycle, no replay)
+- increment 5 (shorts unlock — own adversarially-reviewed round; `allow_short_selling` toggle is
+  ON but `_propose_advanced` hard-blocks shorts until the round ships); session-book research
+  depth v2 (read-only API access beyond the pack); Lab book positions section still honest-empty
+  (per-account positions endpoint — consider mobile agent's `source=snapshots` history for charts)
+- stop lifecycle v2 (carded on `llm-books-program`): analysts can't yet MOVE their resting stops
+  between cycles; founder trims can strand a stale-qty stop (pack shows open orders, analyst
+  flags it, founder adjusts manually for now)
 
 ## ▶ Waiting on founder
 
+- ⚠ **global `allow_short_selling=true` in prod settings** (surfaced by the 07-23 arming-night
+  review): predates tonight and is BROADER than the per-strategy book authorization — any approved
+  sell with no held long can short-to-open on paper (books + protective stops are now excluded;
+  chat/manual proposals are not). Confirm it stays, or narrow to the per-strategy flag when
+  increment 5 builds it
 - **Multi-angle reasoning A/B go/no-go** — design ready + double-audited
   (`MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`). On go: one focused
   build round + review

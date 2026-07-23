@@ -384,6 +384,8 @@ class AlpacaAdapter:
         }
         if req.limit_price is not None:
             body["limit_price"] = req.limit_price
+        if req.stop_price is not None:
+            body["stop_price"] = req.stop_price
         if req.position_intent is not None:
             body["position_intent"] = req.position_intent
 

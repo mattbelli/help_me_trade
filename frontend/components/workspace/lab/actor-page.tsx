@@ -6,8 +6,9 @@
 //    (origin `strategy:<id>`). NO equity curve: per-strategy equity is not
 //    attributable (strategies share an account), stated honestly.
 //  · book (llm/human) — equity curve (account-scoped history) + P&L / drawdown
-//    / alpha stat strip. Per-account positions + a book→ledger origin don't
-//    exist yet, so those sections are honest-empty.
+//    / alpha stat strip + the book's ledger lanes (per-seat for the panel) +
+//    the latest nightly analyst report rendered inline. Per-account positions
+//    still lack an endpoint — that section stays honest-empty.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -24,6 +25,8 @@ import {
   type PortfolioHistory,
   type StrategyLabPaperBook,
 } from "@/lib/api";
+import { fetchReportsByKind, type ReportRow } from "@/lib/reports-api";
+import { ResearchMarkdown } from "@/components/research/research-markdown";
 
 import { EquityChart } from "./equity-chart";
 import type { ActorFamily } from "./lab-nav";
@@ -315,6 +318,142 @@ function MechanicalActor({ id }: { id: string }) {
 }
 
 // ── book (llm / human) ──────────────────────────────────────────────────────
+
+// Account → book wiring (mirror of research/books.py BOOKS — account ids are
+// the registry's stable keys). Matt + LLM is advisory: report only, no lanes.
+const BOOK_WIRING: Record<
+  string,
+  { reportKind: string; lanes: { origin: string; label: string; note?: string }[] }
+> = {
+  acct_alpaca_deepseek: {
+    reportKind: "book_deepseek",
+    lanes: [
+      { origin: "book:deepseek", label: "advanced", note: "what it proposed" },
+      { origin: "book:deepseek/considered", label: "considered", note: "weighed, not advanced" },
+    ],
+  },
+  acct_alpaca_fable: {
+    reportKind: "book_fable",
+    lanes: [
+      { origin: "book:fable", label: "advanced", note: "what it proposed" },
+      { origin: "book:fable/considered", label: "considered", note: "weighed, not advanced" },
+    ],
+  },
+  acct_alpaca_open: {
+    reportKind: "book_panel",
+    lanes: [
+      { origin: "book:panel", label: "advanced", note: "judge's verdicts" },
+      { origin: "book:panel/bull", label: "bull seat" },
+      { origin: "book:panel/bear", label: "bear seat" },
+      { origin: "book:panel/macro", label: "macro seat" },
+      { origin: "book:panel/risk", label: "risk seat" },
+    ],
+  },
+  acct_fc78907f4bda: { reportKind: "book_matt", lanes: [] },
+};
+
+function LaneLedger({
+  origin,
+  label,
+  note,
+}: {
+  origin: string;
+  label: string;
+  note?: string;
+}) {
+  const [rows, setRows] = useState<LabIdeaRow[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchLabIdeaLedger(origin, 30)
+      .then((r) => {
+        if (!cancelled) setRows(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [origin]);
+
+  const counts = rows ? ledgerCounts(rows) : null;
+  return (
+    <div>
+      <SecHead
+        label={label}
+        note={note}
+        meta={
+          counts && counts.resolved > 0
+            ? `${counts.wins}/${counts.resolved} resolved green · ${counts.total} tracked`
+            : counts
+              ? `${counts.total} tracked`
+              : undefined
+        }
+      />
+      <IdeaLedger rows={rows} emptyLabel="no ideas in this lane yet" />
+    </div>
+  );
+}
+
+function NightlyReport({ kind }: { kind: string }) {
+  const [report, setReport] = useState<ReportRow | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    fetchReportsByKind(kind, 1)
+      .then((rows) => {
+        if (!cancelled) setReport(rows[0] ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setReport(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind]);
+
+  if (report === undefined) return <LoadingNote label="loading report…" />;
+  if (report === null)
+    return <EmptyNote>no nightly report filed yet</EmptyNote>;
+  const proposals = Array.isArray(report.payload?.proposals)
+    ? (report.payload.proposals as { symbol?: string; status?: string }[])
+    : [];
+  return (
+    <div className="space-y-2">
+      <div className="text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+        {report.title} ·{" "}
+        {new Date(report.generated_at).toLocaleString([], {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        })}
+        {proposals.length > 0 && (
+          <>
+            {" "}
+            · orders:{" "}
+            <span className="text-[var(--fg-dim)]">
+              {proposals
+                .map((p) => `${p.symbol ?? "?"} ${p.status ?? ""}`.trim())
+                .join(", ")}
+            </span>
+          </>
+        )}
+      </div>
+      <Frame>
+        <div className="max-h-[480px] overflow-y-auto p-3">
+          {report.format === "markdown" ? (
+            <ResearchMarkdown markdown={report.body} />
+          ) : (
+            <pre className="whitespace-pre-wrap text-[length:var(--fs-table)] text-[var(--fg-dim)]">
+              {report.body}
+            </pre>
+          )}
+        </div>
+      </Frame>
+    </div>
+  );
+}
+
 function computeStats(hist: PortfolioHistory | null, spyRet: number | null) {
   if (!hist || hist.points.length < 2) return null;
   const pts = hist.points;
@@ -387,6 +526,7 @@ function BookActor({ id, family }: { id: string; family: ActorFamily }) {
   }, [id]);
 
   const stats = useMemo(() => computeStats(hist, spyRet), [hist, spyRet]);
+  const wiring = BOOK_WIRING[id];
 
   if (error) return <ErrorNote>{error}</ErrorNote>;
   if (label === undefined) return <LoadingNote label="loading book…" />;
@@ -459,13 +599,33 @@ function BookActor({ id, family }: { id: string; family: ActorFamily }) {
         </EmptyNote>
       </div>
 
-      <div>
-        <SecHead label="idea ledger" />
-        <EmptyNote>
-          no idea-ledger origin maps to this book yet (ledger origins are
-          research/fusion lanes, not per-account) — shown honest-empty.
-        </EmptyNote>
-      </div>
+      {wiring && wiring.lanes.length > 0 && (
+        <div>
+          <SecHead
+            label="idea ledger"
+            note="every candidate graded, advanced or not"
+          />
+          <div className="mt-2 space-y-4">
+            {wiring.lanes.map((lane) => (
+              <LaneLedger key={lane.origin} {...lane} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {wiring && (
+        <div>
+          <SecHead
+            label="nightly report"
+            note={
+              wiring.lanes.length === 0
+                ? "advisory — the founder trades this book"
+                : "the analyst's filed cycle"
+            }
+          />
+          <NightlyReport kind={wiring.reportKind} />
+        </div>
+      )}
     </div>
   );
 }

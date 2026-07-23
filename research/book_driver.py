@@ -20,7 +20,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -131,7 +131,9 @@ _DECISION_CONTRACT = (
     "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
     "- advanced=true ONLY for what you actually propose for entry, and it REQUIRES "
     "notional_usd — you size your own book, and your sizing is part of what this study "
-    "judges. An advanced pick without a size is dropped as unfinished work.\n"
+    "judges — AND a numeric stop price (e.g. \"314.90\"): once you're filled, that stop "
+    "is placed as a RESTING GTC stop order, your only protection between cycles. An "
+    "advanced pick missing either is dropped as unfinished work.\n"
     "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
     "execution is not yet unlocked for this book).\n"
     "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n"
@@ -548,9 +550,22 @@ async def _propose_advanced(
     measurement lanes carry them; execution waits for the increment-5 round."""
     from trading.proposal_intake import TradeCandidate, propose_trade
 
+    # Sanity ceiling, not a sizing clamp: the analyst shapes its own slate, but
+    # a malformed decision marking dozens of picks advanced must not turn into
+    # dozens of phone proposals (moo is exempt from the pending-count cap).
+    max_advanced = 10
+    advanced_seen = 0
     results: list[dict[str, Any]] = []
     for cand in decision.candidates:
         if not cand.advanced:
+            continue
+        advanced_seen += 1
+        if advanced_seen > max_advanced:
+            logger.warning(
+                "book %s advanced %s beyond the %d-per-cycle ceiling — dropped",
+                book_id, cand.symbol, max_advanced,
+            )
+            results.append({"symbol": cand.symbol, "status": "over_ceiling"})
             continue
         if cand.direction != "long":
             logger.warning(
@@ -570,6 +585,18 @@ async def _propose_advanced(
             )
             results.append({"symbol": cand.symbol, "status": "no_size"})
             continue
+        # Founder 07-23 (same night): analysts are blind between cycles, so the
+        # stated stop is the position's only intraday defense — the stop guard
+        # places it as a resting GTC stop once the entry fills. An advanced
+        # pick whose stop doesn't parse to a price is unfinished work too.
+        stop = _parse_stop_price(cand.stop)
+        if stop is None:
+            logger.warning(
+                "book %s advanced %s without a numeric stop — no proposal",
+                book_id, cand.symbol,
+            )
+            results.append({"symbol": cand.symbol, "status": "no_stop"})
+            continue
         notional = Decimal(str(cand.notional_usd))
         outcome = await propose_trade(
             TradeCandidate(
@@ -579,8 +606,23 @@ async def _propose_advanced(
                 source=f"book_{book_id}",
                 rationale=cand.thesis[:300],
                 account_id=strategy.get("account_id"),
+                entry_style="moo",
+                stop_price=stop,
             ),
             db_path=db_path,
         )
         results.append({"symbol": cand.symbol, "status": outcome.get("status")})
     return results
+
+
+def _parse_stop_price(raw: str | None) -> Decimal | None:
+    """Analyst stop string → positive Decimal ("$314.90" / "314.90" / "1,250").
+    None when it doesn't parse — prose falsifiers can't arm a resting stop."""
+    if not raw:
+        return None
+    cleaned = str(raw).strip().lstrip("$").replace(",", "")
+    try:
+        value = Decimal(cleaned)
+    except InvalidOperation:
+        return None
+    return value if value > 0 else None
