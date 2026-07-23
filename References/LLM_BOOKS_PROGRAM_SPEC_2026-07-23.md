@@ -94,10 +94,13 @@ output is "which book/seat lanes deserve to keep running," not a win% headline.
    intake (`trading/proposal_intake.py`) with book provenance; nightly report (markdown) stored and
    surfaced in the Lab book page.
 4. **One batched push** per book: "Fable book: 2 proposals, 1 trim — review by open."
-5. **Morning**: founder approves on phone (existing biometric approvals flow) → chokepoint executes
-   at/after open. Open question (founder lane): plain market-at-approval vs MOO — MOO matches
-   daily-bar assumptions best; VWAP/TWAP are DEAD for paper (Elite-gated + not simulated —
-   alpaca-algo-orders-elite-gated).
+5. **Morning**: founder approves on phone (existing biometric approvals flow) → chokepoint executes.
+   **DECIDED (founder 07-23): MOO by default** — approval before the ~9:28 ET auction cutoff submits
+   `time_in_force=opg` (fills at the opening auction: matches daily-bar grading by construction,
+   removes approval-timing noise from cross-book comparison, deepest liquidity print); **approval
+   after the cutoff falls back to market-at-approval** (a queued MOO would execute a stale thesis at
+   TOMORROW's open — worse than a slightly-off-auction fill). VWAP/TWAP stay DEAD for paper
+   (Elite-gated + not simulated — alpaca-algo-orders-elite-gated).
 
 Matt + LLM variant: steps 1 + a snapshot render ONLY (positions, P&L, concentration, upcoming
 earnings for held names). Explicitly no proposals, no candidate lists, no lane rows.
@@ -141,7 +144,8 @@ memory already flagged the revision).
 
 ## 9. Founder-lane decisions (open)
 
-- Execution style at approval: market-at-approval vs MOO batch at next open (§5.5).
+- ~~Execution style at approval~~ **DECIDED 07-23: MOO default, market fallback after the auction
+  cutoff (§5.5).**
 - Panel cadence: nightly vs Tue/Thu (Opus budget vs signal freshness).
 - Per-book notional caps at arming time (RiskEngine values, founder sets when arming).
 - When (if ever) a book graduates from propose → bounded-auto: NOT in this spec's scope; would ride

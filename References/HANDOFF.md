@@ -46,14 +46,16 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
 ## ▶ LLM paper books — increment 1 live; increments 2–6 open
 
 Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body); card
-`llm-books-program`; increment-1 detail in BUILD_LOG 2026-07-23. Plumbing is live: 9 ledger lanes,
-3 book strategy records (disabled/propose), `research/books.py` + pack CLI verified against live
-paper state. **Open:**
-- increment 2 next: Deep Seek book e2e (nightly job → pack → DeepSeek → report + lane rows + batched
-  push held until armed); then 3 (Matt+LLM snapshot), 4 (Fable/Panel sessions + dead-man), 5 (shorts
-  unlock — own adversarially-reviewed round), 6 (Lab lane wiring)
-- founder-lane (spec §9): execution style (market-at-approval vs MOO), panel cadence (nightly vs
-  Tue/Thu), per-book notional caps at arming
+`llm-books-program`; detail in BUILD_LOG 2026-07-23 rows. Increments 1 (plumbing) AND 2 (Deep Seek
+driver, `research/book_driver.py` + `book_deepseek` job) are built; execution style DECIDED 07-23
+(MOO default, market fallback after the ~9:28 ET cutoff — spec §5.5). **Open:**
+- ⏳ TONIGHT ~17:05 ET: first real dry cycle (deepseek-v4-pro) — verify report row
+  (`book_deepseek` kind), lane rows in `book:deepseek*`, Lab book page shows them
+- increments 3–6: Matt+LLM snapshot → Fable/Panel sessions + dead-man → shorts unlock (own
+  adversarially-reviewed round) → Lab lane wiring
+- ARMING round prereqs (before any book goes enabled=true): opg-at-approval chokepoint change
+  (adversarial review) + verify ONE-batched-push (moot while `alerts.max_push_per_day=0`)
+- founder-lane (spec §9): panel cadence (nightly vs Tue/Thu), per-book notional caps at arming
 
 ## ▶ Waiting on founder
 

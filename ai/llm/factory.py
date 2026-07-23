@@ -80,6 +80,23 @@ def _build_llm_client(
     return MockLLM()
 
 
+def get_llm_for_provider(provider: str, *, model: str | None = None) -> LLMClient:
+    """A client PINNED to one provider, ignoring the app default.
+
+    For callers whose identity IS the provider (e.g. the Deep Seek paper book —
+    research/book_driver.py): switching the app's default LLM must never
+    silently switch what runs that book. Returns MockLLM when the provider is
+    unknown or its key is missing — callers treat mock as 'unconfigured'."""
+    provider = (provider or "").strip().lower()
+    if provider not in VALID_PROVIDERS:
+        return MockLLM()
+    ai = get_resolved_ai_settings()
+    creds = provider_credentials(provider, ai)
+    if provider_config(provider).get("requires_key") and not creds.get("api_key"):
+        return MockLLM()
+    return _build_llm_client(provider, creds, model=(model or "").strip() or None)
+
+
 def get_llm(*, force_refresh: bool = False, model: str | None = None) -> LLMClient:
     global _cached, _cached_provider
     if force_refresh:

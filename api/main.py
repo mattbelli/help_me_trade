@@ -1264,6 +1264,19 @@ _schwab_snapshot_last_date: dict = {}
 _db_retention_last_date: dict = {}
 
 
+async def _book_deepseek_once() -> None:
+    """Deep Seek paper-book nightly cycle (research/book_driver.py increment 2).
+
+    Self-gates: weekday post-17:05-ET, once per ET day, skips when the DeepSeek
+    key is unconfigured. Disabled strategy record = DRY cycle (pack + report +
+    lane rows, no proposals) — the shipped state until the founder arms it."""
+    from research.book_driver import run_book_cycle
+
+    result = await run_book_cycle("deepseek")
+    if result.get("status") != "skipped":
+        logger.info("Deep Seek book cycle: %s", result)
+
+
 async def _db_retention_once() -> None:
     from db.earnings_alerts import prune_earnings_alerts_sent
     from db.equity_tape import prune as prune_equity_tape
@@ -1934,6 +1947,13 @@ def _register_background_jobs() -> None:
             name="db_retention",
             fn=_db_retention_once,
             interval_s=3600.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="book_deepseek",
+            fn=_book_deepseek_once,
+            interval_s=300.0,
         )
     )
     from signals.pipeline_audit import pipeline_audit_once

@@ -1,0 +1,170 @@
+"""Deep Seek book nightly driver (research/book_driver.py) — gates, parse, lanes, arming."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from db.idea_outcomes import list_ledger_rows
+from db.reports import recent_reports_by_kind
+from db.strategies import seed_default_strategies, update_strategy
+from research.book_driver import run_book_cycle
+
+_ET = ZoneInfo("America/New_York")
+NOW = datetime(2026, 7, 23, 17, 30, tzinfo=_ET)  # Thursday, post-window
+
+GOOD_DECISION = {
+    "candidates": [
+        {
+            "symbol": "AAPL",
+            "direction": "long",
+            "thesis": "post-selloff basing above support",
+            "bear_case": "loses 200 and the base fails",
+            "entry_low": "199",
+            "entry_high": "201",
+            "stop": "195",
+            "targets": ["210"],
+            "plan_horizon": "10d",
+            "confidence_label": "medium",
+            "advanced": True,
+            "notional_usd": 400,
+        },
+        {
+            "symbol": "MSFT",
+            "direction": "long",
+            "thesis": "watching only — no trigger yet",
+            "entry_ref_price": "500",
+            "plan_horizon": "5d",
+            "advanced": False,
+        },
+        {
+            "symbol": "IWM",
+            "direction": "short",
+            "thesis": "small caps rolling over",
+            "entry_low": "289",
+            "entry_high": "291",
+            "stop": "296",
+            "targets": ["280"],
+            "plan_horizon": "10d",
+            "advanced": True,  # must be short_blocked at the proposal step
+        },
+    ],
+    "holds_review": "flat book, nothing to review",
+}
+
+GOOD_RESPONSE = "## Nightly report\n\nMarkdown body.\n\n```json\n" + json.dumps(GOOD_DECISION) + "\n```\n"
+
+
+class FakeLLM:
+    provider = "deepseek"
+
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.calls: list[Any] = []
+
+    async def acomplete(self, messages: list[Any], *, max_tokens: int = 1024) -> str:
+        self.calls.append(messages)
+        return self.responses.pop(0)
+
+
+def _run(db: Path, **kwargs: Any) -> dict[str, Any]:
+    seed_default_strategies(db_path=db)
+    kwargs.setdefault("now_et", NOW)
+    kwargs.setdefault("db_path", db)
+    return asyncio.run(run_book_cycle("deepseek", **kwargs))
+
+
+def test_dry_cycle_registers_lanes_and_saves_report_without_proposals(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    out = _run(db, llm=FakeLLM([GOOD_RESPONSE]))
+    assert out["status"] == "ok" and out["armed"] is False and out["proposals"] == []
+    # All three candidates land in lanes: advanced long + advanced short →
+    # headline, considered → /considered (shorts ARE measured).
+    heads = list_ledger_rows(origin="book:deepseek", db_path=db)["rows"]
+    assert {r["symbol"] for r in heads} == {"AAPL", "IWM"}
+    considered = list_ledger_rows(origin="book:deepseek/considered", db_path=db)["rows"]
+    assert [r["symbol"] for r in considered] == ["MSFT"]
+    reports = recent_reports_by_kind("book_deepseek", db_path=db)
+    assert len(reports) == 1
+    payload = reports[0]["payload"]
+    assert payload["dry"] is True and payload["registered"] == 3
+
+
+def test_second_run_same_day_dedups(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
+    again = _run(db, llm=FakeLLM([GOOD_RESPONSE]))
+    assert again == {"status": "skipped", "reason": "already_ran_today"}
+
+
+def test_window_and_weekend_gates(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    early = _run(db, llm=FakeLLM([]), now_et=datetime(2026, 7, 23, 16, 59, tzinfo=_ET))
+    assert early == {"status": "skipped", "reason": "before_window"}
+    weekend = _run(db, llm=FakeLLM([]), now_et=datetime(2026, 7, 25, 18, 0, tzinfo=_ET))
+    assert weekend == {"status": "skipped", "reason": "weekend"}
+
+
+def test_parse_repair_retry_recovers(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    fake = FakeLLM(["no json block here", "```json\n" + json.dumps(GOOD_DECISION) + "\n```"])
+    out = _run(db, llm=fake)
+    assert out["status"] == "ok"
+    assert len(fake.calls) == 2  # original + one repair retry
+    assert len(list_ledger_rows(origin="book:deepseek", db_path=db)["rows"]) == 2
+
+
+def test_double_parse_fail_saves_failure_report_registers_nothing(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    out = _run(db, llm=FakeLLM(["garbage", "still garbage"]))
+    assert out["status"] == "parse_fail"
+    reports = recent_reports_by_kind("book_deepseek", db_path=db)
+    assert len(reports) == 1 and reports[0]["payload"]["status"] == "parse_fail"
+    assert list_ledger_rows(origin="book:deepseek", db_path=db)["rows"] == []
+    # A failed cycle still stamps the day — no retry storm within the same day.
+    again = _run(db, llm=FakeLLM([GOOD_RESPONSE]))
+    assert again == {"status": "skipped", "reason": "already_ran_today"}
+
+
+def test_armed_cycle_proposes_longs_blocks_shorts_clamps_notional(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    db = tmp_path / "t.db"
+    seed_default_strategies(db_path=db)
+    update_strategy("book_deepseek", enabled=True, notional_usd=300.0, db_path=db)
+
+    captured: list[Any] = []
+
+    async def fake_propose(candidate: Any, *, db_path: Path) -> dict[str, Any]:
+        captured.append(candidate)
+        return {"status": "proposed"}
+
+    import trading.proposal_intake as intake
+
+    monkeypatch.setattr(intake, "propose_trade", fake_propose)
+    out = asyncio.run(
+        run_book_cycle("deepseek", now_et=NOW, db_path=db, llm=FakeLLM([GOOD_RESPONSE]))
+    )
+    assert out["status"] == "ok" and out["armed"] is True
+    # AAPL proposed (notional clamped to the strategy's 300 < the model's 400);
+    # IWM short blocked; MSFT not advanced.
+    assert [c.symbol for c in captured] == ["AAPL"]
+    assert float(captured[0].notional_usd) == 300.0
+    assert captured[0].account_id == "acct_alpaca_deepseek"
+    assert captured[0].source == "book_deepseek"
+    statuses = {p["symbol"]: p["status"] for p in out["proposals"]}
+    assert statuses == {"AAPL": "proposed", "IWM": "short_blocked"}
+
+
+def test_unconfigured_llm_skips(tmp_path: Path, monkeypatch: Any) -> None:
+    import ai.llm.factory as factory
+    from ai.llm.mock import MockLLM
+
+    monkeypatch.setattr(factory, "get_llm_for_provider", lambda *a, **k: MockLLM())
+    db = tmp_path / "t.db"
+    out = _run(db)  # no llm injected → factory path → mock → skip
+    assert out == {"status": "skipped", "reason": "llm_unconfigured"}

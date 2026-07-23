@@ -400,6 +400,22 @@ def _earnings_section(book: Book, db_path: Path) -> str:
     return "\n".join(lines)
 
 
+def archive_book_pack(book_id: str, pack: str, *, root: Path | None = None) -> Path:
+    """Write a rendered pack to data/book_packs/<ET-date>/<book>.md (audit trail:
+    every decision reviewable against exactly what the model saw). Shared by the
+    CLI and the nightly driver."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    base = root if root is not None else Path(__file__).resolve().parent.parent / "data" / "book_packs"
+    et_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    out_dir = base / et_date
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{book_id}.md"
+    out_path.write_text(pack, encoding="utf-8")
+    return out_path
+
+
 def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
     """Render the nightly markdown context pack for one book (spec §5.1)."""
     from datetime import datetime, timezone

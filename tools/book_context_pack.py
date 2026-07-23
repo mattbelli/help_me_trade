@@ -13,16 +13,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db.base import DEFAULT_DB_PATH  # noqa: E402
-from research.books import BOOKS, build_book_pack  # noqa: E402
-
-PACK_DIR = Path(__file__).resolve().parent.parent / "data" / "book_packs"
+from research.books import BOOKS, archive_book_pack, build_book_pack  # noqa: E402
 
 
 def main() -> int:
@@ -36,17 +32,12 @@ def main() -> int:
     args = parser.parse_args()
 
     book_ids = sorted(BOOKS) if args.all else [args.book]
-    et_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-
     for book_id in book_ids:
         pack = build_book_pack(book_id, db_path=DEFAULT_DB_PATH)
         if args.stdout:
             print(pack)
             continue
-        out_dir = PACK_DIR / et_date
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{book_id}.md"
-        out_path.write_text(pack, encoding="utf-8")
+        out_path = archive_book_pack(book_id, pack)
         print(f"wrote {out_path} ({len(pack):,} chars)")
     return 0
 
