@@ -1,4 +1,4 @@
-export const WORKSPACE_THEMES = ["carbon", "warm", "oled", "light"] as const;
+export const WORKSPACE_THEMES = ["carbon", "lab", "warm", "oled", "light"] as const;
 
 export type WorkspaceTheme = (typeof WORKSPACE_THEMES)[number];
 
@@ -7,6 +7,7 @@ export type ThemeId = WorkspaceTheme | string;
 
 export const WORKSPACE_THEME_LABELS: Record<WorkspaceTheme, string> = {
   carbon: "Carbon",
+  lab: "Lab",
   warm: "Ember",
   oled: "OLED",
   light: "Light",

@@ -329,7 +329,13 @@ export function resolveThemeIsDark(
   themeId: string | undefined | null,
   customThemes: CustomTheme[],
 ): boolean {
-  if (!themeId || themeId === "carbon" || themeId === "warm" || themeId === "oled") {
+  if (
+    !themeId ||
+    themeId === "carbon" ||
+    themeId === "lab" ||
+    themeId === "warm" ||
+    themeId === "oled"
+  ) {
     return themeId !== "light";
   }
   if (themeId === "light") return false;

@@ -6,7 +6,7 @@
 @import "react-grid-layout/css/styles.css";
 @import "react-resizable/css/styles.css";
 
-@custom-variant dark (&:is(.dark *, [data-theme="carbon"] *, [data-theme="warm"] *, [data-theme="oled"] *));
+@custom-variant dark (&:is(.dark *, [data-theme="carbon"] *, [data-theme="lab"] *, [data-theme="warm"] *, [data-theme="oled"] *));
 
 @theme inline {
     --font-heading: var(--font-sans);
@@ -243,6 +243,44 @@
     --neg: #ef6f6c;
     --warn: #e0975b;
     --info: #6cb0ff;
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
+    --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+    --scrim: rgba(0, 0, 0, 0.5);
+}
+
+/* "Lab" — extracted from the founder-picked Strategy Lab mockup (variant A,
+   2026-07-23): carbon-esque near-black base with more colour pop — cyan accent,
+   rationed saturated pos/neg, amber as the warn/hedge hue, violet for LLM actors. */
+[data-theme="lab"] {
+    color-scheme: dark;
+    --surface-canvas: #0b0c0e;
+    --surface-grid-dot: #24272c;
+    --surface-toolbar: #101215;
+    --surface-header: #101215;
+    --surface-widget: #101215;
+    --surface-hover: #15181c;
+    --surface-selected: #17262c;
+    --surface-inset: #08090b;
+    --line-border: #23262b;
+    --line-divider: #23262b;
+    --border-strong: #31353b;
+    --chart-bg: #0b0c0e;
+    --chart-grid: #23262b;
+    --chart-up: #3fce7c;
+    --chart-down: #ff5d5d;
+    --chart-line: #3fce7c;
+    --text-primary: #e7eaed;
+    --text-title: #e7eaed;
+    --text-header: #666d76;
+    --text-secondary: #9aa2ab;
+    --text-faint: #666d76;
+    --text-accent: #59b0c9;
+    --text-on-accent: #0b0c0e;
+    --pos: #3fce7c;
+    --neg: #ff5d5d;
+    --warn: #e0a13a;
+    --info: #59b0c9;
+    --c-violet: #9b8cff;
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 8px 30px rgba(0, 0, 0, 0.35);
     --widget-hover-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
     --scrim: rgba(0, 0, 0, 0.5);

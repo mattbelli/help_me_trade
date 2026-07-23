@@ -149,9 +149,14 @@ export function useWorkspaceCommands() {
           }
 
           const customNames = customThemes.map((t) => t.name.toLowerCase());
-          const valid = ["carbon", "warm", "oled", "light", ...customNames].join(
-            ", ",
-          );
+          const valid = [
+            "carbon",
+            "lab",
+            "warm",
+            "oled",
+            "light",
+            ...customNames,
+          ].join(", ");
           return {
             handled: true,
             error: `unknown theme: ${named} (${valid})`,
