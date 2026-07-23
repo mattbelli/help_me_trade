@@ -2,7 +2,7 @@
 // widget owns this surface). All calls reuse the shared API_BASE + apiFetch.
 import { API_BASE, apiFetch } from "@/lib/api";
 
-export type ReportFormat = "text" | "html";
+export type ReportFormat = "text" | "html" | "markdown";
 
 export type ReportRow = {
   id: string;

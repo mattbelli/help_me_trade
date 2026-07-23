@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ResearchMarkdown } from "@/components/research/research-markdown";
 import { TerminalButton, TerminalSelect } from "@/components/ui/terminal";
 import {
   WidgetEmpty,
@@ -102,9 +103,15 @@ function ReportViewer({ report }: { report: ReportRow }) {
       <p className="mt-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         {relativeTime(report.generated_at)}
       </p>
-      <pre className="mt-3 font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
-        {report.body}
-      </pre>
+      {report.format === "markdown" ? (
+        <div className="mt-3">
+          <ResearchMarkdown markdown={report.body} />
+        </div>
+      ) : (
+        <pre className="mt-3 font-mono text-[length:var(--fs-title)] leading-relaxed whitespace-pre-wrap text-[var(--fg-dim)]">
+          {report.body}
+        </pre>
+      )}
     </div>
   );
 }

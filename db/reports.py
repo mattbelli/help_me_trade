@@ -82,7 +82,10 @@ def save_report(
     report_id = uuid.uuid4().hex[:12]
     now = _now()
     sym = symbol.strip().upper()
-    fmt = "html" if str(format).strip().lower() == "html" else "text"
+    # markdown became first-class 07-23 (book analyst reports render like the
+    # deep-research viewer); anything unknown still collapses to text.
+    cleaned = str(format).strip().lower()
+    fmt = cleaned if cleaned in ("html", "markdown") else "text"
     with _connect(resolved) as conn:
         conn.execute(
             """
