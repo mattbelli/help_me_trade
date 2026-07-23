@@ -33,6 +33,7 @@ from brokers.market_stream import (
     TICK_CONFIRM_TOL,
     BaseMarketHub,
     QuoteState,
+    _daily_prev_close,
 )
 from config.settings import broker_is_configured
 from trading.market_hours import is_market_open
@@ -235,9 +236,10 @@ class SchwabMarketStreamHub(BaseMarketHub):
     # non-zero prices before the first stream tick arrives.
     # ------------------------------------------------------------------
 
-    async def _ensure_baselines(self, symbols: set[str]) -> None:
+    async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
         eq, fut = _partition_symbols(symbols)
-        missing_eq = [s for s in eq if s not in self._quotes]
+        missing_eq = [s for s in eq if force or s not in self._quotes]
+        # Futures have no daily-close baseline — never force-reset a live one.
         missing_fut = [s for s in fut if s not in self._quotes]
 
         # Futures get an empty QuoteState; the first stream tick populates them.
@@ -245,7 +247,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
             self._quotes[sym] = QuoteState()
 
         if not missing_eq:
-            return
+            return True
 
         # Try Schwab bars first; fall through to Alpaca on failure.
         bars_by_symbol: dict[str, list] = {}
@@ -273,22 +275,38 @@ class SchwabMarketStreamHub(BaseMarketHub):
             except BrokerError as exc:
                 logger.warning("Alpaca baseline fallback failed: %s", exc)
 
+        if not bars_by_symbol:
+            # Both brokers failed — leave existing states alone so a forced
+            # roll can retry, and report the failure.
+            for sym in missing_eq:
+                if sym not in self._quotes:
+                    self._quotes[sym] = QuoteState()
+            return False
+
         for sym in missing_eq:
             bars = bars_by_symbol.get(sym, [])
+            old = self._quotes.get(sym)
             if not bars:
-                self._quotes[sym] = QuoteState()
+                if old is None:
+                    self._quotes[sym] = QuoteState()
                 continue
             closes = [b.close for b in bars]
             price = closes[-1]
-            prev = closes[-2] if len(closes) >= 2 else price
+            prev = _daily_prev_close(bars)
             change_pct = ((price - prev) / prev * 100) if prev else 0.0
-            self._quotes[sym] = QuoteState(
+            state = QuoteState(
                 price=price,
                 change_pct=round(change_pct, 2),
                 sparkline=[round(c, 4) for c in closes[-7:]],
                 prev_close=prev,
             )
+            if old is not None:
+                state.ext_price = old.ext_price
+                state.ext_change_pct = old.ext_change_pct
+                state.market_session = old.market_session
+            self._quotes[sym] = state
             self._prev_prices[sym] = price
+        return True
 
     # ------------------------------------------------------------------
     # Upstream loop

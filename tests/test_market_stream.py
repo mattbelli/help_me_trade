@@ -336,3 +336,150 @@ async def test_absurd_burst_does_not_arm_escape_hatch(hub: AlpacaMarketStreamHub
     await hub._on_trade(_trade_item("NVDA", 192.21))  # incident print, first appearance
     assert hub._quotes["NVDA"].price == pytest.approx(201.8)  # still held
     alert.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Baseline seeding — prev_close must be the last COMPLETED session's close
+# (the 07-23 NTSK −13.65% incident: overnight seed pinned prev_close two
+# sessions back and every tick's change_pct inherited it)
+# ---------------------------------------------------------------------------
+
+
+def _daily_bar(session_date, close: float):
+    from datetime import datetime as _dt
+
+    from brokers.alpaca import StockBar
+    from trading.market_hours import _ET
+
+    t = _dt(session_date.year, session_date.month, session_date.day, tzinfo=_ET)
+    return StockBar(
+        time=t.isoformat(),
+        open=close,
+        high=close,
+        low=close,
+        close=close,
+        volume=1000.0,
+    )
+
+
+def _stub_bars_broker(monkeypatch, bars_by_symbol: dict) -> None:
+    import brokers.market_stream as ms
+    from brokers.alpaca import AlpacaAdapter
+
+    broker = AsyncMock(spec=AlpacaAdapter)
+    broker.aget_stock_bars_batch = AsyncMock(return_value=bars_by_symbol)
+    monkeypatch.setattr(ms, "get_broker", lambda name: broker)
+    monkeypatch.setattr(ms, "broker_is_configured", lambda name: True)
+
+
+@pytest.mark.asyncio
+async def test_baseline_overnight_series_prev_is_last_close(
+    hub: AlpacaMarketStreamHub, monkeypatch
+) -> None:
+    """Series ending YESTERDAY: its last close IS the day-change baseline."""
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    from trading.market_hours import _ET
+
+    today = _dt.now(_ET).date()
+    _stub_bars_broker(
+        monkeypatch,
+        {
+            "NTSK": [
+                _daily_bar(today - timedelta(days=2), 13.33),
+                _daily_bar(today - timedelta(days=1), 11.955),
+            ]
+        },
+    )
+    assert await hub._ensure_baselines({"NTSK"}) is True
+    state = hub._quotes["NTSK"]
+    assert state.prev_close == 11.955
+    assert state.change_pct == 0.0
+
+
+@pytest.mark.asyncio
+async def test_baseline_intra_session_series_prev_is_prior_close(
+    hub: AlpacaMarketStreamHub, monkeypatch
+) -> None:
+    """Series ending TODAY (developing bar): prev = the close before it."""
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    from trading.market_hours import _ET
+
+    today = _dt.now(_ET).date()
+    _stub_bars_broker(
+        monkeypatch,
+        {
+            "NTSK": [
+                _daily_bar(today - timedelta(days=1), 11.955),
+                _daily_bar(today, 11.58),
+            ]
+        },
+    )
+    assert await hub._ensure_baselines({"NTSK"}) is True
+    state = hub._quotes["NTSK"]
+    assert state.prev_close == 11.955
+    assert state.change_pct == pytest.approx(-3.14, abs=0.01)
+
+
+@pytest.mark.asyncio
+async def test_baseline_force_reseeds_and_preserves_ext_fields(
+    hub: AlpacaMarketStreamHub, monkeypatch
+) -> None:
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    from trading.market_hours import _ET
+
+    today = _dt.now(_ET).date()
+    stale = QuoteState(price=11.955, prev_close=13.33, change_pct=-10.32)
+    stale.ext_price = 11.6
+    stale.market_session = "pre"
+    hub._quotes["NTSK"] = stale
+    _stub_bars_broker(
+        monkeypatch, {"NTSK": [_daily_bar(today - timedelta(days=1), 11.955)]}
+    )
+
+    # Without force: existing state untouched.
+    assert await hub._ensure_baselines({"NTSK"}) is True
+    assert hub._quotes["NTSK"].prev_close == 13.33
+
+    assert await hub._ensure_baselines({"NTSK"}, force=True) is True
+    state = hub._quotes["NTSK"]
+    assert state.prev_close == 11.955
+    assert state.ext_price == 11.6
+    assert state.market_session == "pre"
+
+
+@pytest.mark.asyncio
+async def test_baseline_roll_stamps_date_only_on_success(
+    hub: AlpacaMarketStreamHub, monkeypatch
+) -> None:
+    from datetime import datetime as _dt
+    from datetime import timedelta
+
+    from trading.market_hours import _ET
+
+    today = _dt.now(_ET).date()
+    hub._quotes["NTSK"] = QuoteState(price=11.955, prev_close=13.33)
+    hub._baseline_date = today - timedelta(days=1)
+
+    calls: list[bool] = []
+
+    async def failing(symbols, force=False):
+        calls.append(force)
+        return False
+
+    monkeypatch.setattr(hub, "_ensure_baselines", failing)
+    await hub._roll_baselines_if_new_day()
+    assert calls == [True]
+    assert hub._baseline_date == today - timedelta(days=1)  # failed → retry later
+
+    async def succeeding(symbols, force=False):
+        return True
+
+    monkeypatch.setattr(hub, "_ensure_baselines", succeeding)
+    await hub._roll_baselines_if_new_day()
+    assert hub._baseline_date == today

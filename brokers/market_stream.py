@@ -31,6 +31,7 @@ from brokers.alpaca_tier import effective_alpaca_feed
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
 from config.settings import alpaca_config, broker_is_configured, normalize_alpaca_data_feed
+from trading.market_hours import _ET
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,30 @@ TRADE_EXCLUDE_CONDITIONS = frozenset(
 BROADCAST_THROTTLE_MS = 100.0
 
 
+def _daily_prev_close(bars: list) -> float:
+    """Baseline close for day-change math: the last COMPLETED session's close.
+
+    bars[-1] is today's developing bar only while a session is running. A
+    series fetched overnight/pre-open ends at the last completed session, and
+    blindly taking closes[-2] as "yesterday" then pins prev_close two sessions
+    back — every subsequent tick's change_pct inherits the error (NTSK −13.65%
+    displayed vs a real −3.6% after an overnight restart, 2026-07-23; the REST
+    twin of this bug was fixed 2026-07-22 via _wl_daily_series_stale).
+    """
+    closes = [b.close for b in bars]
+    try:
+        last_date = (
+            datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
+            .astimezone(_ET)
+            .date()
+        )
+    except (TypeError, ValueError):
+        last_date = None
+    if last_date is not None and last_date == datetime.now(_ET).date():
+        return closes[-2] if len(closes) >= 2 else closes[-1]
+    return closes[-1]
+
+
 @dataclass
 class QuoteState:
     price: float = 0.0
@@ -149,6 +174,12 @@ class BaseMarketHub:
         self._lock = asyncio.Lock()
         self._upstream_task: asyncio.Task | None = None
         self._running = False
+        # Session-date the current baselines were seeded for. QuoteStates are
+        # seeded once per symbol, so a hub that lives across midnight ET would
+        # otherwise serve yesterday's prev_close all next session (masked
+        # lately by daily deploy restarts). _baseline_roll_loop re-seeds.
+        self._baseline_date = datetime.now(_ET).date()
+        self._baseline_roll_task: asyncio.Task | None = None
         self._recent_alerts: collections.deque[dict[str, Any]] = collections.deque(
             maxlen=50
         )
@@ -183,6 +214,7 @@ class BaseMarketHub:
             return
         self._running = True
         self._upstream_task = asyncio.create_task(self._upstream_loop())
+        self._baseline_roll_task = asyncio.create_task(self._baseline_roll_loop())
 
     async def stop(self) -> None:
         self._running = False
@@ -193,6 +225,13 @@ class BaseMarketHub:
             except asyncio.CancelledError:
                 pass
             self._upstream_task = None
+        if self._baseline_roll_task:
+            self._baseline_roll_task.cancel()
+            try:
+                await self._baseline_roll_task
+            except asyncio.CancelledError:
+                pass
+            self._baseline_roll_task = None
         # Cancel any pending trailing broadcasts so they don't fire post-stop.
         for task in list(self._pending_broadcast.values()):
             task.cancel()
@@ -393,9 +432,31 @@ class BaseMarketHub:
         if to_add:
             await self._ensure_baselines(to_add)
 
-    async def _ensure_baselines(self, symbols: set[str]) -> None:
-        """Seed QuoteState for new symbols.  Override in each subclass."""
+    async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
+        """Seed QuoteState for new symbols; ``force`` re-seeds existing ones
+        (the session roll). Returns False when the bars fetch failed so the
+        roll can retry. Override in each subclass."""
         raise NotImplementedError
+
+    async def _baseline_roll_loop(self) -> None:
+        while self._running:
+            await asyncio.sleep(300)
+            try:
+                await self._roll_baselines_if_new_day()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Baseline roll failed; will retry")
+
+    async def _roll_baselines_if_new_day(self) -> None:
+        today = datetime.now(_ET).date()
+        if today == self._baseline_date:
+            return
+        symbols = set(self._quotes) | self._subscribed
+        # Stamp only on success — a failed fetch must retry next tick, or the
+        # stale baselines survive the whole session.
+        if not symbols or await self._ensure_baselines(symbols, force=True):
+            self._baseline_date = today
 
     async def _upstream_loop(self) -> None:
         """Drive the upstream broker connection.  Override in each subclass."""
@@ -522,35 +583,46 @@ class AlpacaMarketStreamHub(BaseMarketHub):
     def _live_flag(self) -> bool:
         return broker_is_configured("alpaca")
 
-    async def _ensure_baselines(self, symbols: set[str]) -> None:
-        missing = [s for s in symbols if s not in self._quotes]
+    async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
+        missing = [s for s in symbols if force or s not in self._quotes]
         if not missing or not broker_is_configured("alpaca"):
-            return
+            return True
         try:
             broker = get_broker("alpaca")
             if not isinstance(broker, AlpacaAdapter):
-                return
+                return True
             bars_by_symbol = await broker.aget_stock_bars_batch(missing, days=12)
         except BrokerError as exc:
             logger.warning("Watchlist baseline fetch failed: %s", exc)
-            return
+            return False
 
         for sym in missing:
             bars = bars_by_symbol.get(sym, [])
+            old = self._quotes.get(sym)
             if not bars:
-                self._quotes[sym] = QuoteState()
+                # Never downgrade an existing state to empty on a forced roll.
+                if old is None:
+                    self._quotes[sym] = QuoteState()
                 continue
             closes = [b.close for b in bars]
             price = closes[-1]
-            prev = closes[-2] if len(closes) >= 2 else price
+            prev = _daily_prev_close(bars)
             change_pct = ((price - prev) / prev * 100) if prev else 0.0
-            self._quotes[sym] = QuoteState(
+            state = QuoteState(
                 price=price,
                 change_pct=round(change_pct, 2),
                 sparkline=[round(c, 4) for c in closes[-7:]],
                 prev_close=prev,
             )
+            if old is not None:
+                # Ext fields arrive from the REST poller — carry them across
+                # a re-seed instead of blanking the pre-market header.
+                state.ext_price = old.ext_price
+                state.ext_change_pct = old.ext_change_pct
+                state.market_session = old.market_session
+            self._quotes[sym] = state
             self._prev_prices[sym] = price
+        return True
 
     async def _upstream_loop(self) -> None:
         backoff = RECONNECT_BASE_SEC
