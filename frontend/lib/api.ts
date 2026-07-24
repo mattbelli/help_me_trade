@@ -2070,7 +2070,6 @@ export type LabStrategy = {
   universe: string;
   max_concurrent_positions: number | null;
   max_deployed_usd: number | null;
-  alert_style: string;
   params: Record<string, unknown>;
 };
 
