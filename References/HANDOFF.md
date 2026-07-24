@@ -42,6 +42,24 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
 - founder verifies charts in-browser (timeframe switches on not-yet-viewed symbols should paint warm)
 - ⏳ next few sessions: `/health` bars_prewarm `lag_s` stays well under the shortest TTL (storm
   invariant, `chart-bars-prewarm-storms`); `_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the dials.
+- ETH-off charts still paint pre/post (4am–8pm) — `extended=false` only skips the boats leg, so an
+  ETH-off chart mimics ETH-on until it freezes at 7:55pm (misled the founder 07-23 as "no overnight
+  candles"). Make ext=false actually RTH-only in `_build_bars_response` (mind half-days); next UI round.
+
+## ▶ Kronos path-prior probe — built + calibrated, run pending
+
+Isolated experiment in `research/kronos_probe/` (pre-registration + removal instructions in its
+README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24 row). Asks one
+question: does a pretrained K-line model's *conditional* path distribution beat a vol-matched block
+bootstrap at P(target before stop)? **Open:**
+- run `probe --window primary` then `--window leakage`, then apply the pre-registered rule: PASS iff
+  lower log-loss AND the 95% paired CI excludes 0 — anything else means `rm -rf` the package.
+  **Do not re-run with different barriers/horizons/symbols to find a win.**
+- ⚠ runtime: ~13.5s per evaluation point (upstream re-encodes the full 512-bar context every
+  generated token — no KV cache), so the full primary window is an overnight-scale run, not minutes.
+  `PATH_BATCH` in `config.py` is the dial worth testing before committing to a long run.
+- the leakage window is the diagnostic, not a second experiment: a large primary-vs-2023 gap is a
+  memorization estimate, and would argue against the model even if the primary window passes.
 
 ## ▶ LLM paper books — ARMED + LIVE (07-23 late); shorts unlock open
 
