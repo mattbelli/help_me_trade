@@ -56,7 +56,7 @@ def is_after_close(now: datetime) -> bool:
     return t.hour * 60 + t.minute >= close_h * 60 + close_m
 
 
-def moo_time_in_force(now: datetime | None = None) -> str:
+def moo_time_in_force(now: datetime | None = None, *, paper: bool = False) -> str:
     """TIF for a market-on-open entry approved at `now` (book MOO decision, spec §5.5).
 
     - Market open → "day": a queued opg would execute a stale thesis at
@@ -67,7 +67,14 @@ def moo_time_in_force(now: datetime | None = None) -> str:
       morning's open. (Weekends/holidays hit this window too and get a day
       order that queues to the next open — equivalent fill, no hazard.)
     - Any other closed time (overnight, pre-09:28, post-close) → "opg": the
-      next opening auction is exactly the intended fill.
+      next opening auction is exactly the intended fill — EXCEPT on `paper`.
+
+    `paper=True` never emits opg: Alpaca's paper endpoint does not run the
+    opening auction, so an opg order sits pending and is expired unfilled at
+    the open (observed 2026-07-24 — GOOGL/MU book MOOs, both 0-filled). A
+    market DAY order submitted while closed is queued by Alpaca and released at
+    this morning's open, which paper DOES simulate. Live keeps opg for the true
+    single-print auction fill.
     """
     t = now.astimezone(_ET) if now is not None else datetime.now(_ET)
     if is_market_open(t):
@@ -77,7 +84,7 @@ def moo_time_in_force(now: datetime | None = None) -> str:
     open_minutes = _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
     if minutes >= cutoff and minutes < open_minutes:
         return "day"
-    return "opg"
+    return "day" if paper else "opg"
 
 
 def next_session_close(now: datetime | None = None) -> datetime:

@@ -37,6 +37,20 @@ def test_moo_tif_premarket_is_opg() -> None:
     assert moo_time_in_force(datetime(2026, 7, 23, 8, 0, tzinfo=_ET)) == "opg"
 
 
+def test_moo_tif_paper_overnight_is_day() -> None:
+    # Alpaca paper never runs the opening auction, so an opg order expires
+    # unfilled at the open — paper must queue a market DAY fill instead.
+    assert (
+        moo_time_in_force(datetime(2026, 7, 22, 20, 0, tzinfo=_ET), paper=True) == "day"
+    )
+
+
+def test_moo_tif_paper_weekend_is_day() -> None:
+    assert (
+        moo_time_in_force(datetime(2026, 7, 25, 11, 0, tzinfo=_ET), paper=True) == "day"
+    )
+
+
 def test_moo_tif_after_cutoff_premarket_is_day() -> None:
     # 09:29 on a trading day: opg would queue to TOMORROW's auction (stale
     # thesis) — a day market order releases at this morning's open instead.

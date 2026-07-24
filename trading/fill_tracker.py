@@ -111,7 +111,7 @@ def _fill_report_status_reason(
     if outcome == "canceled":
         return "canceled before fill"
     if outcome == "unfilled":
-        return "unfilled at session close"
+        return "expired unfilled"
     return ""
 
 
@@ -130,7 +130,9 @@ def _fill_report_body(
     if outcome == "canceled":
         return "Canceled, unfilled"
     if outcome == "unfilled":
-        return "Canceled, unfilled at close"
+        # An expiry can hit at the OPEN (opg auction) as well as the close —
+        # don't assert a session boundary the tracker can't verify here.
+        return "Expired, unfilled"
     return outcome
 
 

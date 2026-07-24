@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from config.settings import primary_broker, short_selling_allowed
+from config.settings import primary_broker, short_selling_allowed, trading_config
 from db.accounts import (
     account_is_execution_capable,
     default_execution_account,
@@ -52,7 +52,10 @@ def order_intent_from_fields(
     if entry_style == "moo":
         from trading.market_hours import moo_time_in_force
 
-        time_in_force = moo_time_in_force()
+        # Paper routes to Alpaca's paper endpoint, which never fills opg
+        # (no opening auction) — force a queued market DAY fill there instead.
+        paper = trading_config()["execution_mode"] == "paper"
+        time_in_force = moo_time_in_force(paper=paper)
     elif entry_style in ("book_limit", "book_ext"):
         time_in_force = "gtc"
     else:
