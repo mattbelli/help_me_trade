@@ -115,7 +115,6 @@ _BOOK_STRATEGIES = (
 
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})
 _VALID_ENTRY_MODES = frozenset({"auto", "propose"})
-_VALID_ALERT_STYLES = frozenset({"per_trade", "summary"})
 
 
 def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
@@ -154,10 +153,6 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             conn.execute(
                 "UPDATE strategies SET universe = 'active_watchlist' "
                 "WHERE universe IS NULL"
-            )
-        if "alert_style" not in existing:
-            conn.execute(
-                "ALTER TABLE strategies ADD COLUMN alert_style TEXT NOT NULL DEFAULT 'per_trade'"
             )
         if "last_rebalanced_month" not in existing:
             conn.execute(
@@ -201,7 +196,6 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "max_deployed_usd": (
             float(max_deployed) if max_deployed is not None else None
         ),
-        "alert_style": row["alert_style"],
         "last_rebalanced_month": row["last_rebalanced_month"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -221,7 +215,7 @@ def list_strategies(
                 f"""
                 SELECT id, name, enabled, account_id, notional_usd, notional_pct,
                        exit_mode, entry_mode, params_json, universe,
-                       max_concurrent_positions, max_deployed_usd, alert_style,
+                       max_concurrent_positions, max_deployed_usd,
                        last_rebalanced_month, created_at, updated_at
                 FROM strategies
                 {where}
@@ -245,7 +239,7 @@ def get_strategy(
                 """
                 SELECT id, name, enabled, account_id, notional_usd, notional_pct,
                        exit_mode, entry_mode, params_json, universe,
-                       max_concurrent_positions, max_deployed_usd, alert_style,
+                       max_concurrent_positions, max_deployed_usd,
                        last_rebalanced_month, created_at, updated_at
                 FROM strategies
                 WHERE id = ?
@@ -268,7 +262,6 @@ def update_strategy(
     notional_pct: float | None = ...,  # type: ignore[assignment]
     exit_mode: str | None = None,
     entry_mode: str | None = None,
-    alert_style: str | None = None,
     params: dict[str, Any] | None = None,
     universe: str | None = None,
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
@@ -286,9 +279,6 @@ def update_strategy(
 
     if entry_mode is not None and entry_mode not in _VALID_ENTRY_MODES:
         raise ValueError(f"entry_mode must be one of {sorted(_VALID_ENTRY_MODES)}")
-
-    if alert_style is not None and alert_style not in _VALID_ALERT_STYLES:
-        raise ValueError(f"alert_style must be one of {sorted(_VALID_ALERT_STYLES)}")
 
     if notional_usd is not None and notional_usd < 0:
         raise ValueError("notional_usd must be >= 0")
@@ -335,9 +325,6 @@ def update_strategy(
     if entry_mode is not None:
         fields.append("entry_mode = ?")
         values.append(entry_mode)
-    if alert_style is not None:
-        fields.append("alert_style = ?")
-        values.append(alert_style)
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))
@@ -517,8 +504,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 universe="sp500",
             )
             conn.execute(
-                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'per_trade' "
-                "WHERE id = ?",
+                "UPDATE strategies SET entry_mode = 'auto' WHERE id = ?",
                 ("steepyc_dip",),
             )
 
@@ -538,8 +524,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 universe="spy",
             )
             conn.execute(
-                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'per_trade' "
-                "WHERE id = ?",
+                "UPDATE strategies SET entry_mode = 'auto' WHERE id = ?",
                 ("vix_spike",),
             )
 
@@ -635,8 +620,7 @@ def seed_default_strategies(db_path: Path = DEFAULT_DB_PATH) -> None:
                 universe="sp500",
             )
             conn.execute(
-                "UPDATE strategies SET entry_mode = 'auto', alert_style = 'summary' "
-                "WHERE id = ?",
+                "UPDATE strategies SET entry_mode = 'auto' WHERE id = ?",
                 ("momentum_sp500",),
             )
 

@@ -122,24 +122,6 @@ def test_put_updates_entry_mode(strategy_api_client: TestClient) -> None:
     assert response.json()["strategy"]["entry_mode"] == "auto"
 
 
-def test_put_updates_alert_style(strategy_api_client: TestClient) -> None:
-    response = strategy_api_client.put(
-        "/api/strategies/dip_buy",
-        json={"alert_style": "summary"},
-    )
-    assert response.status_code == 200
-    assert response.json()["strategy"]["alert_style"] == "summary"
-
-
-def test_put_rejects_invalid_alert_style(strategy_api_client: TestClient) -> None:
-    response = strategy_api_client.put(
-        "/api/strategies/dip_buy",
-        json={"alert_style": "invalid"},
-    )
-    assert response.status_code == 400
-    assert "alert_style" in response.json()["detail"]
-
-
 def test_put_rejects_session_node_auto_entry(strategy_api_client: TestClient) -> None:
     response = strategy_api_client.put(
         "/api/strategies/session_node_spy",

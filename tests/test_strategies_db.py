@@ -119,7 +119,6 @@ def test_seed_momentum_sp500_defaults(tmp_path: Path, monkeypatch) -> None:
     assert row["notional_usd"] == 50000.0
     assert row["exit_mode"] == "propose"
     assert row["entry_mode"] == "auto"
-    assert row["alert_style"] == "summary"
     assert row["last_rebalanced_month"] is None
     assert row["universe"] == "sp500"
     assert row["params"] == {}
@@ -141,7 +140,6 @@ def test_seed_steepyc_dip_defaults(tmp_path: Path, monkeypatch) -> None:
     assert row["notional_usd"] == 15000.0
     assert row["exit_mode"] == "auto"
     assert row["entry_mode"] == "auto"
-    assert row["alert_style"] == "per_trade"
     assert row["universe"] == "sp500"
     assert row["params"] == {
         "side": "long",
@@ -172,29 +170,22 @@ def test_seed_vix_spike_defaults(tmp_path: Path, monkeypatch) -> None:
     assert row["notional_usd"] == 7500.0
     assert row["exit_mode"] == "auto"
     assert row["entry_mode"] == "auto"
-    assert row["alert_style"] == "per_trade"
     assert row["universe"] == "spy"
     assert row["params"] == _VIX_SPIKE_DEFAULT_PARAMS
     assert strategy_kind("vix_spike") == "vix_spike"
     assert is_portfolio_kind("vix_spike") is False
 
 
-def test_alert_style_defaults_and_migrates(tmp_path: Path) -> None:
+def test_last_rebalanced_month_defaults_and_migrates(tmp_path: Path) -> None:
     db = _migrated_db(tmp_path)
     seed_default_strategies(db_path=db)
     row = get_strategy("dip_buy", db_path=db)
     assert row is not None
-    assert row["alert_style"] == "per_trade"
     assert row["last_rebalanced_month"] is None
-
-    updated = update_strategy("dip_buy", alert_style="summary", db_path=db)
-    assert updated["alert_style"] == "summary"
-    assert get_strategy("dip_buy", db_path=db)["alert_style"] == "summary"
 
     init_strategy_tables(db)
     with connect(db) as conn:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
-    assert "alert_style" in cols
     assert "last_rebalanced_month" in cols
 
 
@@ -396,9 +387,6 @@ def test_update_strategy_validates(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="entry_mode"):
         update_strategy("dip_buy", entry_mode="invalid", db_path=db)
-
-    with pytest.raises(ValueError, match="alert_style"):
-        update_strategy("dip_buy", alert_style="invalid", db_path=db)
 
     with pytest.raises(ValueError, match="notional_usd"):
         update_strategy("dip_buy", notional_usd=-1, db_path=db)

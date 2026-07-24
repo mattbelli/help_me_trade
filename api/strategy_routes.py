@@ -155,7 +155,6 @@ def api_update_strategy(
             notional_pct=body.get("notional_pct") if "notional_pct" in body else ...,
             exit_mode=body.get("exit_mode") if "exit_mode" in body else None,
             entry_mode=body.get("entry_mode") if "entry_mode" in body else None,
-            alert_style=body.get("alert_style") if "alert_style" in body else None,
             params=body.get("params") if "params" in body else None,
             universe=body.get("universe") if "universe" in body else None,
             max_concurrent_positions=body.get("max_concurrent_positions")
