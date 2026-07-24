@@ -11,9 +11,43 @@ That gap is the only thing the probe is measuring.
 
 from __future__ import annotations
 
+import logging
+import warnings
+
 import numpy as np
 
 BLOCK_BARS = 12  # one hour of 5-minute bars
+
+logger = logging.getLogger(__name__)
+
+
+def garch_sigma_h(log_returns: np.ndarray, horizon: int) -> float | None:
+    """GARCH(1,1) forecast of the horizon-aggregated sigma. None if the fit fails.
+
+    The other half of the probe: Kronos's strongest published task is volatility,
+    where the runner-up baseline is GARCH at 9% lower MAE. Fitting it here — on our
+    bars, at our horizon — is what turns that claim into something we can check.
+
+    Zero-mean, rescaled to percent because arch's optimizer is poorly conditioned on
+    raw 5-minute log returns. Fail-soft: a non-converging fit drops this arm for this
+    point only, never the whole evaluation.
+    """
+    from arch import arch_model
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fitted = arch_model(
+                log_returns * 100, mean="Zero", vol="Garch", p=1, q=1
+            ).fit(disp="off", show_warning=False)
+            variances = fitted.forecast(horizon=horizon, reindex=False).variance
+        total = float(np.sum(variances.to_numpy()[0]))
+    except Exception as exc:  # noqa: BLE001 - any optimizer failure drops this arm
+        logger.debug("GARCH fit failed: %s", exc)
+        return None
+    if not np.isfinite(total) or total <= 0:
+        return None
+    return float(np.sqrt(total) / 100)
 
 
 def bootstrap_paths(

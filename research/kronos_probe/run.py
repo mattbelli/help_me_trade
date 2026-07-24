@@ -117,12 +117,22 @@ def cmd_probe(window: str, limit: int | None) -> int:
                 rng=rng,
             )
 
+            # Volatility leg — free from the same rollouts. Kronos's sigma is the
+            # dispersion of its own terminal log returns; the realized proxy is the
+            # actual horizon log return (squared inside the scorer).
+            realized_return = float(np.log(forward[-1] / anchor))
+            garch = baseline.garch_sigma_h(returns, config.HORIZON_BARS)
+
             records.append(
                 {
                     "symbol": symbol,
                     "ts": bars[i]["t"],
                     "session_date": bars[i]["et"].date().isoformat(),
                     "actual": actual,
+                    "realized_return": realized_return,
+                    "kronos_sigma": float(np.log(kronos_closes[:, -1] / anchor).std()),
+                    "ewma_sigma": float(sigma * np.sqrt(config.HORIZON_BARS)),
+                    "garch_sigma": garch,
                     "kronos_counts": np.bincount(
                         barriers.resolve(kronos_closes, upper, lower),
                         minlength=barriers.N_OUTCOMES,
@@ -134,7 +144,10 @@ def cmd_probe(window: str, limit: int | None) -> int:
                 }
             )
 
-    summary = score.summarize(records)
+    summary = {
+        "path_test": score.summarize(records),
+        "volatility_test": score.summarize_volatility(records),
+    }
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (config.OUTPUT_DIR / f"{window}_records.json").write_text(json.dumps(records))
     (config.OUTPUT_DIR / f"{window}_summary.json").write_text(

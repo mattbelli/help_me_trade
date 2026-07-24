@@ -50,11 +50,14 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
 
 Isolated experiment in `research/kronos_probe/` (pre-registration + removal instructions in its
 README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24 row). Asks one
-question: does a pretrained K-line model's *conditional* path distribution beat a vol-matched block
-bootstrap at P(target before stop)? **Open:**
-- run `probe --window primary` then `--window leakage`, then apply the pre-registered rule: PASS iff
-  lower log-loss AND the 95% paired CI excludes 0 — anything else means `rm -rf` the package.
-  **Do not re-run with different barriers/horizons/symbols to find a win.**
+**two** questions off the same rollouts, scored and reported independently: (1) does Kronos's
+*conditional* path distribution beat a vol-matched block bootstrap at P(target before stop)?
+(2) does its implied σ beat EWMA **and** GARCH(1,1) on QLIKE? **Open:**
+- run `probe --window primary` then `--window leakage`, then apply the two pre-registered rules:
+  path PASS iff lower log-loss AND 95% paired CI excludes 0; vol PASS iff it beats **both** baselines
+  (beating only EWMA is a FAIL — the cheap baseline is the real competitor). Both FAIL → `rm -rf`.
+  **Do not re-run with different barriers/horizons/symbols to find a win**, and do not treat a
+  vol-win + path-FAIL as a pass — that demotes to a bake-off input on `per-symbol-volatility`.
 - ⚠ runtime: ~13.5s per evaluation point (upstream re-encodes the full 512-bar context every
   generated token — no KV cache), so the full primary window is an overnight-scale run, not minutes.
   `PATH_BATCH` in `config.py` is the dial worth testing before committing to a long run.

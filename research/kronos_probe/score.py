@@ -54,6 +54,79 @@ def paired_ci(
     return float(diffs.mean()), float(lo), float(hi)
 
 
+def qlike(sigma: np.ndarray, realized_return: np.ndarray) -> np.ndarray:
+    """QLIKE loss: log(sigma^2) + r^2 / sigma^2, lower is better.
+
+    Standard for volatility forecasts because it stays robust when the realized
+    proxy is noisy — a single squared return is an unbiased but very noisy estimate
+    of the horizon's variance, and MSE over-punishes forecasts on the few points
+    where that noise is large.
+    """
+    variance = sigma**2
+    return np.log(variance) + realized_return**2 / variance
+
+
+def summarize_volatility(records: list[dict]) -> dict:
+    """Score Kronos's implied sigma against EWMA and GARCH(1,1) on the same points.
+
+    Separate question from the path test, with its own pre-registered decision rule.
+    A win here does NOT substitute for the path verdict, or vice versa — they are
+    reported independently so neither can launder the other's null result.
+    """
+    usable = [
+        r
+        for r in records
+        if r.get("kronos_sigma", 0) > 0 and r.get("ewma_sigma", 0) > 0
+    ]
+    if not usable:
+        return {"n_points": 0, "verdict": "NO DATA"}
+
+    dates = np.array([r["session_date"] for r in usable])
+    realized = np.array([r["realized_return"] for r in usable])
+    losses = {
+        arm: qlike(np.array([r[f"{arm}_sigma"] for r in usable]), realized)
+        for arm in ("kronos", "ewma")
+    }
+
+    out: dict = {"n_points": len(usable)}
+    for arm, loss in losses.items():
+        out[arm] = {"qlike": float(loss.mean())}
+
+    # GARCH can fail to converge on individual points; score it on its own subset
+    # and, to keep the comparison paired, against Kronos restricted to that subset.
+    garch_mask = np.array([r.get("garch_sigma") is not None for r in usable])
+    if garch_mask.sum() >= MIN_SESSION_DATES:
+        garch_sigma = np.array(
+            [r["garch_sigma"] for r in usable if r.get("garch_sigma") is not None]
+        )
+        garch_loss = qlike(garch_sigma, realized[garch_mask])
+        out["garch"] = {
+            "qlike": float(garch_loss.mean()),
+            "n_points": int(garch_mask.sum()),
+            "fit_failure_rate": float(1 - garch_mask.mean()),
+        }
+        mean, lo, hi = paired_ci(
+            losses["kronos"][garch_mask] - garch_loss, dates[garch_mask]
+        )
+        out["kronos_vs_garch"] = {"mean_qlike_delta": mean, "ci_low": lo, "ci_high": hi}
+
+    mean, lo, hi = paired_ci(losses["kronos"] - losses["ewma"], dates)
+    out["kronos_vs_ewma"] = {"mean_qlike_delta": mean, "ci_low": lo, "ci_high": hi}
+
+    n_dates = int(np.unique(dates).size)
+    out["n_session_dates"] = n_dates
+    if n_dates < MIN_SESSION_DATES:
+        out["verdict"] = "INSUFFICIENT DATA"
+    else:
+        beats = [
+            out[k]["mean_qlike_delta"] < 0 and out[k]["ci_high"] < 0
+            for k in ("kronos_vs_ewma", "kronos_vs_garch")
+            if k in out
+        ]
+        out["verdict"] = "PASS" if beats and all(beats) else "FAIL"
+    return out
+
+
 def summarize(records: list[dict]) -> dict:
     """Score every evaluation point and apply the pre-registered decision rule."""
     if not records:

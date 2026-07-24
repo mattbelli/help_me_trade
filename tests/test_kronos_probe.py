@@ -133,6 +133,55 @@ def test_too_few_session_dates_is_not_a_verdict():
     assert out["n_session_dates"] == 1
 
 
+def _vol_records(kronos_sigma, ewma_sigma, garch_sigma, realized, n=25):
+    return [
+        {
+            "session_date": f"2026-01-{d:02d}",
+            "actual": barriers.TIMEOUT,
+            "kronos_counts": [50, 50, 100],
+            "bootstrap_counts": [50, 50, 100],
+            "realized_return": realized,
+            "kronos_sigma": kronos_sigma,
+            "ewma_sigma": ewma_sigma,
+            "garch_sigma": garch_sigma,
+        }
+        for d in range(1, n + 1)
+    ]
+
+
+def test_qlike_prefers_the_forecast_nearer_the_realized_move():
+    realized = np.full(4, 0.01)
+    accurate = score.qlike(np.full(4, 0.01), realized)
+    too_wide = score.qlike(np.full(4, 0.05), realized)
+    too_narrow = score.qlike(np.full(4, 0.002), realized)
+    assert accurate.mean() < too_wide.mean()
+    assert accurate.mean() < too_narrow.mean()
+
+
+def test_volatility_verdict_requires_beating_both_baselines():
+    # Kronos matches the realized move; EWMA is badly wide; GARCH is just as good.
+    out = score.summarize_volatility(
+        _vol_records(kronos_sigma=0.01, ewma_sigma=0.06, garch_sigma=0.01, realized=0.01)
+    )
+    assert out["kronos_vs_ewma"]["mean_qlike_delta"] < 0
+    # Ties GARCH -> must not pass on the strength of the weaker baseline alone.
+    assert out["verdict"] == "FAIL"
+
+
+def test_volatility_passes_when_kronos_beats_both():
+    out = score.summarize_volatility(
+        _vol_records(kronos_sigma=0.01, ewma_sigma=0.06, garch_sigma=0.05, realized=0.01)
+    )
+    assert out["verdict"] == "PASS"
+
+
+def test_volatility_tolerates_garch_fit_failures():
+    records = _vol_records(0.01, 0.02, None, 0.01)
+    out = score.summarize_volatility(records)
+    assert "garch" not in out  # dropped, not crashed
+    assert out["n_points"] == 25
+
+
 def test_smoothing_keeps_zero_probability_outcomes_finite():
     probs = score.smooth(np.array([200.0, 0.0, 0.0]))
     assert np.isfinite(score.log_loss(probs, barriers.DOWN))

@@ -4,6 +4,21 @@
 imports this package. If the probe fails, delete it (see *Removal* below) and nothing
 else changes.
 
+## Two questions, two independent verdicts
+
+Both are pre-registered below, both are scored on the *same* evaluation points from
+the *same* rollouts, and both are reported separately. **Neither substitutes for the
+other** — "we ran two tests and one passed" is exactly how a null result gets
+laundered into a green light.
+
+1. **Path test** (the headline): is Kronos's *conditional* 3-way outcome distribution
+   better than a vol-matched block bootstrap's?
+2. **Volatility test**: is Kronos's implied σ over the horizon a better volatility
+   forecast than EWMA or GARCH(1,1)? Volatility is Kronos's strongest published task,
+   and the paper's runner-up there is GARCH by 9% MAE — this checks that claim on our
+   bars, at our horizon. Kronos's σ is a free byproduct of the rollouts the path test
+   already pays for.
+
 ## The question
 
 [Kronos](https://github.com/shiyu-coder/Kronos) (AAAI'26, MIT) is a pretrained
@@ -67,10 +82,24 @@ Two consequences, both pre-registered below:
 | Secondary metric | multiclass Brier |
 | Uncertainty | paired per-point differences, block-bootstrapped over session dates (95%) |
 
-**Decision rule.** PASS iff Kronos's mean log-loss is lower than the bootstrap's *and*
-the 95% paired CI on the difference excludes 0. Anything else is a FAIL and the package
-gets deleted. No re-running with different barriers, horizons, or symbols to find a
-win — that is how a null result gets laundered into a false positive.
+Volatility test, same points: forecast = Kronos's terminal-log-return σ across its 200
+paths, vs EWMA σ̂·√H and vs GARCH(1,1) refit per point (zero-mean, on the same intraday
+returns, fail-soft — a non-converging fit drops GARCH for that point only). Loss =
+**QLIKE** (`log σ² + r²/σ²`), robust to the fact that one squared return is a very noisy
+proxy for a horizon's variance. Same paired block-bootstrap CI over session dates.
+
+**Decision rules.** *Path test:* PASS iff Kronos's mean log-loss is lower than the
+bootstrap's *and* the 95% paired CI on the difference excludes 0. *Volatility test:*
+PASS iff Kronos's mean QLIKE beats **both** EWMA and GARCH with CIs excluding 0 —
+beating only the weaker baseline is a FAIL, because the cheap baseline is the real
+competitor. Anything else is a FAIL. No re-running with different barriers, horizons,
+or symbols to find a win — that is how a null result gets laundered into a false
+positive.
+
+A FAIL on both deletes the package. A FAIL on the path test but a genuine win on
+volatility is not "the probe passed" — it is a narrower, cheaper finding that belongs
+to the `per-symbol-volatility` card as a GARCH-vs-EWMA-vs-Kronos bake-off input, and
+would still have to beat EWMA's zero-dependency simplicity to be worth adopting.
 
 Symmetric barriers are deliberate: they pin the bootstrap near P(up)≈P(down), so any
 Kronos advantage is conditional information rather than a drift term either arm could
