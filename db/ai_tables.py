@@ -7,6 +7,7 @@ import logging
 import re
 import sqlite3
 import string
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -537,6 +538,96 @@ def get_memory(
             "SELECT * FROM memories WHERE id = ?", (memory_id,)
         ).fetchone()
     return _row_to_memory(row) if row else None
+
+
+def _parse_valid_until(raw: str) -> datetime | None:
+    """Parse a free-form ``valid_until`` into the aware-UTC instant at which the
+    memory becomes stale, or None if unparseable. ``save_memory`` stores whatever the
+    model emits (a bare date '2026-08-01', a full ISO datetime, sometimes 'Z'-suffixed),
+    so we parse defensively here rather than trust a lexical string compare across
+    mixed formats. A **date-only** value is treated as 'valid through the end of that
+    day' — expiry is midnight UTC the *following* day — which is what a human means by
+    'valid until Aug 1'. A naive datetime is assumed UTC."""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    # Date-only (no time component) -> valid through end of day.
+    if "T" not in s and "t" not in s and ":" not in s:
+        try:
+            d = date.fromisoformat(s)
+        except ValueError:
+            return None
+        return datetime(d.year, d.month, d.day, tzinfo=UTC) + timedelta(days=1)
+    iso = s[:-1] + "+00:00" if s[-1] in "Zz" else s
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def is_memory_expired(memory: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """True iff this memory carries a ``valid_until`` that has passed. A row with no
+    valid_until — or an unparseable one — is never expired (non-destructive). Used as
+    the injection fence's belt-and-suspenders guard so an expired thesis can't reach a
+    propose-order-capable prompt even if the sweep hasn't run yet."""
+    expiry = _parse_valid_until(str(memory.get("valid_until") or ""))
+    if expiry is None:
+        return False
+    return (now or datetime.now(UTC)) >= expiry
+
+
+def expire_stale_memories(
+    *, now: datetime | None = None, db_path: Path | None = None
+) -> int:
+    """Flip active memories whose ``valid_until`` has passed to ``status='expired'`` and
+    return how many were flipped. This is the ONLY writer of the 'expired' status; every
+    read path already filters ``status='active'``, so a stale thesis stops injecting the
+    moment it is swept. Only rows that actually carry a valid_until are examined (cheap).
+    An unparseable valid_until is left active and logged (never silently delete a
+    legitimate memory over a format quirk). Fail-soft — never raises into a caller
+    (returns 0 on any error), so it is safe to call inline on the read path."""
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    now = now or datetime.now(UTC)
+    try:
+        init_ai_tables(resolved_db)
+        with _connect(resolved_db) as conn:
+            rows = conn.execute(
+                "SELECT id, valid_until FROM memories "
+                "WHERE status = 'active' AND valid_until IS NOT NULL "
+                "AND valid_until != ''"
+            ).fetchall()
+            stale: list[int] = []
+            for row in rows:
+                expiry = _parse_valid_until(str(row["valid_until"]))
+                if expiry is None:
+                    # Expected: valid_until is free-form model output, so a malformed
+                    # value is a quirk, not an operator-actionable event. debug (not
+                    # warning) — the sweep runs every chat turn, so a warning here would
+                    # spam the always-on box's log indefinitely for one bad row.
+                    logger.debug(
+                        "memory %s has unparseable valid_until=%r; leaving active",
+                        row["id"],
+                        row["valid_until"],
+                    )
+                    continue
+                if now >= expiry:
+                    stale.append(int(row["id"]))
+            if not stale:
+                return 0
+            ts = _now()
+            conn.executemany(
+                "UPDATE memories SET status = 'expired', updated_at = ? WHERE id = ?",
+                [(ts, mid) for mid in stale],
+            )
+            conn.commit()
+        logger.info("expired %d stale memory row(s)", len(stale))
+        return len(stale)
+    except Exception:
+        logger.debug("expire_stale_memories failed; no rows expired", exc_info=True)
+        return 0
 
 
 _MEMORY_STATUSES = frozenset({"active", "superseded", "archived", "expired"})

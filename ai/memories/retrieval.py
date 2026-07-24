@@ -17,7 +17,12 @@ from typing import Any
 import numpy as np
 
 from ai.memories.embedding import EMBED_MODEL_ID, decode, embed_query
-from db.ai_tables import fetch_memory_embeddings, list_memories, search_memories
+from db.ai_tables import (
+    expire_stale_memories,
+    fetch_memory_embeddings,
+    list_memories,
+    search_memories,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +143,11 @@ def retrieve_relevant_memories(
     """Top-k memories by relevance. Hybrid (FTS5 + model2vec RRF) when embeddings
     are available; the original lexical ranking otherwise. Empty query -> recent items."""
     lim = max(1, min(limit, 20))
+    # Retire any memory whose valid_until has passed BEFORE reading — a stale thesis
+    # must never rank into a propose-order-capable prompt. Flips status to 'expired'
+    # once (every read below already filters status='active'); fail-soft, so a sweep
+    # error degrades to "nothing expired this turn", never a broken retrieval.
+    expire_stale_memories()
     q = query.strip()
     if not q:
         return list_memories(memory_type=memory_type, limit=lim)
