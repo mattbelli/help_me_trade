@@ -62,5 +62,25 @@
     {"query": "SLB support level", "expect_contains": "43", "phase": 2},
     {"query": "index option tenor", "expect_contains": "weekly", "phase": 2},
     {"query": "stale SLB thesis check", "expect_contains": "SLB", "phase": 2, "stale": true}
+  ],
+  "retrieval_corpus": [
+    {"type": "directive", "content": "Never propose shorts; the founder does not want to short anything."},
+    {"type": "directive", "content": "Cap any single name at 20% of the portfolio."},
+    {"type": "directive", "content": "Always state the stop before the target on any trade idea."},
+    {"type": "preference", "content": "Prefers weekly options on indexes, monthlies on single names."},
+    {"type": "preference", "content": "Wants terse answers during market hours."},
+    {"type": "preference", "content": "Likes stops set at round numbers rather than exact prices."},
+    {"type": "fact", "content": "Has 4 real Schwab accounts, held read-only."},
+    {"type": "fact", "content": "Trades from his phone during the workday."},
+    {"type": "lesson", "content": "Tends to cut winners early: 6 of the last 8 winners exited below target."},
+    {"type": "thesis", "content": "SLB oversold on oil capex fears; fiber narrative intact; watching $43 support."},
+    {"type": "preference", "content": "Avoid trading the first 15 minutes after the open."},
+    {"type": "lesson", "content": "dip_buy win rate runs about 14 points below its backtest over 32 trades."},
+    {"type": "fact", "content": "Runs an Alpaca paper account for the strategy sleeves."},
+    {"type": "preference", "content": "Likes a dark, low-contrast dashboard theme."},
+    {"type": "thesis", "content": "NVDA AI capex durable into next year; watching the 200-day average."},
+    {"type": "directive", "content": "The kill switch halts all new entries immediately."},
+    {"type": "fact", "content": "Uses a home Linux server to run the agent."},
+    {"type": "lesson", "content": "Adds to losers without a stop; a recurring risk habit."}
   ]
 }

@@ -32,6 +32,11 @@ os.environ["HMT_TEST_LIFESPAN"] = "minimal"
 # on a machine with a live Ollama daemon (serv, or any dev box) silently flips
 # the app-wide default LLM to a real local model and tests do live inference.
 os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:9"
+# Hermetic memory embeddings: keep the suite from ever loading/downloading the
+# model2vec model (Phase 2 hybrid retriever). Disabled here, retrieval exercises
+# the lexical fallback; the hybrid path is covered by tests that inject fake
+# embedders. Prod leaves this unset (embeddings on).
+os.environ["MEMORY_EMBEDDINGS_ENABLED"] = "0"
 for _suffix in ("", "-wal", "-shm"):
     try:
         os.remove(_TEST_DEFAULT_DB + _suffix)
