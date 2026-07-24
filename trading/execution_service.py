@@ -203,6 +203,7 @@ class ExecutionService:
                         if intent.stop_price is not None
                         else None
                     ),
+                    extended_hours=intent.extended_hours,
                 )
                 try:
                     resp = await adapter.aplace_order(req)

@@ -41,6 +41,11 @@ _TERMINAL_STATUSES = frozenset(
 #                     pool, and the phone push waits for the true terminal status.
 #   filled_qty == 0 → "expired": nothing to attribute; the resting order died at
 #                     day end (the original stuck-"submitted" bug scenario).
+#   EXCEPT gtc     → None: a GTC order (book limit/ext entries) parked at
+#                     done_for_day reworks NEXT session — treating it as expired
+#                     drops it from the reconcile pool, so a day-3 fill would be
+#                     an invisible, unprotected position (entry-type review H1,
+#                     2026-07-24). The row stays "submitted" and keeps polling.
 
 
 async def _flush_attribution_orphans(db_path: Path) -> None:
@@ -51,10 +56,19 @@ async def _flush_attribution_orphans(db_path: Path) -> None:
         logger.exception("Failed to flush fill-attribution orphan notifications")
 
 
-def _map_broker_status(broker_status: str, filled_qty: object = None) -> str | None:
+def _map_broker_status(
+    broker_status: str,
+    filled_qty: object = None,
+    time_in_force: str | None = None,
+) -> str | None:
     normalized = broker_status.strip().lower()
     if normalized == "done_for_day":
-        normalized = "partially_filled" if _filled_qty_positive(filled_qty) else "expired"
+        if _filled_qty_positive(filled_qty):
+            normalized = "partially_filled"
+        elif (time_in_force or "").strip().lower() == "gtc":
+            return None  # still working — reworks next session
+        else:
+            normalized = "expired"
     if normalized in _TERMINAL_STATUSES:
         return normalized
     return None
@@ -292,7 +306,9 @@ async def reconcile_open_executions(
             continue
 
         new_status = _map_broker_status(
-            order.status, getattr(order, "filled_qty", None)
+            order.status,
+            getattr(order, "filled_qty", None),
+            getattr(order, "time_in_force", None),
         )
         if new_status is None or new_status == row.get("status"):
             # Unchanged since last reconcile — don't re-write the row, re-record the

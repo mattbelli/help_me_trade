@@ -310,6 +310,46 @@ def list_paper_order_proposals(
     return [_row_to_proposal(r) for r in rows]
 
 
+def list_book_entries_needing_stop(
+    *,
+    limit: int = 200,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Executed book BUY proposals whose entry execution has begun/finished
+    filling but which have no live protective-stop execution row yet.
+
+    Deliberately time-unbounded: a GTC book entry (limit/ext styles) can rest
+    for weeks before filling, so any created_at window eventually misses it
+    (entry-type review H2, 2026-07-24). The NOT EXISTS keeps the working set
+    tiny — once a stop row exists in a non-failed state, the entry drops out.
+    """
+    from db.order_executions import init_execution_tables
+
+    init_paper_order_tables(db_path)
+    init_execution_tables(db_path)
+    lim = max(1, min(limit, 200))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT p.* FROM paper_order_proposals AS p
+            JOIN order_executions AS e ON e.proposal_id = p.id
+            WHERE p.status = 'executed'
+              AND p.source LIKE 'book_%'
+              AND p.side = 'buy'
+              AND e.status IN ('filled', 'canceled', 'expired', 'partially_filled')
+              AND NOT EXISTS (
+                SELECT 1 FROM order_executions AS s
+                WHERE s.proposal_id = 'stop|' || p.id
+                  AND s.status NOT IN ('rejected', 'error')
+              )
+            ORDER BY p.created_at DESC
+            LIMIT ?
+            """,
+            (lim,),
+        ).fetchall()
+    return [_row_to_proposal(r) for r in rows]
+
+
 def claim_proposal_for_approval(
     proposal_id: str, *, db_path: Path = DEFAULT_DB_PATH
 ) -> str:

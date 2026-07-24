@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
@@ -473,6 +474,43 @@ async def test_propose_trade_max_pending(monkeypatch, tmp_path: Path) -> None:
     assert result == {"status": "max_pending"}
     assert _proposal_count(db) == max_pending
     assert _execution_count(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_propose_trade_book_styles_exempt_from_max_pending(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Book slates (all entry styles) bypass the pending-count cap — the cap
+    would silently truncate the analyst's nightly slate (M3-lifecycle, re-caught
+    for limit/ext by the 2026-07-24 entry-type reviewers)."""
+    db = tmp_path / "intake.db"
+    _patch_env(monkeypatch, db)
+    for sym in ("MSFT", "GOOG", "META"):
+        _insert_pending_proposal(db, sym)
+
+    # Pin ONLY the cap seam: risk + phone-proposal creation are stubbed.
+    async def _risk_ok(*_a, **_k):
+        return SimpleNamespace(passed=True, blocked_reason=None)
+
+    monkeypatch.setattr(
+        "trading.proposal_intake.RiskEngine.validate", _risk_ok
+    )
+    create_spy = AsyncMock(return_value={"id": "prop_book"})
+    monkeypatch.setattr("trading.proposal_intake.create_phone_proposal", create_spy)
+
+    for style in ("book_limit", "book_ext"):
+        result = await propose_trade(
+            _candidate(
+                symbol="NVDA",
+                order_type="limit",
+                limit_price=Decimal("150"),
+                entry_style=style,
+                stop_price=Decimal("140"),
+                source="book_fable",
+            ),
+            db_path=db,
+        )
+        assert result == {"status": "proposed", "id": "prop_book"}, style
 
 
 @pytest.mark.asyncio

@@ -589,7 +589,7 @@ async def test_dead_zone_moo_day_order_prices_off_reference(
     monkeypatch, tmp_path: Path
 ) -> None:
     """Adversarial review H1-lifecycle: an approval in the 9:28–9:30 dead zone
-    submits tif=day pre-open — validate must still price it (moo_entry flag),
+    submits tif=day pre-open — validate must still price it (book_entry flag),
     never terminally block the proposal on 'no live quote'."""
     db = tmp_path / "r.db"
     _patch_risk_env(monkeypatch, db)
@@ -604,7 +604,7 @@ async def test_dead_zone_moo_day_order_prices_off_reference(
     monkeypatch.setattr("trading.risk_engine._offhours_reference_price", _reference)
     monkeypatch.setattr("trading.risk_engine.is_market_open", lambda: False)
     result = await RiskEngine.validate(
-        _intent(symbol="GOOGL", time_in_force="day", moo_entry=True), db_path=db
+        _intent(symbol="GOOGL", time_in_force="day", book_entry=True), db_path=db
     )
     assert result.passed is True
     assert result.checks["live_quote"] == "pass: off-hours reference close"
@@ -615,7 +615,7 @@ async def test_moo_day_order_no_reference_when_market_open(
     monkeypatch, tmp_path: Path
 ) -> None:
     """A mid-session quote outage must never re-price a live moo market order
-    off a stale close — the moo_entry arm is closed-market-gated."""
+    off a stale close — the book_entry arm is closed-market-gated."""
     db = tmp_path / "r.db"
     _patch_risk_env(monkeypatch, db)
 
@@ -629,13 +629,13 @@ async def test_moo_day_order_no_reference_when_market_open(
     monkeypatch.setattr("trading.risk_engine._offhours_reference_price", _reference)
     monkeypatch.setattr("trading.risk_engine.is_market_open", lambda: True)
     result = await RiskEngine.validate(
-        _intent(symbol="GOOGL", time_in_force="day", moo_entry=True), db_path=db
+        _intent(symbol="GOOGL", time_in_force="day", book_entry=True), db_path=db
     )
     assert result.passed is False
     assert result.blocked_reason == "no live quote"
 
 
-def test_intent_builder_sets_moo_entry(monkeypatch, tmp_path: Path) -> None:
+def test_intent_builder_sets_book_entry(monkeypatch, tmp_path: Path) -> None:
     from trading.order_proposal import order_intent_from_fields
 
     monkeypatch.setattr(
@@ -654,7 +654,7 @@ def test_intent_builder_sets_moo_entry(monkeypatch, tmp_path: Path) -> None:
     intent = order_intent_from_fields(
         fields, proposal_id="p1", session_id=None, db_path=tmp_path / "i.db"
     )
-    assert intent.moo_entry is True
+    assert intent.book_entry is True
     assert intent.time_in_force in ("opg", "day")
 
 
@@ -723,6 +723,115 @@ async def test_stop_guard_waits_on_fresh_partial(monkeypatch, tmp_path: Path) ->
     assert await place_protective_stops("alpaca", db_path=db) == 0
 
 
+# ── entry-type choice: moo | limit | ext (founder 07-24) ───────────────────
+
+
+def test_builder_book_limit_gtc_rides_intent_fields(monkeypatch, tmp_path: Path) -> None:
+    _patch_builder_account(monkeypatch)
+    built = build_order_proposal_from_args(
+        {
+            "symbol": "GOOGL",
+            "side": "buy",
+            "qty": 68,
+            "order_type": "limit",
+            "limit_price": "318.50",
+            "entry_style": "book_limit",
+            "stop_price": "314.90",
+        },
+        db_path=tmp_path / "b.db",
+    )
+    assert "error" not in built
+    assert built["intent_fields"]["entry_style"] == "book_limit"
+    assert built["intent_fields"]["limit_price"] == "318.50"
+
+
+def test_builder_rejects_book_limit_without_price(monkeypatch, tmp_path: Path) -> None:
+    _patch_builder_account(monkeypatch)
+    built = build_order_proposal_from_args(
+        {"symbol": "GOOGL", "side": "buy", "qty": 68, "entry_style": "book_ext"},
+        db_path=tmp_path / "b.db",
+    )
+    assert "error" in built
+
+
+def test_intent_builder_maps_styles(monkeypatch, tmp_path: Path) -> None:
+    from trading.order_proposal import order_intent_from_fields
+
+    monkeypatch.setattr(
+        "trading.order_proposal.default_execution_account",
+        lambda db_path=None: {"id": "acct_book", "broker": "alpaca"},
+    )
+    base = {
+        "symbol": "GOOGL",
+        "side": "buy",
+        "qty": "68",
+        "order_type": "limit",
+        "limit_price": "318.50",
+        "broker": "alpaca",
+    }
+    lim = order_intent_from_fields(
+        {**base, "entry_style": "book_limit"},
+        proposal_id="p1", session_id=None, db_path=tmp_path / "i.db",
+    )
+    assert (lim.time_in_force, lim.extended_hours, lim.book_entry) == ("gtc", False, True)
+    ext = order_intent_from_fields(
+        {**base, "entry_style": "book_ext"},
+        proposal_id="p2", session_id=None, db_path=tmp_path / "i.db",
+    )
+    assert (ext.time_in_force, ext.extended_hours, ext.book_entry) == ("gtc", True, True)
+
+
+@pytest.mark.asyncio
+async def test_risk_rejects_extended_hours_market(monkeypatch, tmp_path: Path) -> None:
+    _no_kill(monkeypatch)
+    result = await RiskEngine.validate(
+        _intent(order_type="market", extended_hours=True), db_path=tmp_path / "r.db"
+    )
+    assert result.passed is False
+    assert "extended_hours" in (result.blocked_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_risk_allows_gtc_extended_limit_offhours_book(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The ext style end-state: GTC extended-hours limit, closed market,
+    priced off the reference close, cap-exempt on a book account."""
+    db = tmp_path / "r.db"
+    _patch_risk_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine._book_account_ids", lambda _db: frozenset({"acct_book"})
+    )
+    monkeypatch.setattr(
+        "trading.risk_engine.account_is_execution_capable", lambda *_a, **_k: True
+    )
+
+    async def _no_live(_symbol: str):
+        return None
+
+    async def _reference(_symbol: str):
+        return Decimal("320.00")
+
+    monkeypatch.setattr("trading.risk_engine._live_market_price", _no_live)
+    monkeypatch.setattr("trading.risk_engine._offhours_reference_price", _reference)
+    monkeypatch.setattr("trading.risk_engine.is_market_open", lambda: False)
+    result = await RiskEngine.validate(
+        _intent(
+            symbol="GOOGL",
+            qty=Decimal("204"),
+            order_type="limit",
+            limit_price=Decimal("318.50"),
+            time_in_force="gtc",
+            extended_hours=True,
+            book_entry=True,
+            account_id="acct_book",
+        ),
+        db_path=db,
+    )
+    assert result.passed is True, result.blocked_reason
+    assert result.checks["order_value_cap"] == "exempt: book account self-sizing"
+
+
 # ── founder "no caps" for book accounts (07-23) ────────────────────────────
 
 
@@ -754,7 +863,7 @@ async def test_book_account_moo_buy_exempt_from_value_and_concentration(
             symbol="GOOGL",
             qty=Decimal("203"),  # ≈ $65k at the reference close
             time_in_force="opg",
-            moo_entry=True,
+            book_entry=True,
             account_id="acct_book",
         ),
         db_path=db,
@@ -788,7 +897,7 @@ async def test_non_book_moo_keeps_caps(monkeypatch, tmp_path: Path) -> None:
             symbol="GOOGL",
             qty=Decimal("203"),
             time_in_force="opg",
-            moo_entry=True,
+            book_entry=True,
             account_id="acct_book",
         ),
         db_path=db,
@@ -828,3 +937,150 @@ def test_parse_stop_price_forms() -> None:
     assert _parse_stop_price("") is None
     assert _parse_stop_price(None) is None
     assert _parse_stop_price("-5") is None
+
+# ── entry-type review fixes (2026-07-24) ───────────────────────────────────
+
+
+def test_done_for_day_gtc_zero_fill_stays_open() -> None:
+    """H1: a GTC book entry parked done_for_day reworks next session — mapping
+    it terminal would drop it from the reconcile pool and a later fill becomes
+    an invisible, unprotected position."""
+    from trading.fill_tracker import _map_broker_status
+
+    assert _map_broker_status("done_for_day", 0, "gtc") is None
+    assert _map_broker_status("done_for_day", 0, "day") == "expired"
+    assert _map_broker_status("done_for_day", 0, None) == "expired"
+    # A partial keeps its shares tracked regardless of TIF.
+    assert _map_broker_status("done_for_day", 3, "gtc") == "partially_filled"
+    assert _map_broker_status("filled", 5, "gtc") == "filled"
+
+
+def test_alpaca_order_parse_carries_tif() -> None:
+    from brokers.alpaca import AlpacaAdapter
+
+    item = {
+        "id": "o1",
+        "symbol": "AAPL",
+        "qty": "1",
+        "side": "buy",
+        "type": "limit",
+        "status": "new",
+        "filled_qty": "0",
+        "limit_price": "1",
+        "time_in_force": "gtc",
+    }
+    assert AlpacaAdapter._parse_order_item(item).time_in_force == "gtc"
+    del item["time_in_force"]
+    assert AlpacaAdapter._parse_order_item(item).time_in_force is None
+
+
+@pytest.mark.asyncio
+async def test_stop_guard_covers_gtc_entry_older_than_any_window(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """H2: a GTC limit/ext entry can fill weeks after the proposal night — the
+    guard is execution-state driven, never created_at-window driven."""
+    import sqlite3
+    from datetime import UTC, timedelta
+    from datetime import datetime as dt
+
+    db = tmp_path / "sg.db"
+    _seed_book_entry(db, proposal_id="paper_old")
+    backdated = (dt.now(UTC) - timedelta(days=30)).isoformat()
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE paper_order_proposals SET created_at = ? WHERE id = 'paper_old'",
+            (backdated,),
+        )
+        conn.commit()
+
+    submitted: list[OrderIntent] = []
+
+    async def _fake_submit(intent: OrderIntent, *, db_path: Path):
+        submitted.append(intent)
+        create_execution_record(
+            execution_id="exec_stop_old",
+            proposal_id=intent.proposal_id,
+            session_id=None,
+            symbol=intent.symbol,
+            side=intent.side,
+            qty=intent.qty,
+            order_type=intent.order_type,
+            limit_price=None,
+            execution_mode="paper",
+            status="submitted",
+            broker=intent.broker,
+            account_id=intent.account_id,
+            risk_checks_json={},
+            db_path=db_path,
+        )
+        return ExecutionResult(
+            execution_id="exec_stop_old",
+            broker_order_id="bo_old",
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+
+    monkeypatch.setattr(stop_guard_mod.ExecutionService, "submit", _fake_submit)
+    assert await place_protective_stops("alpaca", db_path=db) == 1
+    assert submitted[0].proposal_id == "stop|paper_old"
+    # And the durable stop row drops it from the needing-stop set.
+    assert await place_protective_stops("alpaca", db_path=db) == 0
+
+
+def test_proposal_summary_carries_entry_style_markers() -> None:
+    """D1: the approval tap must say what the founder is committing to —
+    ext's overnight eligibility is material risk, not decoration."""
+    from trading.proposals import _proposal_summary
+
+    ext = {
+        "side": "buy",
+        "qty": "68",
+        "symbol": "GOOGL",
+        "order_type": "limit",
+        "limit_price": "318.50",
+        "entry_style": "book_ext",
+    }
+    assert (
+        _proposal_summary(ext)
+        == "BUY 68 GOOGL @ limit 318.50 · GTC + overnight/ext-hours"
+    )
+    assert (
+        _proposal_summary({**ext, "entry_style": "book_limit"})
+        == "BUY 68 GOOGL @ limit 318.50 · GTC, rests until filled"
+    )
+    moo = {
+        "side": "buy",
+        "qty": "12",
+        "symbol": "MU",
+        "order_type": "market",
+        "limit_price": None,
+        "entry_style": "moo",
+    }
+    assert _proposal_summary(moo) == "BUY 12 MU @ market · next open auction"
+    immediate = {**moo, "entry_style": None}
+    assert _proposal_summary(immediate) == "BUY 12 MU @ market"
+
+
+@pytest.mark.asyncio
+async def test_phone_proposal_rejects_book_style_from_non_book_source(
+    tmp_path: Path,
+) -> None:
+    """D5: chat surfaces (web + mobile) must not mint book-style proposals —
+    the styles come with cap exemptions and belong to the nightly driver."""
+    from trading.proposals import create_phone_proposal
+
+    for style in ("moo", "book_limit", "book_ext"):
+        row = await create_phone_proposal(
+            {
+                "symbol": "AAPL",
+                "side": "buy",
+                "qty": 1,
+                "order_type": "market",
+                "entry_style": style,
+            },
+            source="mobile_chat",
+            db_path=tmp_path / "guard.db",
+        )
+        assert row == {"error": "entry_style is reserved for the nightly book driver"}

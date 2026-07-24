@@ -30,11 +30,16 @@ class OrderIntent:
     # "day" (default), "opg" (opening-auction MOO — book approvals before the
     # ~9:28 ET cutoff), or "gtc" (resting protective stops).
     time_in_force: str = "day"
-    # Market-on-open entry (book approvals). Distinct from time_in_force: an
-    # approval in the 9:28–9:30 dead zone submits tif="day" (releases at this
-    # morning's open), and validate needs to know it may still price off the
-    # reference close pre-open (adversarial review H1-lifecycle, 2026-07-23).
-    moo_entry: bool = False
+    # Extended-hours-eligible order (book "ext" entries): Alpaca fills day
+    # LIMIT orders in pre/post sessions when this is set. The RiskEngine
+    # shape gate enforces limit+day+whole-share+equity for it.
+    extended_hours: bool = False
+    # Book entry (any style: moo / limit / ext). Distinct from time_in_force:
+    # these are approved-later overnight objects, so validate may price a
+    # closed-market one off the reference close (adversarial review
+    # H1-lifecycle, 2026-07-23), and the book-account cap exemption keys on
+    # it. Was `moo_entry` before the entry-type round generalized it.
+    book_entry: bool = False
     asset_class: str = "us_equity"
     occ_symbol: str | None = None
     multiplier: int = 1

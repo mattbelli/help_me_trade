@@ -38,6 +38,14 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
   protection between cycles, since you are blind intraday. An advanced pick missing either is
   dropped as unfinished work. Shorts may appear as candidates for tracking but must have
   `advanced: false` (short execution is not yet unlocked).
+- **You also choose HOW to enter** (`entry_type` — order selection is judged too): `"moo"` =
+  market at the next opening auction (default); `"limit"` = GTC limit at your `limit_price`,
+  regular hours; `"ext"` = GTC limit at your `limit_price`, ALSO eligible for pre/post/overnight
+  sessions — use it to act near tonight's decision price instead of paying tomorrow's open,
+  accepting that your stop cannot act before the next regular open. `limit`/`ext` REQUIRE a
+  numeric `limit_price`. Your standing GTC orders appear in your pack's open-orders section —
+  review them nightly; to cancel/adjust one, say so explicitly in `holds_review` (order-management
+  verbs are coming; until then the founder acts on your request).
 - Never touch `trading/`, never place or propose orders outside the decision JSON, never modify
   app code or data.
 
@@ -56,7 +64,9 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
       "plan_horizon": "10d",
       "confidence_label": "medium",
       "advanced": false,
-      "notional_usd": null
+      "notional_usd": null,
+      "entry_type": "moo",
+      "limit_price": null
     }
   ],
   "holds_review": "your hold/trim review, brief",

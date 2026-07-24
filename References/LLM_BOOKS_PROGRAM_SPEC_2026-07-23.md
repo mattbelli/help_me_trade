@@ -31,6 +31,14 @@ waiting on the origins defined in §4.*
 >    reduce-only whole-share equity sells; opg = whole-share) and a NARROW off-hours
 >    reference-close price used ONLY for opg intents and protective stop sells. Panel
 >    cadence (§9) resolved by the arming order: **nightly**.
+> 5. **ENTRY-TYPE CHOICE (2026-07-24, founder).** Every advanced pick states `entry_type`:
+>    `moo` (opg at approval — default) | `limit` (**GTC** limit at the analyst's `limit_price`,
+>    RTH) | `ext` (**GTC** limit + `extended_hours` — pre/post + Alpaca 24/5 overnight for
+>    eligible names; act near the decision price, stop first actionable next regular open).
+>    Order selection is judged like sizing. GTC standing orders are reviewed nightly via the
+>    pack's open-orders section; the analyst cancel/replace verb is the NEXT increment (interim:
+>    requests in `holds_review`, founder cancels manually). `book_entry` (né `moo_entry`) now
+>    gates the off-hours reference pricing + cap exemption for all three styles.
 
 ## 1. What this is (and is not)
 

@@ -315,6 +315,7 @@ class AlpacaAdapter:
             filled_qty=float(item.get("filled_qty", 0)),
             limit_price=float(limit) if limit not in (None, "") else None,
             filled_avg_price=float(filled_avg) if filled_avg not in (None, "") else None,
+            time_in_force=str(item["time_in_force"]) if item.get("time_in_force") else None,
         )
 
     @staticmethod
@@ -386,6 +387,8 @@ class AlpacaAdapter:
             body["limit_price"] = req.limit_price
         if req.stop_price is not None:
             body["stop_price"] = req.stop_price
+        if req.extended_hours:
+            body["extended_hours"] = True
         if req.position_intent is not None:
             body["position_intent"] = req.position_intent
 

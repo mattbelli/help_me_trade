@@ -91,14 +91,28 @@ def _journal_decision(
             )
 
 
+# The approval tap is THE safety gate — the summary must surface what the
+# founder is actually committing to. book_ext's overnight eligibility (a fill
+# can land at 3am, unstopped until the next regular open) and GTC standing
+# life are material risk, not decoration (entry-type review D1, 2026-07-24).
+_ENTRY_STYLE_MARKERS = {
+    "moo": "next open auction",
+    "book_limit": "GTC, rests until filled",
+    "book_ext": "GTC + overnight/ext-hours",
+}
+
+
 def _proposal_summary(intent_fields: dict[str, Any]) -> str:
     side = str(intent_fields["side"]).upper()
     qty = intent_fields["qty"]
     symbol = intent_fields["symbol"]
     order_type = intent_fields["order_type"]
     if order_type == "limit" and intent_fields.get("limit_price") is not None:
-        return f"{side} {qty} {symbol} @ limit {intent_fields['limit_price']}"
-    return f"{side} {qty} {symbol} @ {order_type}"
+        base = f"{side} {qty} {symbol} @ limit {intent_fields['limit_price']}"
+    else:
+        base = f"{side} {qty} {symbol} @ {order_type}"
+    marker = _ENTRY_STYLE_MARKERS.get(str(intent_fields.get("entry_style") or ""))
+    return f"{base} · {marker}" if marker else base
 
 
 def _parse_expires_at(expires_at: str | None) -> datetime | None:
@@ -651,6 +665,14 @@ async def create_phone_proposal(
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
+    # Book entry styles (moo/GTC-limit/ext) come with cap exemptions and the
+    # stop guard — only the nightly book driver may mint them. Chat surfaces
+    # (web + mobile) land here too and must not create uncapped standing
+    # orders (entry-type review D5, 2026-07-24).
+    entry_style = str(args.get("entry_style") or "immediate").lower()
+    if entry_style != "immediate" and not str(source or "").startswith("book_"):
+        return {"error": "entry_style is reserved for the nightly book driver"}
+
     built = build_order_proposal_from_args(args, db_path=db_path)
     if "error" in built:
         return built

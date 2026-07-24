@@ -63,9 +63,14 @@ REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + 
   ON but `_propose_advanced` hard-blocks shorts until the round ships); session-book research
   depth v2 (read-only API access beyond the pack); Lab book positions section still honest-empty
   (per-account positions endpoint — consider mobile agent's `source=snapshots` history for charts)
-- stop lifecycle v2 (carded on `llm-books-program`): analysts can't yet MOVE their resting stops
-  between cycles; founder trims can strand a stale-qty stop (pack shows open orders, analyst
-  flags it, founder adjusts manually for now)
+- ⚠ NEXT INCREMENT (before analysts lean on GTC styles): **order-management verbs** — the
+  decision block needs cancel/replace for standing GTC entry orders AND resting stops (stop
+  lifecycle v2 folds in here). Until it ships: analysts request cancels in `holds_review`,
+  founder acts manually; a GTC limit nobody re-affirms can fill days later on a stale thesis —
+  the nightly pack's open-orders section is the review surface
+- entry-type choice live 07-24 (moo | limit GTC | ext GTC+extended_hours incl. 24/5 overnight);
+  ext fills can land at 3am — stop guard places the resting stop then, but stops only EXECUTE
+  in regular hours (gap exposure stated in the prompts; the analysts own that trade-off)
 
 ## ▶ Waiting on founder
 

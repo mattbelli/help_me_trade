@@ -116,6 +116,23 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="opg orders must be whole-share",
             )
+        if intent.extended_hours and (
+            intent.order_type != "limit"
+            or intent.time_in_force not in ("day", "gtc")
+            or is_option
+            or intent.qty != intent.qty.to_integral_value()
+        ):
+            # Alpaca extended-hours/overnight eligibility: whole-share equity
+            # LIMIT orders, day or gtc TIF. Anything else with the flag is a
+            # shape error here, not a broker surprise later.
+            checks["order_shape"] = (
+                "fail: extended_hours requires a whole-share equity day/gtc limit"
+            )
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="extended_hours requires a whole-share equity day/gtc limit",
+            )
         checks["order_shape"] = "pass"
 
         # Account must be execution-capable — deny-by-default AT THE CHOKEPOINT.
@@ -424,7 +441,7 @@ class RiskEngine:
             market_price = await _live_market_price(concentration_symbol)
             if market_price is None and (
                 intent.time_in_force == "opg"
-                or (intent.moo_entry and not is_market_open())
+                or (intent.book_entry and not is_market_open())
                 or (intent.order_type == "stop" and intent.side == "sell")
             ):
                 # Narrow, documented exception to the RTH-only quote gate: these
@@ -433,11 +450,12 @@ class RiskEngine:
                 # trigger), never at the current instant, so the honest risk
                 # basis off-hours is the last session close. Every cap then
                 # bounds against that reference; overnight gap risk is inherent
-                # to a MOO and was accepted with it (spec §5.5). The moo_entry
-                # arm is additionally closed-market-gated so a mid-session
-                # quote outage can never re-price a live market order off a
-                # stale close. All other order shapes keep the fail-closed
-                # no-live-quote gate untouched.
+                # to overnight book entries and was accepted with the program
+                # (spec §5.5 + entry-type round). The book_entry arm is
+                # additionally closed-market-gated so a mid-session quote
+                # outage can never re-price a live order off a stale close.
+                # All other order shapes keep the fail-closed no-live-quote
+                # gate untouched.
                 market_price = await _offhours_reference_price(concentration_symbol)
                 if market_price is not None:
                     checks["live_quote"] = "pass: off-hours reference close"
@@ -471,17 +489,17 @@ class RiskEngine:
 
         # Founder 07-23 ("let the deepseek through… i said no caps"): book
         # analysts size their own book — the per-trade value and concentration
-        # caps do NOT apply to a book account's MOO entry. Scoped to BOTH
-        # signals (moo_entry AND an account owned by a book_% strategy);
-        # fail-soft to capped. Precisely: any HUMAN-APPROVED moo buy into a
-        # book account is uncapped — every path that can set these signals
-        # still ends at a pending phone proposal, never a direct submit
-        # (adversarial review, 07-23). The walls that
+        # caps do NOT apply to a book account's entry (any style: moo / limit
+        # / ext). Scoped to BOTH signals (book_entry AND an account owned by a
+        # book_% strategy); fail-soft to capped. Precisely: any HUMAN-APPROVED
+        # book-style buy into a book account is uncapped — every path that can
+        # set these signals still ends at a pending phone proposal, never a
+        # direct submit (adversarial review, 07-23). The walls that
         # remain for books are physical: buying power (below), the book's own
         # cash, the global daily-notional runaway backstop, the daily-loss
         # breaker, and the founder's approval tap.
         book_uncapped = (
-            intent.moo_entry
+            intent.book_entry
             and intent.account_id is not None
             and intent.account_id in _book_account_ids(db_path)
         )

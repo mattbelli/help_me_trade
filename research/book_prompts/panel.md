@@ -57,6 +57,13 @@ what happened?" Put it in the candidate's `bear_case`.
   once the entry fills, that stop is placed as a RESTING GTC stop order at the broker — the
   book's only protection between cycles. An advanced pick missing either is dropped as
   unfinished work.
+- The desk also chooses HOW to enter each advanced pick (`entry_type` — order selection is
+  judged too): `"moo"` = market at the next opening auction (default); `"limit"` = GTC limit at
+  `limit_price`, regular hours; `"ext"` = GTC limit at `limit_price`, ALSO eligible for
+  pre/post/overnight sessions — acting near tonight's decision price instead of paying
+  tomorrow's open, accepting the stop cannot act before the next regular open. `limit`/`ext`
+  REQUIRE a numeric `limit_price`. Standing GTC orders appear in the pack's open-orders section —
+  review nightly; to cancel/adjust one, say so explicitly in `holds_review`.
 - Shorts may appear as candidates (any seat) but must have `advanced: false` — short execution is
   not yet unlocked.
 - Exactly the four named seat agents; no other sub-agents, no recursive spawning.
@@ -75,7 +82,8 @@ Same shape as the analyst books, plus `"seat"` on every candidate:
       "thesis": "…", "bear_case": "…(pre-mortem if advanced)…",
       "entry_low": "…", "entry_high": "…", "stop": "…", "targets": ["…"],
       "entry_ref_price": null, "plan_horizon": "10d",
-      "confidence_label": "medium", "advanced": false, "notional_usd": null
+      "confidence_label": "medium", "advanced": false, "notional_usd": null,
+      "entry_type": "moo", "limit_price": null
     }
   ],
   "holds_review": "hold/trim review of current positions",

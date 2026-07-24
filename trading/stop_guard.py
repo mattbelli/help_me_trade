@@ -19,21 +19,20 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import get_execution_by_proposal
-from db.paper_orders import list_paper_order_proposals
+from db.paper_orders import list_book_entries_needing_stop
 from signals.notify import notify
 from trading.execution_service import ExecutionService
 from trading.models import OrderIntent, RiskRejectedError
 
 logger = logging.getLogger(__name__)
 
-_LOOKBACK_DAYS = 7
 # Entry fill states that leave real shares needing protection: a full fill, or
 # a terminal partial (the order died at day end / was canceled with shares in).
 # Non-terminal "partially_filled" stays in the fill tracker's reconcile pool —
@@ -103,10 +102,11 @@ async def place_protective_stops(
     number placed this pass. Never raises — this runs inside the poll loop."""
     placed = 0
     try:
-        since = (datetime.now(UTC) - timedelta(days=_LOOKBACK_DAYS)).isoformat()
-        proposals = list_paper_order_proposals(
-            status="executed", since=since, limit=200, db_path=db_path
-        )
+        # Execution-state driven, not created_at driven: a GTC book entry
+        # (limit/ext) can fill weeks after the proposal night, so any age
+        # window eventually strands a filled position without its stop
+        # (entry-type review H2, 2026-07-24).
+        proposals = list_book_entries_needing_stop(limit=200, db_path=db_path)
     except Exception:
         logger.exception("stop guard: failed to list executed proposals")
         return 0

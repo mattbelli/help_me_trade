@@ -67,8 +67,16 @@ class BookCandidate(BaseModel):
     plan_horizon: str = Field(min_length=2)  # e.g. "5d" — intraday is rejected downstream
     confidence_label: Literal["low", "medium", "high"] | None = None
     advanced: bool = False
-    notional_usd: float | None = None  # advanced only; clamped by the strategy record
+    notional_usd: float | None = None  # advanced only; the analyst sizes its own book
     seat: str | None = None  # panel books only: bull|bear|macro|risk
+    # Advanced-only execution choice (founder 07-24: order selection is part
+    # of what the study judges):
+    #   moo   — market at the next opening auction (default);
+    #   limit — GTC limit at limit_price, regular hours;
+    #   ext   — GTC limit at limit_price, extended/overnight-eligible (fills
+    #           near the decision price; stop first actionable next open).
+    entry_type: Literal["moo", "limit", "ext"] = "moo"
+    limit_price: str | None = None  # required when entry_type is limit/ext
 
     def to_registration(self) -> dict[str, Any]:
         reg: dict[str, Any] = {
@@ -124,8 +132,8 @@ _DECISION_CONTRACT = (
     "\nAfter the report, end with EXACTLY ONE fenced ```json block:\n"
     '{"candidates": [{"symbol", "direction", "thesis", "bear_case", "entry_low", '
     '"entry_high", "stop", "targets", "entry_ref_price", "plan_horizon", '
-    '"confidence_label", "advanced", "notional_usd"}], "holds_review": "...", '
-    '"journal": "..."}\n'
+    '"confidence_label", "advanced", "notional_usd", "entry_type", "limit_price"}], '
+    '"holds_review": "...", "journal": "..."}\n'
     "Rules for the block:\n"
     "- List EVERY candidate you seriously weighed, not just what you advance — considered "
     "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
@@ -134,6 +142,15 @@ _DECISION_CONTRACT = (
     "judges — AND a numeric stop price (e.g. \"314.90\"): once you're filled, that stop "
     "is placed as a RESTING GTC stop order, your only protection between cycles. An "
     "advanced pick missing either is dropped as unfinished work.\n"
+    "- You also choose HOW to enter (entry_type — order selection is judged too): "
+    "\"moo\" = market at the next opening auction (default); \"limit\" = GTC limit at "
+    "your limit_price, regular hours; \"ext\" = GTC limit at your limit_price, also "
+    "eligible for pre/post/overnight sessions — use it to act NEAR tonight's decision "
+    "price instead of paying tomorrow's open, accepting that your stop cannot act "
+    "before the next regular open. limit/ext REQUIRE a numeric limit_price. Your "
+    "standing GTC orders appear in your pack's open-orders section every night — "
+    "review them; to cancel/adjust one, say so explicitly in holds_review (the desk "
+    "order-management verbs are coming; until then the founder acts on your request).\n"
     "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
     "execution is not yet unlocked for this book).\n"
     "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n"
@@ -597,16 +614,36 @@ async def _propose_advanced(
             )
             results.append({"symbol": cand.symbol, "status": "no_stop"})
             continue
+        # Execution choice is the analyst's (founder 07-24). A limit/ext pick
+        # whose limit price doesn't parse is unfinished work, same doctrine
+        # as a missing size or stop.
+        if cand.entry_type in ("limit", "ext"):
+            limit = _parse_stop_price(cand.limit_price)  # same $/comma parsing
+            if limit is None:
+                logger.warning(
+                    "book %s advanced %s (%s) without a numeric limit_price — no proposal",
+                    book_id, cand.symbol, cand.entry_type,
+                )
+                results.append({"symbol": cand.symbol, "status": "no_limit_price"})
+                continue
+            entry_style = "book_limit" if cand.entry_type == "limit" else "book_ext"
+            order_type = "limit"
+        else:
+            limit = None
+            entry_style = "moo"
+            order_type = "market"
         notional = Decimal(str(cand.notional_usd))
         outcome = await propose_trade(
             TradeCandidate(
                 symbol=cand.symbol.strip().upper(),
                 side="buy",
                 notional_usd=notional,
+                order_type=order_type,
+                limit_price=limit,
                 source=f"book_{book_id}",
                 rationale=cand.thesis[:300],
                 account_id=strategy.get("account_id"),
-                entry_style="moo",
+                entry_style=entry_style,
                 stop_price=stop,
             ),
             db_path=db_path,

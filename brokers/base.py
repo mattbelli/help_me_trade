@@ -47,6 +47,9 @@ class Order:
     filled_qty: float
     limit_price: float | None
     filled_avg_price: float | None = None
+    # TIF disambiguates done_for_day: a day order is dead at day end, a GTC
+    # order reworks next session (book limit/ext entries rest for days).
+    time_in_force: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,8 @@ class PlaceOrderRequest:
     position_intent: str | None = None
     # Trigger price for order_type="stop" — omitted from the wire when None.
     stop_price: str | None = None
+    # Extended-hours eligibility (day limit orders only) — omitted when False.
+    extended_hours: bool = False
 
 
 @dataclass(frozen=True)

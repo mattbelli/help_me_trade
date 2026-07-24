@@ -1056,6 +1056,15 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
                 ),
             }
 
+        # Book entry styles (moo/GTC-limit/ext) belong to the nightly book
+        # driver, which pairs them with cap exemptions and the stop guard —
+        # the interactive chat surface must not mint uncapped standing orders
+        # (entry-type review D5, 2026-07-24).
+        if str(args.get("entry_style") or "immediate").lower() != "immediate":
+            return {
+                "error": "entry_style is reserved for the nightly book driver",
+            }
+
         built = build_order_proposal_from_args(args, db_path=DEFAULT_DB_PATH)
         if "error" in built:
             return built

@@ -229,10 +229,16 @@ def _apns_jwt(key_pem: bytes, key_id: str, team_id: str) -> str:
     return token
 
 
+def _proposal_entry_style(proposal: dict[str, Any]) -> str | None:
+    inner = proposal.get("proposal") if isinstance(proposal.get("proposal"), dict) else {}
+    style = inner.get("entry_style")
+    return str(style) if style else None
+
+
 def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
     # Custom keys sit alongside `aps`; expo-notifications surfaces them as data.
     label = _proposal_account_label(proposal)
-    return {
+    payload = {
         "aps": {
             "alert": {"title": "Trade proposal", "body": _proposal_body(proposal, label=label)},
             "sound": "default",
@@ -245,6 +251,13 @@ def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
         "account_id": proposal.get("account_id"),
         "account_label": label,
     }
+    # The approval card must distinguish an overnight-eligible GTC entry from a
+    # plain limit — material risk, not decoration (entry-type review D1).
+    style = _proposal_entry_style(proposal)
+    if style:
+        payload["entry_style"] = style
+        payload["extended_hours"] = style == "book_ext"
+    return payload
 
 
 async def _send_apns_to_token(
@@ -643,6 +656,10 @@ def _la_content_state(
         "orderType": intent["order_type"],
         "status": status,
     }
+    style = _proposal_entry_style(proposal)
+    if style:
+        out["entryStyle"] = style
+        out["extendedHours"] = style == "book_ext"
     score = proposal.get("score")
     if isinstance(score, dict):
         # Forward the calibration verdict, never a bare number: when the sample is

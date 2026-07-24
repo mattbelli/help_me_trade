@@ -56,10 +56,14 @@ class TradeCandidate:
     # Size as a fractional share qty to deploy the exact notional (set for
     # percent-of-equity strategies). Off by default → whole-share floor, as before.
     allow_fractional: bool = False
-    # "moo" (book nightly cycles): the proposal is created AFTER HOURS for the
-    # next opening auction — skips the market-open gate, sizes off the last
-    # close, expires at the next session close, and approval submits opg
-    # before the ~9:28 ET cutoff. Everything else keeps "immediate" semantics.
+    # Book entry styles (nightly cycles — proposals created AFTER HOURS, TTL =
+    # next session close, market-open gate skipped, book cap exemption):
+    #   "moo"        — market at the next opening auction (opg at approval);
+    #   "book_limit" — GTC limit at the analyst's price, regular hours;
+    #   "book_ext"   — GTC limit eligible for pre/post/overnight sessions too
+    #                  (act near the decision price; stop first actionable at
+    #                  the next regular open).
+    # Everything else keeps "immediate" semantics.
     entry_style: str = "immediate"
     # Analyst's stated stop — stored on the proposal; the stop guard places it
     # as a resting GTC stop sell once the entry fills.
@@ -75,7 +79,8 @@ async def _size_candidate(
     if is_kill_switch_active():
         return {"status": "kill_switch"}
 
-    if not is_market_open() and candidate.entry_style != "moo":
+    is_book_style = candidate.entry_style in ("moo", "book_limit", "book_ext")
+    if not is_market_open() and not is_book_style:
         return {"status": "market_closed"}
 
     symbol = candidate.symbol.strip().upper()
@@ -94,15 +99,21 @@ async def _size_candidate(
     resolved_account_id = account["id"] if account else None
     broker = account["broker"] if account else primary_broker()
 
-    price = await _live_market_price(symbol)
-    if (price is None or price <= 0) and candidate.entry_style == "moo":
-        # After-hours book sizing: the fill is the NEXT opening auction, so the
-        # last session close is the honest notional→qty basis. Whole-share
-        # flooring below absorbs the small open-gap sizing error; RiskEngine
-        # re-prices at approval with the same reference rule.
-        from trading.risk_engine import _offhours_reference_price
+    if candidate.limit_price is not None and is_book_style:
+        # Limit-style book entries size off the analyst's OWN price — the
+        # worst (highest) per-share spend a buy limit can pay, so the qty is
+        # exact against the stated notional.
+        price = candidate.limit_price
+    else:
+        price = await _live_market_price(symbol)
+        if (price is None or price <= 0) and is_book_style:
+            # After-hours book sizing (moo): the fill is the NEXT opening
+            # auction, so the last close is the honest notional→qty basis.
+            # Whole-share flooring below absorbs the small open-gap sizing
+            # error; RiskEngine re-prices at approval with the same rule.
+            from trading.risk_engine import _offhours_reference_price
 
-        price = await _offhours_reference_price(symbol)
+            price = await _offhours_reference_price(symbol)
     if price is None or price <= 0:
         return {"status": "no_price"}
 
@@ -142,8 +153,8 @@ async def _size_candidate(
         args["allow_fractional"] = True
     if candidate.limit_price is not None:
         args["limit_price"] = candidate.limit_price
-    if candidate.entry_style == "moo":
-        args["entry_style"] = "moo"
+    if candidate.entry_style != "immediate":
+        args["entry_style"] = candidate.entry_style
     if candidate.stop_price is not None:
         args["stop_price"] = candidate.stop_price
     if resolved_account_id is not None:
@@ -252,12 +263,13 @@ async def propose_trade(
             )
         else:
             pending = list_pending_proposals(db_path=db_path)
-        # Book (moo) cycles are exempt from the pending-count cap: the analyst
-        # sizes and shapes its own nightly slate (founder 07-23), each book has
-        # its own account, and _propose_advanced bounds the slate at 10 — the
-        # cap would silently drop a 4th pick (adversarial review M3-lifecycle).
+        # Book cycles (all entry styles) are exempt from the pending-count cap:
+        # the analyst sizes and shapes its own nightly slate (founder 07-23),
+        # each book has its own account, and _propose_advanced bounds the slate
+        # at 10 — the cap would silently drop a 4th pick (adversarial review
+        # M3-lifecycle; re-caught for limit/ext by both entry-type reviewers).
         # The same-symbol dedup below still applies to every path.
-        if candidate.entry_style != "moo":
+        if candidate.entry_style not in ("moo", "book_limit", "book_ext"):
             max_pending = cfg.get("max_pending_agent_proposals", 3)
             if len(pending) >= max_pending:
                 return {"status": "max_pending"}
@@ -278,10 +290,10 @@ async def propose_trade(
         if not risk.passed:
             return {"status": "risk_blocked", "reason": risk.blocked_reason}
 
-        if candidate.entry_style == "moo":
+        if candidate.entry_style in ("moo", "book_limit", "book_ext"):
             # A nightly book proposal must survive until the founder's morning
-            # approval and stays actionable (market-at-approval) until that
-            # session ends — expire it at the next regular-session close.
+            # approval and stays actionable until that session ends — expire
+            # it at the next regular-session close.
             from trading.market_hours import next_session_close
 
             ttl_seconds = max(

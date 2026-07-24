@@ -34,15 +34,27 @@ def order_intent_from_fields(
     limit_raw = intent_fields.get("limit_price")
     broker = str(intent_fields["broker"])
     account_id = intent_fields.get("account_id")
-    # MOO entries (book approvals): TIF is decided at INTENT-BUILD time — i.e.
-    # at approval, against the clock right then — never frozen at proposal
-    # creation. Before the ~9:28 ET auction cutoff that's opg; after it, a
-    # plain day market order (market-at-approval, spec §5.5).
-    moo_entry = str(intent_fields.get("entry_style") or "") == "moo"
-    if moo_entry:
+    # Book entries: TIF/session eligibility is decided at INTENT-BUILD time —
+    # i.e. at approval, against the clock right then — never frozen at
+    # proposal creation.
+    #   moo  → opg before the ~9:28 ET auction cutoff, day market after
+    #          (market-at-approval, spec §5.5);
+    #   limit → GTC limit at the analyst's price, regular hours only;
+    #   ext  → GTC limit + extended_hours (pre/post/overnight-eligible — act
+    #          near the decision price, accepting gap exposure before the
+    #          stop can first act at the next open).
+    # GTC working orders are the desk's standing orders: the nightly pack
+    # shows them and the desk cancels/adjusts (founder 07-24) — they never
+    # silently die at a session boundary.
+    entry_style = str(intent_fields.get("entry_style") or "")
+    book_entry = entry_style in ("moo", "book_limit", "book_ext")
+    extended_hours = entry_style == "book_ext"
+    if entry_style == "moo":
         from trading.market_hours import moo_time_in_force
 
         time_in_force = moo_time_in_force()
+    elif entry_style in ("book_limit", "book_ext"):
+        time_in_force = "gtc"
     else:
         time_in_force = "day"
     if not account_id:
@@ -70,7 +82,8 @@ def order_intent_from_fields(
         account_id=account_id,
         allow_fractional=bool(intent_fields.get("allow_fractional", False)),
         time_in_force=time_in_force,
-        moo_entry=moo_entry,
+        extended_hours=extended_hours,
+        book_entry=book_entry,
     )
 
 
@@ -196,12 +209,12 @@ def build_order_proposal_from_args(
         return {"error": "order_type must be market or limit"}
 
     entry_style = str(args.get("entry_style", "immediate")).strip().lower()
-    if entry_style not in ("immediate", "moo"):
-        return {"error": "entry_style must be immediate or moo"}
-    if entry_style == "moo" and (
-        side != "buy" or order_type != "market" or opt is not None
-    ):
-        return {"error": "moo entries are whole-share equity market BUYS"}
+    if entry_style not in ("immediate", "moo", "book_limit", "book_ext"):
+        return {"error": "entry_style must be immediate, moo, book_limit, or book_ext"}
+    if entry_style != "immediate" and (side != "buy" or opt is not None):
+        return {"error": "book entries are whole-share equity BUYS"}
+    if entry_style == "moo" and order_type != "market":
+        return {"error": "moo entries are market orders (opening auction)"}
 
     stop_price: Decimal | None = None
     stop_raw = args.get("stop_price")
@@ -221,6 +234,11 @@ def build_order_proposal_from_args(
             limit_price = Decimal(str(limit_price_raw))
         except Exception:
             return {"error": "limit_price must be a number"}
+
+    if entry_style in ("book_limit", "book_ext") and (
+        order_type != "limit" or limit_price is None or limit_price <= 0
+    ):
+        return {"error": "book limit/ext entries require a positive limit_price"}
 
     proposal_payload: dict[str, object] = {
         "symbol": symbol,
