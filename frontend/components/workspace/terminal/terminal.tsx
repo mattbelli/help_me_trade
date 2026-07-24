@@ -116,7 +116,11 @@ export function Terminal() {
   const isFloat = typeof vAnchor === "number";
 
   const { runCommand } = useWorkspaceCommands();
-  const { locked, toggleLock, openPicker } = useWorkspaceStore();
+  // Selector-scoped: a whole-store subscription re-rendered the terminal on
+  // every workspace set() (notably setVisibleRows during a vertical pan).
+  const locked = useWorkspaceStore((s) => s.locked);
+  const toggleLock = useWorkspaceStore((s) => s.toggleLock);
+  const openPicker = useWorkspaceStore((s) => s.openPicker);
   const perfEnabled = usePerfStore((s) => s.enabled);
   const perfLast = usePerfStore((s) => s.last);
   const setPerfEnabled = usePerfStore((s) => s.setEnabled);

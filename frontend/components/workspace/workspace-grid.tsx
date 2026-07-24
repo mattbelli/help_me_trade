@@ -1342,14 +1342,15 @@ export function WorkspaceGrid() {
   const activePageId = useWorkspaceStore((s) => s.activePageId);
   const focusRequest = useWorkspaceStore((s) => s.focusRequest);
   const clearFocusRequest = useWorkspaceStore((s) => s.clearFocusRequest);
-  const {
-    hydrated,
-    hydrate,
-    locked,
-    pickerOpen,
-    setPickerOpen,
-    openPicker,
-  } = useWorkspaceStore();
+  // Selector-scoped, NOT `useWorkspaceStore()` — a whole-store subscription
+  // re-renders this tree (every page, every widget) on any set(), including the
+  // setVisibleRows that vertical panning fires each time it crosses a grid row.
+  const hydrated = useWorkspaceStore((s) => s.hydrated);
+  const hydrate = useWorkspaceStore((s) => s.hydrate);
+  const locked = useWorkspaceStore((s) => s.locked);
+  const pickerOpen = useWorkspaceStore((s) => s.pickerOpen);
+  const setPickerOpen = useWorkspaceStore((s) => s.setPickerOpen);
+  const openPicker = useWorkspaceStore((s) => s.openPicker);
 
   const activeLayout = pages[activePageId]?.layout ?? [];
 

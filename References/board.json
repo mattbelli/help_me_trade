@@ -1118,8 +1118,8 @@
    "type": "feature",
    "priority": "high",
    "owner": "serv",
-   "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/\u2318+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine.",
-   "updated_at": "2026-07-05"
+   "notes": "SHIPPED 2026-07-05 (commit 6548251, deployed :3001): Ctrl/\u2318+wheel zooms charts, plain wheel scrolls page (+hint pill); middle-mouse-drag pans canvas; header-title centering regression fixed same night (descender paint room, screenshot-verified). Founder confirmed charts fine. FOLLOW-UP FIXED 2026-07-24 (founder: \"left-right smooth, up-down laggy\"): the pan math was symmetric all along — the asymmetry was downstream. onScroll -> measureEdges -> setVisibleRows no-ops when the row band is unchanged, which horizontal scroll never changes and vertical scroll changes every 60px (ROW_HEIGHT 48 + MARGIN 12); WorkspaceGrid and terminal.tsx both subscribed with a bare useWorkspaceStore() (identity selector = re-render on ANY set()), so every 60px of vertical drag re-rendered every page (incl. hidden ones), every WidgetCard (forwardRef, not memo) and RGL at useCSSTransforms=false. Fix = selector-scoped subscriptions in both files. Founder confirmed 'much better' post-deploy. NOT done, next if it ever regresses: rAF-throttle measureEdges (forced layout read per scroll event) and memo WidgetCard.",
+   "updated_at": "2026-07-24"
   },
   {
    "id": "widget-spawn-ux",
