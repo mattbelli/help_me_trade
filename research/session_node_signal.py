@@ -375,7 +375,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=6,
         help="Max total triggers per session (default: 6)",
     )
-    parser.add_argument("--source", default="schwab", help="Bar source (default: schwab)")
+    parser.add_argument("--source", default="alpaca", help="Bar source (default: alpaca)")
     return parser.parse_args(argv)
 
 

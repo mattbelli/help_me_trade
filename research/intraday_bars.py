@@ -1,4 +1,10 @@
-"""Intraday bar cache — source-agnostic SQLite store for offline research."""
+"""Intraday bar cache — source-agnostic SQLite store for offline research.
+
+Default source is **alpaca** (SIP): full pre/post/overnight coverage, paginated
+server-side, and no Akamai WAF budget to nurse. Schwab stays available for
+futures, which Alpaca does not carry — mirroring the live `HybridMarketData`
+routing (equities/ETFs -> Alpaca, futures -> Schwab).
+"""
 
 from __future__ import annotations
 
@@ -37,6 +43,9 @@ CREATE INDEX IF NOT EXISTS idx_minute_bars_symbol_source_ts
 """
 
 _CHUNK_MAX_DAYS = 30
+
+# Our cache timeframe labels -> Alpaca's. Schwab's fetch path is minute-only.
+_ALPACA_TIMEFRAMES = {"1min": "1Min", "5min": "5Min"}
 
 
 class IntradayBar(Bar):
@@ -131,6 +140,37 @@ def _fetch_schwab_window(
     return bars
 
 
+def _fetch_alpaca(
+    symbol: str, start: datetime, end: datetime, timeframe: str
+) -> list[IntradayBar]:
+    """Fetch intraday bars from Alpaca. Includes pre/post/overnight prints.
+
+    No window chunking: `get_stock_bars_range` already pages the Alpaca cursor.
+    """
+    from brokers.factory import get_broker
+
+    alpaca_tf = _ALPACA_TIMEFRAMES.get(timeframe)
+    if alpaca_tf is None:
+        raise BrokerError(f"Unsupported Alpaca timeframe: {timeframe}")
+    broker = get_broker("alpaca")
+    stock_bars = broker.get_stock_bars_range(
+        symbol, timeframe=alpaca_tf, start=start, end=end
+    )
+    bars: list[IntradayBar] = [
+        {
+            "t": bar.time,
+            "o": bar.open,
+            "h": bar.high,
+            "l": bar.low,
+            "c": bar.close,
+            "v": bar.volume,
+        }
+        for bar in stock_bars
+    ]
+    bars.sort(key=lambda bar: bar["t"])
+    return bars
+
+
 def _fetch_schwab(symbol: str, start: datetime, end: datetime) -> list[IntradayBar]:
     """Fetch 1-minute bars from Schwab, chunking long ranges and deduping overlaps."""
     by_ts: dict[str, IntradayBar] = {}
@@ -144,11 +184,11 @@ def cache_minute_bars(
     symbol: str,
     bars: list[IntradayBar],
     *,
-    source: str = "schwab",
+    source: str = "alpaca",
     timeframe: str = "1min",
     db_path: Path = DEFAULT_INTRADAY_DB_PATH,
 ) -> None:
-    """Upsert minute bars (used by Schwab fetch and future loaders)."""
+    """Upsert intraday bars (used by the Alpaca/Schwab fetches and future loaders)."""
     sym = _normalize_symbol(symbol)
     if not sym or not bars:
         return
@@ -260,7 +300,7 @@ def load_cached_minute_bars(
     start: datetime,
     end: datetime,
     *,
-    source: str = "schwab",
+    source: str = "alpaca",
     timeframe: str = "1min",
     db_path: Path = DEFAULT_INTRADAY_DB_PATH,
 ) -> list[IntradayBar]:
@@ -274,7 +314,7 @@ def get_minute_bars(
     start: datetime,
     end: datetime,
     *,
-    source: str = "schwab",
+    source: str = "alpaca",
     timeframe: str = "1min",
     db_path: Path = DEFAULT_INTRADAY_DB_PATH,
 ) -> list[IntradayBar]:
@@ -282,7 +322,7 @@ def get_minute_bars(
     sym = _normalize_symbol(symbol)
     cached = _load_cached(sym, start, end, source, timeframe, db_path)
     if _needs_fetch(cached, start, end):
-        if source != "schwab":
+        if source not in ("alpaca", "schwab"):
             logger.warning(
                 "%s: cache gap for source=%s (%s..%s); not auto-fetching. "
                 "Pre-load this source's bars first.",
@@ -293,13 +333,17 @@ def get_minute_bars(
             )
             return cached
         logger.info(
-            "Fetching %s minute bars %s..%s (source=%s)",
+            "Fetching %s %s bars %s..%s (source=%s)",
             sym,
+            timeframe,
             start.isoformat(),
             end.isoformat(),
             source,
         )
-        fetched = _fetch_schwab(sym, start, end)
+        if source == "alpaca":
+            fetched = _fetch_alpaca(sym, start, end, timeframe)
+        else:
+            fetched = _fetch_schwab(sym, start, end)
         cache_minute_bars(
             sym, fetched, source=source, timeframe=timeframe, db_path=db_path
         )
@@ -316,16 +360,23 @@ def _parse_cli_date(text: str, *, end_of_day: bool = False) -> datetime:
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Pre-pull and cache 1-minute bars for offline research."
+        description="Pre-pull and cache intraday bars for offline research."
     )
-    parser.add_argument("--symbol", required=True, help="Symbol (e.g. /ES)")
+    parser.add_argument("--symbol", required=True, help="Symbol (e.g. AAPL, /ES)")
     parser.add_argument(
         "--start", required=True, help="Start date YYYY-MM-DD (00:00 UTC)"
     )
     parser.add_argument(
         "--end", required=True, help="End date YYYY-MM-DD (23:59:59 UTC)"
     )
-    parser.add_argument("--source", default="schwab", help="Bar source (default: schwab)")
+    parser.add_argument(
+        "--source",
+        default="alpaca",
+        help="Bar source: alpaca (equities/ETFs) or schwab (futures). Default: alpaca",
+    )
+    parser.add_argument(
+        "--timeframe", default="1min", help="1min or 5min (default: 1min)"
+    )
     return parser.parse_args(argv)
 
 
@@ -335,16 +386,19 @@ def main(argv: list[str] | None = None) -> int:
     start = _parse_cli_date(args.start)
     end = _parse_cli_date(args.end, end_of_day=True)
     try:
-        bars = get_minute_bars(args.symbol, start, end, source=args.source)
+        bars = get_minute_bars(
+            args.symbol, start, end, source=args.source, timeframe=args.timeframe
+        )
     except BrokerError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        print("Run `python -m scripts.schwab_login` first.", file=sys.stderr)
+        if args.source == "schwab":
+            print("Run `python -m scripts.schwab_login` first.", file=sys.stderr)
         return 1
     first_ts = bars[0]["t"] if bars else None
     last_ts = bars[-1]["t"] if bars else None
     print(
-        f"symbol={args.symbol} source={args.source} count={len(bars)} "
-        f"first={first_ts} last={last_ts}"
+        f"symbol={args.symbol} source={args.source} timeframe={args.timeframe} "
+        f"count={len(bars)} first={first_ts} last={last_ts}"
     )
     return 0
 
