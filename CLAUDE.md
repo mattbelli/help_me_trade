@@ -120,8 +120,10 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
 ## Safety — non-negotiable (this trades real money)
 - **The execution chokepoint is sacred.** `trading/execution_service.submit()` is the ONLY path to a broker;
   `RiskEngine.validate()` gates every order; kill-switch-first; deny-by-default; **paper before live**; LIVE
-  stays hard-blocked until the typed double-gate (Increment 3). **Adversarially review (Sonnet) any change to
-  `trading/` or `db/order_executions` before committing** — it's caught ~16 real safety bugs so far.
+  stays hard-blocked until the typed double-gate (Increment 3). **Adversarially review any change to
+  `trading/` or `db/order_executions` before committing — TWO parallel Opus reviewers, split mandates**
+  (the 07-15 Sonnet→Opus upgrade retired single Sonnet passes; see `review-agents-opus`) — this review has
+  caught ~16 real safety bugs so far.
 - **Decimal-only in `trading/`** for money/qty (float→Decimal seam at the propose_order boundary). Ledger +
   executions store money as TEXT/Decimal.
 - **Never expose the Alpaca `trading` toolset to the chat agent.** Agent proposes → human approves → the
