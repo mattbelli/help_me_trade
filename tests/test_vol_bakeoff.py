@@ -56,3 +56,20 @@ def test_paired_ci_resamples_dates_not_observations():
     dates = np.array([f"2026-{1 + i // 25:02d}-{1 + i % 25:02d}" for i in range(300)])
     mean, lo, hi = vol_bakeoff.paired_ci(diffs, dates)
     assert lo < mean < hi
+
+
+def test_halted_windows_are_excluded_from_both_arms():
+    # NBIS/Nebius was halted ~2.5 years; runs of identical closes decay EWMA's
+    # variance to ~1e-9 and one symbol then swamps 170k honest observations.
+    halted = np.concatenate([np.zeros(300), np.full(60, 0.01)])
+    assert vol_bakeoff.is_degenerate(halted)
+    healthy = np.concatenate([np.zeros(20), np.full(340, 0.01)])
+    assert not vol_bakeoff.is_degenerate(healthy)
+    assert vol_bakeoff.is_degenerate(np.array([]))
+
+
+def test_sigma_floor_stops_the_qlike_blowup():
+    # Without the floor this sigma is ~1e-9 and r^2/sigma^2 explodes past 1e17.
+    sigma = vol_bakeoff.ewma_sigma(np.zeros(400))
+    assert sigma >= vol_bakeoff.SIGMA_FLOOR
+    assert vol_bakeoff.qlike(np.array([sigma]), np.array([0.5]))[0] < 3e7
