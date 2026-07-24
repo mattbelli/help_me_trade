@@ -39,6 +39,7 @@ def test_retrieve_relevant_memories_ranks_best_match(
 
     monkeypatch.setattr("ai.memories.retrieval.search_memories", fake_search)
     monkeypatch.setattr("ai.memories.retrieval.list_memories", fake_list)
+    monkeypatch.setattr("ai.memories.retrieval.expire_stale_memories", lambda **k: 0)
 
     results = retrieve_relevant_memories("NVDA weight limit", limit=2)
     assert results
@@ -75,6 +76,7 @@ def _patch_candidates(monkeypatch) -> None:
         "list_memories",
         lambda *, memory_type=None, limit=50, db_path=None: list(_MEMS),
     )
+    monkeypatch.setattr(retrieval, "expire_stale_memories", lambda **k: 0)
 
 
 def test_hybrid_surfaces_paraphrase_via_embeddings(monkeypatch) -> None:
@@ -198,3 +200,134 @@ def test_search_memories_respects_dynamic_default_db(monkeypatch, tmp_path) -> N
     # no db_path passed -> must read the rebound default (temp), find the canary
     hits = ai_tables.search_memories("zebra")
     assert any("zebra" in h["content"] for h in hits)
+
+
+# --- P3 lifecycle: valid_until enforcement --------------------------------------
+
+
+def test_parse_valid_until_handles_mixed_formats() -> None:
+    """Free-form model-emitted valid_until parses defensively; garbage -> None."""
+    from datetime import UTC, datetime
+
+    from db.ai_tables import _parse_valid_until
+
+    # date-only is 'valid through end of that day' -> expiry is next midnight UTC
+    assert _parse_valid_until("2026-08-01") == datetime(2026, 8, 2, tzinfo=UTC)
+    # full ISO datetime, naive -> assumed UTC
+    assert _parse_valid_until("2026-08-01T12:30:00") == datetime(
+        2026, 8, 1, 12, 30, tzinfo=UTC
+    )
+    # 'Z' suffix is honored
+    assert _parse_valid_until("2026-08-01T00:00:00Z") == datetime(
+        2026, 8, 1, tzinfo=UTC
+    )
+    # explicit offset is normalized to UTC
+    assert _parse_valid_until("2026-08-01T00:00:00-04:00") == datetime(
+        2026, 8, 1, 4, 0, tzinfo=UTC
+    )
+    # unparseable / empty -> None (never expire on garbage)
+    assert _parse_valid_until("someday") is None
+    assert _parse_valid_until("") is None
+    assert _parse_valid_until("   ") is None
+
+
+def test_is_memory_expired_only_when_past() -> None:
+    from datetime import UTC, datetime
+
+    from db.ai_tables import is_memory_expired
+
+    now = datetime(2026, 7, 24, tzinfo=UTC)
+    assert is_memory_expired({"valid_until": "2020-01-01"}, now=now) is True
+    assert is_memory_expired({"valid_until": "2999-01-01"}, now=now) is False
+    # no valid_until, or unparseable -> never expired
+    assert is_memory_expired({}, now=now) is False
+    assert is_memory_expired({"valid_until": "whenever"}, now=now) is False
+
+
+def test_expire_stale_memories_flips_only_past_rows(monkeypatch, tmp_path) -> None:
+    """The sweep flips ACTIVE rows past valid_until to 'expired' and leaves future +
+    unparseable + no-valid_until rows active. Idempotent (a 2nd run flips 0)."""
+    import db.ai_tables as ai_tables
+    import db.base as db_base
+
+    db = tmp_path / "expire.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(ai_tables, "_compute_embedding", lambda text: (None, None))
+
+    past = ai_tables.create_memory(
+        memory_type="thesis", content="SLB oversold", valid_until="2020-01-01", db_path=db
+    )
+    future = ai_tables.create_memory(
+        memory_type="thesis", content="oil rally into winter", valid_until="2999-01-01",
+        db_path=db,
+    )
+    junk = ai_tables.create_memory(
+        memory_type="thesis", content="watch rates", valid_until="someday", db_path=db
+    )
+    forever = ai_tables.create_memory(
+        memory_type="directive", content="cap any single name at 20%", db_path=db
+    )
+
+    flipped = ai_tables.expire_stale_memories(db_path=db)
+    assert flipped == 1
+    assert ai_tables.get_memory(past["id"], db_path=db)["status"] == "expired"
+    assert ai_tables.get_memory(future["id"], db_path=db)["status"] == "active"
+    assert ai_tables.get_memory(junk["id"], db_path=db)["status"] == "active"
+    assert ai_tables.get_memory(forever["id"], db_path=db)["status"] == "active"
+    # the expired row drops out of the active-only read surfaces
+    active_ids = {m["id"] for m in ai_tables.list_memories(db_path=db)}
+    assert past["id"] not in active_ids
+    # idempotent
+    assert ai_tables.expire_stale_memories(db_path=db) == 0
+
+
+def test_retrieval_sweeps_expired_before_reading(monkeypatch, tmp_path) -> None:
+    """End-to-end: a stale thesis in the DB is gone from retrieve_relevant_memories AND
+    flipped to 'expired' in the DB — the sweep runs on the read path (embeddings off)."""
+    import db.ai_tables as ai_tables
+    import db.base as db_base
+
+    db = tmp_path / "sweep.db"
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db)
+    monkeypatch.setattr(ai_tables, "_compute_embedding", lambda text: (None, None))
+
+    stale = ai_tables.create_memory(
+        memory_type="thesis",
+        content="SLB oversold on oil capex fears",
+        valid_until="2020-01-01",
+        db_path=db,
+    )
+    from ai.memories.retrieval import retrieve_relevant_memories
+
+    out = retrieve_relevant_memories("SLB oil capex")
+    assert all(m["id"] != stale["id"] for m in out)
+    assert ai_tables.get_memory(stale["id"], db_path=db)["status"] == "expired"
+
+
+def test_injection_fence_drops_expired_even_if_still_active(monkeypatch) -> None:
+    """Belt-and-suspenders: if a past-valid_until row reaches the fence still marked
+    active (sweep hasn't landed), turn_memory_context must still refuse to inject it."""
+    from ai.chat import context
+
+    rows = [
+        {
+            "id": 1,
+            "type": "directive",
+            "content": "cap any single name at 20%",
+            "authority": "user_authored",
+            "status": "active",
+        },
+        {
+            "id": 2,
+            "type": "thesis",
+            "content": "SLB oversold on oil capex fears",
+            "authority": "user_confirmed",
+            "status": "active",
+            "valid_until": "2020-01-01",
+        },
+    ]
+    monkeypatch.setattr(context, "retrieve_relevant_memories", lambda *a, **k: rows)
+
+    out = context.turn_memory_context("what do we think about SLB?", limit=5)
+    ids = {m["id"] for m in out}
+    assert 1 in ids and 2 not in ids
