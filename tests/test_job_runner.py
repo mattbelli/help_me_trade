@@ -57,6 +57,8 @@ AUDIT_LOOP_NAMES = [
     "book_deepseek",
     "book_matt",
     "book_deadman",
+    # Intraday position watch (research/book_watch.py) — the books' event channel.
+    "book_watch",
 ]
 
 

@@ -1293,6 +1293,23 @@ async def _book_matt_once() -> None:
         logger.info("Matt+LLM book cycle: %s", result)
 
 
+async def _book_watch_once() -> None:
+    """Intraday position watch for every book (research/book_watch.py).
+
+    Tier 0 is a free deterministic sweep over what each book OWNS — held
+    positions and pending proposals. A matched trigger spends one of the book's
+    BOOK_WATCH_DAILY_BUDGET wakeups on a narrow LLM note (no tool loop) that
+    lands in the inbox and on the phone. Advisory: notes only, never orders."""
+    from research.book_watch import run_all_book_watches
+
+    results = await run_all_book_watches()
+    interesting = {
+        book: r for book, r in results.items() if r.get("fired") or r.get("status") == "error"
+    }
+    if interesting:
+        logger.info("book watch: %s", interesting)
+
+
 _book_deadman_last_date: dict = {}
 
 
@@ -2022,6 +2039,14 @@ def _register_background_jobs() -> None:
             interval_s=300.0,
         )
     )
+    register_job(
+        jobs_mod.Job(
+            name="book_watch",
+            fn=_book_watch_once,
+            interval_s=300.0,
+            market_hours_only=True,
+        )
+    )
     from signals.pipeline_audit import pipeline_audit_once
 
     register_job(
@@ -2128,6 +2153,9 @@ async def lifespan(app: FastAPI):
     from db.news import init_db as init_news_tables
 
     init_news_tables()
+    from db.book_watch import init_book_watch_tables
+
+    init_book_watch_tables()
     init_chat_tables()
     init_trade_tables()
     init_paper_order_tables()

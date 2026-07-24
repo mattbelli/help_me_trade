@@ -448,6 +448,45 @@ def _journal_section(book: Book, db_path: Path) -> str:
     return "\n".join(lines)
 
 
+def _watch_section(book: Book, db_path: Path) -> str:
+    """What the intraday watcher did today (research/book_watch).
+
+    The nightly analyst is blind between cycles; this is the log of every trigger
+    that matched while it was away — including the ones the daily wakeup budget
+    refused, so a quiet day and a spent budget read differently."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from db.book_watch import events_for_day
+    from db.lane_stats import day as lane_day
+    from research.book_watch import watch_lane
+
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    stats = lane_day(watch_lane(book.book_id), today, db_path=db_path)
+    passes = int(stats.get("passes", 0))
+    watched = int(stats.get("positions_watched", 0))
+    # Lead with the heartbeat: a watcher that ran 78 times over 0 positions and a
+    # watcher that never ran are both "no alerts", and they are not the same thing.
+    head = f"- watcher: {passes} passes today, {watched} position(s) under watch"
+    if not passes:
+        head += " — **it did not run today**"
+    for skip in ("stale_snapshot", "no_snapshot"):
+        if stats.get(skip):
+            head += f" · {int(stats[skip])} passes skipped ({skip})"
+
+    events = events_for_day(book.book_id, today, db_path=db_path)
+    if not events:
+        return head + "\n- no triggers matched"
+    lines = [head]
+    for e in events:
+        verdict = f" → **{e['verdict']}**" if e.get("verdict") else ""
+        note = f" (report {e['report_id']})" if e.get("report_id") else ""
+        lines.append(
+            f"- `{e['trigger']}` {e['symbol']} [{e['decision']}]: {e['detail']}{verdict}{note}"
+        )
+    return "\n".join(lines)
+
+
 def archive_book_pack(book_id: str, pack: str, *, root: Path | None = None) -> Path:
     """Write a rendered pack to data/book_packs/<ET-date>/<book>.md (audit trail:
     every decision reviewable against exactly what the model saw). Shared by the
@@ -478,6 +517,7 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
         f"Generated {generated} · account `{book.account_id}` · paper\n",
         _section("Account", lambda: _account_section(book, db_path)),
         _section("Pending proposals", lambda: _proposals_section(book, db_path)),
+        _section("Intraday watch log (today)", lambda: _watch_section(book, db_path)),
     ]
     # Matt + LLM is advisory-only (spec §5): no mandate/lanes/journal for it.
     if book.headline_origin:

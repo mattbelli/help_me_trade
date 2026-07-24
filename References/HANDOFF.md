@@ -73,13 +73,22 @@ Live now: after-hours `entry_style="moo"` proposals (TTL = next session close), 
 before ~9:28 ET, `trading/stop_guard.py` resting GTC stops after entry fills (advanced picks
 REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + nightly report).
 **Open:**
-- ⏳ TOMORROW MORNING (first armed session): founder approves/rejects the replayed proposals on
-  the phone; verify at ~9:30: opg fill at auction → stop guard places GTC stops within a poll
-  tick (`journalctl -u hmt-backend | grep "stop guard"`); Deep Seek's $65k GOOGL pick should
-  show `risk_blocked` (order-value $50k + concentration 30% walls — the founder's belly-up wall
-  working; his call if book accounts deserve their own caps → `per-strategy attribution` thread)
-- ⏳ tomorrow 17:05/17:20/17:40 ET: first fully-armed nightly cycles end-to-end (proposals fire
-  straight from the cycle, no replay)
+- ⚠⚠ **NOTHING HAS FILLED — all 4 books hold ZERO positions.** The 07-23 `moo` entries (deepseek
+  GOOGL $64.8k, fable MU) were accepted by the broker, sat overnight and were **expired unfilled
+  at 09:31 ET 07-24** (Alpaca's PAPER endpoint runs no opening auction, so `opg` expires at the
+  open). The fix — `moo_time_in_force(paper=True) ⇒ "day"` — is committed and two-Opus-reviewed on
+  branch **`worktree-books-moo-paper-tif`** but **NEVER MERGED TO MAIN**, so production still
+  submits `opg` overnight and the next `moo` pick dies identically. Its own commit note: *"not yet
+  proven end-to-end… verify at the next close→open that an overnight book MOO fills."* Merge +
+  deploy, then prove it at an open (`tools/fire_test_entry.py` can fire the chain without waiting
+  for an analyst to choose `moo`).
+- ⏳ 07-24's entries are `book_limit` GTC: fable GOOGL @ 316 (close 319.74) and panel XLF @ 55.50
+  (close 56.31) — resting 1.2%/1.5% BELOW the close, so they will **not** buy at Monday's open;
+  they fill only if price comes down, or rest indefinitely (GTC has no expiry)
+- ⏳ the intraday watcher (`research/book_watch.py`, BUILD_LOG 07-24) has **never fired live** —
+  it needs positions or aged resting orders. First expected fire **Wed 2026-07-29** via
+  `resting_entry` if GOOGL/XLF are still unfilled (then Aug-3, Aug-6). Judge it by the nightly
+  pack's heartbeat line, not by silence.
 - increment 5 (shorts unlock — own adversarially-reviewed round; `allow_short_selling` toggle is
   ON but `_propose_advanced` hard-blocks shorts until the round ships); session-book research
   depth v2 (read-only API access beyond the pack); Lab book positions section still honest-empty
