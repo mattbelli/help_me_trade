@@ -50,13 +50,20 @@ def turn_memory_context(user_text: str, *, limit: int = 5) -> list[dict[str, Any
     the founder's Accept/Keep-old tap. It is under review, not established fact,
     so it is excluded here; the OLD protected row it targets keeps injecting as
     today until the founder resolves the proposal."""
-    return [
+    # Over-fetch, fence, THEN trim: the fence can drop rows (a pending-supersede
+    # proposal, a non-injectable authority), so ranking a few extra keeps `limit`
+    # slots filled rather than leaving gaps when a dropped row lands in the top-k.
+    # This is the SAME fence — it never widens what may be injected.
+    fenced = [
         m
-        for m in retrieve_relevant_memories(user_text, limit=limit)
+        for m in retrieve_relevant_memories(
+            user_text, limit=max(limit * 2, limit + 3)
+        )
         if m.get("status", "active") == "active"
         and m.get("authority") in _INJECTABLE_AUTHORITIES
         and m.get("proposed_supersedes_id") is None
     ]
+    return fenced[:limit]
 
 
 def format_memory_context_block(memories: list[dict[str, Any]]) -> str:

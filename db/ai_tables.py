@@ -299,6 +299,77 @@ def nearest_memories(
     return [_row_to_memory(r) for r in rows]
 
 
+def _compute_embedding(text: str) -> tuple[bytes | None, str | None]:
+    """(blob, model_id) for the P2 hybrid retriever, or (None, None). Fully
+    guarded — a broken/absent embedder must never break memory creation."""
+    try:
+        from ai.memories.embedding import EMBED_MODEL_ID, embed_document
+
+        blob = embed_document(text)
+        return (blob, EMBED_MODEL_ID) if blob else (None, None)
+    except Exception:  # pragma: no cover - defensive; embedding is best-effort
+        return None, None
+
+
+def fetch_memory_embeddings(
+    ids: list[int],
+    *,
+    model: str | None = None,
+    db_path: Path | None = None,
+) -> dict[int, bytes]:
+    """Raw embedding blobs for the given memory ids that HAVE one (NULLs skipped),
+    optionally filtered to a single ``embedding_model`` so a model swap never
+    mixes vector spaces. Used by the hybrid retriever's vector leg."""
+    if not ids:
+        return {}
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
+    placeholders = ",".join("?" * len(ids))
+    params: list[Any] = [int(i) for i in ids]
+    model_clause = ""
+    if model is not None:
+        model_clause = " AND embedding_model = ?"
+        params.append(model)
+    with _connect(resolved_db) as conn:
+        rows = conn.execute(
+            f"SELECT id, embedding FROM memories "
+            f"WHERE id IN ({placeholders}) AND embedding IS NOT NULL{model_clause}",
+            params,
+        ).fetchall()
+    return {int(r["id"]): r["embedding"] for r in rows}
+
+
+def memories_needing_embedding(
+    model: str, *, db_path: Path | None = None
+) -> list[tuple[int, str]]:
+    """(id, content) for ACTIVE rows without a current-``model`` embedding — the
+    backfill set (NULL embedding, or embedded under a different model)."""
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
+    with _connect(resolved_db) as conn:
+        rows = conn.execute(
+            "SELECT id, content FROM memories WHERE status = 'active' "
+            "AND (embedding IS NULL OR embedding_model IS NULL OR embedding_model != ?)",
+            (model,),
+        ).fetchall()
+    return [(int(r["id"]), r["content"]) for r in rows]
+
+
+def set_memory_embedding(
+    memory_id: int, blob: bytes, model: str, *, db_path: Path | None = None
+) -> None:
+    """Store a row's embedding (backfill/reindex). Does not touch updated_at — a
+    reindex is not a semantic edit."""
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
+    with _connect(resolved_db) as conn:
+        conn.execute(
+            "UPDATE memories SET embedding = ?, embedding_model = ? WHERE id = ?",
+            (blob, model, int(memory_id)),
+        )
+        conn.commit()
+
+
 def create_memory(
     *,
     memory_type: str,
@@ -325,6 +396,11 @@ def create_memory(
     meta = metadata or {}
     norm = _normalize_memory_content(text)
     symbols_json = json.dumps(symbols or [], ensure_ascii=False)
+    # Compute the P2 hybrid-retrieval embedding OUTSIDE the DB transaction (a
+    # slow encode must never hold the write lock — this DB has known lock
+    # contention). Fail-soft: no embedder -> NULL, the row is lexical-only until
+    # backfilled, and retrieval degrades to pure lexical.
+    embedding_blob, embedding_model_id = _compute_embedding(text)
     with _connect(resolved_db) as conn:
         # Exact-match NOOP guard scoped to ACTIVE rows only: an archived
         # memory is not "already known" — matching it here would make a
@@ -340,9 +416,9 @@ def create_memory(
             INSERT INTO memories (
                 memory_type, content, metadata_json, created_at, updated_at,
                 source, authority, quote, symbols, supersedes_id,
-                proposed_supersedes_id, valid_until
+                proposed_supersedes_id, valid_until, embedding, embedding_model
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 memory_type,
@@ -357,6 +433,8 @@ def create_memory(
                 supersedes_id,
                 proposed_supersedes_id,
                 valid_until,
+                embedding_blob,
+                embedding_model_id,
             ),
         )
         row = conn.execute(
@@ -407,21 +485,26 @@ def search_memories(
     memory_type: str | None = None,
     limit: int = 10,
     include_inactive: bool = False,
-    db_path: Path = DEFAULT_DB_PATH,
+    db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Simple keyword search for local memory store."""
-    init_ai_tables(db_path)
+    # Resolve the default DYNAMICALLY (like every other reader/writer here). A
+    # static `db_path=DEFAULT_DB_PATH` froze the path at import time, so a test/tool
+    # that rebinds db_base.DEFAULT_DB_PATH (memory_eval._fresh_db) was silently read
+    # from the LIVE db while its siblings used the temp db.
+    resolved_db = db_path if db_path is not None else db_base.DEFAULT_DB_PATH
+    init_ai_tables(resolved_db)
     q = query.strip().lower()
     if not q:
         return list_memories(
             memory_type=memory_type,
             limit=limit,
             include_inactive=include_inactive,
-            db_path=db_path,
+            db_path=resolved_db,
         )
 
     status_clause = "" if include_inactive else " AND status = 'active'"
-    with _connect(db_path) as conn:
+    with _connect(resolved_db) as conn:
         if memory_type:
             rows = conn.execute(
                 f"""

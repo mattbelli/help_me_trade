@@ -32,6 +32,14 @@ JUNK_REQUIRED = 12
 ECHO_REQUIRED = 6
 EXTRACTION_RECALL_MIN = 8
 JUDGE_ACCURACY_MIN = 0.90
+# Retrieval hit@4 floors (measured on the real retriever + golden set: lexical
+# 9/15, hybrid 12/15). The hybrid must clear HYBRID_MIN *and* strictly beat the
+# same run's lexical baseline (proves the embeddings add value, not just no-regress).
+# HYBRID_MIN sits one below the measured 12 for margin (a cosine tie / model
+# republish shouldn't red a healthy gate). When embeddings are unavailable the gate
+# falls back to the lexical floor so an embeddings-less box doesn't spuriously fail.
+RETRIEVAL_HIT4_MIN = 11
+RETRIEVAL_LEXICAL_MIN = 8
 
 
 def load_golden() -> dict[str, Any]:
@@ -139,6 +147,75 @@ def _run_judge(tmp: Path, golden: dict[str, Any], *, llm: Any | None) -> dict[st
     return {"pass": len(cases) - len(fails), "total": len(cases), "fails": fails}
 
 
+def _run_retrieval(tmp: Path, golden: dict[str, Any]) -> dict[str, Any]:
+    """Seed the canonical corpus into a fresh DB and score the golden queries with
+    the REAL retriever (hybrid if embeddings are on, lexical otherwise). hit@k = a
+    top-k result's content contains the case's `expect_contains` substring."""
+    from ai.memories.retrieval import retrieve_relevant_memories
+    from db.ai_tables import create_memory
+
+    corpus = golden.get("retrieval_corpus", [])
+    cases = golden.get("retrieval", [])
+    if not corpus or not cases:
+        return {"hit1": 0, "hit4": 0, "total": 0, "fails": []}
+
+    _fresh_db(tmp, "retrieval")
+    for mem in corpus:
+        create_memory(memory_type=mem["type"], content=mem["content"])
+
+    hit1 = hit4 = 0
+    fails: list[str] = []
+    for case in cases:
+        results = retrieve_relevant_memories(case["query"], limit=4)
+        contents = [str(r.get("content", "")).lower() for r in results]
+        sub = case["expect_contains"].lower()
+        if contents and sub in contents[0]:
+            hit1 += 1
+        if any(sub in c for c in contents):
+            hit4 += 1
+        else:
+            fails.append(
+                f"{case['query']!r} (want {case['expect_contains']!r}) -> "
+                f"{[c[:36] for c in contents]}"
+            )
+    return {"hit1": hit1, "hit4": hit4, "total": len(cases), "fails": fails}
+
+
+def _retrieval_lexical_vs_hybrid(
+    golden: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    """Run the retrieval golden set lexical-only then hybrid (own temp DBs each).
+    Returns (lexical_result, hybrid_result, embeddings_actually_on)."""
+    import os
+
+    import ai.memories as mem_mod
+    import ai.memories.embedding as emb
+    import db.base as db_base
+
+    saved_path, saved_service = db_base.DEFAULT_DB_PATH, mem_mod._memory_service
+    saved_flag = os.environ.get("MEMORY_EMBEDDINGS_ENABLED")
+
+    def _mode(enabled: str) -> dict[str, Any]:
+        os.environ["MEMORY_EMBEDDINGS_ENABLED"] = enabled
+        emb.reset_cache()
+        with tempfile.TemporaryDirectory() as td:
+            return _run_retrieval(Path(td), golden)
+
+    try:
+        lex = _mode("0")
+        hyb = _mode("1")
+        embeddings_on = emb.is_available()  # true only if flag on AND model loaded
+    finally:
+        db_base.DEFAULT_DB_PATH = saved_path
+        mem_mod._memory_service = saved_service
+        if saved_flag is None:
+            os.environ.pop("MEMORY_EMBEDDINGS_ENABLED", None)
+        else:
+            os.environ["MEMORY_EMBEDDINGS_ENABLED"] = saved_flag
+        emb.reset_cache()
+    return lex, hyb, embeddings_on
+
+
 def run_eval(golden: dict[str, Any], *, llm: Any | None = None) -> dict[str, Any]:
     """Run the Phase-1 golden set. ``llm`` (if given) is passed to the judge; the
     extractor always uses the configured provider via ``get_llm``. The global
@@ -184,13 +261,35 @@ def main() -> int:
     print(_bar("echo suppression", echo_ok, f"{echo['pass']}/{echo['total']} (need {ECHO_REQUIRED})"))
     print(_bar("extraction recall", recall_ok, f"{legit['pass']}/{legit['total']} (need >= {EXTRACTION_RECALL_MIN})"))
     print(_bar("judge action accuracy", judge_ok, f"{judge['pass']}/{judge['total']} = {judge_acc:.0%} (need >= {JUDGE_ACCURACY_MIN:.0%})"))
-    print("  [SKIP] retrieval hit@4: deferred to Phase 2 (hybrid retriever + embeddings)")
+
+    # Phase-2 retrieval gate: measure lexical-only vs hybrid in one run and require
+    # the hybrid to (a) clear the absolute floor and (b) not regress vs lexical.
+    lex, hyb, embeddings_on = _retrieval_lexical_vs_hybrid(golden)
+    ret_ok = (
+        hyb["hit4"] >= RETRIEVAL_HIT4_MIN and hyb["hit4"] > lex["hit4"]
+        if embeddings_on
+        else lex["hit4"] >= RETRIEVAL_LEXICAL_MIN
+    )
+    if embeddings_on:
+        detail = (
+            f"hybrid {hyb['hit4']}/{hyb['total']} vs lexical {lex['hit4']}/{lex['total']} "
+            f"(need >= {RETRIEVAL_HIT4_MIN} and > lexical); "
+            f"hit@1 {hyb['hit1']} vs {lex['hit1']}"
+        )
+    else:
+        detail = (
+            f"lexical-only {lex['hit4']}/{lex['total']} (need >= {RETRIEVAL_LEXICAL_MIN}); "
+            "embeddings unavailable — install model2vec to measure the hybrid"
+        )
+    print(_bar("retrieval hit@4", ret_ok, detail))
 
     for key in ("junk", "legit", "echo", "judge"):
         for fail in results[key]["fails"]:
             print(f"    - {key}: {fail}")
+    for fail in (hyb if embeddings_on else lex)["fails"]:
+        print(f"    - retrieval: {fail}")
 
-    passed = junk_ok and echo_ok and recall_ok and judge_ok
+    passed = junk_ok and echo_ok and recall_ok and judge_ok and ret_ok
     print(f"\nRESULT: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
