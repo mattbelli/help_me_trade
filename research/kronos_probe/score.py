@@ -110,6 +110,19 @@ def summarize_volatility(records: list[dict]) -> dict:
         )
         out["kronos_vs_garch"] = {"mean_qlike_delta": mean, "ci_low": lo, "ci_high": hi}
 
+        # EWMA vs GARCH decides a question we own regardless of Kronos: the
+        # per-symbol-volatility card ships EWMA v1 and defers GARCH pending exactly
+        # this bake-off. It falls out of the same run even if Kronos fails both tests.
+        mean, lo, hi = paired_ci(
+            losses["ewma"][garch_mask] - garch_loss, dates[garch_mask]
+        )
+        out["ewma_vs_garch"] = {
+            "mean_qlike_delta": mean,
+            "ci_low": lo,
+            "ci_high": hi,
+            "note": "negative favours EWMA (the zero-dependency incumbent)",
+        }
+
     mean, lo, hi = paired_ci(losses["kronos"] - losses["ewma"], dates)
     out["kronos_vs_ewma"] = {"mean_qlike_delta": mean, "ci_low": lo, "ci_high": hi}
 

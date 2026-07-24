@@ -175,6 +175,16 @@ def test_volatility_passes_when_kronos_beats_both():
     assert out["verdict"] == "PASS"
 
 
+def test_volatility_reports_ewma_vs_garch_independently_of_kronos():
+    # Decides the per-symbol-volatility card's own bake-off, whatever Kronos does.
+    out = score.summarize_volatility(
+        _vol_records(kronos_sigma=0.9, ewma_sigma=0.01, garch_sigma=0.06, realized=0.01)
+    )
+    assert out["ewma_vs_garch"]["mean_qlike_delta"] < 0  # EWMA wins here
+    assert out["ewma_vs_garch"]["ci_high"] < 0
+    assert out["verdict"] == "FAIL"  # Kronos loses to both
+
+
 def test_volatility_tolerates_garch_fit_failures():
     records = _vol_records(0.01, 0.02, None, 0.01)
     out = score.summarize_volatility(records)

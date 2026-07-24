@@ -72,6 +72,33 @@ def cmd_fetch(window: str) -> int:
     return 0
 
 
+def _write_summary(window: str, records: list[dict]) -> dict:
+    summary = {
+        "path_test": score.summarize(records),
+        "volatility_test": score.summarize_volatility(records),
+    }
+    config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    (config.OUTPUT_DIR / f"{window}_summary.json").write_text(
+        json.dumps(summary, indent=2)
+    )
+    return summary
+
+
+def cmd_score(window: str) -> int:
+    """Re-score saved records without re-running the rollouts.
+
+    The records hold every raw input the scorers need, so a scoring change never
+    costs another GPU day — and a long run in flight can't be silently scored by a
+    stale copy of score.py that was imported at its start.
+    """
+    path = config.OUTPUT_DIR / f"{window}_records.json"
+    if not path.exists():
+        print(f"No records at {path}", file=sys.stderr)
+        return 1
+    print(json.dumps(_write_summary(window, json.loads(path.read_text())), indent=2))
+    return 0
+
+
 def cmd_probe(window: str, limit: int | None) -> int:
     from research.kronos_probe.kronos import Rollouts
 
@@ -144,23 +171,16 @@ def cmd_probe(window: str, limit: int | None) -> int:
                 }
             )
 
-    summary = {
-        "path_test": score.summarize(records),
-        "volatility_test": score.summarize_volatility(records),
-    }
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     (config.OUTPUT_DIR / f"{window}_records.json").write_text(json.dumps(records))
-    (config.OUTPUT_DIR / f"{window}_summary.json").write_text(
-        json.dumps(summary, indent=2)
-    )
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(_write_summary(window, records), indent=2))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Kronos vs bootstrap path probe.")
-    parser.add_argument("command", choices=("fetch", "probe"))
+    parser.add_argument("command", choices=("fetch", "probe", "score"))
     parser.add_argument("--window", default="primary", choices=tuple(config.WINDOWS))
     parser.add_argument(
         "--limit", type=int, default=None, help="Max eval points per symbol (smoke run)"
@@ -168,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "fetch":
         return cmd_fetch(args.window)
+    if args.command == "score":
+        return cmd_score(args.window)
     return cmd_probe(args.window, args.limit)
 
 
