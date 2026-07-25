@@ -163,10 +163,19 @@ Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron in
   Spearman +1.000 both ways; holding level fixed the rank effect vanishes and *reverses* in low-vol
   names), and on the **37 symbols we would actually trade** there is no measurable VRP at all. Do not
   re-litigate this from the headline decile table — it passes H2/H3 and is confounded; the level control
-  is the finding. **Still open on the options thread:** if premium selling is revisited, the axis the
-  data pointed at is **IV level**, pre-registered fresh with the crash tail priced in — a broad VRP does
-  exist over 7 years (+0.0306 ex-2020) but Feb-Apr 2020 alone erases ~2 years of it, and that is the risk
-  a wheel is short.
+  is the finding.
+- **Study B (the IV LEVEL axis) also ran 07-25 — the effect is REAL but we still do not build**
+  (`IV_LEVEL_PREREG_2026-07-25.md`; BUILD_LOG row). Level PASSED B1/B2/B3: top-decile VRP +0.0944
+  (+0.1125 ex-2020), it orders VRP inside **every** rank quintile, and it works as both selection
+  (+0.0736) and timing (+0.0858). **B4 is the blocker: on our own 37 names top-decile VRP is −0.0004.**
+  A diagnostic showed **the universe binds, not the vol ceiling** — all names under 60% IV still passes
+  (+0.0418), our 37 with no ceiling does not. **Open, and now specific:** premium selling needs a
+  *materially broader universe* than the watchlist (the chain sampler's append-only universe is the
+  natural vehicle and costs nothing to widen). ⚠️ Do NOT reuse B5 as written — it removed 31.6% of the
+  top decile, not 5%, because VRP correlates with the sort axis; outlier-robustness is **untested, not
+  disproven** (symmetric trim leaves +0.0586). Any successor must model the **capped payoff** directly:
+  a seller keeps at most the premium while the left tail is uncapped, so mean-VRP overstates capture
+  however it is trimmed.
 
 ## ▶ Options flow — classification scorer unbuilt; gates clocking
 

@@ -50,6 +50,9 @@ class Obs:
     rv_fwd: float
     ivr_range: float | None
     ivr_pct: float | None
+    # Trailing-365d mean IV as of this row — Study B decomposes LEVEL into the part
+    # that is about the company (this) and the part about the moment (iv vs this).
+    iv_tr_mean: float | None = None
 
     @property
     def vrp(self) -> float:
@@ -155,7 +158,8 @@ def load_panel(conn: sqlite3.Connection, symbols: list[str] | None = None) -> tu
             if ivr_range is None and ivr_pct is None:
                 continue
             drop.kept += 1
-            panel.append(Obs(sym, date, iv, hvs[j], ivr_range, ivr_pct))
+            tr_mean = statistics.fmean(window) if len(window) >= MIN_TRAILING_OBS else None
+            panel.append(Obs(sym, date, iv, hvs[j], ivr_range, ivr_pct, tr_mean))
     return panel, drop
 
 
@@ -229,7 +233,8 @@ def load_panel_dated(conn: sqlite3.Connection, symbols: list[str] | None = None)
             if ivr_range is None and ivr_pct is None:
                 continue
             drop.kept += 1
-            panel.append(Obs(sym, date, iv, hvs[best], ivr_range, ivr_pct))
+            tr_mean = statistics.fmean(window) if len(window) >= MIN_TRAILING_OBS else None
+            panel.append(Obs(sym, date, iv, hvs[best], ivr_range, ivr_pct, tr_mean))
     return panel, drop
 
 
@@ -500,7 +505,8 @@ def load_panel_h4(conn: sqlite3.Connection, symbols: list[str]) -> tuple[list[Ob
             ivr_pct = bisect_right(window, iv) / len(window) if len(window) >= MIN_TRAILING_OBS else None
             if ivr_range is None and ivr_pct is None:
                 continue
-            panel.append(Obs(sym, date, iv, rv, ivr_range, ivr_pct))
+            tr_mean = statistics.fmean(window) if len(window) >= MIN_TRAILING_OBS else None
+            panel.append(Obs(sym, date, iv, rv, ivr_range, ivr_pct, tr_mean))
     return panel, meta
 
 
@@ -600,6 +606,193 @@ def conditional_premise(obs: list[Obs], key: str = "ivr_range") -> dict:
             "passes": bool(m and m > 0 and lo == lo and lo > 0)}
 
 
+# ---------------------------------------------------------------------------
+# Study B — the IV LEVEL axis. Spec: References/IV_LEVEL_PREREG_2026-07-25.md
+# ---------------------------------------------------------------------------
+
+B4_IV_CEILING = 0.60  # above this a name is not wheelable by this product
+
+
+def axis_values(obs: list[Obs], axis: str) -> list[float | None]:
+    """LEVEL, and its decomposition into BETWEEN (which company) and WITHIN (which moment)."""
+    if axis == "level":
+        return [o.iv for o in obs]
+    if axis == "between":
+        return [o.iv_tr_mean for o in obs]
+    if axis == "within":
+        return [
+            (o.iv - o.iv_tr_mean) / o.iv_tr_mean if o.iv_tr_mean else None
+            for o in obs
+        ]
+    raise ValueError(axis)
+
+
+def top_decile_test(obs: list[Obs], axis: str, label: str) -> dict:
+    """B1/B3/B4/B5 shape: mean VRP in the axis's top decile, with CI and the tails."""
+    pairs = [(o, v) for o, v in zip(obs, axis_values(obs, axis), strict=True) if v is not None]
+    if len(pairs) < DECILES * 10:
+        return {"label": label, "axis": axis, "passes": False, "reason": "too few observations"}
+    vals = sorted(v for _, v in pairs)
+    cutoff = vals[int(0.9 * len(vals))]
+    top = [o for o, v in pairs if v >= cutoff]
+    if not top:
+        return {"label": label, "axis": axis, "passes": False, "reason": "empty top decile"}
+    m = mean_vrp(top)
+    lo, hi = month_block_bootstrap(_mean_terms(top), _mean_combine)
+    vrps = sorted(o.vrp for o in top)
+    return {
+        "label": label, "axis": axis, "n_rows": len(top), "n_symbol_months": effective_n(top),
+        "n_symbols": len({o.symbol for o in top}), "cutoff": cutoff,
+        "mean_vrp": m, "ci95": [lo, hi], "median_vrp": statistics.median(vrps),
+        "p05_vrp": vrps[int(0.05 * len(vrps))],
+        "share_negative": sum(1 for v in vrps if v < 0) / len(vrps),
+        "mean_iv": statistics.fmean(o.iv for o in top),
+        "passes": bool(m and m > 0 and lo == lo and lo > 0),
+    }
+
+
+def double_sort_control(obs: list[Obs], outer: str, inner: str) -> dict:
+    """Hold `outer` fixed in quintiles — does `inner` still order VRP inside each?
+
+    B2 is the mirror of the test IV rank failed in Study A: there, rank was the inner
+    axis and it did not survive holding level fixed. Here level is the inner axis.
+    """
+    ov = axis_values(obs, outer) if outer != "rank" else [o.ivr_range for o in obs]
+    iv_ = axis_values(obs, inner) if inner != "rank" else [o.ivr_range for o in obs]
+    trip = [(o, a, b) for o, a, b in zip(obs, ov, iv_, strict=True) if a is not None and b is not None]
+    if not trip:
+        return {}
+    # Percentile-ise each axis so quintiles are equal-count regardless of scale.
+    o_sorted = sorted(a for _, a, _ in trip)
+    i_sorted = sorted(b for _, _, b in trip)
+    cells: dict[tuple[int, int], list[Obs]] = defaultdict(list)
+    coded: list[tuple[Obs, int, int]] = []
+    for o, a, b in trip:
+        oq = quintile(bisect_right(o_sorted, a) / len(o_sorted) - 1e-12)
+        iq = quintile(bisect_right(i_sorted, b) / len(i_sorted) - 1e-12)
+        cells[(oq, iq)].append(o)
+        coded.append((o, oq, iq))
+
+    grid, survives = [], True
+    for oq in range(5):
+        row = [{"n": len(cells.get((oq, iq), [])), "mean_vrp": mean_vrp(cells.get((oq, iq), []))}
+               for iq in range(5)]
+        grid.append(row)
+        top, bot = row[4]["mean_vrp"], row[0]["mean_vrp"]
+        if top is None or bot is None or top <= bot:
+            survives = False
+
+    def terms() -> dict[str, tuple[float, ...]]:
+        acc: dict[str, list[float]] = defaultdict(lambda: [0.0] * 20)
+        for o, oq, iq in coded:
+            if iq not in (0, 4):
+                continue
+            a = acc[o.month]
+            base = oq * 4 + (0 if iq == 4 else 2)
+            a[base] += o.vrp
+            a[base + 1] += 1
+        return {m: tuple(v) for m, v in acc.items()}
+
+    def combine(t: list[float]) -> float | None:
+        diffs = []
+        for oq in range(5):
+            b = oq * 4
+            if t[b + 1] and t[b + 3]:
+                diffs.append(t[b] / t[b + 1] - t[b + 2] / t[b + 3])
+        return statistics.fmean(diffs) if len(diffs) == 5 else None
+
+    tt = terms()
+    pooled = combine([sum(x) for x in zip(*tt.values(), strict=False)]) if tt else None
+    lo, hi = month_block_bootstrap(tt, combine)
+    return {
+        "outer": outer, "inner": inner, "grid": grid,
+        "inner_orders_vrp_in_every_outer_quintile": survives,
+        "pooled_within_outer_diff": pooled, "ci95": [lo, hi],
+        "passes": bool(survives and pooled and pooled > 0 and lo == lo and lo > 0),
+    }
+
+
+def run_level_study(conn: sqlite3.Connection, dated: list[Obs], recent: list[Obs],
+                    universe: list[str]) -> dict:
+    """Study B, exactly as pre-registered — B1 through B5."""
+    ex_covid = [o for o in dated if not (COVID_LO <= o.date <= COVID_HI)]
+
+    b1_full = top_decile_test(dated, "level", "B1 level top decile, 7-year panel")
+    b1_ex = top_decile_test(ex_covid, "level", "B1 level top decile, excluding 2020-02..04")
+    b1_passes = bool(b1_full.get("passes") and b1_ex.get("passes"))
+
+    b2 = double_sort_control(dated, outer="rank", inner="level")
+
+    b3_within = top_decile_test(dated, "within", "B3 WITHIN (timing) top decile")
+    b3_between = top_decile_test(dated, "between", "B3 BETWEEN (selection) top decile")
+
+    uni = set(universe)
+    band = [o for o in dated if o.symbol in uni and o.iv < B4_IV_CEILING]
+    b4 = top_decile_test(band, "level", f"B4 tradable band: our universe, IV < {B4_IV_CEILING}")
+
+    # B5: drop the best 5% of VRP outcomes, then re-run B1 — the result may not rest
+    # on a handful of jackpots.
+    keep_n = int(0.95 * len(dated))
+    trimmed = sorted(dated, key=lambda o: o.vrp)[:keep_n]
+    b5 = top_decile_test(trimmed, "level", "B5 outlier-trimmed (top 5% of VRP dropped)")
+
+    return {
+        "spec": "References/IV_LEVEL_PREREG_2026-07-25.md",
+        "B1": {"full": b1_full, "ex_covid": b1_ex, "passes": b1_passes},
+        "B2": b2,
+        "B3": {"within_timing": b3_within, "between_selection": b3_between},
+        "B4": b4,
+        "B5": b5,
+        "recent_panel_B1": top_decile_test(recent, "level", "B1 on the recent-only panel"),
+    }
+
+
+def _report_level(b: dict) -> None:
+    def line(t: dict) -> str:
+        if not t or "mean_vrp" not in t:
+            return f"    {t.get('label', '?')}: {t.get('reason', 'unavailable')}"
+        return (f"    {t['label']}\n"
+                f"      n={t['n_rows']:,} ({t['n_symbol_months']:,} symbol-months, "
+                f"{t['n_symbols']} symbols, mean IV {t['mean_iv']:.3f})\n"
+                f"      mean VRP {t['mean_vrp']:+.4f} CI [{t['ci95'][0]:+.4f}, {t['ci95'][1]:+.4f}] "
+                f"-> {'PASS' if t['passes'] else 'FAIL'}\n"
+                f"      median {t['median_vrp']:+.4f}  p05 {t['p05_vrp']:+.4f}  "
+                f"neg {t['share_negative']:.1%}")
+
+    print(f"\n\n{'#' * 78}\nSTUDY B — THE IV LEVEL AXIS (pre-registered)\n{'#' * 78}")
+    print("\nB1 — level premise (needs BOTH panels to pass)")
+    print(line(b["B1"]["full"]))
+    print(line(b["B1"]["ex_covid"]))
+    print(f"    => B1 {'PASS' if b['B1']['passes'] else 'FAIL'}")
+
+    b2 = b["B2"]
+    if b2:
+        print("\nB2 — does LEVEL survive holding RANK fixed? (mirror of what rank failed)")
+        print("    mean VRP by rank quintile (rows) x level quintile (cols):")
+        print(f"        {'':>10}" + "".join(f"{'lvl Q' + str(q + 1):>10}" for q in range(5)))
+        for rq, row in enumerate(b2["grid"]):
+            cells = "".join(f"{c['mean_vrp']:>+10.4f}" if c["mean_vrp"] is not None else f"{'-':>10}"
+                            for c in row)
+            print(f"        rnk Q{rq + 1:<5}{cells}")
+        print(f"    level orders VRP within EVERY rank quintile: "
+              f"{b2['inner_orders_vrp_in_every_outer_quintile']}")
+        p = b2["pooled_within_outer_diff"]
+        print(f"    pooled within-rank (topQ - botQ) = "
+              f"{('undefined' if p is None else f'{p:+.4f}')} "
+              f"CI [{b2['ci95'][0]:+.4f}, {b2['ci95'][1]:+.4f}] -> B2 "
+              f"{'PASS' if b2['passes'] else 'FAIL'}")
+
+    print("\nB3 — DECISIVE: is it timing, or is it stock selection?")
+    print(line(b["B3"]["within_timing"]))
+    print(line(b["B3"]["between_selection"]))
+    print("\nB4 — tradable band")
+    print(line(b["B4"]))
+    print("\nB5 — outlier robustness")
+    print(line(b["B5"]))
+    print("\n(context) B1 on the recent-only panel")
+    print(line(b["recent_panel_B1"]))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--symbols", help="comma-separated subset (default: whole corpus)")
@@ -608,6 +801,8 @@ def main() -> None:
                     help="also run Addendum A (A1 horizon recovery, A2 level control, A3 conditional)")
     ap.add_argument("--h4", action="store_true",
                     help="run prereg H4: 21-session forward RV from our own bars (needs Alpaca)")
+    ap.add_argument("--level-study", action="store_true",
+                    help="run Study B (IV_LEVEL_PREREG_2026-07-25.md): B1-B5 on the level axis")
     args = ap.parse_args()
 
     conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
@@ -648,12 +843,27 @@ def main() -> None:
         h4["control_same_symbols_vendor_horizon"] = evaluate(same, "same symbols, vendor 30-session horizon") if same else None
         results["H4_horizon_robustness"] = h4
 
+    if args.level_study:
+        # Study B's primary panel is the calendar-anchored one (longest honest history).
+        dated, _ = load_panel_dated(conn, symbols)
+        try:
+            from signals.options_chain_snapshot import is_optionable_symbol
+            from tools.options_chain_sampler import CORE_ROOTS, all_watchlist_symbols_fresh
+            universe = sorted({*CORE_ROOTS, *[s for s in all_watchlist_symbols_fresh()
+                                              if is_optionable_symbol(s)]})
+        except Exception:
+            logger_universe_failed = True  # noqa: F841 — B4 is reported as unavailable
+            universe = []
+        results["study_b_level"] = run_level_study(conn, dated, panel, universe)
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "results.json").write_text(json.dumps(results, indent=2, default=str))
     _report(results)
     if args.addendum:
         _report_addendum(results["addendum"])
+    if args.level_study:
+        _report_level(results["study_b_level"])
     if args.h4:
         h4 = results["H4_horizon_robustness"]
         print(f"\n\n{'#' * 78}\nH4 HORIZON ROBUSTNESS (pre-registered)\n{'#' * 78}")

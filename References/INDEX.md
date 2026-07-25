@@ -43,6 +43,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `CLASSIFICATION_LAB_PREREG_2026-07-16.md` | ★ Pre-registered print-lab metrics — LAW: never improvise metrics on the data |
 | `IV_RANK_BASELINE_PREREG_2026-07-25.md` | ★ Pre-registered VRP / IV-rank study — the gate on `options-income-lane`. LAW: thresholds and outcome-consequences fixed before data. RUN 07-25, verdict NO (BUILD_LOG) |
 | `IV_RANK_BASELINE_PREREG_2026-07-25_ADDENDUM_A.md` | Dated addendum to the above: horizon recovery, the level-vs-rank control that killed the rank gate, conditional premise. SECONDARY arms |
+| `IV_LEVEL_PREREG_2026-07-25.md` | ★ Study B, the IV-level axis (successor to the rank study). RUN 07-25: effect REAL (B1/B2/B3 pass) but B4 fails on our universe — breadth, not the phenomenon. ⚠️ POST-RUN NOTE: B5 was a miscalibrated test, do not reuse |
 | `COLLECTOR_PRESSURE_AUDIT_2026-07-16.md` | The "DO NOT MERGE" gauge audit — deferred findings F3/F4/F8 still open |
 | `DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md` | REASON scorecard→EV design — a LATER layer, NOT "the fusion layer" (that's the Evidence Bus spec); gated on factor admission + 8 founder decisions |
 | `DECISION_ENGINE_RESEARCH.md` | Evidence base (06-21 deep research: fusion, calibration, LLM role) |

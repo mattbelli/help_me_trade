@@ -149,6 +149,76 @@ def test_decile_table_reports_the_mandatory_tail_columns() -> None:
         assert row["p05_vrp"] <= row["mean_vrp"] or row["n_rows"] < 20
 
 
+def _grid_panel() -> list[Obs]:
+    """5 symbols x 5 IV levels x 4 months, with VRP driven ONLY by the level axis.
+
+    Level and 'between' (the symbol's trailing mean) are constructed independent: every
+    symbol carries the same five IV values, and symbols differ only in trailing mean.
+    """
+    obs = []
+    levels = [0.10, 0.20, 0.30, 0.40, 0.50]
+    for s in range(5):
+        tr_mean = 0.10 * (s + 1)
+        for k, iv in enumerate(levels):
+            for month in (1, 2, 3, 4):
+                obs.append(Obs(f"S{s}", f"2024-{month:02d}-15", iv,
+                               rv_fwd=iv - 0.01 * k, ivr_range=0.5, ivr_pct=0.5,
+                               iv_tr_mean=tr_mean))
+    return obs
+
+
+def test_within_axis_is_the_relative_deviation_from_a_symbols_own_normal() -> None:
+    from tools.iv_rank_baseline_study import axis_values
+
+    obs = [
+        Obs("A", "2024-01-02", 0.30, 0.2, 0.5, 0.5, iv_tr_mean=0.20),  # 50% above normal
+        Obs("B", "2024-01-02", 0.30, 0.2, 0.5, 0.5, iv_tr_mean=None),  # unknowable
+    ]
+    within = axis_values(obs, "within")
+    assert abs(within[0] - 0.5) < 1e-12
+    assert within[1] is None
+    # BETWEEN is the trailing mean itself; LEVEL is the raw IV.
+    assert axis_values(obs, "between") == [0.20, None]
+    assert axis_values(obs, "level") == [0.30, 0.30]
+
+
+def test_double_sort_control_finds_a_real_inner_effect() -> None:
+    """VRP depends only on level, so level must survive holding 'between' fixed."""
+    from tools.iv_rank_baseline_study import double_sort_control
+
+    res = double_sort_control(_grid_panel(), outer="between", inner="level")
+    assert res["inner_orders_vrp_in_every_outer_quintile"] is True
+    assert abs(res["pooled_within_outer_diff"] - 0.04) < 1e-9  # 4 steps of 0.01
+    assert res["passes"] is True
+
+
+def test_double_sort_control_rejects_an_effect_that_is_not_there() -> None:
+    """The mirror: 'between' must NOT appear to order VRP, since nothing depends on it.
+
+    A control that cannot return False would have rubber-stamped the rank gate.
+    """
+    from tools.iv_rank_baseline_study import double_sort_control
+
+    res = double_sort_control(_grid_panel(), outer="level", inner="between")
+    assert res["inner_orders_vrp_in_every_outer_quintile"] is False
+    assert abs(res["pooled_within_outer_diff"]) < 1e-9
+    assert res["passes"] is False
+
+
+def test_top_decile_test_selects_the_top_tenth_of_the_axis() -> None:
+    from tools.iv_rank_baseline_study import top_decile_test
+
+    obs = [
+        Obs("A", f"2024-{(i % 4) + 1:02d}-15", iv=0.01 * (i + 1), rv_fwd=0.01 * (i + 1) - 0.05,
+            ivr_range=0.5, ivr_pct=0.5, iv_tr_mean=0.2)
+        for i in range(200)
+    ]
+    res = top_decile_test(obs, "level", "smoke")
+    assert res["n_rows"] == 20  # exactly the top decile by IV
+    assert res["mean_iv"] > obs[-25].iv
+    assert abs(res["mean_vrp"] - 0.05) < 1e-9
+
+
 def test_diff_terms_isolate_the_top_and_bottom_rank_deciles() -> None:
     obs = [
         Obs("A", "2024-01-02", 0.3, 0.1, ivr_range=0.95, ivr_pct=None),  # top, vrp +0.2
