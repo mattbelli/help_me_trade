@@ -838,3 +838,103 @@ async def test_notional_usd_still_used_when_pct_unset(monkeypatch, tmp_path: Pat
     await run_strategy_scan(db_path=db)
 
     assert propose_mock.await_args.args[0].notional_usd == Decimal("750")
+
+
+# --- vol-targeted sizing: two switches, and the master one is shadow-safe ---
+
+
+def _patch_vol_config(monkeypatch, *, enabled: bool, profile: str = "balanced") -> None:
+    monkeypatch.setattr(
+        "signals.strategy_scan.trading_config",
+        lambda: {
+            "execution_mode": "dry_run",
+            "volatility_enabled": enabled,
+            "vol_target_profile": profile,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_vol_master_switch_off_leaves_notional_untouched(
+    monkeypatch, tmp_path: Path
+) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, notional=750,
+        watchlist=[PASS_SYMBOL],
+    )
+    update_strategy("dip_buy", vol_target=True, db_path=db)  # opted in, master OFF
+    _patch_vol_config(monkeypatch, enabled=False)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    assert propose_mock.await_args.args[0].notional_usd == Decimal("750")
+
+
+@pytest.mark.asyncio
+async def test_vol_master_switch_alone_is_shadow_only(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The master switch turns on the READ, never the sizing — that is what makes
+    it safe to flip on in production before any strategy has opted in."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, notional=750,
+        watchlist=[PASS_SYMBOL],
+    )
+    _patch_vol_config(monkeypatch, enabled=True)  # strategy vol_target stays 0
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    assert propose_mock.await_args.args[0].notional_usd == Decimal("750")
+
+
+@pytest.mark.asyncio
+async def test_vol_applies_only_with_both_switches_on(
+    monkeypatch, tmp_path: Path
+) -> None:
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, notional=750,
+        watchlist=[PASS_SYMBOL],
+    )
+    update_strategy("dip_buy", vol_target=True, db_path=db)
+    _patch_vol_config(monkeypatch, enabled=True)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    sized = propose_mock.await_args.args[0].notional_usd
+    assert sized != Decimal("750"), "vol_target on + master on must resize"
+    # Whatever the fixture's volatility, the clamp bounds the move both ways.
+    assert Decimal("750") * Decimal("0.25") <= sized <= Decimal("750") * Decimal("1.5")
+
+
+@pytest.mark.asyncio
+async def test_vol_sizing_survives_an_unusable_forecast(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """No forecast => identity multiplier => the strategy's normal size, not zero."""
+    propose_mock, db = _patch_scan_env(
+        monkeypatch, tmp_path, strategy_enabled=True, notional=750,
+        watchlist=[PASS_SYMBOL],
+    )
+    update_strategy("dip_buy", vol_target=True, db_path=db)
+    _patch_vol_config(monkeypatch, enabled=True)
+    monkeypatch.setattr("signals.strategy_scan.forecast_vol", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "signals.strategy_scan._fetch_stock_bars",
+        AsyncMock(return_value=_passing_bar_payload()),
+    )
+
+    await run_strategy_scan(db_path=db)
+
+    assert propose_mock.await_args.args[0].notional_usd == Decimal("750")
