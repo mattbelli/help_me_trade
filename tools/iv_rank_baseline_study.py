@@ -435,6 +435,69 @@ def evaluate(obs: list[Obs], label: str) -> dict:
 
 H4_SESSIONS = 21  # ~30 CALENDAR days, matching a 30-day implied — see prereg H4
 H4_BAR_DAYS = 2500
+H4_CHUNK = 25  # symbols per bar request, and the memory ceiling — see load_panel_h4
+
+
+def _h4_fetch_bars(adapter, chunk: list[str]) -> dict:
+    try:
+        return adapter.get_stock_bars_batch(chunk, timeframe="1Day", days=H4_BAR_DAYS) or {}
+    except Exception:
+        bars: dict = {}
+        for sym in chunk:  # one bad ticker must not empty the batch (see sampler)
+            try:
+                bars.update(adapter.get_stock_bars_batch([sym], timeframe="1Day", days=H4_BAR_DAYS) or {})
+            except Exception:
+                pass
+        return bars
+
+
+def _h4_symbol_obs(conn: sqlite3.Connection, sym: str, rows: list, meta: dict) -> list[Obs]:
+    """One symbol's observations: corpus IV joined to forward RV computed from our bars."""
+    if len(rows) < H4_SESSIONS + 2:
+        return []
+    meta["symbols_with_bars"] += 1
+    bdates = [r.time[:10] for r in rows]
+    closes = [r.close for r in rows]
+    bidx = {d: i for i, d in enumerate(bdates)}
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+
+    series = conn.execute(
+        "SELECT date, iv_current, iv_year_high, iv_year_low FROM volatility_history"
+        " WHERE act_symbol=? ORDER BY date", (sym,)).fetchall()
+    ivs = [_f(r[1]) for r in series]
+    dates = [r[0] for r in series]
+    out: list[Obs] = []
+    window: list[float] = []
+    left = 0
+    for i, (date, _iv, hi_s, lo_s) in enumerate(series):
+        iv = ivs[i]
+        if iv is not None:
+            insort(window, iv)
+        floor = _minus_365(date)
+        while left < i and dates[left] <= floor:
+            old = ivs[left]
+            if old is not None:
+                window.pop(bisect_left(window, old))
+            left += 1
+        if iv is None:
+            continue
+        b = bidx.get(date)
+        # rets[k] is the return INTO bar k+1, so the forward window is rets[b : b+21].
+        if b is None or b + H4_SESSIONS >= len(rets):
+            meta["no_forward_window"] += 1
+            continue
+        fwd = rets[b : b + H4_SESSIONS]
+        rv = statistics.stdev(fwd) * math.sqrt(252)
+        if rv <= 0:
+            continue
+        hi, lo = _f(hi_s), _f(lo_s)
+        ivr_range = (iv - lo) / (hi - lo) if hi is not None and lo is not None and hi > lo else None
+        ivr_pct = bisect_right(window, iv) / len(window) if len(window) >= MIN_TRAILING_OBS else None
+        if ivr_range is None and ivr_pct is None:
+            continue
+        tr_mean = statistics.fmean(window) if len(window) >= MIN_TRAILING_OBS else None
+        out.append(Obs(sym, date, iv, rv, ivr_range, ivr_pct, tr_mean))
+    return out
 
 
 def load_panel_h4(conn: sqlite3.Connection, symbols: list[str]) -> tuple[list[Obs], dict]:
@@ -444,69 +507,24 @@ def load_panel_h4(conn: sqlite3.Connection, symbols: list[str]) -> tuple[list[Ob
     days. Both are annualized so they compare to first order, but term structure makes
     the mismatch a real second-order bias. This arm removes it by computing forward RV
     over exactly the option's calendar life, from bars we hold.
+
+    Bars are fetched AND consumed one chunk at a time. At Study C's breadth that matters:
+    ~1,700 symbols x ~1,700 daily bars would be millions of live bar objects held at once
+    on a 15 GB box. Only the current chunk is ever resident.
     """
     from brokers.alpaca import AlpacaAdapter
 
     adapter = AlpacaAdapter.from_settings()
-    bars: dict = {}
-    for start in range(0, len(symbols), 25):
-        chunk = symbols[start : start + 25]
-        try:
-            bars.update(adapter.get_stock_bars_batch(chunk, timeframe="1Day", days=H4_BAR_DAYS) or {})
-        except Exception:
-            for sym in chunk:  # one bad ticker must not empty the batch (see sampler)
-                try:
-                    bars.update(adapter.get_stock_bars_batch([sym], timeframe="1Day", days=H4_BAR_DAYS) or {})
-                except Exception:
-                    pass
-
     panel: list[Obs] = []
     meta = {"symbols_requested": len(symbols), "symbols_with_bars": 0, "no_forward_window": 0}
-    for sym in symbols:
-        rows = bars.get(sym) or []
-        if len(rows) < H4_SESSIONS + 2:
-            continue
-        meta["symbols_with_bars"] += 1
-        bdates = [r.time[:10] for r in rows]
-        closes = [r.close for r in rows]
-        bidx = {d: i for i, d in enumerate(bdates)}
-        rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
-
-        series = conn.execute(
-            "SELECT date, iv_current, iv_year_high, iv_year_low FROM volatility_history"
-            " WHERE act_symbol=? ORDER BY date", (sym,)).fetchall()
-        ivs = [_f(r[1]) for r in series]
-        dates = [r[0] for r in series]
-        window: list[float] = []
-        left = 0
-        for i, (date, _iv, hi_s, lo_s) in enumerate(series):
-            iv = ivs[i]
-            if iv is not None:
-                insort(window, iv)
-            floor = _minus_365(date)
-            while left < i and dates[left] <= floor:
-                old = ivs[left]
-                if old is not None:
-                    window.pop(bisect_left(window, old))
-                left += 1
-            if iv is None:
-                continue
-            b = bidx.get(date)
-            # rets[k] is the return INTO bar k+1, so the forward window is rets[b : b+21].
-            if b is None or b + H4_SESSIONS >= len(rets):
-                meta["no_forward_window"] += 1
-                continue
-            fwd = rets[b : b + H4_SESSIONS]
-            rv = statistics.stdev(fwd) * math.sqrt(252)
-            if rv <= 0:
-                continue
-            hi, lo = _f(hi_s), _f(lo_s)
-            ivr_range = (iv - lo) / (hi - lo) if hi is not None and lo is not None and hi > lo else None
-            ivr_pct = bisect_right(window, iv) / len(window) if len(window) >= MIN_TRAILING_OBS else None
-            if ivr_range is None and ivr_pct is None:
-                continue
-            tr_mean = statistics.fmean(window) if len(window) >= MIN_TRAILING_OBS else None
-            panel.append(Obs(sym, date, iv, rv, ivr_range, ivr_pct, tr_mean))
+    for start in range(0, len(symbols), H4_CHUNK):
+        chunk = symbols[start : start + H4_CHUNK]
+        bars = _h4_fetch_bars(adapter, chunk)
+        for sym in chunk:
+            panel.extend(_h4_symbol_obs(conn, sym, bars.get(sym) or [], meta))
+        done = start + len(chunk)
+        if len(symbols) > H4_CHUNK * 4 and done % (H4_CHUNK * 20) == 0:
+            print(f"    H4 bars: {done}/{len(symbols)} symbols, {len(panel):,} obs", flush=True)
     return panel, meta
 
 
@@ -747,18 +765,21 @@ def run_level_study(conn: sqlite3.Connection, dated: list[Obs], recent: list[Obs
     }
 
 
-def _report_level(b: dict) -> None:
-    def line(t: dict) -> str:
-        if not t or "mean_vrp" not in t:
-            return f"    {t.get('label', '?')}: {t.get('reason', 'unavailable')}"
-        return (f"    {t['label']}\n"
-                f"      n={t['n_rows']:,} ({t['n_symbol_months']:,} symbol-months, "
-                f"{t['n_symbols']} symbols, mean IV {t['mean_iv']:.3f})\n"
-                f"      mean VRP {t['mean_vrp']:+.4f} CI [{t['ci95'][0]:+.4f}, {t['ci95'][1]:+.4f}] "
-                f"-> {'PASS' if t['passes'] else 'FAIL'}\n"
-                f"      median {t['median_vrp']:+.4f}  p05 {t['p05_vrp']:+.4f}  "
-                f"neg {t['share_negative']:.1%}")
+def _level_line(t: dict) -> str:
+    """Shared formatter for any top_decile_test/_mean_test block (Studies B and C)."""
+    if not t or "mean_vrp" not in t:
+        return f"    {t.get('label', '?')}: {t.get('reason', 'unavailable')}"
+    return (f"    {t['label']}\n"
+            f"      n={t['n_rows']:,} ({t['n_symbol_months']:,} symbol-months, "
+            f"{t['n_symbols']} symbols, mean IV {t['mean_iv']:.3f})\n"
+            f"      mean VRP {t['mean_vrp']:+.4f} CI [{t['ci95'][0]:+.4f}, {t['ci95'][1]:+.4f}] "
+            f"-> {'PASS' if t['passes'] else 'FAIL'}\n"
+            f"      median {t['median_vrp']:+.4f}  p05 {t['p05_vrp']:+.4f}  "
+            f"neg {t['share_negative']:.1%}")
 
+
+def _report_level(b: dict) -> None:
+    line = _level_line
     print(f"\n\n{'#' * 78}\nSTUDY B — THE IV LEVEL AXIS (pre-registered)\n{'#' * 78}")
     print("\nB1 — level premise (needs BOTH panels to pass)")
     print(line(b["B1"]["full"]))
@@ -793,6 +814,145 @@ def _report_level(b: dict) -> None:
     print(line(b["recent_panel_B1"]))
 
 
+C2_HORIZON_TOLERANCE = 0.0100  # vol pts — see Study C prereg C2/C6
+C3_SPEARMAN_MIN = 0.6
+
+
+def _mean_test(obs: list[Obs], label: str) -> dict:
+    """Mean VRP with a month-block CI and the mandatory tails, shaped like top_decile_test."""
+    if not obs:
+        return {"label": label, "axis": "all", "passes": False, "reason": "empty panel"}
+    m = mean_vrp(obs)
+    lo, hi = month_block_bootstrap(_mean_terms(obs), _mean_combine)
+    vrps = sorted(o.vrp for o in obs)
+    return {
+        "label": label, "axis": "all", "n_rows": len(obs), "n_symbol_months": effective_n(obs),
+        "n_symbols": len({o.symbol for o in obs}),
+        "mean_vrp": m, "ci95": [lo, hi], "median_vrp": statistics.median(vrps),
+        "p05_vrp": vrps[int(0.05 * len(vrps))],
+        "share_negative": sum(1 for v in vrps if v < 0) / len(vrps),
+        "mean_iv": statistics.fmean(o.iv for o in obs),
+        "passes": bool(m and m > 0 and lo == lo and lo > 0),
+    }
+
+
+def _level_deciles(obs: list[Obs]) -> list[dict]:
+    """Deciles of IV LEVEL. Deliberately not routed through level_control(), whose A2a
+    arm is bound to a rank key — Study B's published numbers must stay reproducible."""
+    if not obs:
+        return []
+    lv = sorted(o.iv for o in obs)
+    pct = [bisect_right(lv, o.iv) / len(lv) for o in obs]
+    rows = []
+    for d in range(DECILES):
+        lo, hi = d / DECILES, (d + 1) / DECILES
+        bucket = [o for o, p in zip(obs, pct, strict=True)
+                  if lo <= p < hi or (d == DECILES - 1 and p == 1.0)]
+        if not bucket:
+            continue
+        vrps = sorted(o.vrp for o in bucket)
+        rows.append({"decile": d + 1, "n_rows": len(bucket),
+                     "mean_vrp": statistics.fmean(vrps), "p05_vrp": vrps[int(0.05 * len(vrps))],
+                     "share_negative": sum(1 for v in vrps if v < 0) / len(vrps),
+                     "mean_iv": statistics.fmean(o.iv for o in bucket),
+                     "mean_rv_fwd": statistics.fmean(o.rv_fwd for o in bucket)})
+    return rows
+
+
+def run_h4_breadth(h4_panel: list[Obs], vendor_panel: list[Obs], deep: set[str]) -> dict:
+    """Study C — References/IV_HORIZON_BREADTH_PREREG_2026-07-25.md, C1..C6."""
+    ex_covid = [o for o in h4_panel if not (COVID_LO <= o.date <= COVID_HI)]
+    c1_full = _mean_test(h4_panel, "C1 own-bars horizon, full sample")
+    c1_ex = _mean_test(ex_covid, "C1 own-bars horizon, excluding 2020-02-01..04-30")
+
+    # C2: strict like-for-like — the same (symbol, date) observations under both horizons.
+    v_keys = {(o.symbol, o.date) for o in vendor_panel}
+    both = {(o.symbol, o.date) for o in h4_panel} & v_keys
+    h_int = [o for o in h4_panel if (o.symbol, o.date) in both]
+    v_int = [o for o in vendor_panel if (o.symbol, o.date) in both]
+    mh, mv = mean_vrp(h_int), mean_vrp(v_int)
+    gap = abs(mh - mv) if mh is not None and mv is not None else None
+    c2 = {"n_paired_rows": len(both), "own_bars_21s": mh, "vendor_30s": mv, "gap": gap,
+          "tolerance": C2_HORIZON_TOLERANCE,
+          "passes": bool(gap is not None and gap <= C2_HORIZON_TOLERANCE)}
+
+    deciles = _level_deciles(h4_panel)
+    rho = spearman([r["decile"] for r in deciles], [r["mean_vrp"] for r in deciles]) if len(deciles) == DECILES else None
+    c3 = {"level_deciles": deciles, "spearman": rho, "threshold": C3_SPEARMAN_MIN,
+          "passes": bool(rho is not None and rho >= C3_SPEARMAN_MIN)}
+
+    band = [o for o in h4_panel if o.iv < B4_IV_CEILING]
+    c4 = top_decile_test(band, "level", f"C4 tradable band at the own-bars horizon, IV < {B4_IV_CEILING}")
+
+    # C6: the survivorship this design introduces, measured on the panel where both
+    # groups still exist. A live bar API cannot serve a delisted ticker.
+    with_bars = {o.symbol for o in h4_panel}
+    kept = [o for o in vendor_panel if o.symbol in with_bars]
+    lost = [o for o in vendor_panel if o.symbol not in with_bars]
+    mk, ml = mean_vrp(kept), mean_vrp(lost)
+    sgap = abs(mk - ml) if mk is not None and ml is not None else None
+    c6 = {"n_symbols_with_bars": len(with_bars),
+          "n_symbols_without": len({o.symbol for o in lost}),
+          "vendor_mean_vrp_with_bars": mk, "vendor_mean_vrp_without_bars": ml,
+          "gap": sgap, "tolerance": C2_HORIZON_TOLERANCE,
+          "flagged": bool(sgap is None or sgap > C2_HORIZON_TOLERANCE)}
+
+    deep_obs = [o for o in h4_panel if o.symbol in deep]
+    c5 = {"premise": _mean_test(deep_obs, "C5 deep tier (names we would actually trade)"),
+          "band": top_decile_test([o for o in deep_obs if o.iv < B4_IV_CEILING], "level",
+                                  f"C5 deep tier, IV < {B4_IV_CEILING} top level decile"),
+          "n_deep_symbols_in_panel": len({o.symbol for o in deep_obs})}
+
+    return {"spec": "References/IV_HORIZON_BREADTH_PREREG_2026-07-25.md",
+            "C1": {"full": c1_full, "ex_covid": c1_ex,
+                   "passes": bool(c1_full.get("passes") and c1_ex.get("passes"))},
+            "C2": c2, "C3": c3, "C4": c4, "C5": c5, "C6": c6}
+
+
+def _report_breadth(c: dict) -> None:
+    print(f"\n\n{'#' * 78}\nSTUDY C — HORIZON x UNIVERSE AT BREADTH (pre-registered)\n{'#' * 78}")
+    print("\n  C1 own-bars horizon on the wide universe (the missing 2x2 cell)")
+    for t in (c["C1"]["full"], c["C1"]["ex_covid"]):
+        print(_level_line(t))
+    print(f"  C1 -> {'PASS' if c['C1']['passes'] else 'FAIL'}")
+
+    c2 = c["C2"]
+    print(f"\n  C2 horizon materiality, {c2['n_paired_rows']:,} paired (symbol, date) rows")
+    if c2["gap"] is None:
+        print("    no overlap between the panels -> FAIL")
+    else:
+        print(f"    own bars 21s {c2['own_bars_21s']:+.4f}   vendor 30s {c2['vendor_30s']:+.4f}   "
+              f"gap {c2['gap']:.4f} (<= {c2['tolerance']:.4f}) "
+              f"-> {'PASS (immaterial)' if c2['passes'] else 'FAIL (material)'}")
+
+    c3 = c["C3"]
+    print("\n  C3 IV LEVEL deciles at the own-bars horizon")
+    print(f"    {'dec':>3} {'n':>9} {'mean VRP':>9} {'p05':>8} {'neg%':>6} {'meanIV':>7} {'meanRVf':>8}")
+    for d in c3["level_deciles"]:
+        print(f"    {d['decile']:>3} {d['n_rows']:>9,} {d['mean_vrp']:>+9.4f} {d['p05_vrp']:>+8.4f} "
+              f"{d['share_negative']:>6.1%} {d['mean_iv']:>7.4f} {d['mean_rv_fwd']:>8.4f}")
+    rho = c3["spearman"]
+    print(f"    spearman {rho:+.3f} (>= {c3['threshold']}) -> {'PASS' if c3['passes'] else 'FAIL'}"
+          if rho is not None else "    spearman undefined -> FAIL")
+
+    print("\n  C4 the tradable band at the better horizon")
+    print(_level_line(c["C4"]))
+
+    c6 = c["C6"]
+    print(f"\n  C6 survivorship: {c6['n_symbols_with_bars']} symbols have bars, "
+          f"{c6['n_symbols_without']} do not")
+    if c6["gap"] is None:
+        print("    one group is empty — cannot measure -> FLAGGED")
+    else:
+        print(f"    vendor-panel mean VRP: with bars {c6['vendor_mean_vrp_with_bars']:+.4f}   "
+              f"without {c6['vendor_mean_vrp_without_bars']:+.4f}   gap {c6['gap']:.4f}")
+        print(f"    -> {'FLAGGED: C1/C4 carry a survivorship caveat' if c6['flagged'] else 'within tolerance'}")
+
+    print(f"\n  C5 deep tier — {c['C5']['n_deep_symbols_in_panel']} of our own names (descriptive)")
+    print(_level_line(c["C5"]["premise"]))
+    print(_level_line(c["C5"]["band"]))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--symbols", help="comma-separated subset (default: whole corpus)")
@@ -801,6 +961,9 @@ def main() -> None:
                     help="also run Addendum A (A1 horizon recovery, A2 level control, A3 conditional)")
     ap.add_argument("--h4", action="store_true",
                     help="run prereg H4: 21-session forward RV from our own bars (needs Alpaca)")
+    ap.add_argument("--h4-universe", choices=("deep", "corpus"), default="deep",
+                    help="H4 scope: 'deep' = the sampler's deep tier, as Study A ran it; "
+                         "'corpus' = every corpus symbol (Study C breadth)")
     ap.add_argument("--level-study", action="store_true",
                     help="run Study B (IV_LEVEL_PREREG_2026-07-25.md): B1-B5 on the level axis")
     args = ap.parse_args()
@@ -826,14 +989,26 @@ def main() -> None:
         results["addendum"] = _run_addendum(conn, symbols, panel)
 
     if args.h4:
-        # Prereg H4 needs symbols we hold bars for: the chain sampler's own universe,
-        # intersected with the corpus (only 37 of 53 are in this curated set).
+        # The DEEP tier is the chain sampler's own universe intersected with the corpus
+        # (37 of 53 are in this curated set) — the names we would actually trade, and the
+        # scope Study A's H4 ran on. The 2026-07-25 breadth work registered ~1,800 more
+        # names as a WIDE COLLECTION tier; that widened what we observe, not what we trade.
         from signals.options_chain_snapshot import is_optionable_symbol
         from tools.options_chain_sampler import CORE_ROOTS, all_watchlist_symbols_fresh
 
         want = sorted({*CORE_ROOTS, *[s for s in all_watchlist_symbols_fresh() if is_optionable_symbol(s)]})
-        covered = [s for s in want if conn.execute(
+        deep = [s for s in want if conn.execute(
             "SELECT 1 FROM volatility_history WHERE act_symbol=? LIMIT 1", (s,)).fetchone()]
+        if args.h4_universe == "corpus":
+            # Study C: no optionability filter — the prereg admits any corpus symbol our
+            # bar API serves, so the panel is not pre-screened on surviving to today.
+            covered = [r[0] for r in conn.execute(
+                "SELECT DISTINCT act_symbol FROM volatility_history ORDER BY act_symbol")]
+            if symbols:  # --symbols narrows the breadth scope too, for smoke runs
+                covered = [s for s in covered if s in set(symbols)]
+        else:
+            covered = deep
+        print(f"H4 scope '{args.h4_universe}': {len(covered)} symbols")
         h4_panel, h4_meta = load_panel_h4(conn, covered)
         h4 = evaluate(h4_panel, "H4: 21-session forward RV from our own bars")
         h4["meta"] = h4_meta
@@ -842,6 +1017,8 @@ def main() -> None:
         same = [o for o in panel if o.symbol in set(covered)]
         h4["control_same_symbols_vendor_horizon"] = evaluate(same, "same symbols, vendor 30-session horizon") if same else None
         results["H4_horizon_robustness"] = h4
+        if args.h4_universe == "corpus":
+            results["study_c_breadth"] = run_h4_breadth(h4_panel, panel, set(deep))
 
     if args.level_study:
         # Study B's primary panel is the calendar-anchored one (longest honest history).
@@ -884,6 +1061,8 @@ def main() -> None:
                           f"CI [{blk['H2']['ci95'][0]:+.4f}, {blk['H2']['ci95'][1]:+.4f}] "
                           f"{'PASS' if blk['H2']['passes'] else 'FAIL'} | H3 rho "
                           f"{blk['H3']['spearman']:+.3f} {'PASS' if blk['H3']['passes'] else 'FAIL'}")
+    if "study_c_breadth" in results:
+        _report_breadth(results["study_c_breadth"])
     print(f"\nwrote {out / 'results.json'}")
 
 
