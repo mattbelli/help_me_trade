@@ -164,13 +164,20 @@ level fixed it vanishes and *reverses* in low-vol names); the **level** effect i
 every control thrown at it (Spearman +1.000, band +0.0445 at the corrected horizon); and on the
 **37 names we would actually trade there is no VRP at all** (−0.0012, unchanged across both
 horizons). What is still OPEN from that work:
-- **Two gates now stand between us and any premium selling, both untested.** (1) the **capped
-  payoff** — a seller keeps at most the premium while the left tail is uncapped, so mean-VRP in vol
-  points overstates capture however it is trimmed; (2) **the spread**, raised by Study C: the wide
-  band (+0.0445) and our own names (−0.0035) sit at nearly identical implied vol (0.554 vs 0.547),
-  so the discriminator is *which names*, not *what IV* — and if the mechanism is thin selling
-  competition, the premium lives exactly where the bid-ask is widest. **Every number in all three
-  studies is vendor MID-market IV and ignores the spread.** Measure it before any capture claim.
+- **Two gates stand between us and any premium selling. One is now measured, one is untouched.**
+  - ⏳ **The spread gate — probed 07-25, but NOT yet a finding, and the rule that says so is
+    pre-registered.** `OPTION_SPREAD_GATE_PREREG_2026-07-25.md` + BUILD_LOG row. Band names cost
+    **0.0870 vol pts** to cross once — **195% of the +0.0445 edge** — against **0.0292** for our own
+    names; i.e. the premium-carrying names are **~3.2× more expensive to trade** (31.2% vs 9.8% of
+    premium), confirming the competition hypothesis in direction. **But it ran Saturday on Friday's
+    closing book, and the prereg fixed in advance that CHEAP would be decisive while PROHIBITIVE
+    would not.** ⏳ **Re-run `tools/option_spread_probe.py` intraday (Mon 07-27+)** before recording
+    anything. The *ratio* between cohorts survives the caveat better than the absolute levels — both
+    were measured in the same instant.
+  - **The capped payoff — untouched by any of this.** A seller keeps at most the premium while the
+    left tail is uncapped, so mean-VRP in vol points overstates capture however it is trimmed. In
+    the C4 band 29.7% of observations are negative with p05 −0.3105. Nothing measured so far speaks
+    to this, and a tight spread would not have opened the lane either.
 - ⚠️ Do NOT reuse Study B's **B5** as written — it removed 31.6% of the top decile, not 5%, because
   VRP correlates with the sort axis; outlier-robustness is **untested, not disproven** (a symmetric
   trim leaves +0.0586).
