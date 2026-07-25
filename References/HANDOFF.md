@@ -147,6 +147,21 @@ BUILD_LOG row; live still uses opg), `trading/stop_guard.py` resting GTC stops a
   draft **PR #100** — judge together
 - **Classification-lab addenda sign-off**: proposed DTE-cut addendum + F3 direction-semantics stamp
 
+## ▶ Options IV corpus — sampler shipped; first live run + the IV-rank study are open
+
+Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron installed on serv at
+20:50 UTC weekdays, file-guarded so it no-ops until this branch lands in the main tree. **Open:**
+- ⏳ **first live run Mon 07-27**: confirm `data/options_chain_history.db` gets an `iv_daily` row per
+  universe symbol and a sane `bars_current` (a sweep firing before the vendor rolls its daily bars
+  shows volume collapsing to zero everywhere — that's what the counter is there to distinguish).
+  Then ⏳ **07-28**: confirm the OI backfill lands on 07-27's rows, since OI publishes a session late.
+- The corpus has a **hole from 2026-07-18 to the first live run** — DoltHub ends 07-17. `tools/dolthub_iv_import.py`
+  was demoted to exactly this one-shot bridge; run it if the upstream repo is still updating.
+- SPX/SPXW will never carry OI here (index roots aren't tradable on Alpaca ⇒ no contracts API). The
+  Databento OPRA statistics purchase covers them; don't "fix" it by inventing a substitute.
+- **The IV-rank baseline study is the real gate on `options-income-lane`** and is not started. Pre-register
+  it before touching the 1.87M stored rows — prereg is LAW here, same as the classification lab.
+
 ## ▶ Options flow — classification scorer unbuilt; gates clocking
 
 Prereg = LAW (`CLASSIFICATION_LAB_PREREG_2026-07-16.md` — never improvise metrics on the data). The

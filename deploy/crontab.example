@@ -9,3 +9,10 @@
 # Daily Schwab OAuth re-mint — skips when token is <5 days old (--skip-if-fresh default).
 # xvfb-run + SCHWAB_REAUTH_HEADED=1 match the working serv setup (headless Playwright needs a display).
 0 6 * * * cd /home/mbelli/dev/help_me_trade && SCHWAB_REAUTH_HEADED=1 /usr/bin/xvfb-run -a /home/mbelli/dev/help_me_trade/.venv/bin/python -m scripts.schwab_reauth >> /home/mbelli/dev/help_me_trade/data/reauth.log 2>&1
+
+# Post-close options-chain sampler — the forward arm of the IV corpus (the DoltHub
+# snapshot is frozen at 2026-07-17 and cannot be extended). 20:50 UTC = 16:50 EDT,
+# after the tape settles; the script gates on the ET trading calendar itself, so the
+# weekday range only avoids pointless wakeups. Drifts an hour in EST like the other
+# ET-afternoon entries. Re-running a session replaces its rows rather than duplicating.
+50 20 * * 1-5 cd /home/mbelli/dev/help_me_trade && [ -f tools/options_chain_sampler.py ] && /home/mbelli/dev/help_me_trade/.venv/bin/python tools/options_chain_sampler.py >> /home/mbelli/dev/help_me_trade/data/research/options_sampler.log 2>&1
