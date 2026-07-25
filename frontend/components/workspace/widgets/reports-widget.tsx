@@ -20,6 +20,7 @@ import {
   injectReportTheme,
 } from "@/lib/report-theme";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
@@ -141,11 +142,7 @@ export function ReportsWidget() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [load]);
+  usePagePoll(load, POLL_MS);
 
   async function handleGenerate() {
     setGenerating(true);

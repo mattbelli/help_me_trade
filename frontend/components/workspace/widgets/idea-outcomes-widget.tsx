@@ -15,6 +15,7 @@ import {
   type IdeaOutcomeRow,
   type IdeaOutcomesResponse,
 } from "@/lib/api";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -542,13 +543,12 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void load(true);
-    const timer = setInterval(() => void load(false), POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
   }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const handleGrade = useCallback(
     async (id: number, grade: IdeaGradeInput) => {

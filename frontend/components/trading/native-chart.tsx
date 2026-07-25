@@ -51,6 +51,7 @@ import {
   type ChartTimeframe,
 } from "@/lib/chart-time";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
+import { usePageActive } from "@/lib/workspace/page-active-context";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -223,6 +224,14 @@ export function NativeChart({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [legend, setLegend] = useState("");
+  // A chart on a workspace page that is not showing keeps its data (the page
+  // stays mounted so switching is instant) but stops refetching it. Mirrored
+  // into a ref for the polls that guard inside the interval callback rather
+  // than re-running their effect — re-running would refetch on every hide.
+  const pageActive = usePageActive();
+  const pageActiveRef = useRef(pageActive);
+  pageActiveRef.current = pageActive;
+
   const [themeNonce, setThemeNonce] = useState(0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   // Bumped when a bars payload lands — studies recompute against the new bars.
@@ -423,7 +432,10 @@ export function NativeChart({
         .then((a) => !cancelled && setAlerts(a))
         .catch(() => !cancelled && setAlerts([]));
     void load();
-    const id = setInterval(load, ALERTS_POLL_MS);
+    const id = setInterval(() => {
+      if (!pageActiveRef.current) return;
+      void load();
+    }, ALERTS_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -455,7 +467,10 @@ export function NativeChart({
         .then((d) => !cancelled && setDrawings(d))
         .catch(() => !cancelled && setDrawings([]));
     void load();
-    const id = setInterval(load, DRAWINGS_POLL_MS);
+    const id = setInterval(() => {
+      if (!pageActiveRef.current) return;
+      void load();
+    }, DRAWINGS_POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
@@ -591,10 +606,11 @@ export function NativeChart({
   }, [symbol, timeframe.value, timeframe.days, showExt, refreshNonce]);
 
   // Periodic refetch — Phase 1's completed-bar reconciliation (volume, vendor
-  // corrections) and the rollover backstop. Skips hidden tabs.
+  // corrections) and the rollover backstop. Skips hidden tabs and hidden pages.
   useEffect(() => {
     const ms = timeframe.intraday ? INTRADAY_REFRESH_MS : DAILY_REFRESH_MS;
     const id = setInterval(() => {
+      if (!pageActiveRef.current) return;
       if (document.visibilityState === "hidden") return;
       setRefreshNonce((n) => n + 1);
     }, ms);

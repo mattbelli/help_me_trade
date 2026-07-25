@@ -18,6 +18,7 @@ import {
   type ScanRunResult,
   type ScanUniverse,
 } from "@/lib/scans-api";
+import { usePageActive } from "@/lib/workspace/page-active-context";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -127,11 +128,14 @@ export function ScansWidget({ config }: WidgetProps) {
   );
 
   // Keep an already-run scan fresh (only while it matches the selected preset).
+  // Gated on the page rather than usePagePoll: a scan is expensive and this poll
+  // deliberately has no immediate run — `data` already holds a fresh result.
+  const pageActive = usePageActive();
   useEffect(() => {
-    if (!data || data.preset_id !== selected) return;
+    if (!pageActive || !data || data.preset_id !== selected) return;
     const timer = setInterval(() => void run(selected), POLL_MS);
     return () => clearInterval(timer);
-  }, [data, selected, run]);
+  }, [pageActive, data, selected, run]);
 
   const handlePresetChange = (id: string) => {
     setSelected(id);

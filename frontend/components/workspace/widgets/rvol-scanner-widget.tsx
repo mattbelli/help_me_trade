@@ -11,6 +11,7 @@ import { useTickerInfo } from "@/components/workspace/ticker-info-provider";
 import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -84,13 +85,12 @@ export function RvolScannerWidget({ config }: WidgetProps) {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
   }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loading && !data) {

@@ -24,6 +24,7 @@ import {
   type OptionsChainStrikes,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { usePageActive } from "@/lib/workspace/page-active-context";
 import type { ChannelId } from "@/lib/workspace/channels";
 import type { WidgetInstanceConfig } from "@/lib/workspace/layout-persistence";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
@@ -540,13 +541,17 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
     };
   }, [loadInitial]);
 
+  // Gated on the page rather than routed through usePagePoll: this poll has no
+  // immediate-fetch semantics to preserve (expanding already loads), and firing
+  // one on every restart would double-request the expiry the toggle just fetched.
+  const pageActive = usePageActive();
   useEffect(() => {
-    if (!symbol || !expandedExpiry) return;
+    if (!pageActive || !symbol || !expandedExpiry) return;
     const timer = setInterval(() => {
       void loadExpiry(expandedExpiry, { silent: true });
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [symbol, expandedExpiry, loadExpiry]);
+  }, [pageActive, symbol, expandedExpiry, loadExpiry]);
 
   const handleToggleExpiry = (expiry: string) => {
     if (expandedExpiry === expiry) {

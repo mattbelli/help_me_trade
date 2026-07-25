@@ -15,6 +15,7 @@ import {
   fetchWatchlistNews,
   type WatchlistNewsItem,
 } from "@/lib/ticker-info-api";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { motionStd, useMotionSafe } from "@/lib/workspace/motion";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
@@ -123,12 +124,11 @@ export function NewsWidget({ config }: WidgetProps) {
     setFreshKeys(new Set());
     setItems([]);
     setLoading(true);
-    void load();
-    const id = setInterval(() => void load(), POLL_MS);
-    return () => clearInterval(id);
-    // load's deps are exactly the scope; scopeKey keeps the reset honest.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey]);
+
+  // Declared after the reset so a scope change clears state before the refetch;
+  // load's deps are exactly the scope, so its identity changes in lockstep.
+  usePagePoll(load, POLL_MS);
 
   const entrance = useMotionSafe(motionStd);
 

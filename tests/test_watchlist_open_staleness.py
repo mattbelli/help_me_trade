@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 import pytest
 
 import api.main as api_main
+from api import watchlist_bars_cache
 from trading.market_hours import _ET
 
 
@@ -49,7 +50,7 @@ def _clean_cache():
 
 @pytest.mark.asyncio
 async def test_stale_daily_series_refetched_at_the_open(monkeypatch) -> None:
-    monkeypatch.setattr(api_main, "_market_session", lambda: "regular")
+    monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "regular")
     provider = _Provider()
     # Cached 2 minutes ago (inside the 300s TTL), but the series ends YESTERDAY.
     api_main._wl_bars_cache[("SPY", "1Day")] = (
@@ -66,7 +67,7 @@ async def test_fresh_entry_not_rechecked_before_min_age(monkeypatch) -> None:
     """The retry-storm bound: a stale-by-shape entry younger than
     _WL_STALE_RECHECK_S serves from cache — at most one forced refetch per
     symbol per minute."""
-    monkeypatch.setattr(api_main, "_market_session", lambda: "regular")
+    monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "regular")
     provider = _Provider()
     api_main._wl_bars_cache[("SPY", "1Day")] = (
         time.time() - 10.0,
@@ -81,7 +82,7 @@ async def test_fresh_entry_not_rechecked_before_min_age(monkeypatch) -> None:
 async def test_yesterday_tail_is_fine_outside_regular_session(monkeypatch) -> None:
     """Pre-open/closed: yesterday-ending series is the CORRECT current state —
     no forced refetch."""
-    monkeypatch.setattr(api_main, "_market_session", lambda: "closed")
+    monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "closed")
     provider = _Provider()
     api_main._wl_bars_cache[("SPY", "1Day")] = (
         time.time() - 120.0,

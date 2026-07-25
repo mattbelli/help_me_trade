@@ -19,6 +19,7 @@ import {
   type WidgetInstanceConfig,
 } from "@/lib/workspace/layout-persistence";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
@@ -264,13 +265,12 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
   }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const rows = useMemo<Scored[]>(() => {
     const scored = (data?.events ?? []).map((ev) => ({ ev, ...computeScore(ev) }));

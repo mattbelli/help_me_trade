@@ -11,6 +11,7 @@ import {
 import { fetchFilings, type FilingEvent, type FilingKind } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -163,13 +164,12 @@ export function FilingsWidget({ config }: WidgetProps) {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
   }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const visible = useMemo(() => {
     if (!events) return [];

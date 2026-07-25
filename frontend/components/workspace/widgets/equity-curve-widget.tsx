@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -26,6 +26,7 @@ import {
   isRealScope,
   useDashboardPrefs,
 } from "@/lib/workspace/use-dashboard-prefs";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 
 const PAPER_RANGES: PnlRange[] = ["1D", "1W", "1M", "1Y"];
 const REAL_RANGES = ["1W", "1M"] as const;
@@ -108,10 +109,10 @@ export function EquityCurveWidget() {
   const moneyType = resolveMoneyType(selectedAccountId, aggView);
   const realDays = realRange === "1W" ? 7 : 30;
 
-  useEffect(() => {
-    let cancelled = false;
+  const cancelledRef = useRef(false);
 
-    async function load(isInitial: boolean) {
+  const load = useCallback(
+    async (isInitial: boolean) => {
       if (isInitial) setLoading(true);
 
       try {
@@ -120,7 +121,7 @@ export function EquityCurveWidget() {
             ? selectedAccountId
             : undefined;
           const data = await fetchSchwabEquityCurve(scope, realDays);
-          if (cancelled) return;
+          if (cancelledRef.current) return;
 
           setSchwabConnected(data.authenticated);
           if (!data.authenticated) {
@@ -143,7 +144,7 @@ export function EquityCurveWidget() {
         }
 
         const data = await fetchPortfolioHistory(paperRange);
-        if (cancelled) return;
+        if (cancelledRef.current) return;
 
         const mapped: ChartPoint[] = data.points.map(
           (p: PortfolioHistoryPoint) => ({
@@ -156,23 +157,25 @@ export function EquityCurveWidget() {
         setSchwabConnected(true);
         setError(null);
       } catch (err) {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setError(err instanceof Error ? err.message : "Failed to load history");
         setPoints([]);
         setCurrentValue(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
-    }
+    },
+    [selectedAccountId, moneyType, paperRange, realDays],
+  );
 
-    void load(true);
-    const timer = setInterval(() => void load(false), POLL_MS);
-
+  useEffect(() => {
+    cancelledRef.current = false;
     return () => {
-      cancelled = true;
-      clearInterval(timer);
+      cancelledRef.current = true;
     };
-  }, [selectedAccountId, moneyType, paperRange, realDays]);
+  }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const chartData = useMemo(() => points, [points]);
 

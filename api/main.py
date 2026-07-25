@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from ai.llm.factory import clear_llm_cache
 from ai.rules.engine import evaluate_on_snapshot
+from api import watchlist_bars_cache
 from api.ai_routes import router as ai_router
 from api.auth import (
     auth_enabled,
@@ -2648,66 +2649,12 @@ def api_delete_watchlist(list_id: str):
     return state
 
 
-# Per-(symbol, timeframe) TTL cache for the watchlist poll ONLY. The frontend
-# polls /api/watchlist/market every few seconds and each uncached poll fanned
-# out one Schwab pricehistory call per symbol per timeframe (~480 req/min on a
-# 24-symbol watchlist) — the actual source of the Akamai WAF 429/403 episodes.
-# Daily bars move once a day and RVOL only changes per 5-minute bucket, so
-# short TTLs cost nothing functionally. Scoped here on purpose: RiskEngine /
-# execution paths keep their own always-fresh fetches.
-_wl_bars_cache: dict[tuple[str, str], tuple[float, list]] = {}
-_WL_BARS_TTL_S = {"1Day": 300.0, "5Min": 90.0}
-# A stale-by-shape override may force a refetch at most once a minute per
-# symbol — bounds the halted/no-today-bar retry rate (the retry-storm shape).
-_WL_STALE_RECHECK_S = 60.0
-
-
-def _wl_daily_series_stale(bars: list) -> bool:
-    """True when a 1Day series is missing TODAY's developing bar during the
-    regular session. TTL alone is blind to the open boundary: an entry cached
-    at 09:29 serves until 09:34, and pre-open the series legitimately ends at
-    YESTERDAY — so at the open every %chg it feeds shows yesterday's move as
-    current (seen live 07-22 09:33 ET: SPY displayed +0.83, tape read −0.14)."""
-    if not bars or _market_session() != "regular":
-        return False
-    try:
-        last = datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
-    except (TypeError, ValueError):
-        return False
-    return last.astimezone(_ET).date() < datetime.now(_ET).date()
-
-
-async def _wl_cached_bars_batch(
-    provider, symbols: list[str], *, timeframe: str = "1Day", days: int = 12
-) -> dict[str, list[StockBar]]:
-    now = time.time()
-    ttl = _WL_BARS_TTL_S.get(timeframe, 90.0)
-    out: dict[str, list[StockBar]] = {}
-    missing: list[str] = []
-    for sym in symbols:
-        hit = _wl_bars_cache.get((sym, timeframe))
-        if hit is not None and now - hit[0] < ttl:
-            if (
-                timeframe == "1Day"
-                and now - hit[0] > _WL_STALE_RECHECK_S
-                and _wl_daily_series_stale(hit[1])
-            ):
-                missing.append(sym)
-            else:
-                out[sym] = hit[1]
-        else:
-            missing.append(sym)
-    if missing:
-        fetched = await provider.aget_stock_bars_batch(missing, timeframe=timeframe, days=days)
-        for sym in missing:
-            bars = fetched.get(sym) or []
-            # Cache empty results too — an unfetchable symbol otherwise
-            # re-fetches on every poll (the retry-storm shape).
-            _wl_bars_cache[(sym, timeframe)] = (now, bars)
-            out[sym] = bars
-    return out
+# The watchlist poll's bars cache lives in api/watchlist_bars_cache.py. Aliased
+# to the historic private names so the read-only cache peeks below (and the
+# tests that seed it) keep working against the same dict object.
+_wl_bars_cache = watchlist_bars_cache.bars_cache
+_WL_BARS_TTL_S = watchlist_bars_cache.BARS_TTL_S
+_wl_cached_bars_batch = watchlist_bars_cache.cached_bars_batch
 
 
 # 52-week / ATR / SMA baselines move once a day, so they're computed from a

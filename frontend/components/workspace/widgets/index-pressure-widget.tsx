@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   WidgetEmpty,
   WidgetError,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +50,6 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
   const { publish } = usePublishSymbol(channel);
   const [data, setData] = useState<IndexPressureResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -60,13 +60,7 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
     }
   }, [windowKey]);
 
-  useEffect(() => {
-    void load();
-    timerRef.current = setInterval(() => void load(), POLL_MS);
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [load]);
+  usePagePoll(load, POLL_MS);
 
   const windowToggle = (
     <span className="ml-auto flex gap-2">

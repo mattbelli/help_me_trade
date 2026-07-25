@@ -58,13 +58,12 @@ export function usePriceAlertMonitor({
     }
   }, []);
 
-  useEffect(() => {
-    if (!enabled) return;
-    loadAlerts();
-    const id = setInterval(loadAlerts, 30_000);
-    return () => clearInterval(id);
-  }, [enabled, loadAlerts]);
-
+  // NOTE: there is deliberately no second load loop here. This hook used to run
+  // one, duplicating the 30s refresh in the socket effect below — two fetches of
+  // the same list in the same second, every 30s, which is what showed up in the
+  // backend log as the /api/price-alerts cadence. That effect already does the
+  // initial load (before connecting) and the periodic refresh, and it has to own
+  // the refresh anyway because it re-subscribes the socket to the new symbols.
   useEffect(() => {
     if (!enabled) return;
 

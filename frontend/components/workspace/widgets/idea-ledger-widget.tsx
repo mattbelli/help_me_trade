@@ -13,6 +13,7 @@ import {
   type IdeaLedgerResponse,
   type IdeaLedgerRow,
 } from "@/lib/api";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -194,13 +195,12 @@ export function IdeaLedgerWidget({ config }: WidgetProps) {
 
   useEffect(() => {
     cancelledRef.current = false;
-    void load(true);
-    const timer = setInterval(() => void load(false), POLL_MS);
     return () => {
       cancelledRef.current = true;
-      clearInterval(timer);
     };
   }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   if (loading && !data) {
     return <WidgetLoading cols={[1, 1, 2, 1, 1]} />;

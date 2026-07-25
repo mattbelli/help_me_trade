@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   fetchWatchlistMarket,
   marketWsUrl,
   type WatchlistQuote,
 } from "@/lib/api";
+import { usePageActive } from "@/lib/workspace/page-active-context";
 
 // Full REST refresh cadence. The WS carries live prices (incl. extended/overnight ext_*
 // fields), so this is the floor for when no broadcasts are flowing (e.g. web is the only
@@ -26,6 +27,12 @@ type Options = {
 };
 
 export function useWatchlistMarket({ symbols, enabled = true }: Options) {
+  // The socket stays connected on a hidden page (it is push, and reconnecting on
+  // every page switch costs more than it saves) — only the REST floor pauses.
+  const pageActive = usePageActive();
+  const pageActiveRef = useRef(pageActive);
+  pageActiveRef.current = pageActive;
+
   const [quotes, setQuotes] = useState<Record<string, WatchlistQuote>>({});
   const [spyChangePct, setSpyChangePct] = useState<number | null>(null);
   const [live, setLive] = useState(false);
@@ -167,7 +174,10 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
     setLoading(true);
     refreshMarket();
     connect();
-    sparkTimer = setInterval(refreshMarket, MARKET_REFRESH_MS);
+    sparkTimer = setInterval(() => {
+      if (!pageActiveRef.current) return;
+      refreshMarket();
+    }, MARKET_REFRESH_MS);
 
     return () => {
       cancelled = true;

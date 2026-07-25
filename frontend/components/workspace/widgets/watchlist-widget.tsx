@@ -843,6 +843,12 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
   const pageActive = usePageActive();
+  // Read inside the poll callbacks rather than as an effect dep: those effects
+  // do their initial load on mount (a hidden page must still hold data so a
+  // switch paints instantly), so re-running them on every page change would
+  // refetch on hide as well as on show.
+  const pageActiveRef = useRef(pageActive);
+  pageActiveRef.current = pageActive;
 
   useEffect(() => {
     dragOrderRef.current = dragOrder;
@@ -891,7 +897,10 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     }
 
     void load();
-    const id = window.setInterval(() => void load(), 30_000);
+    const id = window.setInterval(() => {
+      if (!pageActiveRef.current) return;
+      void load();
+    }, 30_000);
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
 
@@ -1176,7 +1185,10 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         });
     };
     load();
-    const id = window.setInterval(load, 30_000);
+    const id = window.setInterval(() => {
+      if (!pageActiveRef.current) return;
+      load();
+    }, 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);

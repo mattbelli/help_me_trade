@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -22,6 +22,7 @@ import {
   type MemoryType,
 } from "@/lib/memories";
 import { relativeTime } from "@/lib/relative-time";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
@@ -99,39 +100,38 @@ export function MemoryWidget({}: WidgetProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const cancelledRef = useRef(false);
 
-    async function load() {
-      try {
-        const data = await listMemories({
-          type: typeFilter === "all" ? undefined : typeFilter,
-          includeInactive: statusView === "history",
-        });
-        if (cancelled) return;
-        const scoped =
-          statusView === "history"
-            ? data.filter((m) => (m.status ?? "active") !== "active")
-            : data;
-        setMemories(sortNewestFirst(scoped));
-        setError(null);
-      } catch (err) {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load memories");
-        setMemories([]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  const load = useCallback(async () => {
+    try {
+      const data = await listMemories({
+        type: typeFilter === "all" ? undefined : typeFilter,
+        includeInactive: statusView === "history",
+      });
+      if (cancelledRef.current) return;
+      const scoped =
+        statusView === "history"
+          ? data.filter((m) => (m.status ?? "active") !== "active")
+          : data;
+      setMemories(sortNewestFirst(scoped));
+      setError(null);
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setError(err instanceof Error ? err.message : "Failed to load memories");
+      setMemories([]);
+    } finally {
+      if (!cancelledRef.current) setLoading(false);
     }
-
-    void load();
-    const timer = setInterval(load, POLL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
   }, [typeFilter, statusView]);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const patchLocal = useCallback(
     (id: number, next: Partial<MemoryRecord>) => {
