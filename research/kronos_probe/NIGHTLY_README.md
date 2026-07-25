@@ -187,6 +187,93 @@ would. This is persistence only; it changes nothing being measured.
 .venv-kronos/Scripts/python.exe -m research.kronos_probe.run score --window nightly_primary
 ```
 
-## Results
+## Results — 2026-07-25. Both legs FAIL. The nightly configuration is dead.
 
-_Not yet run. Filled in after the scoring run, against the rules above and nothing else._
+2,040 points, 204 session dates, 10 symbols. Run cost **2,201 s (36.7 min) on an RTX
+4090 = 1.08 s per evaluation point**, so a production nightly job over this universe
+is a ~4-minute GPU task, not an overnight one. GARCH fit-failure rate 0.0%.
+
+### Path test — FAIL
+
+| Arm | log-loss | Brier |
+| --- | --- | --- |
+| Kronos | 1.2483 | 0.6905 |
+| Bootstrap | **1.0922** | **0.6520** |
+
+**mean(kronos − bootstrap) = +0.1561, 95% CI [+0.1150, +0.1973].** The CI excludes
+zero on the *wrong side*: Kronos is not merely unproven here, it is **significantly
+and substantially worse** than the unconditional bootstrap — ~14% worse log-loss.
+
+This is a **shape** failure, not a scale artifact, and the design is what lets us say
+so. Both arms were calibrated to the same σ̂, and their realised barrier behaviour came
+out almost exactly matched: mean P(timeout) **0.6476 (Kronos) vs 0.6480 (bootstrap)**,
+a difference of 0.0004 against an actual timeout rate of 0.5137. The two arms agreed
+on how often the barriers get touched and disagreed about *when and which way* — mean
+per-point |ΔP(timeout)| = 0.181 — and Kronos's disagreements went the wrong way.
+
+Per the pre-registered rule the leakage window was **not** run: it is only justified
+if the path test passes.
+
+### Volatility test — FAIL as pre-registered, but the reason is level, not information
+
+| Arm | QLIKE | vs Kronos (paired, 95% CI) |
+| --- | --- | --- |
+| Kronos | −5.9144 | — |
+| EWMA | −6.6184 | +0.7040 [+0.4623, +0.9779] |
+| GARCH(1,1) | **−6.7522** | +0.8378 [+0.5650, +1.1502] |
+
+Kronos loses to both baselines, so the rule says FAIL. **But the honest diagnosis is
+that this is almost entirely a level error.** Allowing each arm one global rescaling
+constant collapses the difference:
+
+| Arm | best constant `c` | QLIKE at `c` |
+| --- | --- | --- |
+| Kronos | 1.708 | −6.7599 |
+| EWMA | 1.274 | −6.7575 |
+| GARCH | 1.106 | −6.7740 |
+
+Level-corrected, **Kronos vs EWMA = −0.0025, CI [−0.1011, +0.0824] — a dead tie.**
+Kronos's *conditional* volatility information is about as good as EWMA's; what sinks
+it is that its σ sits at the wrong absolute level.
+
+### The level error is partly this harness's fault — recorded against the next reuse
+
+`calibrate.py` samples **one symbol** (AAPL). At T=0.7 it measured Kronos's dispersion
+at 1.00× EWMA on AAPL, and that **did not generalise**: across the full universe the
+median ratio came out **0.741**, and it is strongly symbol-dependent —
+
+```
+AAPL 0.868   GOOGL 0.921   SPY 0.802   QQQ 0.745   TSLA 0.730
+AMD  0.722   AMZN  0.713   NVDA 0.710   MSFT 0.697   META 0.604
+```
+
+So T=0.7 over-shrank the universe even though it was correct for the calibration
+symbol. **If this harness is reused, calibrate across symbols, not one.**
+
+Does that invalidate the path verdict? No — the path test's operative scale is barrier
+behaviour, and there the arms matched to 0.0004 (above). It does qualify the
+volatility verdict, which is why the level-corrected numbers are reported alongside.
+
+**It is not grounds for a re-run.** Re-calibrating and re-running *after* seeing a FAIL
+is precisely the laundering the pre-registration exists to prevent. The result stands
+as measured.
+
+### Bonus result, independent of Kronos: GARCH beats EWMA here
+
+Falls out of the same run and answers a question we own regardless:
+**ewma − garch = +0.1338, CI [+0.0339, +0.2405]**, excluding zero — at 1-hour bars over
+a next-session horizon, **GARCH(1,1) beats EWMA**. Level-corrected it still leads
+(−6.7740 vs −6.7575), so this is not purely a scaling artifact.
+
+⚠ This does **not** settle the `per-symbol-volatility` card, which defers on **daily**
+bars. This repo has twice been burned assuming volatility results transfer across
+frequencies; that is the entire reason this probe exists as its own pre-registered
+pass. Daily needs its own bake-off.
+
+### Verdict
+
+**No. On 1-hour bars at a next-session horizon, Kronos's conditional path distribution
+does not beat a vol-matched block bootstrap — it is significantly worse (+0.156
+log-loss, 95% CI [+0.115, +0.197]), and its implied σ beats neither EWMA nor GARCH.**
+Combined with the 5-minute probe, the nightly configuration is dead and no further
+Kronos configuration is chartered by this work.

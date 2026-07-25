@@ -46,7 +46,20 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
   ETH-off chart mimics ETH-on until it freezes at 7:55pm (misled the founder 07-23 as "no overnight
   candles"). Make ext=false actually RTH-only in `_build_bars_response` (mind half-days); next UI round.
 
-## ▶ Kronos path-prior probe — built + calibrated, run pending
+## ▶ Kronos path-prior probe — NIGHTLY leg dead (07-25); 5-min leg still pending
+
+**The 1h/next-session variant is answered and closed — see the BUILD_LOG 2026-07-25 row and
+`NIGHTLY_README.md`. Both legs FAILED** (path: Kronos ~14% *worse* log-loss than the bootstrap,
+CI [+0.115,+0.197]; vol: beats neither EWMA nor GARCH). Leakage window deliberately not run —
+pre-registered as conditional on a path PASS. Do **not** re-run it with a fresh calibration; that
+is the laundering the pre-registration exists to prevent. Two carry-forward facts: **`calibrate.py`
+samples one symbol and that did not generalise** (T=0.7 read 1.00x on AAPL, universe median 0.741) —
+calibrate across symbols if this harness is reused; and cost is **1.08 s/eval point on the 4090**,
+so a nightly job would be ~4 GPU-minutes — cost was never the blocker, decision quality was.
+Independent of Kronos: **GARCH beat EWMA at 1h/next-session** (+0.1338, CI [+0.0339,+0.2405]),
+which does *not* settle `per-symbol-volatility` — that card defers on **daily** bars.
+
+**Still open below: the original 5-minute probe.**
 
 Isolated experiment in `research/kronos_probe/` (pre-registration + removal instructions in its
 README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24 row). Asks one
@@ -61,6 +74,8 @@ README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24
 - ⚠ runtime: ~13.5s per evaluation point (upstream re-encodes the full 512-bar context every
   generated token — no KV cache), so the full primary window is an overnight-scale run, not minutes.
   `PATH_BATCH` in `config.py` is the dial worth testing before committing to a long run.
+  (The nightly leg measured 1.08 s/point at context 360 on a 4090 — most of that gap is the
+  512-bar context taking upstream's `torch.roll` branch rather than the append-only one.)
 - the leakage window is the diagnostic, not a second experiment: a large primary-vs-2023 gap is a
   memorization estimate, and would argue against the model even if the primary window passes.
 
