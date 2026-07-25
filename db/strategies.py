@@ -163,6 +163,13 @@ def init_strategy_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         # time, so the sleeve compounds like the PC-validated config.
         if "notional_pct" not in existing:
             conn.execute("ALTER TABLE strategies ADD COLUMN notional_pct REAL")
+        # Vol-targeted sizing opt-in, per strategy. Defaults 0 so every existing
+        # strategy keeps its exact sizing; the global trading.volatility_enabled
+        # master switch must ALSO be on before this does anything.
+        if "vol_target" not in existing:
+            conn.execute(
+                "ALTER TABLE strategies ADD COLUMN vol_target INTEGER NOT NULL DEFAULT 0"
+            )
         conn.commit()
 
 
@@ -186,6 +193,9 @@ def _row_to_strategy(row: sqlite3.Row) -> dict[str, Any]:
         "notional_pct": float(notional_pct) if notional_pct is not None else None,
         "exit_mode": row["exit_mode"],
         "entry_mode": row["entry_mode"],
+        # Opt this strategy into vol-targeted sizing (still gated by the global
+        # trading.volatility_enabled master switch).
+        "vol_target": bool(row["vol_target"]),
         "params": params,
         # NULL is only reachable via a half-applied migration or a hand-inserted
         # row; fall back to the NARROW active watchlist, never silently broaden.
@@ -216,7 +226,7 @@ def list_strategies(
                 SELECT id, name, enabled, account_id, notional_usd, notional_pct,
                        exit_mode, entry_mode, params_json, universe,
                        max_concurrent_positions, max_deployed_usd,
-                       last_rebalanced_month, created_at, updated_at
+                       last_rebalanced_month, vol_target, created_at, updated_at
                 FROM strategies
                 {where}
                 ORDER BY created_at
@@ -240,7 +250,7 @@ def get_strategy(
                 SELECT id, name, enabled, account_id, notional_usd, notional_pct,
                        exit_mode, entry_mode, params_json, universe,
                        max_concurrent_positions, max_deployed_usd,
-                       last_rebalanced_month, created_at, updated_at
+                       last_rebalanced_month, vol_target, created_at, updated_at
                 FROM strategies
                 WHERE id = ?
                 """,
@@ -267,6 +277,7 @@ def update_strategy(
     max_concurrent_positions: int | None = ...,  # type: ignore[assignment]
     max_deployed_usd: float | None = ...,  # type: ignore[assignment]
     last_rebalanced_month: str | None = ...,  # type: ignore[assignment]
+    vol_target: bool | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_strategy_tables(db_path)
@@ -325,6 +336,9 @@ def update_strategy(
     if entry_mode is not None:
         fields.append("entry_mode = ?")
         values.append(entry_mode)
+    if vol_target is not None:
+        fields.append("vol_target = ?")
+        values.append(1 if vol_target else 0)
     if params is not None:
         fields.append("params_json = ?")
         values.append(json.dumps(params))

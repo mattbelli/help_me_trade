@@ -46,18 +46,46 @@ Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental
   ETH-off chart mimics ETH-on until it freezes at 7:55pm (misled the founder 07-23 as "no overnight
   candles"). Make ext=false actually RTH-only in `_build_bars_response` (mind half-days); next UI round.
 
-## ▶ Kronos path-prior probe — built + calibrated, run pending
+## ▶ Per-symbol vol model — shipped disabled; ARMING is the open thread
+
+v1 EWMA estimator + vol-targeted sizing landed 07-25 (BUILD_LOG row; card `per-symbol-volatility`).
+Double-gated off: global `volatility_enabled` **and** per-strategy `strategies.vol_target`, resizing
+needs both. **Open:**
+- ⚠ the mandated **two split-mandate Opus reviewers** are owed **before arming**, not before commit —
+  the multiplier lands in `signals/strategy_scan.py` on the notional before `trading/` sees it, so no
+  code under `trading/` changed this round and nothing can move an order until two switches flip.
+  Point them at the clamp/fail-soft paths and the halt guard, not at the estimator math (measured).
+- rollout order is fixed: shadow (master ON, every strategy OFF → logs `vol_regime`/`size_multiplier`,
+  resizes nothing) → paper opt-in on ONE strategy → perception dot in the UI (own card, not this one).
+- shadow output is calibration fuel — grade the logged multipliers against outcomes before arming
+  anything for real (`calibration-counts-everything`).
+
+## ▶ Kronos path-prior probe — nightly config FAILED; 5-min primary still running
 
 Isolated experiment in `research/kronos_probe/` (pre-registration + removal instructions in its
 README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24 row). Asks one
 **two** questions off the same rollouts, scored and reported independently: (1) does Kronos's
 *conditional* path distribution beat a vol-matched block bootstrap at P(target before stop)?
-(2) does its implied σ beat EWMA **and** GARCH(1,1) on QLIKE? **Open:**
-- run `probe --window primary` then `--window leakage`, then apply the two pre-registered rules:
-  path PASS iff lower log-loss AND 95% paired CI excludes 0; vol PASS iff it beats **both** baselines
-  (beating only EWMA is a FAIL — the cheap baseline is the real competitor). Both FAIL → `rm -rf`.
-  **Do not re-run with different barriers/horizons/symbols to find a win**, and do not treat a
-  vol-win + path-FAIL as a pass — that demotes to a bake-off input on `per-symbol-volatility`.
+(2) does its implied σ beat EWMA **and** GARCH(1,1) on QLIKE?
+
+**RESULT — nightly configuration (1h bars, next-session horizon), run on the founder's 4090, branch
+`research/kronos-nightly` (31a94c7, c34c346): FAIL on both legs.** Path log-loss 1.2483 vs bootstrap
+1.0922 (delta +0.1561, 95% CI [+0.1150, +0.1973] — excludes 0 in the *wrong* direction), 2,040 points
+over 204 session dates, 36.7 min. Vol leg QLIKE −5.914 vs EWMA −6.618 and GARCH −6.752 — loses to
+both. Two things the headline understates: Kronos (1.2483) is worse than a **uniform** 3-way guess
+(ln 3 = 1.0986), and *both* arms lose to a base-rate constant (~1.030), so the bootstrap is not a
+strong baseline either. Reconciles with the paper: its reported RankIC ≈ 0.025 is *cross-sectional
+ranking* skill, which is compatible with essentially no per-name path calibration — and per-name path
+calibration is exactly what this probe measures. **Open:**
+- ⏳ the 5-min `--window primary` run is still going (PID 4000604 in the main tree, ~23h in). It has
+  no checkpoint — all records live in RAM until the single write at the end, so a crash loses the lot.
+- apply the pre-registered rules unchanged when it lands: path PASS iff lower log-loss AND 95% paired
+  CI excludes 0; vol PASS iff it beats **both** baselines (beating only EWMA is a FAIL — the cheap
+  baseline is the real competitor). Both FAIL → `rm -rf`. **Do not re-run with different barriers/
+  horizons/symbols to find a win**, and do not treat a vol-win + path-FAIL as a pass — that demotes
+  to a bake-off input on `per-symbol-volatility`. The nightly FAIL does not license reopening either.
+- ⚠ do NOT transfer the nightly vol result (GARCH beat EWMA at 1h/next-session) to daily sizing —
+  different horizon, and the daily question is already settled by 169k symbol-days (`garch-loses-to-ewma-daily`).
 - ⚠ runtime: ~13.5s per evaluation point (upstream re-encodes the full 512-bar context every
   generated token — no KV cache), so the full primary window is an overnight-scale run, not minutes.
   `PATH_BATCH` in `config.py` is the dial worth testing before committing to a long run.

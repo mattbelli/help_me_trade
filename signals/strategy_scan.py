@@ -36,6 +36,7 @@ from signals.strategy_kinds import (
 )
 from signals.strategy_universe import resolve_universe_spec
 from signals.trade_context import MIN_BARS_FOR_CONTEXT, DatedBar
+from signals.volatility import DEFAULT_PROFILE, forecast_vol, size_multiplier
 from trading.proposal_intake import (
     _AUTO_ENTRY_DEDUP_SECONDS,
     TradeCandidate,
@@ -362,7 +363,18 @@ async def _run_strategy(
         return []
 
     broker_name = str(account["broker"]).strip().lower()
-    exec_mode = trading_config()["execution_mode"]
+    tcfg = trading_config()
+    exec_mode = tcfg["execution_mode"]
+    # Vol-targeted sizing is two deliberate switches, and the master one is
+    # shadow-safe by design: with it ON but the strategy's vol_target OFF we
+    # compute and log the read without touching a single notional. Only both
+    # ON changes an order's size.
+    # .get() and not [] on purpose: a config read for a sizing toggle must
+    # fail-soft to OFF. A partial/older settings dict leaves sizing untouched
+    # rather than killing the scan.
+    vol_enabled = bool(tcfg.get("volatility_enabled", False))
+    vol_profile = tcfg.get("vol_target_profile", DEFAULT_PROFILE)
+    vol_applies = vol_enabled and bool(strategy.get("vol_target"))
     auto_entry = (
         (strategy.get("entry_mode") or "propose") == "auto"
         and exec_mode in ("dry_run", "paper")
@@ -518,9 +530,35 @@ async def _run_strategy(
             if not spec.check_entry(ctx):
                 continue
 
+            sym_notional = Decimal(str(notional))
+            if vol_enabled:
+                # Only bars the strategy itself already evaluated, and
+                # forecast_vol drops the still-forming bar dated today.
+                forecast = forecast_vol(sym, sym_bars[: idx + 1])
+                multiplier = size_multiplier(forecast, profile=vol_profile)
+                if vol_applies:
+                    sym_notional = sym_notional * multiplier
+                logger.info(
+                    "Strategy %s %s vol: regime=%s annualized=%s multiplier=%s "
+                    "applied=%s notional=%.2f→%.2f",
+                    strategy["id"],
+                    sym,
+                    forecast.regime if forecast else "unknown",
+                    f"{forecast.annualized:.4f}" if forecast else "n/a",
+                    multiplier,
+                    vol_applies,
+                    notional,
+                    float(sym_notional),
+                )
+
             # Per-strategy risk caps: stop once the next order would breach the
-            # concurrent-position or deployed-capital budget. Same notional every
-            # time, so once a cap is hit no later candidate can fit → break.
+            # concurrent-position or deployed-capital budget. With vol-targeted
+            # sizing the notional now VARIES per symbol, so the old "same notional
+            # every time" reasoning no longer holds — a later, calmer name could
+            # still fit under the budget after this one doesn't. We keep the break
+            # anyway: stopping the strategy's cycle early under-trades, while
+            # continuing would let a cap be approached repeatedly by ever-smaller
+            # orders. Under-deploying is the safe side of this cap.
             if max_concurrent is not None and committed_count >= max_concurrent:
                 logger.info(
                     "Strategy %s cap hit — %d/%d concurrent (open+pending); "
@@ -530,13 +568,13 @@ async def _run_strategy(
                     max_concurrent,
                 )
                 break
-            if max_deployed is not None and committed_usd + notional > max_deployed:
+            if max_deployed is not None and committed_usd + float(sym_notional) > max_deployed:
                 logger.info(
                     "Strategy %s budget hit — $%.0f committed + $%.0f next > $%.0f; "
                     "stop proposing",
                     strategy["id"],
                     committed_usd,
-                    notional,
+                    float(sym_notional),
                     max_deployed,
                 )
                 break
@@ -545,7 +583,7 @@ async def _run_strategy(
             candidate = TradeCandidate(
                 symbol=sym,
                 side="buy",
-                notional_usd=Decimal(str(notional)),
+                notional_usd=sym_notional,
                 order_type="market",
                 source=f"strategy:{strategy['id']}",
                 rule_id=strategy["id"],
@@ -562,7 +600,7 @@ async def _run_strategy(
             results.append(result)
             if result.get("status") in ("proposed", "executed"):
                 committed_count += 1
-                committed_usd += notional
+                committed_usd += float(sym_notional)
         except Exception:
             logger.exception(
                 "Strategy %s failed for %s",

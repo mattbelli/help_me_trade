@@ -133,6 +133,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # Short selling (sell-to-open). OFF by default. Only ever honored in
         # dry_run/paper — LIVE short selling stays hard-blocked regardless.
         "allow_short_selling": False,
+        # Vol-targeted sizing (signals/volatility.py). Master switch OFF: with
+        # it off nothing calls the estimator and every notional is unchanged.
+        # The per-strategy `vol_target` flag opts a single strategy in once
+        # this is on, so arming is two deliberate steps, never one.
+        "volatility_enabled": False,
+        # One dial instead of raw target/clamp numbers — see VOL_TARGET_PROFILES.
+        "vol_target_profile": "balanced",
     },
 }
 
@@ -1030,6 +1037,13 @@ def trading_config() -> dict[str, Any]:
         "allow_short_selling": bool(
             cfg.get("allow_short_selling", defaults["allow_short_selling"])
         ),
+        "volatility_enabled": bool(
+            cfg.get("volatility_enabled", defaults["volatility_enabled"])
+        ),
+        "vol_target_profile": str(
+            cfg.get("vol_target_profile", defaults["vol_target_profile"])
+        ).strip()
+        or defaults["vol_target_profile"],
     }
 
 
