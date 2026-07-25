@@ -244,7 +244,8 @@ async def test_fill_report_expired_unfilled(monkeypatch, tmp_path: Path) -> None
     assert reports[0]["data"]["outcome"] == "unfilled"
     assert reports[0]["data"]["filled_qty"] == "0"
     assert reports[0]["data"]["avg_price"] == ""
-    assert reports[0]["data"]["status_reason"] == "unfilled at session close"
+    assert reports[0]["data"]["status_reason"] == "expired unfilled"
+    assert reports[0]["body"] == "Expired, unfilled"
 
 
 @pytest.mark.asyncio

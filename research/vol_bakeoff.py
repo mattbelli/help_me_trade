@@ -46,6 +46,8 @@ EWMA_LAMBDA = 0.94  # RiskMetrics, matches the card's v1 spec
 WARMUP_BARS = 500  # GARCH(1,1) is unreliable on much less
 GARCH_WINDOW = 1000  # rolling fit window, capped so late fits stay affordable
 REFIT_EVERY = 21  # trading days; the recursion is filtered forward in between
+MAX_ZERO_RETURN_FRACTION = 0.20  # above this the window is a halt, not a market
+SIGMA_FLOOR = 1e-4  # 1bp daily; below this is a data artifact, not a quiet stock
 MIN_EVAL_DAYS = 250
 N_RESAMPLES = 2000
 
@@ -91,12 +93,30 @@ def _load_closes(symbol: str) -> tuple[np.ndarray, list[str]]:
     return np.array([r[1] for r in rows], dtype=float), [r[0] for r in rows]
 
 
+def is_degenerate(log_returns: np.ndarray) -> bool:
+    """True when the window is too stale to estimate volatility from.
+
+    Found the hard way: NBIS (Nebius, formerly Yandex) was halted on Nasdaq for
+    ~2.5 years, leaving 636 zero returns in 2,610 bars. A long run of identical
+    closes decays EWMA's variance to ~1e-9, so the first real move after the halt
+    scores r^2/sigma^2 near 1e17 and a single symbol swamps 170k honest points.
+
+    GARCH survives that only because its omega term structurally floors the
+    variance — a genuine property, but not one the comparison should be measuring.
+    So the guard applies to BOTH arms identically: a window that stale means the
+    instrument was not trading, and neither estimator should be forecasting from it.
+    """
+    if log_returns.size == 0:
+        return True
+    return float((log_returns == 0).mean()) > MAX_ZERO_RETURN_FRACTION
+
+
 def ewma_sigma(log_returns: np.ndarray, lam: float = EWMA_LAMBDA) -> float:
     """One-step-ahead sigma. Recursive form — the same thing the card's v1 will do."""
     var = float(np.var(log_returns[: min(60, log_returns.size)]))
     for r in log_returns:
         var = lam * var + (1 - lam) * r * r
-    return float(np.sqrt(var))
+    return max(float(np.sqrt(var)), SIGMA_FLOOR)
 
 
 def garch_fit(log_returns: np.ndarray) -> tuple[float, float, float, float] | None:
@@ -168,13 +188,22 @@ def evaluate(symbols: list[str]) -> dict:
     garch_losses: list[float] = []
     dates: list[str] = []
     fit_failures = 0
+    degenerate = 0
     skipped: list[str] = []
 
-    for symbol in symbols:
+    for n, symbol in enumerate(symbols, start=1):
         closes, bar_dates = _load_closes(symbol)
         if closes.size < WARMUP_BARS + MIN_EVAL_DAYS:
             skipped.append(symbol)
             continue
+        logger.info(
+            "[%d/%d] %s: %d bars, %d points so far",
+            n,
+            len(symbols),
+            symbol,
+            closes.size,
+            len(dates),
+        )
         returns = np.diff(np.log(closes))
         # returns[t] is the move INTO bar_dates[t+1]; predicting it uses returns[:t],
         # which end at bar t. No lookahead.
@@ -182,6 +211,9 @@ def evaluate(symbols: list[str]) -> dict:
         variance = 0.0
         for t in range(WARMUP_BARS, returns.size):
             history = returns[max(0, t - GARCH_WINDOW) : t]
+            if is_degenerate(history):
+                degenerate += 1
+                continue
             if (t - WARMUP_BARS) % REFIT_EVERY == 0:
                 fit = garch_fit(history)
                 if fit is None:
@@ -196,7 +228,7 @@ def evaluate(symbols: list[str]) -> dict:
                 continue
 
             realized = returns[t]
-            garch = float(np.sqrt(variance) / 100)
+            garch = max(float(np.sqrt(variance) / 100), SIGMA_FLOOR)
             ewma_losses.append(float(qlike(np.array([ewma_sigma(history)]), realized)[0]))
             garch_losses.append(float(qlike(np.array([garch]), realized)[0]))
             dates.append(bar_dates[t + 1])
@@ -211,6 +243,7 @@ def evaluate(symbols: list[str]) -> dict:
         "n_symbols": len(symbols) - len(skipped),
         "skipped_short_history": skipped,
         "garch_fit_failures": fit_failures,
+        "degenerate_windows_skipped": degenerate,
         "ewma": {"qlike": float(ewma_arr.mean())},
         "garch": {"qlike": float(garch_arr.mean())},
         "garch_minus_ewma": {

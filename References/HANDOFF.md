@@ -69,15 +69,17 @@ README; card `kronos-path-prior-probe`; build detail in the BUILD_LOG 2026-07-24
 Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body — see
 amendment 4, the arming-night execution round); card `llm-books-program`; detail in BUILD_LOG
 2026-07-23 rows. Founder ordered all three books armed + analysts rerun + Lab wired 07-23 evening.
-Live now: after-hours `entry_style="moo"` proposals (TTL = next session close), opg-at-approval
-before ~9:28 ET, `trading/stop_guard.py` resting GTC stops after entry fills (advanced picks
-REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + nightly report).
+Live now: after-hours `entry_style="moo"` proposals (TTL = next session close), **paper MOOs use a
+queued market DAY order** (Alpaca paper can't fill `opg` — no opening auction; fixed 07-24, see that
+BUILD_LOG row; live still uses opg), `trading/stop_guard.py` resting GTC stops after entry fills
+(advanced picks REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + report).
 **Open:**
-- ⏳ TOMORROW MORNING (first armed session): founder approves/rejects the replayed proposals on
-  the phone; verify at ~9:30: opg fill at auction → stop guard places GTC stops within a poll
-  tick (`journalctl -u hmt-backend | grep "stop guard"`); Deep Seek's $65k GOOGL pick should
-  show `risk_blocked` (order-value $50k + concentration 30% walls — the founder's belly-up wall
-  working; his call if book accounts deserve their own caps → `per-strategy attribution` thread)
+- ⏳ VERIFY at the NEXT close→open (paper-TIF fix unproven end-to-end): the 07-24 opening MOOs
+  (GOOGL/deepseek, MU/fable) both **expired unfilled** — sent `opg`, which Alpaca paper never fills.
+  Fix routes paper MOOs to market `day`; tests assert only the TIF string, so confirm a real overnight
+  book MOO actually **fills at the open** and stop_guard then places the resting GTC stop within a poll
+  tick (`journalctl -u hmt-backend | grep "stop guard"`). (Book accounts are cap-exempt now — the old
+  "$65k GOOGL should risk_block" expectation is dead; founder removed per-trade caps for books 07-23.)
 - ⏳ tomorrow 17:05/17:20/17:40 ET: first fully-armed nightly cycles end-to-end (proposals fire
   straight from the cycle, no replay)
 - increment 5 (shorts unlock — own adversarially-reviewed round; `allow_short_selling` toggle is
