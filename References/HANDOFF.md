@@ -157,14 +157,16 @@ Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron in
   Then ⏳ **07-28**: confirm the OI backfill lands on 07-27's rows, since OI publishes a session late.
 - SPX/SPXW will never carry OI here (index roots aren't tradable on Alpaca ⇒ no contracts API). The
   Databento OPRA statistics purchase covers them; don't "fix" it by inventing a substitute.
-- **The IV-rank baseline study is the real gate on `options-income-lane`** and is not started. Pre-register
-  it before touching the 1.88M stored rows — prereg is LAW here, same as the classification lab. Two
-  constraints are already measured (BUILD_LOG 07-25), so don't rediscover them: the corpus is a curated
-  **2,311-symbol** set covering only **37 of the sampler's 53** names — QQQ, IWM, GLD, SLV, TLT, ARKK,
-  VIXM are ABSENT even though SPY/DIA/XLF are present — and its density rises over time (~60% of sessions
-  through 2020-22, near-daily from 2025). Trailing-year ranks are honest today for the covered 37; the
-  other 16 have **no baseline until our sampler banks a year (~2027-07)** and must be labelled that way,
-  never ranked against a short window.
+- **The IV-rank study is DONE and the answer was NO** (BUILD_LOG 07-25; prereg + Addendum A in
+  `References/`). `options-income-lane` **does not open on a VRP premise**, and an IV-rank entry gate is
+  **not supported**: the rank effect is a **level** effect (level-sorted deciles are equally monotone,
+  Spearman +1.000 both ways; holding level fixed the rank effect vanishes and *reverses* in low-vol
+  names), and on the **37 symbols we would actually trade** there is no measurable VRP at all. Do not
+  re-litigate this from the headline decile table — it passes H2/H3 and is confounded; the level control
+  is the finding. **Still open on the options thread:** if premium selling is revisited, the axis the
+  data pointed at is **IV level**, pre-registered fresh with the crash tail priced in — a broad VRP does
+  exist over 7 years (+0.0306 ex-2020) but Feb-Apr 2020 alone erases ~2 years of it, and that is the risk
+  a wheel is short.
 
 ## ▶ Options flow — classification scorer unbuilt; gates clocking
 
