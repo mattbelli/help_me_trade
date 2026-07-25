@@ -7,6 +7,7 @@ import {
   Bot,
   FileText,
   FileUp,
+  Palette,
   Search,
   Settings,
   Shield,
@@ -41,6 +42,7 @@ import {
 import { DEFAULT_AI_SETTINGS, normalizeAiSettings } from "@/lib/ai-settings";
 import { StandInMark } from "@/components/workspace/stand-in-mark";
 import { AiProviderSettings } from "@/components/settings/ai-provider-settings";
+import { SettingsAppearancePanel } from "@/components/settings/settings-appearance-panel";
 import { SettingsOrphansPanel } from "@/components/settings/settings-orphans-panel";
 import { SettingsStrategiesPanel } from "@/components/settings/settings-strategies-panel";
 import { SettingsTradesPanel } from "@/components/settings/settings-trades-panel";
@@ -71,6 +73,7 @@ type SettingsSection =
   | "reports"
   | "ai"
   | "research"
+  | "appearance"
   | "import"
   | "orphans";
 
@@ -85,6 +88,7 @@ const SECTIONS: {
   { id: "reports", label: "Reports / Alerts", icon: FileText },
   { id: "ai", label: "AI", icon: Bot },
   { id: "research", label: "Research", icon: Search },
+  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "import", label: "Import", icon: FileUp },
   { id: "orphans", label: "Unmanaged fills", icon: AlertTriangle },
 ];
@@ -555,6 +559,8 @@ export function SettingsDialog({ collapsed = false }: Props) {
             ai={draft.ai}
             onChange={(research) => setDraft((d) => ({ ...d, research }))}
           />
+        ) : section === "appearance" ? (
+          <SettingsAppearancePanel />
         ) : section === "orphans" ? (
           <SettingsOrphansPanel />
         ) : (
@@ -574,6 +580,7 @@ export function SettingsDialog({ collapsed = false }: Props) {
         <DialogFooter className="sm:justify-end">
           {section === "import" ||
           section === "strategies" ||
+          section === "appearance" ||
           section === "orphans" ? (
             // These sections save their own changes inline (per-card / per-action),
             // so the global Save doesn't apply — offer a plain Done to close instead

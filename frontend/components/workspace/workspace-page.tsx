@@ -9,8 +9,11 @@ import { MobileWorkspace } from "@/components/workspace/mobile-workspace";
 import { NotificationBanner } from "@/components/workspace/notification-banner";
 import { WorkspaceGrid } from "@/components/workspace/workspace-grid";
 import { WorkspaceToolbar } from "@/components/workspace/workspace-toolbar";
+import { cn } from "@/lib/utils";
 import { TERMINAL_COLLAPSED_HEIGHT } from "@/lib/workspace/use-terminal-store";
+import { useAutoHideChrome } from "@/lib/workspace/use-appearance-prefs";
 import { useCopilotStore } from "@/lib/workspace/use-copilot-store";
+import { useEdgeReveal } from "@/lib/workspace/use-edge-reveal";
 import { useIsMobile } from "@/lib/workspace/use-is-mobile";
 import { usePageHotkeys } from "@/lib/workspace/use-page-hotkeys";
 import { useVersionCheck } from "@/lib/workspace/use-version-check";
@@ -48,7 +51,8 @@ export default function WorkspacePageImpl() {
   }, [setActivePage]);
 
   const isMobile = useIsMobile();
-  const collapsedHeight = TERMINAL_COLLAPSED_HEIGHT;
+  const autoHideChrome = useAutoHideChrome();
+  const toolbarShown = useEdgeReveal("top", autoHideChrome);
   const open = useCopilotStore((s) => s.open);
   const pinned = useCopilotStore((s) => s.pinned);
   const width = useCopilotStore((s) => s.width);
@@ -95,15 +99,27 @@ export default function WorkspacePageImpl() {
   return (
     <>
       <VersionCheck />
-      <div className="flex h-svh min-h-[640px] flex-col overflow-hidden bg-background">
-        <WorkspaceToolbar />
+      <div className="relative flex h-svh min-h-[640px] flex-col overflow-hidden bg-background">
+        {/* Appearance → auto-hide toolbars: the header leaves the flex flow and
+            overlays the grid (widgets run to the top edge), sliding away unless
+            the pointer is at the top. Off, it's a plain docked header again. */}
+        <div
+          className={cn(
+            autoHideChrome &&
+              "absolute inset-x-0 top-0 z-40 transition-transform duration-200 ease-out",
+            autoHideChrome && !toolbarShown && "-translate-y-full",
+          )}
+        >
+          <WorkspaceToolbar />
+        </div>
         <NotificationBanner />
 
         {/* paddingBottom reserves the collapsed terminal strip's height — the
-            Terminal itself is now a fixed viewport overlay mounted in AppShell. */}
+            Terminal itself is a fixed viewport overlay mounted in AppShell. An
+            auto-hiding strip reserves nothing; it overlays the grid instead. */}
         <div
           className="relative flex min-h-0 flex-1 flex-col"
-          style={{ paddingBottom: collapsedHeight }}
+          style={{ paddingBottom: autoHideChrome ? 0 : TERMINAL_COLLAPSED_HEIGHT }}
         >
           <div id="workspace-grid-host" className="relative min-h-0 flex-1">
             <motion.div

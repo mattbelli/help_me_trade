@@ -20,6 +20,8 @@ import { PageSwitcher } from "@/components/workspace/page-switcher";
 import { SharedPageNotice } from "@/components/workspace/shared-page-notice";
 import { WorkspaceSwitcher } from "@/components/workspace/workspace-switcher";
 import { TerminalHistorySidebar } from "./terminal-history-sidebar";
+import { useAutoHideChrome } from "@/lib/workspace/use-appearance-prefs";
+import { useEdgeReveal } from "@/lib/workspace/use-edge-reveal";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   TERMINAL_COLLAPSED_HEIGHT,
@@ -735,6 +737,16 @@ export function Terminal() {
   // Vertical placement of the OPEN drawer body. Bottom dock sits flush above
   // the strip (grows up); top dock is anchored to the column top (grows down);
   // a numeric anchor floats at topFrac of the column.
+  // Appearance → auto-hide toolbars: the collapsed strip slides off-screen
+  // unless the pointer is at the bottom edge — pinned open whenever the drawer
+  // (or its autocomplete) is up, since those anchor to the strip.
+  const autoHideChrome = useAutoHideChrome();
+  const stripShown = useEdgeReveal(
+    "bottom",
+    autoHideChrome,
+    open || showAutocomplete,
+  );
+
   const vStyle = isBottom
     ? { bottom: STRIP }
     : isTop
@@ -1013,7 +1025,11 @@ export function Terminal() {
       {/* Input strip — always visible at the bottom (the collapsed terminal). */}
       <form
         onSubmit={onSubmit}
-        className="pointer-events-auto absolute inset-x-0 bottom-0 flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md"
+        className={cn(
+          "pointer-events-auto absolute inset-x-0 bottom-0 flex h-[40px] items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-raised)]/85 px-4 backdrop-blur-md",
+          autoHideChrome && "transition-transform duration-200 ease-out",
+          !stripShown && "translate-y-full",
+        )}
       >
         <button
           type="button"

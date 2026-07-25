@@ -29,7 +29,10 @@ function TerminalToggle({
       data-slot="terminal-toggle"
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-body)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40",
+        // shrink-0 + nowrap: as a flex item beside a long description the button
+        // gets squeezed, and "[ ]" wraps at its inner space — the bracket halves
+        // stack on two lines. It must always keep its intrinsic width.
+        "inline-flex shrink-0 items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[length:var(--fs-body)] whitespace-nowrap transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40",
         checked
           ? tone === "danger"
             ? "border-[color-mix(in_srgb,var(--c-red)_35%,transparent)] text-[var(--c-red)]"

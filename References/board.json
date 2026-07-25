@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "id": "appearance-settings-auto-hide-chrome",
+   "title": "Appearance settings tab — optional auto-hiding toolbars (top header + terminal strip)",
+   "lane": "done",
+   "type": "ui",
+   "priority": "low",
+   "owner": "agent",
+   "created_at": "2026-07-25",
+   "updated_at": "2026-07-25",
+   "notes": "Founder ask: try both toolbars auto-hiding to see if the extra canvas is nice, with widgets running to the top edge. Shipped first as an unconditional experiment, then (founder: 'im not sure i like it') moved behind Settings -> Appearance -> 'Auto-hide toolbars', DEFAULT OFF so the app is identical to before unless armed. ON: the 52px header leaves the flex flow and overlays the grid, the 40px terminal strip stops being reserved -> ~92px more canvas; each bar returns when the pointer reaches its edge (6px summon / 120px dismiss hysteresis) and is pinned out while a Radix menu/dialog is open (they portal to <body>, past the dismiss distance) or the terminal drawer is up. Pref is per-browser localStorage (hmt-auto-hide-chrome), hydrated in an effect so the prerendered HTML never desyncs; the tab saves inline so its footer shows Done, not Save. Follow-up if the founder likes one bar but not the other: split into two toggles. Other pages (board/research/strategy-lab) still pad 40px for the strip, so auto-hide leaves a small dead gap there - deliberately untouched. Also fixed the shared TerminalToggle: as a flex item next to a long description it was squeezed below its intrinsic width and '[ ]' wrapped at its inner space (bracket halves on two lines, button 40.3px tall) - shrink-0 + whitespace-nowrap, measured back to 23.1px on the live app. The same squeeze was latent on the Execution/Risk kill-switch row."
+  },
+  {
    "id": "kronos-path-prior-probe",
    "title": "Kronos probe — does a pretrained K-line model's path distribution beat a bootstrap?",
    "lane": "in_progress",
