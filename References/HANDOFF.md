@@ -155,12 +155,16 @@ Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron in
   universe symbol and a sane `bars_current` (a sweep firing before the vendor rolls its daily bars
   shows volume collapsing to zero everywhere — that's what the counter is there to distinguish).
   Then ⏳ **07-28**: confirm the OI backfill lands on 07-27's rows, since OI publishes a session late.
-- The corpus has a **hole from 2026-07-18 to the first live run** — DoltHub ends 07-17. `tools/dolthub_iv_import.py`
-  was demoted to exactly this one-shot bridge; run it if the upstream repo is still updating.
 - SPX/SPXW will never carry OI here (index roots aren't tradable on Alpaca ⇒ no contracts API). The
   Databento OPRA statistics purchase covers them; don't "fix" it by inventing a substitute.
 - **The IV-rank baseline study is the real gate on `options-income-lane`** and is not started. Pre-register
-  it before touching the 1.87M stored rows — prereg is LAW here, same as the classification lab.
+  it before touching the 1.88M stored rows — prereg is LAW here, same as the classification lab. Two
+  constraints are already measured (BUILD_LOG 07-25), so don't rediscover them: the corpus is a curated
+  **2,311-symbol** set covering only **37 of the sampler's 53** names — QQQ, IWM, GLD, SLV, TLT, ARKK,
+  VIXM are ABSENT even though SPY/DIA/XLF are present — and its density rises over time (~60% of sessions
+  through 2020-22, near-daily from 2025). Trailing-year ranks are honest today for the covered 37; the
+  other 16 have **no baseline until our sampler banks a year (~2027-07)** and must be labelled that way,
+  never ranked against a short window.
 
 ## ▶ Options flow — classification scorer unbuilt; gates clocking
 
