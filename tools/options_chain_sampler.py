@@ -45,6 +45,7 @@ from signals.options_chain_snapshot import (  # noqa: E402
     constant_maturity_iv,
     front_atm_iv,
     in_band,
+    is_optionable_symbol,
     parse_occ,
 )
 from signals.universe import all_watchlist_symbols_fresh  # noqa: E402
@@ -63,6 +64,8 @@ CORE_ROOTS = ("SPY", "QQQ", "IWM", "DIA")
 HV_BAR_DAYS = 400
 # The vendor pages the chain 1,000 at a time; SPY's board is ~13,600 contracts.
 CHAIN_MAX_PAGES = 25
+# Bar requests are chunked so one unfetchable ticker cannot empty the HV column.
+BAR_BATCH = 25
 
 
 def resolve_universe() -> list[str]:
@@ -73,9 +76,37 @@ def resolve_universe() -> list[str]:
         logger.exception("Watchlist read failed — falling back to the stored universe")
         watch = []
     register_universe(list(CORE_ROOTS), source="core")
-    if watch:
-        register_universe(watch, source="watchlist")
-    return universe_symbols()
+    tradable = [s for s in watch if is_optionable_symbol(s)]
+    skipped = sorted(set(watch) - set(tradable))
+    if skipped:
+        # Never let these into an append-only table — see is_optionable_symbol.
+        logger.info("Skipping %d non-optionable watchlist symbols: %s", len(skipped), ", ".join(skipped))
+    if tradable:
+        register_universe(tradable, source="watchlist")
+    return [s for s in universe_symbols() if is_optionable_symbol(s)]
+
+
+def fetch_daily_bars(adapter: AlpacaAdapter, symbols: list[str]) -> dict:
+    """Daily bars for the HV column, chunked so one bad symbol cannot empty it.
+
+    A single unfetchable ticker 400s the whole batch request, and an append-only
+    universe steadily accumulates them as names delist. On a chunk failure the
+    chunk is retried symbol-by-symbol so only the genuinely-bad ones are lost.
+    """
+    out: dict = {}
+    for start in range(0, len(symbols), BAR_BATCH):
+        chunk = symbols[start : start + BAR_BATCH]
+        try:
+            out.update(adapter.get_stock_bars_batch(chunk, timeframe="1Day", days=HV_BAR_DAYS) or {})
+            continue
+        except Exception:
+            logger.warning("Daily-bar batch failed for %d symbols — retrying singly", len(chunk))
+        for sym in chunk:
+            try:
+                out.update(adapter.get_stock_bars_batch([sym], timeframe="1Day", days=HV_BAR_DAYS) or {})
+            except Exception:
+                logger.warning("Daily bars unavailable for %s — no HV this run", sym)
+    return out
 
 
 def sample_symbol(
@@ -247,11 +278,7 @@ def main() -> int:
         start_run(session)
 
     logger.info("Sampling %d symbols for session %s", len(symbols), session)
-    try:
-        raw_bars = adapter.get_stock_bars_batch(symbols, timeframe="1Day", days=HV_BAR_DAYS)
-    except Exception:
-        logger.exception("Daily-bar fetch failed — HV column will be empty this run")
-        raw_bars = {}
+    raw_bars = fetch_daily_bars(adapter, symbols)
 
     from signals.strategy_scan import _stock_bars_to_dated
 

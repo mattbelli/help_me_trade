@@ -14,6 +14,7 @@ from signals.options_chain_snapshot import (
     constant_maturity_iv,
     front_atm_iv,
     in_band,
+    is_optionable_symbol,
     parse_occ,
 )
 
@@ -38,6 +39,16 @@ def test_parses_a_root_containing_digits() -> None:
 def test_rejects_a_non_occ_symbol() -> None:
     assert parse_occ("AAPL") is None
     assert parse_occ("") is None
+
+
+def test_futures_roots_are_kept_out_of_the_universe() -> None:
+    """One '/CL' 400s the whole bar batch — it emptied HV for 53 valid symbols."""
+    assert not is_optionable_symbol("/CL")
+    assert not is_optionable_symbol("/ES")
+    assert not is_optionable_symbol("")
+    assert is_optionable_symbol("SPY")
+    assert is_optionable_symbol("BRK.B")
+    assert is_optionable_symbol("googl")
 
 
 def test_stale_daily_bar_reports_zero_volume_not_the_old_bar() -> None:

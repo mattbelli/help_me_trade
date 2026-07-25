@@ -47,6 +47,18 @@ MIN_FRONT_DTE = 7
 _OCC = re.compile(r"^(?P<root>.+?)(?P<ymd>\d{6})(?P<cp>[CP])(?P<strike>\d{8})$")
 
 
+# Equity/ETF tickers only. Futures roots ("/ES") have no Alpaca option chain and no
+# stock bars, and one of them 400s a whole batch request — three of these in the
+# watchlist emptied the HV column for all 53 valid symbols on 2026-07-25. The
+# universe is append-only, so junk must be kept OUT rather than cleaned up later.
+_TRADABLE = re.compile(r"^[A-Z][A-Z.]{0,9}$")
+
+
+def is_optionable_symbol(symbol: str) -> bool:
+    """Whether a symbol can carry an Alpaca equity option chain."""
+    return bool(_TRADABLE.match((symbol or "").strip().upper()))
+
+
 @dataclass(frozen=True)
 class Contract:
     """One parsed OCC contract identifier."""
