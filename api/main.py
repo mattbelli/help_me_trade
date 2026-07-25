@@ -2248,6 +2248,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "PUT", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    # Every poll is a cross-origin fetch carrying X-API-Token, so each one needs a
+    # cached preflight or it doubles into an OPTIONS + GET pair. Browsers clamp
+    # this to their own ceiling (Chromium hours, Safari 600s); a day is simply the
+    # longest any of them will honour.
+    max_age=86_400,
 )
 
 

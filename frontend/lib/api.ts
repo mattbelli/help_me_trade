@@ -37,6 +37,14 @@ export async function apiFetch(
   try {
     return await fetch(input, {
       ...init,
+      // Freshness comes from the API's own `Cache-Control: no-store`
+      // (api/middleware.py), NOT from a per-fetch cache mode. Chromium skips its
+      // CORS preflight cache whenever the request cache mode is no-store, so the
+      // `cache: "no-store"` call sites below were costing an extra OPTIONS round
+      // trip on EVERY poll — ~49% of all backend requests were preflights
+      // (measured 2026-07-25: 6 preflights per 6 fetches vs 1 on the default
+      // mode). Pinned here so the chokepoint owns cache policy for every caller.
+      cache: "default",
       signal: init?.signal ?? controller.signal,
       headers: apiAuthHeaders(init?.headers, tokenOverride),
     });
