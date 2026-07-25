@@ -35,6 +35,7 @@ from db.options_chain_history import (  # noqa: E402
     register_universe,
     start_run,
     universe_symbols,
+    universe_tiers,
     write_chain_rows,
     write_iv_daily,
 )
@@ -47,6 +48,7 @@ from signals.options_chain_snapshot import (  # noqa: E402
     in_band,
     is_optionable_symbol,
     parse_occ,
+    wide_fetch_window,
 )
 from signals.universe import all_watchlist_symbols_fresh  # noqa: E402
 from signals.volatility import forecast_vol  # noqa: E402
@@ -66,6 +68,10 @@ HV_BAR_DAYS = 400
 CHAIN_MAX_PAGES = 25
 # Bar requests are chunked so one unfetchable ticker cannot empty the HV column.
 BAR_BATCH = 25
+# Wide tier reads a filtered slice, but the vendor still pages ALPHABETICALLY —
+# a dense chain on one page comes back near-dated only and cannot bracket 30 DTE
+# (measured: SPY returned 7/10/11-DTE expiries). A few pages covers ordinary names.
+WIDE_MAX_PAGES = 5
 
 
 def resolve_universe() -> list[str]:
@@ -110,20 +116,34 @@ def fetch_daily_bars(adapter: AlpacaAdapter, symbols: list[str]) -> dict:
 
 
 def sample_symbol(
-    adapter: AlpacaAdapter, sym: str, session: str, session_date: date, bars: list
+    adapter: AlpacaAdapter, sym: str, session: str, session_date: date, bars: list,
+    tier: str = "deep",
 ) -> tuple[list[dict], dict, list[tuple[str, str, int]], tuple[int, int], str | None]:
     """Sample one underlying.
 
     Returns ``(banded_rows, iv_row, oi_observations, board_oi_totals, error)``.
     ``oi_observations`` and ``board_oi_totals`` describe the PRIOR session — the
     vendor publishes open interest a session in arrears.
+
+    ``tier='wide'`` collects an IV reading ONLY: a filtered slice of the chain
+    instead of the board, no per-contract rows stored, and no open-interest call.
+    That is what makes breadth affordable (~0.06s vs ~0.3-0.9s per name, one row
+    instead of ~1,100). Study B measured the cost of NOT having breadth: the
+    IV-level effect is real on 2,112 names and absent on our 37.
     """
     snap = adapter.get_stock_snapshot_fields(sym) or {}
     spot = snap.get("last_price")
     if not spot or spot <= 0:
         return [], {}, [], (0, 0), "no spot"
 
-    snaps = adapter.get_option_chain_snapshot(sym, limit=1000, max_pages=CHAIN_MAX_PAGES)
+    wide = tier == "wide"
+    if wide:
+        snaps = adapter.get_option_chain_snapshot(
+            sym, limit=1000, max_pages=WIDE_MAX_PAGES,
+            **wide_fetch_window(session_date, spot),
+        )
+    else:
+        snaps = adapter.get_option_chain_snapshot(sym, limit=1000, max_pages=CHAIN_MAX_PAGES)
     if not snaps:
         return [], {}, [], (0, 0), "empty chain"
 
@@ -150,7 +170,7 @@ def sample_symbol(
         if iv and iv > 0:
             iv_by_expiry.setdefault(c.expiration, []).append((c.strike, float(iv)))
 
-        if not in_band(c.strike, spot, dte):
+        if wide or not in_band(c.strike, spot, dte):
             continue
         banded.append(
             {
@@ -186,11 +206,20 @@ def sample_symbol(
         "atm_iv_30d": iv30, "atm_iv_front": front_iv, "front_dte": front_dte,
         "hv_ewma": hv,
         "vrp": (iv30 - hv) if (iv30 is not None and hv is not None) else None,
-        "call_volume": agg.call_volume, "put_volume": agg.put_volume,
+        # A wide fetch reads a slice, so these are NOT board totals and must not be
+        # written as if they were — the tier column is what tells a reader that.
+        "call_volume": 0 if wide else agg.call_volume,
+        "put_volume": 0 if wide else agg.put_volume,
         "call_oi": 0, "put_oi": 0,
         "contracts_observed": agg.contracts_observed,
         "contracts_stored": len(banded), "bars_current": agg.bars_current,
+        "tier": tier,
     }
+
+    if wide:
+        # No open-interest call: it is a second request per name, and OI is not an
+        # input to the IV reading this tier exists for.
+        return [], iv_row, [], (0, 0), None
 
     # Open interest, for whichever session the vendor stamped it with.
     oi_obs: list[tuple[str, str, int]] = []
@@ -274,10 +303,15 @@ def main() -> int:
         return 0
 
     adapter = AlpacaAdapter.from_settings()
+    tiers = {} if args.dry_run else universe_tiers()
     if not args.dry_run:
         start_run(session)
 
-    logger.info("Sampling %d symbols for session %s", len(symbols), session)
+    n_wide = sum(1 for s in symbols if tiers.get(s, "deep") == "wide")
+    logger.info(
+        "Sampling %d symbols for session %s (%d deep, %d wide)",
+        len(symbols), session, len(symbols) - n_wide, n_wide,
+    )
     raw_bars = fetch_daily_bars(adapter, symbols)
 
     from signals.strategy_scan import _stock_bars_to_dated
@@ -294,7 +328,7 @@ def main() -> int:
             bars = []
         try:
             rows, iv_row, oi_obs, board_oi, err = sample_symbol(
-                adapter, sym, session, session_date, bars
+                adapter, sym, session, session_date, bars, tiers.get(sym, "deep")
             )
         except Exception:
             logger.exception("Sampling failed for %s", sym)

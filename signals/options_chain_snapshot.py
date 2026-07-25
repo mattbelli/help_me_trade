@@ -93,6 +93,32 @@ def parse_occ(occ: str) -> Contract | None:
     )
 
 
+# Wide tier: an IV reading only, so the fetch is a slice rather than the board.
+# The window must BRACKET TARGET_DTE from both sides or constant_maturity_iv
+# refuses (it will not extrapolate) — 7..75 days holds two or three monthly
+# expiries even for a name with no weeklies, which is the sparse case that
+# decides this constant.
+WIDE_DTE_LO = 7
+WIDE_DTE_HI = 75
+
+
+def wide_fetch_window(session_date: date, spot: float) -> dict:
+    """Filter kwargs for a wide-tier chain fetch: expiry window + strike band.
+
+    Takes AAPL from 3,422 contracts to ~700 (measured 2026-07-25), which is what
+    makes breadth affordable. Returns kwargs for
+    ``AlpacaAdapter.get_option_chain_snapshot``.
+    """
+    from datetime import timedelta
+
+    return {
+        "expiration_date_gte": (session_date + timedelta(days=WIDE_DTE_LO)).isoformat(),
+        "expiration_date_lte": (session_date + timedelta(days=WIDE_DTE_HI)).isoformat(),
+        "strike_price_gte": round(spot * (1 - MONEYNESS_BAND), 2),
+        "strike_price_lte": round(spot * (1 + MONEYNESS_BAND), 2),
+    }
+
+
 def in_band(strike: float, spot: float, dte: int) -> bool:
     """Whether a contract is inside the stored moneyness / tenor band."""
     if spot <= 0 or dte < 0 or dte > MAX_DTE:

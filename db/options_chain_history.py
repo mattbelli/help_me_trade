@@ -93,6 +93,12 @@ def init_chain_tables(db_path: Path = CHAIN_DB_PATH) -> None:
                 contracts_stored INTEGER NOT NULL DEFAULT 0,
                 bars_current INTEGER NOT NULL DEFAULT 0,
                 captured_at TEXT NOT NULL,
+                -- 'deep' = the whole board was read, so the volume/OI columns are
+                -- true board totals. 'wide' = an IV reading only: the fetch was a
+                -- slice, so volume/OI were NOT COLLECTED and the zeros in those
+                -- columns are placeholders, never measurements. Check this column
+                -- before aggregating anything but the IV/HV/VRP fields.
+                tier TEXT NOT NULL DEFAULT 'deep',
                 PRIMARY KEY (session, underlying)
             )
             """
@@ -102,10 +108,19 @@ def init_chain_tables(db_path: Path = CHAIN_DB_PATH) -> None:
             CREATE TABLE IF NOT EXISTS sampler_universe (
                 underlying TEXT PRIMARY KEY,
                 first_seen TEXT NOT NULL,
-                source TEXT
+                source TEXT,
+                tier TEXT NOT NULL DEFAULT 'deep'
             )
             """
         )
+        # Pre-tier databases carry no `tier`; existing rows are the names we might
+        # actually trade, so 'deep' is the right default for them.
+        for table in ("sampler_universe", "iv_daily"):
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if "tier" not in cols:
+                conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN tier TEXT NOT NULL DEFAULT 'deep'"
+                )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sampler_runs (
@@ -124,12 +139,18 @@ def init_chain_tables(db_path: Path = CHAIN_DB_PATH) -> None:
 
 
 def register_universe(
-    symbols: list[str], *, source: str = "watchlist", db_path: Path = CHAIN_DB_PATH
+    symbols: list[str], *, source: str = "watchlist", tier: str = "deep",
+    db_path: Path = CHAIN_DB_PATH
 ) -> int:
-    """Add symbols to the append-only universe. Returns how many were new."""
+    """Add symbols to the append-only universe. Returns how many were new.
+
+    ``tier`` is 'deep' (store the whole banded board — names we might trade) or
+    'wide' (an IV reading only). A symbol already registered deep is never demoted
+    to wide by a later call: breadth must not cost us depth on a name we hold.
+    """
     stamp = now_iso()
     rows = [
-        (s.strip().upper(), stamp, source)
+        (s.strip().upper(), stamp, source, tier)
         for s in symbols
         if isinstance(s, str) and s.strip()
     ]
@@ -138,24 +159,39 @@ def register_universe(
     with _connect(db_path) as conn:
         before = conn.execute("SELECT COUNT(*) FROM sampler_universe").fetchone()[0]
         conn.executemany(
-            "INSERT OR IGNORE INTO sampler_universe (underlying, first_seen, source) "
-            "VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO sampler_universe (underlying, first_seen, source, tier) "
+            "VALUES (?, ?, ?, ?)",
             rows,
         )
+        if tier == "deep":
+            # Promotion is allowed and is the only tier change there is.
+            conn.executemany(
+                "UPDATE sampler_universe SET tier='deep' WHERE underlying=? AND tier<>'deep'",
+                [(r[0],) for r in rows],
+            )
         conn.commit()
         after = conn.execute("SELECT COUNT(*) FROM sampler_universe").fetchone()[0]
     return after - before
 
 
-def universe_symbols(db_path: Path = CHAIN_DB_PATH) -> list[str]:
+def universe_symbols(db_path: Path = CHAIN_DB_PATH, tier: str | None = None) -> list[str]:
     """Every symbol ever registered — the sweep runs over this, not today's watchlist."""
+    sql = "SELECT underlying FROM sampler_universe"
+    params: tuple = ()
+    if tier:
+        sql += " WHERE tier = ?"
+        params = (tier,)
     with _connect(db_path) as conn:
-        return [
-            str(r["underlying"])
-            for r in conn.execute(
-                "SELECT underlying FROM sampler_universe ORDER BY underlying"
-            )
-        ]
+        return [str(r["underlying"]) for r in conn.execute(sql + " ORDER BY underlying", params)]
+
+
+def universe_tiers(db_path: Path = CHAIN_DB_PATH) -> dict[str, str]:
+    """Symbol -> tier, for a sweep that treats the two differently."""
+    with _connect(db_path) as conn:
+        return {
+            str(r["underlying"]): str(r["tier"] or "deep")
+            for r in conn.execute("SELECT underlying, tier FROM sampler_universe")
+        }
 
 
 def write_chain_rows(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
@@ -250,7 +286,7 @@ def write_iv_daily(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
             r.get("call_volume") or 0, r.get("put_volume") or 0,
             r.get("call_oi") or 0, r.get("put_oi") or 0,
             r.get("contracts_observed") or 0, r.get("contracts_stored") or 0,
-            r.get("bars_current") or 0, stamp,
+            r.get("bars_current") or 0, stamp, r.get("tier") or "deep",
         )
         for r in rows
     ]
@@ -260,8 +296,8 @@ def write_iv_daily(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
             INSERT OR REPLACE INTO iv_daily (
                 session, underlying, spot, atm_iv_30d, atm_iv_front, front_dte,
                 hv_ewma, vrp, call_volume, put_volume, call_oi, put_oi,
-                contracts_observed, contracts_stored, bars_current, captured_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                contracts_observed, contracts_stored, bars_current, captured_at, tier
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             payload,
         )

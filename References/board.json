@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "id": "sampler-breadth-tier",
+   "title": "Options sampler breadth tier \u2014 wide IV-only lane so the cross-section is hundreds of names, not 37",
+   "lane": "done",
+   "type": "build",
+   "priority": "high",
+   "owner": "agent",
+   "notes": "Study B (IV_LEVEL_PREREG_2026-07-25.md) measured the blocker precisely: the IV-level effect is real and robust across 2,112 names (+0.0418 even under a 60% IV ceiling) and ABSENT on our own 37 (-0.0004). Not the phenomenon -- the size of the cross-section. So the sampler gained a two-tier universe. deep = the whole banded board + open interest, for names we might actually trade (unchanged behaviour). wide = an IV reading ONLY: a filtered chain slice (expiry window bracketing 30 DTE + strike band at the same +/-25% moneyness), no per-contract rows, no OI call. Measured: ~0.06s and ONE row per wide symbol vs ~0.3-0.9s and ~1,100 rows deep -- breadth is essentially free, depth is what costs. Verified three ways before registering anything: (1) the wide SLICE reproduces the deep BOARD's 30d constant-maturity IV EXACTLY (0.000% deviation across 12 names) because the strike band already contains every strike the ATM interpolation reaches; (2) our iv30 agrees with the independent DoltHub corpus on the same session within 2.2% median across 15 names -- and note the offset is CONSISTENTLY POSITIVE (~+2% on all 15), a systematic method difference, so the two sources must never be naively pooled in a level study; (3) a full 627-symbol sweep ran in 63s, 566/574 wide rows carrying a usable iv30 (the 8 misses REFUSED rather than fabricated, per the no-extrapolation rule). Append-only safety: wide registration NEVER demotes a deep symbol (breadth must not cost depth on a name we hold), deep registration promotes a wide one, and both are regression-tested. iv_daily gained a tier column because a wide row's volume/OI zeros are PLACEHOLDERS, not measurements -- a reader must check tier before aggregating anything but IV/HV/VRP. Universe resolver (tools/resolve_wide_universe.py) sources the DoltHub corpus symbol list deliberately: those names already carry up to 7 years of history, so a level baseline exists on day one instead of 2027, and a symbol is registered only if Alpaca actually returns contracts (append-only means a delisted ticker admitted here would sit in the sweep forever). \u26a0\ufe0f Vendor pages the chain ALPHABETICALLY even with range filters -- SPY on one page came back 7/10/11-DTE only and could not bracket 30 DTE; wide fetches allow 5 pages. This is perception infrastructure, not a strategy gate: it serves IV-level as a labeled angle in the fusion layer regardless of whether options-income-lane ever opens.",
+   "created_at": "2026-07-25",
+   "updated_at": "2026-07-25"
+  },
+  {
    "id": "appearance-settings-auto-hide-chrome",
    "title": "Appearance settings tab — optional auto-hiding toolbars (top header + terminal strip)",
    "lane": "done",

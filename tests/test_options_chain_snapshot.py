@@ -8,6 +8,9 @@ from datetime import date
 from signals.options_chain_snapshot import (
     MAX_DTE,
     MONEYNESS_BAND,
+    TARGET_DTE,
+    WIDE_DTE_HI,
+    WIDE_DTE_LO,
     atm_iv,
     bar_volume,
     board_aggregates,
@@ -16,6 +19,7 @@ from signals.options_chain_snapshot import (
     in_band,
     is_optionable_symbol,
     parse_occ,
+    wide_fetch_window,
 )
 
 SESSION = "2026-07-24"
@@ -141,3 +145,24 @@ def test_aggregates_cover_the_whole_board_and_count_fresh_bars() -> None:
     assert agg.contracts_observed == 3
     # the third row's bar predates the session, so it is not a fresh observation
     assert agg.bars_current == 2
+
+
+def test_wide_window_brackets_the_constant_maturity_target() -> None:
+    """If the window cannot straddle 30 DTE, constant_maturity_iv refuses and the
+    wide tier silently collects nothing usable."""
+    assert WIDE_DTE_LO < TARGET_DTE < WIDE_DTE_HI
+    w = wide_fetch_window(SESSION_DATE, spot=100.0)
+    assert w["expiration_date_gte"] == "2026-07-31"  # +7d
+    assert w["expiration_date_lte"] == "2026-10-07"  # +75d
+    lo = date.fromisoformat(w["expiration_date_gte"])
+    hi = date.fromisoformat(w["expiration_date_lte"])
+    assert (lo - SESSION_DATE).days < TARGET_DTE < (hi - SESSION_DATE).days
+
+
+def test_wide_window_strike_band_matches_the_stored_band() -> None:
+    """The slice must contain every strike the ATM interpolation could reach for."""
+    w = wide_fetch_window(SESSION_DATE, spot=200.0)
+    assert w["strike_price_gte"] == 200.0 * (1 - MONEYNESS_BAND)
+    assert w["strike_price_lte"] == 200.0 * (1 + MONEYNESS_BAND)
+    assert in_band(w["strike_price_gte"], 200.0, 30)
+    assert in_band(w["strike_price_lte"], 200.0, 30)

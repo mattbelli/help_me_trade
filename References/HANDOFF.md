@@ -171,7 +171,11 @@ Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron in
   A diagnostic showed **the universe binds, not the vol ceiling** — all names under 60% IV still passes
   (+0.0418), our 37 with no ceiling does not. **Open, and now specific:** premium selling needs a
   *materially broader universe* than the watchlist (the chain sampler's append-only universe is the
-  natural vehicle and costs nothing to widen). ⚠️ Do NOT reuse B5 as written — it removed 31.6% of the
+  natural vehicle and costs nothing to widen) — **the breadth tier is now BUILT** (BUILD_LOG
+  07-25, `sampler-breadth-tier`): universe is tiered deep/wide, a wide symbol costs ~0.06s and one
+  row, and the wide slice reproduces the deep board's `iv30` exactly. ⏳ **Register the production
+  wide universe and confirm Monday's sweep covers it** — the scratch verification ran 627 symbols
+  in 63s. ⚠️ Do NOT reuse B5 as written — it removed 31.6% of the
   top decile, not 5%, because VRP correlates with the sort axis; outlier-robustness is **untested, not
   disproven** (symmetric trim leaves +0.0586). Any successor must model the **capped payoff** directly:
   a seller keeps at most the premium while the left tail is uncapped, so mean-VRP overstates capture

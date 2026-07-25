@@ -1564,6 +1564,10 @@ class AlpacaAdapter:
         feed: str = "opra",
         *,
         expiration_date: str | None = None,
+        expiration_date_gte: str | None = None,
+        expiration_date_lte: str | None = None,
+        strike_price_gte: float | None = None,
+        strike_price_lte: float | None = None,
         limit: int | None = None,
         max_pages: int = 1,
     ) -> dict:
@@ -1575,6 +1579,14 @@ class AlpacaAdapter:
         chain-viewer endpoint passes ``expiration_date`` + ``limit=1000`` +
         ``max_pages`` — the vendor page default is 100, alphabetical, which
         truncates to near-dated calls otherwise.
+
+        The ``*_gte``/``*_lte`` range filters let a caller that only needs an ATM
+        IV reading pull a slice instead of the board: an expiry window plus a
+        strike band takes AAPL from 3,422 contracts to ~700 (measured 2026-07-25),
+        which is what makes a wide breadth tier affordable. ⚠️ Paging is still
+        alphabetical, so a dense chain fetched with ``max_pages=1`` comes back as
+        near-dated contracts ONLY — SPY returned 7/10/11-DTE expiries and could
+        not bracket 30 DTE at all. Range filters narrow, they do not reorder.
         """
         sym = underlying.strip().upper()
         if not sym:
@@ -1586,6 +1598,14 @@ class AlpacaAdapter:
                 params: dict[str, Any] = {"feed": feed}
                 if expiration_date:
                     params["expiration_date"] = expiration_date
+                if expiration_date_gte:
+                    params["expiration_date_gte"] = expiration_date_gte
+                if expiration_date_lte:
+                    params["expiration_date_lte"] = expiration_date_lte
+                if strike_price_gte is not None:
+                    params["strike_price_gte"] = strike_price_gte
+                if strike_price_lte is not None:
+                    params["strike_price_lte"] = strike_price_lte
                 if limit:
                     params["limit"] = int(limit)
                 if page_token:
