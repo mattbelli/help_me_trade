@@ -228,3 +228,117 @@ def test_diff_terms_isolate_the_top_and_bottom_rank_deciles() -> None:
     terms = _diff_terms(obs, "ivr_range")
     totals = [sum(x) for x in zip(*terms.values(), strict=False)]
     assert abs(_diff_combine(totals) - (0.20 - 0.05)) < 1e-12
+
+
+# --- Study C: breadth, chunked bar loading, and the guards on its two comparisons ---
+
+
+def _bars(dates: list[str], closes: list[float]) -> list:
+    from types import SimpleNamespace
+
+    return [SimpleNamespace(time=f"{d}T00:00:00Z", close=c)
+            for d, c in zip(dates, closes, strict=True)]
+
+
+def _aligned(n: int = 60, sym: str = "TEST") -> tuple[list[tuple], list[str], list[float]]:
+    """A corpus series and a bar series on the same weekday dates."""
+    from datetime import date, timedelta
+
+    dates, d = [], date.fromisoformat("2024-01-01")
+    while len(dates) < n:
+        if d.weekday() < 5:
+            dates.append(d.isoformat())
+        d += timedelta(days=1)
+    rows = [(sym, dt, "0.30", "0.20", "0.60", "0.10") for dt in dates]
+    # A deterministic wiggle so forward RV is well-defined and not constant.
+    closes = [100.0 * (1.0 + 0.01 * ((i % 5) - 2)) for i in range(n)]
+    return rows, dates, closes
+
+
+def _patch_bars(monkeypatch, bars_by_symbol: dict) -> None:
+    import tools.iv_rank_baseline_study as m
+
+    monkeypatch.setattr(m, "_h4_fetch_bars",
+                        lambda adapter, chunk: {s: bars_by_symbol[s] for s in chunk if s in bars_by_symbol})
+    monkeypatch.setattr("brokers.alpaca.AlpacaAdapter",
+                        type("_A", (), {"from_settings": staticmethod(lambda: object())}))
+
+
+def test_h4_chunk_size_does_not_change_the_panel(monkeypatch) -> None:
+    """The breadth refactor made bars chunk-local; chunking must be invisible to results."""
+    import tools.iv_rank_baseline_study as m
+
+    rows, dates, closes = _aligned()
+    syms = [f"S{i}" for i in range(7)]
+    corpus = [(s, dt, iv, hv, hi, lo) for s in syms for (_, dt, iv, hv, hi, lo) in rows]
+    conn = _db(corpus)
+    _patch_bars(monkeypatch, {s: _bars(dates, closes) for s in syms})
+
+    monkeypatch.setattr(m, "H4_CHUNK", 1)
+    one, meta_one = m.load_panel_h4(conn, syms)
+    monkeypatch.setattr(m, "H4_CHUNK", 25)
+    many, meta_many = m.load_panel_h4(conn, syms)
+
+    assert one and len(one) == len(many)
+    assert [(o.symbol, o.date, o.iv, o.rv_fwd) for o in one] == \
+           [(o.symbol, o.date, o.iv, o.rv_fwd) for o in many]
+    assert meta_one == meta_many
+
+
+def test_h4_forward_rv_is_the_next_21_sessions_of_our_own_bars(monkeypatch) -> None:
+    import statistics
+
+    import tools.iv_rank_baseline_study as m
+
+    rows, dates, closes = _aligned()
+    conn = _db(rows)
+    meta = {"symbols_with_bars": 0, "no_forward_window": 0}
+    obs = m._h4_symbol_obs(conn, "TEST", _bars(dates, closes), meta)
+
+    rets = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes))]
+    first = obs[0]
+    assert first.date == dates[0]
+    expected = statistics.stdev(rets[0:m.H4_SESSIONS]) * math.sqrt(252)
+    assert abs(first.rv_fwd - expected) < 1e-12
+    # The tail has no room for a full forward window and is counted, not fabricated.
+    assert meta["no_forward_window"] > 0
+    assert all(o.date <= dates[-(m.H4_SESSIONS + 1)] for o in obs)
+
+
+def test_level_deciles_are_ordered_by_iv_level() -> None:
+    from tools.iv_rank_baseline_study import _level_deciles
+
+    obs = [Obs("S", f"2024-01-{(i % 28) + 1:02d}", 0.10 + 0.01 * i, 0.15, 0.5, 0.5)
+           for i in range(200)]
+    rows = _level_deciles(obs)
+    assert len(rows) == 10
+    assert [r["decile"] for r in rows] == list(range(1, 11))
+    means = [r["mean_iv"] for r in rows]
+    assert means == sorted(means)
+
+
+def test_c2_pairs_only_observations_present_under_both_horizons() -> None:
+    """C2 is a like-for-like: a date only one panel has must not enter the comparison."""
+    from tools.iv_rank_baseline_study import run_h4_breadth
+
+    h4 = [Obs("A", f"2024-0{m_}-15", 0.30, 0.20, 0.5, 0.5) for m_ in range(1, 10)]
+    vendor = list(h4) + [Obs("A", "2023-06-15", 0.90, 0.10, 0.5, 0.5)]  # unpaired outlier
+    c = run_h4_breadth(h4, vendor, deep=set())
+    assert c["C2"]["n_paired_rows"] == len(h4)
+    # The unpaired 0.80-VRP row would have swamped the vendor mean had it leaked in.
+    assert abs(c["C2"]["own_bars_21s"] - c["C2"]["vendor_30s"]) < 1e-12
+    assert c["C2"]["passes"] is True
+
+
+def test_c6_counts_symbols_the_bar_api_cannot_serve() -> None:
+    """Delisted names vanish from a live bar API — C6 exists to measure that, not assume it."""
+    from tools.iv_rank_baseline_study import run_h4_breadth
+
+    h4 = [Obs("LIVE", f"2024-0{m_}-15", 0.30, 0.20, 0.5, 0.5) for m_ in range(1, 10)]
+    vendor = list(h4) + [Obs("DEAD", f"2024-0{m_}-15", 0.30, 0.95, 0.5, 0.5) for m_ in range(1, 10)]
+    c = run_h4_breadth(h4, vendor, deep=set())
+    assert c["C6"]["n_symbols_with_bars"] == 1
+    assert c["C6"]["n_symbols_without"] == 1
+    # The vanished name realized far more vol than implied — a large negative VRP.
+    assert c["C6"]["vendor_mean_vrp_without_bars"] < 0 < c["C6"]["vendor_mean_vrp_with_bars"]
+    assert c["C6"]["flagged"] is True

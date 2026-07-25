@@ -124,3 +124,76 @@ superseded by this study.
 Results are appended to this file as a dated **POST-RUN NOTE**. Thresholds above are not edited
 after the run under any circumstance; a threshold that turns out to have been badly chosen is
 noted, not moved.
+
+---
+
+## POST-RUN NOTE — 2026-07-25 (results; thresholds above unchanged)
+
+Panel: **1,602,950 observations, 2,200 symbols, 118,608 symbol-months, 2020-01-06 → 2026-06-23.**
+Bars resolved for 2,285 of 2,311 corpus symbols (98.9%). As predicted, the own-bars arm needs no
+Addendum-A1 workaround — it takes its forward window from bars, so it spans the full history the
+corpus truncation cost the primary panel.
+
+| | vendor horizon (30 sessions) | own bars (21 sessions) |
+|---|---|---|
+| **wide** | +0.0205 CI [−0.0015, +0.0373] FAIL | **+0.0259 CI [+0.0047, +0.0428] PASS** |
+| **deep (37)** | −0.0105 | −0.0012 CI [−0.0198, +0.0154] |
+
+- **C1 PASS** (both arms). Full sample +0.0259 CI [+0.0047, +0.0428]; excluding Feb–Apr 2020
+  +0.0363 CI [+0.0251, +0.0462].
+  **Read this carefully rather than as a rescue of Study A's H1.** Addendum A1's 7-year vendor panel
+  was a comparable size (1.70M obs / 2,272 symbols) and gave +0.0202 CI [−0.0018, +0.0371] — a
+  FAIL. C1's interval is essentially the same *width* (0.0381 vs 0.0389), shifted up by ~+0.0057.
+  That shift matches C2's independently measured horizon effect of +0.0051 almost exactly. So the
+  full-sample premise **flips from just-failing to just-passing on a measurement convention**, and
+  a verdict that moves on 0.005 vol pts is not a robust verdict. The ex-2020 result is the one that
+  is not knife-edge, and it holds at both horizons.
+- **C2 PASS** — gap **0.0051** ≤ 0.0100 on 634,118 paired (symbol, date) rows. The horizon is
+  immaterial to the *magnitude*, which confirms Study A's "universe, not horizon" conclusion at
+  breadth. Note the sign: the own-bars horizon reads consistently **higher**, and by exactly the
+  amount that decides C1's full-sample call. Immaterial for magnitude, decisive for a knife-edge
+  threshold.
+- **C3 PASS** — Spearman **+1.000**, monotone across all ten level deciles, from −0.0067 (mean IV
+  0.192) to +0.0909 (mean IV 0.833). The level effect is fully robust to the horizon correction.
+- **C4 PASS** — **+0.0445 CI [+0.0178, +0.0661]** on 2,083 symbols under the 60% ceiling, against
+  Study B's +0.0418 CI [+0.0168, +0.0630] at the vendor horizon. The tradable-band figure survives.
+- **C5 (descriptive) — unchanged, and this is still the number that matters.** On our 37 deep-tier
+  names: −0.0012 CI [−0.0198, +0.0154], identical to Study A's H4. In the band: −0.0035
+  CI [−0.0318, +0.0231].
+
+### C6: the pre-registered survivorship concern was empirically WRONG
+
+The threshold fired (gap **0.0379** > 0.0100), so per the recording rule C1 and C4 carry the
+caveat. But the reasoning behind C6 does not survive contact with the data, and saying so is the
+point of having measured it:
+
+1. **The premise was false.** C6 assumed "a live bar API cannot serve a delisted ticker." Alpaca
+   serves them. Checked directly: **BBBY 1,718 bars, WOLF 1,718, FRC 907, SIVB 872** — Bed Bath &
+   Beyond, Wolfspeed, First Republic and Silicon Valley Bank are all in the corpus *and* all have
+   full bar history. The blowups are in the panel, not missing from it.
+2. **The flag rests on 5 symbols.** Only 5 vendor-panel symbols lacked bars, against 2,200 that
+   had them.
+3. **The direction is the opposite of the concern.** Those 5 had *higher* VRP (+0.0583) than the
+   covered names (+0.0204), so their absence biases the result **down**, not up.
+
+The caveat is recorded because the prereg says thresholds are not moved after the fact. Its
+practical weight is nil. What C6 **cannot** see is the corpus's own curation — DoltHub chose these
+2,311 symbols, and that selection is upstream of anything measured here.
+
+### What this does not resolve, and what it newly raises
+
+`options-income-lane` stays shut. Nothing here touches the capped-payoff blocker, and C5 says the
+premium is absent on the names we actually hold.
+
+**A new gate, raised by C4 against C5.** The wide band (+0.0445) and our own band (−0.0035) sit at
+nearly identical implied vol — **mean IV 0.554 vs 0.547**. Same vol level, opposite sign. So the
+discriminator is *which names*, not *what IV*. Their intervals do overlap slightly
+([+0.0178, +0.0661] vs [−0.0318, +0.0231]), so this is suggestive, not decisive.
+
+The natural hypothesis is competition: our watchlist is megacap and index ETFs, the most heavily
+option-sold instruments in the world, while the corpus tail is not. **If that is the mechanism, it
+is bad news, not good** — options are rich where few people sell them, which tends to be where the
+bid-ask is widest. Every number in Studies A, B and C is derived from vendor mid-market IV and
+therefore **ignores the spread entirely**. Before any capture claim, the spread in those names has
+to be measured and netted. That is now a second gate standing beside the capped payoff, and it is
+untested.

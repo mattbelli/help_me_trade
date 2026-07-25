@@ -157,29 +157,26 @@ Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron in
   Then ⏳ **07-28**: confirm the OI backfill lands on 07-27's rows, since OI publishes a session late.
 - SPX/SPXW will never carry OI here (index roots aren't tradable on Alpaca ⇒ no contracts API). The
   Databento OPRA statistics purchase covers them; don't "fix" it by inventing a substitute.
-- **The IV-rank study is DONE and the answer was NO** (BUILD_LOG 07-25; prereg + Addendum A in
-  `References/`). `options-income-lane` **does not open on a VRP premise**, and an IV-rank entry gate is
-  **not supported**: the rank effect is a **level** effect (level-sorted deciles are equally monotone,
-  Spearman +1.000 both ways; holding level fixed the rank effect vanishes and *reverses* in low-vol
-  names), and on the **37 symbols we would actually trade** there is no measurable VRP at all. Do not
-  re-litigate this from the headline decile table — it passes H2/H3 and is confounded; the level control
-  is the finding.
-- **Study B (the IV LEVEL axis) also ran 07-25 — the effect is REAL but we still do not build**
-  (`IV_LEVEL_PREREG_2026-07-25.md`; BUILD_LOG row). Level PASSED B1/B2/B3: top-decile VRP +0.0944
-  (+0.1125 ex-2020), it orders VRP inside **every** rank quintile, and it works as both selection
-  (+0.0736) and timing (+0.0858). **B4 is the blocker: on our own 37 names top-decile VRP is −0.0004.**
-  A diagnostic showed **the universe binds, not the vol ceiling** — all names under 60% IV still passes
-  (+0.0418), our 37 with no ceiling does not. **Open, and now specific:** premium selling needs a
-  *materially broader universe* than the watchlist (the chain sampler's append-only universe is the
-  natural vehicle and costs nothing to widen) — **the breadth tier is now BUILT** (BUILD_LOG
-  07-25, `sampler-breadth-tier`): universe is tiered deep/wide, a wide symbol costs ~0.06s and one
-  row, and the wide slice reproduces the deep board's `iv30` exactly. ⏳ **Register the production
-  wide universe and confirm Monday's sweep covers it** — the scratch verification ran 627 symbols
-  in 63s. ⚠️ Do NOT reuse B5 as written — it removed 31.6% of the
-  top decile, not 5%, because VRP correlates with the sort axis; outlier-robustness is **untested, not
-  disproven** (symmetric trim leaves +0.0586). Any successor must model the **capped payoff** directly:
-  a seller keeps at most the premium while the left tail is uncapped, so mean-VRP overstates capture
-  however it is trimmed.
+**Studies A, B and C all RAN 07-25 and are closed** — three BUILD_LOG rows, three preregs in
+`References/` (`IV_RANK_BASELINE_*`, `IV_LEVEL_*`, `IV_HORIZON_BREADTH_*`). Settled, do not
+re-litigate: an **IV-rank entry gate is not supported** (rank is a level effect in costume; holding
+level fixed it vanishes and *reverses* in low-vol names); the **level** effect is real and survives
+every control thrown at it (Spearman +1.000, band +0.0445 at the corrected horizon); and on the
+**37 names we would actually trade there is no VRP at all** (−0.0012, unchanged across both
+horizons). What is still OPEN from that work:
+- **Two gates now stand between us and any premium selling, both untested.** (1) the **capped
+  payoff** — a seller keeps at most the premium while the left tail is uncapped, so mean-VRP in vol
+  points overstates capture however it is trimmed; (2) **the spread**, raised by Study C: the wide
+  band (+0.0445) and our own names (−0.0035) sit at nearly identical implied vol (0.554 vs 0.547),
+  so the discriminator is *which names*, not *what IV* — and if the mechanism is thin selling
+  competition, the premium lives exactly where the bid-ask is widest. **Every number in all three
+  studies is vendor MID-market IV and ignores the spread.** Measure it before any capture claim.
+- ⚠️ Do NOT reuse Study B's **B5** as written — it removed 31.6% of the top decile, not 5%, because
+  VRP correlates with the sort axis; outlier-robustness is **untested, not disproven** (a symmetric
+  trim leaves +0.0586).
+- ⚠️ Study C's **C6 flag is recorded but hollow** — its premise ("a live bar API cannot serve a
+  delisted ticker") is false; BBBY/WOLF/FRC/SIVB all have full bar history. It rests on 5 symbols
+  and points the *safe* way. Don't spend effort "fixing" survivorship on the strength of that flag.
 
 ## ▶ Options flow — classification scorer unbuilt; gates clocking
 
