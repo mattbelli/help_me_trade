@@ -16,7 +16,7 @@ import warnings
 
 import numpy as np
 
-BLOCK_BARS = 12  # one hour of 5-minute bars
+from research.kronos_probe import config
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +61,12 @@ def bootstrap_paths(
 ) -> np.ndarray:
     """Return (n_paths, horizon) simulated close prices starting from ``last_close``.
 
-    ``log_returns`` must be intraday-only (see barriers.intraday_log_returns) —
-    resampling overnight gaps would inject session-sized jumps into a 1-hour path.
+    ``log_returns`` must use the same gap convention as the barriers and the realized
+    outcome (see barriers.context_log_returns) — resampling a gap-free pool for a
+    gap-crossing horizon, or vice versa, rigs the comparison.
     """
-    if log_returns.size < BLOCK_BARS:
+    block = config.BLOCK_BARS
+    if log_returns.size < block:
         raise ValueError("context too short for block bootstrap")
 
     # Rescale to the barrier sigma so both arms face barriers calibrated to the
@@ -74,10 +76,10 @@ def bootstrap_paths(
         raise ValueError("degenerate context: zero return variance")
     scaled = log_returns * (sigma / sample_sd)
 
-    n_blocks = int(np.ceil(horizon / BLOCK_BARS))
+    n_blocks = int(np.ceil(horizon / block))
     starts = rng.integers(0, scaled.size, size=(n_paths, n_blocks))
-    offsets = np.arange(BLOCK_BARS)
+    offsets = np.arange(block)
     # Circular wrap keeps every start index usable without truncation bias.
     idx = (starts[:, :, np.newaxis] + offsets) % scaled.size
-    drawn = scaled[idx].reshape(n_paths, n_blocks * BLOCK_BARS)[:, :horizon]
+    drawn = scaled[idx].reshape(n_paths, n_blocks * block)[:, :horizon]
     return float(last_close) * np.exp(np.cumsum(drawn, axis=1))

@@ -17,16 +17,32 @@ TIMEOUT = 2
 N_OUTCOMES = 3
 
 
-def intraday_log_returns(closes: np.ndarray, session_dates: list) -> np.ndarray:
-    """Log returns with cross-session moves dropped.
+def context_log_returns(
+    closes: np.ndarray, session_dates: list, *, keep_gaps: bool
+) -> np.ndarray:
+    """Context log returns, with cross-session (overnight) moves kept or dropped.
 
-    512 RTH 5-minute bars span ~6.6 sessions, so a naive diff() includes 7
-    overnight gaps. EWMA weights recent observations heavily, so one recent gap
-    dominated the estimate — measured inflation up to 2.46x, worst exactly on the
-    high-volatility days the probe most needs to get right. Both the barriers and
-    the bootstrap consume this function's output.
+    ``keep_gaps`` has no default on purpose: it must match the return process the
+    horizon actually traverses, and getting it wrong silently invalidates a whole
+    run. Both the barriers and the bootstrap consume this function's output, so
+    whichever convention is chosen applies to both arms identically.
+
+    ``keep_gaps=False`` — the 5-minute probe. H=12 evaluated at 10:00/12:00/14:00 is
+    entirely intraday, so a gap is contamination. 512 RTH 5-minute bars span ~6.6
+    sessions, so a naive diff() included 7 gaps; EWMA weights recent observations
+    heavily, so one recent gap dominated the estimate — measured inflation up to
+    2.46x, worst exactly on the high-volatility days the probe most needs right.
+
+    ``keep_gaps=True`` — the nightly probe. H=7 evaluated at the session close
+    crosses exactly one gap, so a gap is signal, not noise. Dropping them would set
+    the barriers too narrow for a gap-crossing horizon and leave the bootstrap
+    structurally unable to produce a gap-sized move — Kronos would then win on
+    unconditional scale rather than conditional shape, which is the one thing this
+    probe claims not to be measuring.
     """
     returns = np.diff(np.log(closes))
+    if keep_gaps:
+        return returns
     same_session = np.array(
         [session_dates[i] == session_dates[i + 1] for i in range(len(session_dates) - 1)]
     )

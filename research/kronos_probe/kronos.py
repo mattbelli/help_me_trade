@@ -50,10 +50,21 @@ class Rollouts:
         tokenizer = KronosTokenizer.from_pretrained(config.TOKENIZER_NAME)
         model = Kronos.from_pretrained(config.MODEL_NAME)
         self.predictor = KronosPredictor(
-            model, tokenizer, max_context=config.CONTEXT_BARS
+            model, tokenizer, max_context=config.MAX_CONTEXT
         )
         self.predictor.tokenizer.eval()
         self.predictor.model.eval()
+
+    def seed(self, value: int) -> None:
+        """Seed torch's global RNG, which is what the sampler draws from.
+
+        Without this the Kronos arm is irreproducible, so a run resumed from
+        per-symbol checkpoints would not reproduce a clean run — the numpy seeding in
+        run.py only covers the bootstrap arm.
+        """
+        self._torch.manual_seed(value)
+        if self._torch.cuda.is_available():
+            self._torch.cuda.manual_seed_all(value)
 
     def sample_closes(
         self,

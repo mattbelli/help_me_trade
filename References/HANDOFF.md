@@ -89,6 +89,8 @@ calibration is exactly what this probe measures. **Open:**
 - ⚠ runtime: ~13.5s per evaluation point (upstream re-encodes the full 512-bar context every
   generated token — no KV cache), so the full primary window is an overnight-scale run, not minutes.
   `PATH_BATCH` in `config.py` is the dial worth testing before committing to a long run.
+  (The nightly leg measured 1.08 s/point at context 360 on a 4090 — most of that gap is the
+  512-bar context taking upstream's `torch.roll` branch rather than the append-only one.)
 - the leakage window is the diagnostic, not a second experiment: a large primary-vs-2023 gap is a
   memorization estimate, and would argue against the model even if the primary window passes.
 

@@ -8,8 +8,9 @@ is an experiment.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from research.kronos_probe import barriers, baseline, score
+from research.kronos_probe import barriers, baseline, config, data, score
 
 
 def test_resolve_first_touch_wins():
@@ -61,7 +62,7 @@ def test_intraday_returns_drop_overnight_gaps():
 
     closes = np.array([100.0, 101.0, 120.0, 121.0])
     dates = [date(2026, 1, 5), date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 6)]
-    returns = barriers.intraday_log_returns(closes, dates)
+    returns = barriers.context_log_returns(closes, dates, keep_gaps=False)
     # The 101 -> 120 overnight jump must not appear.
     assert returns.size == 2
     assert returns.max() < 0.02
@@ -81,7 +82,9 @@ def test_overnight_gaps_inflate_sigma_when_left_in():
     closes = np.array(closes)
 
     naive = barriers.ewma_sigma(np.diff(np.log(closes)), 0.94)
-    clean = barriers.ewma_sigma(barriers.intraday_log_returns(closes, dates), 0.94)
+    clean = barriers.ewma_sigma(
+        barriers.context_log_returns(closes, dates, keep_gaps=False), 0.94
+    )
     assert naive > clean * 1.5
 
 
@@ -196,3 +199,128 @@ def test_smoothing_keeps_zero_probability_outcomes_finite():
     probs = score.smooth(np.array([200.0, 0.0, 0.0]))
     assert np.isfinite(score.log_loss(probs, barriers.DOWN))
     assert abs(probs.sum() - 1.0) < 1e-12
+
+
+# --- Nightly profile (1-hour bars, one-session horizon) --------------------------
+# The gap convention and the eval-point rule INVERT between the two profiles, and
+# getting either wrong produces a confident wrong verdict rather than a crash.
+
+
+@pytest.fixture
+def nightly():
+    """Activate the nightly profile, then put the 5-minute defaults back."""
+    saved = {key: getattr(config, key) for key in config._NIGHTLY}
+    config.activate("nightly_primary")
+    yield
+    for key, value in saved.items():
+        setattr(config, key, value)
+
+
+def _sessions(first_day, n_sessions, *, short_sessions=()):
+    """Weekday RTH sessions of hourly bars stamped at their start (09:00..15:00).
+
+    ``short_sessions`` holds session ordinals that get an early close, which is what
+    a half-day looks like on this grid.
+    """
+    from datetime import datetime, timedelta
+
+    bars, day, made = [], first_day, 0
+    while made < n_sessions:
+        if day.weekday() < 5:
+            for k in range(4 if made in short_sessions else 7):
+                bars.append(
+                    {"et": datetime(day.year, day.month, day.day, 9 + k), "v": 1e6}
+                )
+            made += 1
+        day += timedelta(days=1)
+    return bars
+
+
+def test_context_returns_keep_overnight_gaps_when_asked():
+    from datetime import date
+
+    closes = np.array([100.0, 101.0, 120.0, 121.0])
+    dates = [date(2026, 1, 5), date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 6)]
+    returns = barriers.context_log_returns(closes, dates, keep_gaps=True)
+    # All three transitions survive, including the 101 -> 120 gap the 5-min profile
+    # drops. A gap-crossing horizon needs its sigma estimated on gap-crossing returns.
+    assert returns.size == 3
+    assert returns.max() > 0.15
+
+
+def test_activate_is_a_no_op_for_the_five_minute_windows():
+    before = {key: getattr(config, key) for key in config._NIGHTLY}
+    config.activate("primary")
+    assert {key: getattr(config, key) for key in config._NIGHTLY} == before
+    assert config.HORIZON_BARS == 12
+    assert config.KEEP_GAP_RETURNS is False
+
+
+def test_nightly_profile_horizon_is_exactly_one_session(nightly):
+    # 7 RTH 1-hour bars per session, so H=7 is one session and one overnight gap.
+    assert config.HORIZON_BARS == 7
+    assert config.BLOCK_BARS == 7
+    assert config.KEEP_GAP_RETURNS is True
+    assert config.CONTEXT_BARS < config.MAX_CONTEXT  # upstream appends, never rolls
+
+
+def test_nightly_eval_points_are_session_closes_spanning_the_next_session(nightly):
+    from datetime import date
+
+    bars = _sessions(date(2025, 3, 3), 160)
+    indices = data.eval_indices(bars, "nightly_primary")
+
+    assert indices
+    for i in indices:
+        et = bars[i]["et"]
+        assert et.hour == 15  # last RTH bar of its session
+        assert et.date() >= date(2025, 9, 1)  # inside the window
+        assert i >= config.CONTEXT_BARS  # full context behind it
+        next_date = bars[i + 1]["et"].date()
+        assert next_date != et.date()  # the path starts after the gap
+        assert bars[i + config.HORIZON_BARS]["et"].date() == next_date  # one session
+
+    # One point per session, not three like the clock-time profile.
+    assert len(indices) == len({bars[i]["et"].date() for i in indices})
+
+
+def test_nightly_skips_points_whose_next_session_is_a_half_day(nightly):
+    from datetime import date
+
+    def points(bars):
+        return {bars[i]["et"].date() for i in data.eval_indices(bars, "nightly_primary")}
+
+    full = _sessions(date(2025, 3, 3), 160)
+    half_day = _sessions(date(2025, 3, 3), 160, short_sessions={140})
+    # Exactly the session preceding the half-day loses its point: its 7-bar forward
+    # window would run past the early close into a second session, crossing two gaps.
+    assert len(points(full) - points(half_day)) == 1
+
+
+def test_bootstrap_block_follows_the_active_profile(nightly):
+    rng = np.random.default_rng(0)
+    returns = rng.normal(0, 0.004, 300)
+    paths = baseline.bootstrap_paths(
+        returns, 100.0, horizon=7, n_paths=2000, sigma=0.006, rng=rng
+    )
+    assert paths.shape == (2000, 7)
+    step_sd = np.diff(np.log(paths), axis=1).std()
+    assert 0.005 < step_sd < 0.007
+
+
+def test_early_close_sessions_spot_the_after_hours_stub(nightly):
+    from datetime import date, datetime
+
+    bars = []
+    for day, volumes in (
+        (date(2025, 11, 26), [13e6, 20e6, 16e6, 11e6, 13e6, 12e6, 22e6]),  # normal
+        (date(2025, 11, 28), [5.1e6, 7.9e6, 10e6, 14e6, 9.6e6, 1.7e6, 89e3]),  # 1pm close
+    ):
+        for k, volume in enumerate(volumes):
+            bars.append(
+                {"et": datetime(day.year, day.month, day.day, 9 + k), "v": volume}
+            )
+
+    # The half-day has a FULL 7-bar grid, so a bar count cannot see it; only the
+    # final bar's volume against its own session median can.
+    assert data.early_close_sessions(bars) == {date(2025, 11, 28)}

@@ -3,8 +3,8 @@
     .venv/bin/python        -m research.kronos_probe.run fetch --window primary
     .venv-kronos/bin/python -m research.kronos_probe.run probe --window primary
 
-`fetch` deliberately does not import torch, so the data pull never depends on the
-experimental venv.
+`fetch` deliberately imports neither torch nor pandas, so the data pull never depends
+on the experimental venv — only the probe path does.
 """
 
 from __future__ import annotations
@@ -15,14 +15,15 @@ import logging
 import sys
 
 import numpy as np
-import pandas as pd
 
 from research.kronos_probe import barriers, baseline, config, data, score
 
 logger = logging.getLogger(__name__)
 
 
-def _context_frame(bars: list[dict], end_idx: int) -> pd.DataFrame:
+def _context_frame(bars: list[dict], end_idx: int):
+    import pandas as pd
+
     window = bars[end_idx - config.CONTEXT_BARS + 1 : end_idx + 1]
     frame = pd.DataFrame(
         {
@@ -41,7 +42,9 @@ def _context_frame(bars: list[dict], end_idx: int) -> pd.DataFrame:
     return frame
 
 
-def _future_timestamps(bars: list[dict], end_idx: int) -> pd.Series:
+def _future_timestamps(bars: list[dict], end_idx: int):
+    import pandas as pd
+
     forward = bars[end_idx + 1 : end_idx + 1 + config.HORIZON_BARS]
     return pd.Series([b["et"].replace(tzinfo=None) for b in forward])
 
@@ -70,6 +73,10 @@ def cmd_fetch(window: str) -> int:
         print(f"WARNING: no bars for {', '.join(thin)}", file=sys.stderr)
         return 1
     return 0
+
+
+def _checkpoint_path(window: str, symbol: str):
+    return config.OUTPUT_DIR / f"{window}_records" / f"{symbol}.json"
 
 
 def _write_summary(window: str, records: list[dict]) -> dict:
@@ -103,10 +110,24 @@ def cmd_probe(window: str, limit: int | None) -> int:
     from research.kronos_probe.kronos import Rollouts
 
     rollouts = Rollouts()
-    rng = np.random.default_rng(20260724)
     records: list[dict] = []
+    # A smoke run writes its own namespace. Sharing one would leave 5-point
+    # per-symbol checkpoints on disk that the full run would then SKIP as done.
+    out = f"{window}_smoke" if limit is not None else window
 
-    for symbol in config.SYMBOLS:
+    for seed_index, symbol in enumerate(config.SYMBOLS):
+        checkpoint = _checkpoint_path(out, symbol)
+        if checkpoint.exists():
+            done = json.loads(checkpoint.read_text())
+            logger.info("%s: %d records already on disk, skipping", symbol, len(done))
+            records.extend(done)
+            continue
+
+        # Seeded per symbol so a resumed run draws exactly the stream a clean run
+        # would have drawn for the symbols it still has to do.
+        rng = np.random.default_rng([20260724, seed_index])
+        rollouts.seed(20260724 + seed_index)
+        symbol_records: list[dict] = []
         bars = data.load_rth(symbol, window)
         indices = data.eval_indices(bars, window)
         if limit is not None:
@@ -119,7 +140,9 @@ def cmd_probe(window: str, limit: int | None) -> int:
             session_dates = [
                 b["et"].date() for b in bars[i - config.CONTEXT_BARS + 1 : i + 1]
             ]
-            returns = barriers.intraday_log_returns(closes, session_dates)
+            returns = barriers.context_log_returns(
+                closes, session_dates, keep_gaps=config.KEEP_GAP_RETURNS
+            )
             sigma = barriers.ewma_sigma(returns, config.EWMA_LAMBDA)
             if not np.isfinite(sigma) or sigma <= 0:
                 continue
@@ -150,7 +173,7 @@ def cmd_probe(window: str, limit: int | None) -> int:
             realized_return = float(np.log(forward[-1] / anchor))
             garch = baseline.garch_sigma_h(returns, config.HORIZON_BARS)
 
-            records.append(
+            symbol_records.append(
                 {
                     "symbol": symbol,
                     "ts": bars[i]["t"],
@@ -171,9 +194,15 @@ def cmd_probe(window: str, limit: int | None) -> int:
                 }
             )
 
+        # Persist as each symbol completes: the full window is a multi-hour job and
+        # a reboot at hour N must not cost hours 1..N-1.
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps(symbol_records))
+        records.extend(symbol_records)
+
     config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    (config.OUTPUT_DIR / f"{window}_records.json").write_text(json.dumps(records))
-    print(json.dumps(_write_summary(window, records), indent=2))
+    (config.OUTPUT_DIR / f"{out}_records.json").write_text(json.dumps(records))
+    print(json.dumps(_write_summary(out, records), indent=2))
     return 0
 
 
@@ -186,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         "--limit", type=int, default=None, help="Max eval points per symbol (smoke run)"
     )
     args = parser.parse_args(argv)
+    # Must precede every other read of config: it selects the frequency profile.
+    config.activate(args.window)
     if args.command == "fetch":
         return cmd_fetch(args.window)
     if args.command == "score":
