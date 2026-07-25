@@ -80,6 +80,12 @@ BUILD_LOG row; live still uses opg), `trading/stop_guard.py` resting GTC stops a
   book MOO actually **fills at the open** and stop_guard then places the resting GTC stop within a poll
   tick (`journalctl -u hmt-backend | grep "stop guard"`). (Book accounts are cap-exempt now — the old
   "$65k GOOGL should risk_block" expectation is dead; founder removed per-trade caps for books 07-23.)
+  PR #106 merged + backend deployed 07-25 01:15 UTC. A **controlled probe is already resting** for
+  the Monday open, so the answer does not depend on a book proposing anything: `exec_e22a1bd20a39`
+  (F, 1 sh, STRAT1, broker `34a1b38c`) fired through the real chokepoint with `entry_style="moo"` and
+  sits `type=market, tif=day, status=accepted`. Filled at the open ⇒ the queued-DAY assumption holds;
+  expired ⇒ the fix is wrong and paper MOO needs submit-at-the-open instead of overnight queueing.
+  No history proved this before: all 19 prior paper fills were submitted *during* RTH.
 - ⏳ tomorrow 17:05/17:20/17:40 ET: first fully-armed nightly cycles end-to-end (proposals fire
   straight from the cycle, no replay)
 - increment 5 (shorts unlock — own adversarially-reviewed round; `allow_short_selling` toggle is
