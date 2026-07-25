@@ -1,8 +1,0 @@
-# Probe-only deps for .venv-kronos. Do NOT add these to the project requirements.txt.
-# torch is installed separately (CUDA wheel):
-#   .venv-kronos/bin/pip install torch --index-url https://download.pytorch.org/whl/cu124
-numpy
-pandas
-einops
-huggingface_hub
-safetensors

@@ -41,5 +41,3 @@ package-lock.json
 next-env.d.ts
 secrets/
 
-# Kronos probe venv + upstream clone (research/kronos_probe)
-.venv-kronos/
