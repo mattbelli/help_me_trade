@@ -20,7 +20,7 @@ from db.trades import get_trade_account, list_trade_accounts
 
 logger = logging.getLogger(__name__)
 
-_AGGREGATE_REAL = frozenset({None, "", "overview", "all", "all_real"})
+AGGREGATE_REAL = frozenset({None, "", "overview", "all", "all_real"})
 
 
 class PerfScope(NamedTuple):
@@ -42,7 +42,7 @@ def resolve_perf_scope(
     scopes. ``fallback=True`` when a Schwab or ``acct_*`` id cannot be resolved
     and the caller receives aggregate-real data instead.
     """
-    if workspace_account_id in _AGGREGATE_REAL:
+    if workspace_account_id in AGGREGATE_REAL:
         return PerfScope(None, True, False, False)
 
     if workspace_account_id == "all_paper":

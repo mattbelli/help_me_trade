@@ -226,7 +226,15 @@ async def test_risk_rejects_fractional_opg(monkeypatch, tmp_path: Path) -> None:
 # ── RiskEngine off-hours reference price (opg + protective stop only) ──────
 
 
-def _patch_risk_env(monkeypatch, db_path: Path) -> None:
+def _patch_risk_env(
+    monkeypatch, db_path: Path, *, account_id: str | None = None
+) -> None:
+    """Patch the risk env and seed a snapshot.
+
+    ``account_id`` keys the snapshot the way the pollers do (api/main.py). Tests
+    that validate an intent bound to an account MUST pass the same id — an
+    account-scoped read never falls back to an unkeyed run.
+    """
     from db import base as db_base
 
     monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", db_path)
@@ -239,7 +247,9 @@ def _patch_risk_env(monkeypatch, db_path: Path) -> None:
         buying_power=100_000.0,
         portfolio_value=100_000.0,
     )
-    sqlite_mod.save_snapshot(account, [], [], broker="alpaca", db_path=db_path)
+    sqlite_mod.save_snapshot(
+        account, [], [], broker="alpaca", account_id=account_id, db_path=db_path
+    )
 
     class _Stub:
         symbol_exists = staticmethod(lambda _s: True)
@@ -812,7 +822,7 @@ async def test_risk_allows_gtc_extended_limit_offhours_book(
     """The ext style end-state: GTC extended-hours limit, closed market,
     priced off the reference close, cap-exempt on a book account."""
     db = tmp_path / "r.db"
-    _patch_risk_env(monkeypatch, db)
+    _patch_risk_env(monkeypatch, db, account_id="acct_book")
     monkeypatch.setattr(
         "trading.risk_engine._book_account_ids", lambda _db: frozenset({"acct_book"})
     )
@@ -856,7 +866,7 @@ async def test_book_account_moo_buy_exempt_from_value_and_concentration(
     """$65k on a $100k book must pass — the analyst sizes its own book; the
     remaining walls are buying power / cash / daily backstops / approval."""
     db = tmp_path / "r.db"
-    _patch_risk_env(monkeypatch, db)
+    _patch_risk_env(monkeypatch, db, account_id="acct_book")
     monkeypatch.setattr(
         "trading.risk_engine._book_account_ids", lambda _db: frozenset({"acct_book"})
     )
@@ -890,7 +900,7 @@ async def test_book_account_moo_buy_exempt_from_value_and_concentration(
 @pytest.mark.asyncio
 async def test_non_book_moo_keeps_caps(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "r.db"
-    _patch_risk_env(monkeypatch, db)
+    _patch_risk_env(monkeypatch, db, account_id="acct_book")
     monkeypatch.setattr(
         "trading.risk_engine._book_account_ids", lambda _db: frozenset()
     )

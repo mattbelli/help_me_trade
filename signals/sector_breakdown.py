@@ -43,18 +43,33 @@ def _resolve_positions(
 ) -> list[dict[str, Any]]:
     """Live positions for the requested workspace account scope.
 
-    None/""/"all"/"all_real" => aggregate every REAL (Schwab) account — the paper Alpaca
-    sandbox is never blended into the real total. ``schwab_<last4>`` => that one real
-    account. Anything else is treated as a paper trade-account id.
+    None/""/"overview"/"all"/"all_real" => aggregate every REAL (Schwab) account — the
+    paper Alpaca sandbox is never blended into the real total. ``all_paper`` => every
+    paper account. ``schwab_<last4>`` => that one real account. Anything else is
+    treated as a paper trade-account id.
+
+    The aggregate tokens come from ``db.account_scope`` so this stays in step with
+    ``resolve_perf_scope``, which supplies the realized-P&L half of the same widget.
+    A local copy of the list silently omitted "overview" — the selector's DEFAULT
+    value — so the exposure half was resolving it as a trade-account id.
     """
-    aggregate = account_id in (None, "", "all", "all_real")
-    if aggregate:
+    from db.account_scope import AGGREGATE_REAL
+
+    if account_id in AGGREGATE_REAL:
         from brokers.schwab_accounts import get_schwab_accounts_sync
 
         data = get_schwab_accounts_sync()
         positions: list[dict[str, Any]] = []
         for acct in data.get("accounts") or []:
             positions.extend(acct.get("positions") or [])
+        return positions
+
+    if account_id == "all_paper":
+        from db.sqlite import get_all_latest_snapshots
+
+        positions = []
+        for snap in get_all_latest_snapshots():
+            positions.extend(snap.get("positions") or [])
         return positions
 
     if str(account_id).startswith("schwab_"):

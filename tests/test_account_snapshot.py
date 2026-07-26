@@ -106,7 +106,16 @@ def test_get_latest_snapshot_account_keyed(tmp_path: Path) -> None:
     assert snap_broker["account"]["cash"] == 2_000.0
 
 
-def test_get_latest_snapshot_account_fallback(tmp_path: Path) -> None:
+def test_get_latest_snapshot_does_not_fall_back_to_an_unkeyed_run(
+    tmp_path: Path,
+) -> None:
+    """An unkeyed run is somebody's portfolio with the label missing — not a fallback.
+
+    ``api/main.py:_poll_broker`` writes ``account_id=None`` whenever a broker has
+    no default trade account, so ``account_id IS NULL`` does NOT mean "legacy
+    single-account database". Handing that run to an account-scoped ask would put
+    one account's portfolio behind another account's id.
+    """
     db = tmp_path / "fallback.db"
     sqlite_mod.init_db(db)
 
@@ -117,12 +126,65 @@ def test_get_latest_snapshot_account_fallback(tmp_path: Path) -> None:
         broker="alpaca",
         db_path=db,
     )
+    assert _poll_run_account_id(db) is None
 
-    snapshot = sqlite_mod.get_latest_snapshot(
-        "alpaca", account_id="never-saved", db_path=db
+    assert (
+        sqlite_mod.get_latest_snapshot(
+            "alpaca", account_id="never-saved", db_path=db
+        )
+        is None
     )
-    assert snapshot is not None
-    assert snapshot["account"]["cash"] == 5_000.0
+    # The unscoped ask is unchanged — it still returns the latest run.
+    unscoped = sqlite_mod.get_latest_snapshot("alpaca", db_path=db)
+    assert unscoped is not None
+    assert unscoped["account"]["cash"] == 5_000.0
+
+
+def test_get_latest_snapshot_never_falls_back_to_another_account(
+    tmp_path: Path,
+) -> None:
+    """An account-scoped ask must never return a DIFFERENT account's snapshot.
+
+    ``trading/risk_engine.py`` and ``trading/proposal_intake.py`` size and gate
+    real orders on what this returns — a cross-account fallback would validate an
+    order against someone else's buying power. Only an unkeyed (pre-migration)
+    run is an honest fallback; a run belonging to another identified account is
+    not, so the caller must see "no snapshot" and fail closed.
+    """
+    db = tmp_path / "no_cross_account.db"
+    sqlite_mod.init_db(db)
+
+    sqlite_mod.save_snapshot(
+        _account(cash=1_000.0),
+        [],
+        [],
+        broker="alpaca",
+        account_id="acct_a",
+        db_path=db,
+    )
+    sqlite_mod.save_snapshot(
+        _account(cash=2_000.0),
+        [],
+        [],
+        broker="alpaca",
+        account_id="acct_b",
+        db_path=db,
+    )
+
+    # A third account has never polled: no snapshot, NOT acct_b's.
+    assert (
+        sqlite_mod.get_latest_snapshot("alpaca", account_id="acct_c", db_path=db)
+        is None
+    )
+    # Broker-wide (unscoped) asks are unchanged — still the latest run.
+    unscoped = sqlite_mod.get_latest_snapshot("alpaca", db_path=db)
+    assert unscoped is not None
+    assert unscoped["account"]["cash"] == 2_000.0
+    # And a scoped ask still resolves its own account exactly.
+    own = sqlite_mod.get_latest_snapshot("alpaca", account_id="acct_a", db_path=db)
+    assert own is not None
+    assert own["account"]["cash"] == 1_000.0
+    assert own["account_id"] == "acct_a"
 
 
 @pytest.mark.asyncio

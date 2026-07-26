@@ -90,7 +90,18 @@ def _save_fresh_snapshot(db_path: Path, *, broker: str = "alpaca") -> None:
             current_price=150.0,
         )
     ]
-    sqlite_mod.save_snapshot(account, positions, [], broker=broker, db_path=db_path)
+    # Key the snapshot to the broker's default account, exactly as the pollers do
+    # (api/main.py). An account-scoped read never falls back to an unkeyed run, so
+    # an unkeyed fixture would misrepresent production as "no snapshot".
+    default = get_default_account(broker, db_path=db_path)
+    sqlite_mod.save_snapshot(
+        account,
+        positions,
+        [],
+        broker=broker,
+        account_id=default["id"] if default else None,
+        db_path=db_path,
+    )
 
 
 def _unmigrated_db(tmp_path: Path) -> Path:

@@ -209,6 +209,46 @@ async def test_risk_engine_stale_snapshot(monkeypatch, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_risk_engine_rejects_another_accounts_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Defense in depth: a foreign snapshot must fail closed, never size an order.
+
+    ``get_latest_snapshot`` no longer falls back across accounts, so the only way
+    to reach this branch is to simulate the data layer regressing — which is the
+    point of the guard. ``trading/exit_engine.py`` shipped its equivalent check
+    inverted once and skipped every position for weeks.
+    """
+    db = tmp_path / "risk.db"
+    _patch_passing_env(monkeypatch, db)
+    # The execution-capability gate (risk_engine.py:141) runs BEFORE the snapshot
+    # check, so the intent's account has to be a real, capable one to reach the
+    # guard under test.
+    monkeypatch.setattr(
+        "trading.risk_engine.account_is_execution_capable",
+        lambda *_a, **_k: True,
+    )
+    monkeypatch.setattr(
+        "trading.risk_engine.get_latest_snapshot",
+        lambda *_a, **_k: {
+            "captured_at": datetime.now(UTC).isoformat(),
+            "account_id": "acct_somebody_else",
+            "account": {"buying_power": 100_000, "portfolio_value": 100_000},
+            "open_orders": [],
+            "positions": [],
+        },
+    )
+    result = await RiskEngine.validate(
+        _intent(account_id="acct_mine"), db_path=db
+    )
+    assert result.passed is False
+    assert result.blocked_reason == "no portfolio snapshot"
+    assert result.checks["snapshot_freshness"] == (
+        "fail: snapshot belongs to another account"
+    )
+
+
+@pytest.mark.asyncio
 async def test_risk_engine_no_live_quote(monkeypatch, tmp_path: Path) -> None:
     db = tmp_path / "risk.db"
     _patch_passing_env(monkeypatch, db)

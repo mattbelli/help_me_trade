@@ -72,7 +72,12 @@ def _intent(**overrides) -> OrderIntent:
     return OrderIntent(**base)
 
 
-def _save_fresh_snapshot(db_path: Path, *, buying_power: float = 100_000.0) -> None:
+def _save_fresh_snapshot(
+    db_path: Path,
+    *,
+    buying_power: float = 100_000.0,
+    account_id: str | None = None,
+) -> None:
     account = Account(
         id="acc1",
         status="ACTIVE",
@@ -91,11 +96,18 @@ def _save_fresh_snapshot(db_path: Path, *, buying_power: float = 100_000.0) -> N
             current_price=150.0,
         )
     ]
+    # Key the snapshot to the default account, exactly as the pollers do
+    # (api/main.py). An account-scoped read never falls back to an unkeyed run, so
+    # an unkeyed fixture would misrepresent production as "no snapshot".
+    if account_id is None:
+        default = get_default_account("alpaca", db_path=db_path)
+        account_id = default["id"] if default else None
     sqlite_mod.save_snapshot(
         account,
         positions,
         [],
         broker="alpaca",
+        account_id=account_id,
         db_path=db_path,
     )
 
@@ -180,6 +192,10 @@ def _insert_execution_capable_alpaca(db: Path) -> str:
             (account_id, now, default["connection_id"]),
         )
         conn.commit()
+    # A real enabled + execution-capable account polls, so it has its own
+    # snapshot. Without one, RiskEngine correctly blocks it for "no portfolio
+    # snapshot" — an account-scoped read never borrows another account's.
+    _save_fresh_snapshot(db, account_id=account_id)
     return account_id
 
 

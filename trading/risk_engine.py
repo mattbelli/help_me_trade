@@ -308,6 +308,22 @@ class RiskEngine:
                 checks=checks,
                 blocked_reason="no portfolio snapshot",
             )
+        # Defense in depth at the chokepoint: never validate an order against a
+        # portfolio that is not the account's own. get_latest_snapshot no longer
+        # falls back across accounts, so this cannot fire today — it is here
+        # because this exact invariant broke once before (trading/exit_engine.py
+        # shipped its equivalent guard inverted and skipped every position for
+        # weeks), and buying power is what this function gates on.
+        if (
+            intent.account_id is not None
+            and snapshot.get("account_id") != intent.account_id
+        ):
+            checks["snapshot_freshness"] = "fail: snapshot belongs to another account"
+            return RiskCheckResult(
+                passed=False,
+                checks=checks,
+                blocked_reason="no portfolio snapshot",
+            )
         captured_at_raw = snapshot.get("captured_at")
         if not captured_at_raw:
             checks["snapshot_freshness"] = "fail: snapshot missing captured_at"

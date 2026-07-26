@@ -593,6 +593,45 @@ async def test_wrong_account_snapshot_is_rejected(
 
 
 @pytest.mark.asyncio
+async def test_exit_engine_mismatch_guard_itself_rejects(
+    tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise exit_engine's OWN mismatch guard, not the data layer's.
+
+    ``get_latest_snapshot`` no longer falls back across accounts, so the test
+    above now passes because it receives None — the guard at
+    ``trading/exit_engine.py`` is never entered. This one hands the engine a
+    foreign snapshot directly, so a regression in the data layer cannot silently
+    strip the last line of defense. That guard already shipped inverted once and
+    skipped every position for weeks (D3 / #91), which is why it stays covered.
+    """
+    db = _db(tmp_path)
+    _seed_account(db)
+    _open_managed(db, account_id="acct_1")
+
+    import trading.exit_engine as ee
+
+    monkeypatch.setattr(
+        ee,
+        "get_latest_snapshot",
+        lambda *_a, **_k: {
+            "captured_at": datetime.now(UTC).isoformat(),
+            "account_id": "acct_2",
+            "account": {"buying_power": 100_000, "portfolio_value": 100_000},
+            "open_orders": [],
+            "positions": [_position()],
+        },
+    )
+
+    outcomes = await run_exit_engine(db_path=db)
+
+    assert outcomes[0]["action"] == "skip"
+    assert outcomes[0]["reason"] == "no_snapshot"
+    assert len(list_open_positions(db_path=db)) == 1
+    assert exit_stubs["submit_calls"] == []
+
+
+@pytest.mark.asyncio
 async def test_vix_spike_exits_on_reversion_when_regime_fresh(
     tmp_path: Path, exit_stubs, monkeypatch: pytest.MonkeyPatch
 ) -> None:

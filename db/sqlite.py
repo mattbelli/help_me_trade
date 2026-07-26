@@ -492,8 +492,17 @@ def get_latest_snapshot(
     with _connect(db_path) as conn:
         run_id: int | None = None
         if account_id is not None:
+            # An account-scoped ask returns THAT account's run or nothing — it
+            # never falls back. Six accounts share the alpaca broker, so the
+            # broker-wide latest run is usually somebody else's, and callers size
+            # and gate real orders on what comes back (trading/risk_engine.py,
+            # trading/proposal_intake.py). Falling back to an unkeyed
+            # (account_id IS NULL) run is no safer: api/main.py:_poll_broker
+            # writes NULL whenever a broker has no default trade account, so an
+            # unkeyed run is a real account's portfolio with its label missing —
+            # and with broker=None it can cross the paper/real firewall.
             run_id = _latest_run_id_for_account(conn, account_id)
-        if run_id is None:
+        else:
             run_id = _latest_run_id(conn, broker)
         if run_id is None:
             return None
