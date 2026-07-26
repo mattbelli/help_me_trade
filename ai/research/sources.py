@@ -181,7 +181,7 @@ def web_search(
     resolved_query = _build_web_query(query, sites)
     searxng = get_searxng_url()
     if searxng:
-        results = _searxng_search(
+        results, health = _searxng_search(
             searxng,
             resolved_query,
             limit=limit,
@@ -189,19 +189,44 @@ def web_search(
         )
         if results:
             return results
-        logger.warning("SearXNG returned no results for query: %s", resolved_query[:80])
+        # An empty result set has three very different causes and the caller must
+        # be able to tell them apart. Reporting "no results for this query" when
+        # every engine is suspended is what left the copilot silently web-blind
+        # (07-02, 07-14, 07-25 — the same shape three times).
+        down = health["unresponsive_engines"]
+        if not health["reachable"]:
+            kind = "unreachable"
+            snippet = f"SearXNG at {searxng} could not be reached."
+        elif down:
+            kind = "engines_down"
+            snippet = (
+                f"SearXNG at {searxng} answered, but every search engine failed: "
+                f"{', '.join(down)}. This is an instance fault, not a bad query — "
+                "results are NOT available."
+            )
+        else:
+            kind = "no_results"
+            snippet = (
+                f"SearXNG at {searxng} ran the search and returned no matches. "
+                "Try a different query."
+            )
+        logger.warning(
+            "SearXNG %s for query: %s%s",
+            kind,
+            resolved_query[:80],
+            f" (engines down: {', '.join(down)})" if down else "",
+        )
         return [
             {
                 "id": _next_source_id("web"),
                 "type": "web",
                 "title": "Web search returned no results",
                 "url": None,
-                "snippet": (
-                    f"SearXNG at {searxng} did not return results for this query. "
-                    "Try a different query or check your SearXNG instance."
-                ),
+                "snippet": snippet,
                 "content": "",
                 "search_failed": True,
+                "failure_kind": kind,
+                "unresponsive_engines": down,
             }
         ]
     if not allow_mock:
@@ -250,7 +275,13 @@ def _searxng_search(
     *,
     limit: int,
     time_range: str | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Results plus instance health: ``{"reachable": bool, "unresponsive_engines": [...]}``.
+
+    A SearXNG whose engines are all suspended still answers HTTP 200 with an
+    empty ``results`` array — indistinguishable from a query with no matches
+    unless ``unresponsive_engines`` is read, which is why the caller gets it.
+    """
     params: dict[str, str] = {"q": query, "format": "json", "categories": "general"}
     if time_range in ("day", "week", "month", "year"):
         params["time_range"] = time_range
@@ -264,7 +295,14 @@ def _searxng_search(
             data = resp.json()
     except Exception as exc:
         logger.warning("SearXNG search failed: %s", exc)
-        return []
+        return [], {"reachable": False, "unresponsive_engines": []}
+
+    # Each entry is [engine, reason]; older builds emit bare strings.
+    down = [
+        str(e[0]) if isinstance(e, (list, tuple)) and e else str(e)
+        for e in (data.get("unresponsive_engines") or [])
+    ]
+    health = {"reachable": True, "unresponsive_engines": sorted(down)}
 
     out: list[dict[str, Any]] = []
     for item in (data.get("results") or [])[:limit]:
@@ -280,7 +318,7 @@ def _searxng_search(
                 "published": item.get("published"),
             }
         )
-    return out
+    return out, health
 
 
 MAX_REDIRECTS = 5

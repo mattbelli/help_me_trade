@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from ai.research.source_text import source_content_excerpt, source_for_analysis
 from ai.research.sources import (
+    _searxng_search,
     summarize_web_sources,
     web_search,
     web_search_status,
@@ -29,14 +30,83 @@ def test_mock_web_sources_are_labeled() -> None:
     assert all("MOCK" in hit["title"] for hit in hits)
 
 
+_HEALTHY: dict = {"reachable": True, "unresponsive_engines": []}
+
+
 def test_searxng_failure_does_not_fall_back_to_mock() -> None:
     with (
         patch("ai.research.sources.get_searxng_url", return_value="http://searx.test"),
-        patch("ai.research.sources._searxng_search", return_value=[]),
+        patch("ai.research.sources._searxng_search", return_value=([], _HEALTHY)),
     ):
         hits = web_search("NVDA", limit=3)
     assert len(hits) == 1
     assert not hits[0].get("is_mock")
+
+
+# --- an empty result set has three causes and they are NOT interchangeable ----
+#
+# A SearXNG whose engines are all suspended answers HTTP 200 with results:[].
+# Reporting that as "no results for this query" is what left the copilot
+# silently web-blind three separate times (07-02, 07-14, 07-25).
+
+
+def _no_hits(health: dict) -> dict:
+    with (
+        patch("ai.research.sources.get_searxng_url", return_value="http://searx.test"),
+        patch("ai.research.sources._searxng_search", return_value=([], health)),
+    ):
+        return web_search("NVDA", limit=3)[0]
+
+
+def test_engines_down_is_not_reported_as_an_empty_query() -> None:
+    hit = _no_hits({"reachable": True, "unresponsive_engines": ["bing", "google"]})
+    assert hit["failure_kind"] == "engines_down"
+    assert hit["unresponsive_engines"] == ["bing", "google"]
+    assert "instance fault" in hit["snippet"]
+
+
+def test_unreachable_instance_is_its_own_failure_kind() -> None:
+    hit = _no_hits({"reachable": False, "unresponsive_engines": []})
+    assert hit["failure_kind"] == "unreachable"
+
+
+def test_a_genuine_zero_match_query_is_not_a_failure_kind() -> None:
+    hit = _no_hits(_HEALTHY)
+    assert hit["failure_kind"] == "no_results"
+    assert hit["unresponsive_engines"] == []
+
+
+def test_searxng_search_reads_unresponsive_engines_off_the_payload() -> None:
+    """The live shape: HTTP 200, results:[], every engine suspended."""
+    payload = {
+        "results": [],
+        "unresponsive_engines": [
+            ["google", "HTTP connection error"],
+            ["bing", "HTTP connection error"],
+        ],
+    }
+
+    class _Resp:
+        def raise_for_status(self) -> None: ...
+
+        def json(self) -> dict:
+            return payload
+
+    class _Client:
+        def __init__(self, *_a, **_k) -> None: ...
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a) -> None: ...
+
+        def get(self, *_a, **_k):
+            return _Resp()
+
+    with patch("ai.research.sources.httpx.Client", _Client):
+        results, health = _searxng_search("http://searx.test", "NVDA", limit=3)
+    assert results == []
+    assert health == {"reachable": True, "unresponsive_engines": ["bing", "google"]}
 
 
 def test_summarize_web_sources_flags_mock() -> None:

@@ -1,0 +1,24 @@
+use_default_settings: true
+
+server:
+  secret_key: "__SEARXNG_SECRET__"
+
+# The JSON format is DISABLED by default upstream. ai/research/sources.py calls
+# /search?format=json, so without this the copilot's only web arm 404s.
+search:
+  formats:
+    - html
+    - json
+
+# The default general engines (duckduckgo/startpage/brave) get CAPTCHA'd or
+# rate-limited from this host's IP often enough to zero out web results. Keeping
+# bing in the general pool leaves a resilient fallback so a blocked engine set
+# does not leave the agent web-blind. Adapted from the odysseus project's
+# SearXNG config, which hit and solved the same problem on this box.
+engines:
+  - name: bing
+    engine: bing
+    disabled: false
+    categories:
+      - general
+      - web

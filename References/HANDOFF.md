@@ -34,12 +34,17 @@ flip.
 gate and the old flow-EOD schedule, and neither Monday check means anything.
 
 **Live bugs still open, all verified, each with a card:**
-`searxng-container-dns` (copilot silently web-blind; container resolves nothing, `web_search` reports
-success anyway) · `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that runs `propose_order`
-with no approval ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**,
-embeddings backfill never ran) · `fusion-unminted-dots` (4 registered components minted by nothing).
-*(Five of the nine are closed — snapshot account mismatch, the win% honesty leak, setup-scan
-idempotency, the contested wall, and the frozen flow baseline; see the 2026-07-26 BUILD_LOG rows.)*
+`chat-dead-ts-surface` (dead TS brain, incl. an endpoint that runs `propose_order` with no approval
+ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**, embeddings backfill never
+ran) · `fusion-unminted-dots` (4 registered components minted by nothing). *(Six of the nine are closed
+— snapshot account mismatch, the win% honesty leak, setup-scan idempotency, the contested wall, the
+frozen flow baseline, and the web-blind copilot; see the 2026-07-26 BUILD_LOG rows.)*
+
+⏳ **One command, needs an interactive sudo — the copilot is still web-blind until it runs:**
+`sudo systemctl restart hmt-backend`. We now run our own SearXNG on **8586** (`hmt-searxng`, up and
+returning 17 results; odysseus's dead 8585 was deliberately left untouched — that project waits on its
+healthcheck) and serv's `.env` already points at it, but `get_searxng_url()` reads `os.environ` first,
+so the live process keeps using 8585 until it restarts.
 
 ⏳ **Monday 2026-07-27, flow-EOD:** confirm the 16:xx ET run lands an `options_flow_daily` row for
 07-27 and that no 00:1x ET run appears. The 5 missing sessions are backfilled, but backfilled rows are

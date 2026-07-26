@@ -949,6 +949,30 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         )
         resolved_query = _build_web_query(query, sites)
         real = [h for h in hits if not h.get("search_failed")]
+        # A dead SearXNG answers HTTP 200 with an empty result set, so returning
+        # the usual capabilities blob here let the model answer from memory while
+        # believing it had searched the web. When the search could not actually
+        # run, say so — an error the model must handle, not an empty list it can
+        # shrug off. A genuine zero-match query is NOT an error and falls through.
+        failure = next(
+            (
+                h
+                for h in hits
+                if h.get("failure_kind") in ("unreachable", "engines_down")
+            ),
+            None,
+        )
+        if not real and failure is not None:
+            return {
+                "error": "web_search_unavailable",
+                "message": failure.get("snippet"),
+                "failure_kind": failure.get("failure_kind"),
+                "unresponsive_engines": failure.get("unresponsive_engines") or [],
+                "query": query,
+                "resolved_query": resolved_query,
+                "results": [],
+                "result_count": 0,
+            }
         return {
             "capabilities": web_search_capabilities(),
             "limitations": WEB_SEARCH_LIMITATIONS,

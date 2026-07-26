@@ -1,0 +1,82 @@
+# help_me_trade's own SearXNG — the copilot's only web arm.
+#
+# WHY THIS EXISTS: until 2026-07-26 `SEARXNG_URL` pointed at `odysseus-searxng-1`,
+# a container defined by a DIFFERENT project's compose. Our web search therefore
+# depended on someone else's config, and when it broke, it broke silently:
+# every engine reported "Suspended: HTTP connection error" while /search still
+# answered HTTP 200 with `results: []`.
+#
+# ROOT CAUSE of that outage, measured inside the container: name resolution.
+# `socket.gethostbyname('duckduckgo.com')` raised gaierror [Errno -3] while a raw
+# TCP connect to 1.1.1.1:443 succeeded — Docker's embedded resolver (127.0.0.11)
+# was forwarding to host resolvers captured when the network was created, and
+# this box runs a STATIC /etc/resolv.conf (tailscale accept-dns is off). Hence
+# the explicit `dns:` below. Owning the container does NOT fix this by itself —
+# recreate it without pinned DNS and the same failure comes back with our name
+# on it.
+#
+# Runs on 8586 so it coexists with odysseus's 8585: odysseus itself waits on that
+# container's healthcheck (`depends_on: condition: service_healthy`), so stopping
+# it would take down that project.
+#
+#   docker compose -f deploy/searxng/docker-compose.yml up -d
+#   curl -s 'http://127.0.0.1:8586/search?q=nvda&format=json' | head -c 300
+#
+# Then set SEARXNG_URL=http://127.0.0.1:8586 in .env and restart hmt-backend.
+# A non-empty `results` array is the only proof that counts — HTTP 200 is not.
+
+services:
+  searxng:
+    # Pinned, not :latest. The odysseus project measured 2026.6.2 crashing on
+    # boot with `KeyError: 'default_doi_resolver'` (upstream issue #1414); this
+    # tag is the one known to boot clean on this host. Bump deliberately, and
+    # verify with the curl above — not with `docker ps`.
+    image: docker.io/searxng/searxng:2026.5.31-7159b8aed
+    container_name: hmt-searxng
+    # ★ THE FIX. Without this the container inherits Docker's embedded resolver
+    # and resolves nothing against this host's static resolv.conf.
+    dns:
+      - 192.168.8.1
+      - 1.1.1.1
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if [ ! -s /etc/searxng/settings.yml ] || grep -q '__SEARXNG_SECRET__' /etc/searxng/settings.yml; then
+          secret="$${SEARXNG_SECRET:-}"
+          if [ -z "$$secret" ]; then
+            secret="$$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          fi
+          sed "s|__SEARXNG_SECRET__|$$secret|g" /tmp/searxng-settings.yml.template > /etc/searxng/settings.yml
+        fi
+        exec /usr/local/searxng/entrypoint.sh
+    ports:
+      - "127.0.0.1:8586:8080"
+    volumes:
+      - hmt-searxng-data:/etc/searxng
+      - ./settings.yml:/tmp/searxng-settings.yml.template:ro,z
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-}
+    # The image runs as the non-root `searxng` user, but its entrypoint still
+    # chowns /etc/searxng on first boot and drops privs via su-exec; the wrapper
+    # above also writes settings.yml into the named volume. Without these caps
+    # setup fails with EACCES. Mirrors upstream searxng-docker's cap set.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=5).read(1)\""]
+      interval: 5s
+      timeout: 6s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  hmt-searxng-data:

@@ -179,6 +179,43 @@ async def test_run_tool_web_search_unconfigured_returns_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_tool_web_search_errors_when_every_engine_is_down(monkeypatch):
+    """A configured-but-dead SearXNG must NOT read as a successful empty search.
+
+    It answers HTTP 200 with results:[], so the old payload — capabilities blob,
+    empty list, no error — let the model answer from memory believing it had
+    searched the web, while its prompt told it to use web_search for all news.
+    """
+    monkeypatch.setattr(
+        "ai.research.sources.get_searxng_url", lambda: "http://searx.test"
+    )
+    monkeypatch.setattr(
+        "ai.research.sources._searxng_search",
+        lambda *_a, **_k: ([], {"reachable": True, "unresponsive_engines": ["bing"]}),
+    )
+    result = await run_tool("web_search", {"query": "NVDA news"})
+    assert result.get("error") == "web_search_unavailable"
+    assert result.get("failure_kind") == "engines_down"
+    assert result.get("unresponsive_engines") == ["bing"]
+    assert result.get("results") == []
+
+
+@pytest.mark.asyncio
+async def test_run_tool_web_search_zero_matches_is_not_an_error(monkeypatch):
+    """A healthy instance that simply found nothing is a result, not a fault."""
+    monkeypatch.setattr(
+        "ai.research.sources.get_searxng_url", lambda: "http://searx.test"
+    )
+    monkeypatch.setattr(
+        "ai.research.sources._searxng_search",
+        lambda *_a, **_k: ([], {"reachable": True, "unresponsive_engines": []}),
+    )
+    result = await run_tool("web_search", {"query": "asdkjhqwe"})
+    assert "error" not in result
+    assert result.get("result_count") == 0
+
+
+@pytest.mark.asyncio
 async def test_run_tool_propose_order_requires_symbol():
     result = await run_tool("propose_order", {"side": "buy", "qty": 1})
     assert "error" in result
