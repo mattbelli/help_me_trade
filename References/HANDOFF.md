@@ -17,13 +17,16 @@ Four parallel audits (perception layer, idea engine + fusion, AI chat, all 64 no
 before being written down. **Nine new cards carry the findings** — this section exists only so the
 threads are not lost; read the cards for detail, and delete this section once they are worked.
 
-**★ The structural finding: PERCEIVE runs daily and works. REASON/DECIDE has never executed once.**
-`reason_runs` = **0 rows all-time**. The blocker is NOT `REASON_EMIT_ENABLED=False` — it is that
-**~92% of stacks score `contested`**, so the shadow gate has admitted nothing since 2026-07-22
-(archetype non-contested scorings: 99 on 07-22, **0** on 07-23, **0** on 07-24). Flipping the arm flag
-today lights a lane with an empty queue. → card `fusion-contested-wall`, which is upstream of four
-dead subsystems (dossier — `idea_dossiers` table does not exist live; the REASON lane; idea arming —
-`lifecycle_state` NULL on all 1,400 rows; attention idea-tiers).
+**★ The structural finding — the wall is down; ⏳ the live proof is Monday.** REASON/DECIDE had never
+executed once (`reason_runs` = 0 all-time) because a dead gate ran ahead of its replacement, not because
+of `REASON_EMIT_ENABLED`. Removed 07-26 (see the BUILD_LOG row); the offline replay puts **1–3
+investigations/session against a budget of 5**. **Open:** confirm on the Monday **2026-07-27** tape that
+`fusion_investigations` takes new rows and the `fusion_would_investigate` counter moves — the fix ships
+on unit tests plus a historical replay, and the tape closed Friday 16:04 ET. **Then it is the founder's
+call whether to flip `REASON_EMIT_ENABLED`** (a queue with members is the precondition, not the
+decision). The four dead subsystems downstream (dossier — `idea_dossiers` does not exist live; the REASON
+lane; idea arming — `lifecycle_state` NULL on all 1,400 rows; attention idea-tiers) stay dark until that
+flip.
 
 **Live bugs still open, all verified, each with a card:**
 `flow-daily-baseline-frozen` (`options_flow_daily` stuck at 07-17; unusualness scored against a stale
@@ -31,8 +34,8 @@ denominator) · `searxng-container-dns` (copilot silently web-blind; container r
 `web_search` reports success anyway) · `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that
 runs `propose_order` with no approval ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active
 memories**, embeddings backfill never ran) · `fusion-unminted-dots` (4 registered components minted by
-nothing). *(Three of the nine are closed — snapshot account mismatch, the win% honesty leak, and
-setup-scan idempotency; see the 2026-07-26 BUILD_LOG rows.)*
+nothing). *(Four of the nine are closed — snapshot account mismatch, the win% honesty leak, setup-scan
+idempotency, and the contested wall; see the 2026-07-26 BUILD_LOG rows.)*
 
 **Chat safety invariant re-verified INTACT** — no broker toolset in the registry, the loop returns
 without executing on `APPROVAL_TOOLS`, web executes only after an atomic single-consume hash-bound

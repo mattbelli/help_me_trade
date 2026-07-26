@@ -144,8 +144,25 @@ def test_archetype_filter_requires_options_and_structure(inv_db: Path) -> None:
     assert ids == ["arch"]  # the options-only stack was never a candidate
 
 
-def test_contested_stack_is_not_a_candidate(inv_db: Path) -> None:
+def test_legacy_contested_bit_does_not_gate(inv_db: Path) -> None:
+    """score_dots' contested-if-EVER bit must not veto a convicted decayed thesis.
+
+    It fires on one contrary print anywhere in the session, so it was mutually
+    exclusive with z ≥ T by construction: 691 archetype scorings cleared the dual
+    gate on 07-22/23/24 and every one was vetoed here. The conviction leg below
+    is the contested test now (Horizon Redesign §1)."""
     episode, state = _live("cont", TODAY, 5.0, ARCH, contested=True)
+    assert (
+        evaluate_investigation(episode, state, db_path=inv_db, now=_after_window())
+        == "shadow_investigate"
+    )
+
+
+def test_decayed_conviction_is_what_rejects_a_contested_stack(inv_db: Path) -> None:
+    """Same legacy bit set — but now the DECAYED read is the one that vetoes."""
+    episode, state = _live(
+        "cont_real", TODAY, 5.0, ARCH, contested=True, conviction=CONVICTION_BAR - 0.05
+    )
     assert (
         evaluate_investigation(episode, state, db_path=inv_db, now=_after_window())
         is None

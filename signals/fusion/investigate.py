@@ -120,7 +120,7 @@ def evaluate_investigation(
     """Would the LLM lane investigate this stack right now? (shadow only).
 
     Returns the recorded decision, or None when the stack is not an investigation
-    candidate — wrong archetype, contested, or below the day's threshold. Those
+    candidate — wrong archetype, or below either leg of the day's dual gate. Those
     are non-decisions and never become rows; only the four budget/baseline
     outcomes are stamped.
     """
@@ -130,8 +130,19 @@ def evaluate_investigation(
     group_scores = score_state.get("group_scores") or {}
     if not ARCHETYPE_GROUPS <= set(group_scores):
         return None  # not the Phase C archetype (options-actor + structure co-fire)
-    if bool(score_state.get("contested")):
-        return None  # contested stacks are never LLM-tier (§2.3)
+    # NOTE: score_state["contested"] — score_dots' binary contested-if-EVER bit —
+    # is deliberately NOT gated on here. It fires when any actor group saw both a
+    # bull and a bear dot anywhere in the session, undecayed and magnitude-blind;
+    # the Horizon Redesign (2026-07-21 §1) named that the disease and shipped
+    # score_decayed to replace it. The conviction leg of the dual gate below IS
+    # the contested test now — contemporaneous, decayed, magnitude-aware — and it
+    # strictly dominates the bit (§2.3's "never LLM-tier" rule, measured properly).
+    #
+    # Gating on both is not belt-and-braces, it is an empty set: clearing z ≥ T
+    # needs accumulated mass, and accumulated mass on a liquid name guarantees at
+    # least one contrary print, which trips the bit. Measured over 9,049 archetype
+    # scorings on 07-22/23/24 — 691 cleared the dual gate, 99 cleared the bit,
+    # ZERO cleared both, so this lane admitted nothing for three sessions.
 
     episode_id = str(episode["id"])
     market_day = str(episode["market_day"])
