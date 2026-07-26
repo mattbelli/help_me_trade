@@ -406,6 +406,57 @@ def _is_fetch_url_safe(url: str) -> bool:
     return True
 
 
+# --- page content extraction -------------------------------------------------
+# The tag strip below removes markup and nothing else, so on a real page the
+# caller's char budget is spent on nav menus and cookie banners before it ever
+# reaches the article. Measured 2026-07-26 across 7 finance pages: 7/7 led with
+# boilerplate ("Skip to main content Skip to main content News Events &amp;
+# Presentations…") and 7/7 were pinned at the 4,000-char cap. With main-content
+# extraction that became 1/7, and the same NVIDIA press release went from a nav
+# menu to "Record quarterly revenue of $22.1 billion, up 22% from Q3".
+#
+# trafilatura is OPTIONAL (soft import, warn once) and the tag strip stays as the
+# fallback: some pages are link lists with no article body, and there the
+# extractor correctly finds nothing — which is worse than junk when the caller
+# wanted context. Cost is ~37ms/page against a 15s fetch timeout.
+_MIN_MAIN_CONTENT_CHARS = 200
+_trafilatura_failed = False
+
+
+def _strip_tags(html: str) -> str:
+    """Markup removal only — no boilerplate removal. The fallback path."""
+    text = re.sub(r"<script[\s\S]*?</script>", " ", html, flags=re.I)
+    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_main_content(html: str) -> str:
+    """Article text without the site furniture, or "" if there is none to find."""
+    global _trafilatura_failed
+    if _trafilatura_failed:
+        return ""
+    try:
+        import trafilatura
+    except Exception:
+        # Latch on the IMPORT only — a single unparseable page must not disable
+        # extraction for every page after it.
+        _trafilatura_failed = True
+        logger.warning(
+            "main-content extraction unavailable (trafilatura not installed) — "
+            "falling back to the tag strip, which leaves page furniture in"
+        )
+        return ""
+    try:
+        # Default precision: favor_precision=True was measured returning EMPTY on
+        # 2 of 7 pages and an advertisement on 2 more.
+        out = trafilatura.extract(html, include_comments=False, include_tables=True)
+    except Exception as exc:
+        logger.warning("main-content extraction failed for one page: %s", exc)
+        return ""
+    return re.sub(r"\s+", " ", out).strip() if out else ""
+
+
 def fetch_url(url: str, *, max_chars: int = 4000) -> str:
     if not url or "research.local" in url:
         return ""
@@ -438,11 +489,13 @@ def fetch_url(url: str, *, max_chars: int = 4000) -> str:
     except Exception as exc:
         logger.warning("URL fetch failed %s: %s", url, exc)
         return ""
-    text = re.sub(r"<script[\s\S]*?</script>", " ", text, flags=re.I)
-    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:max_chars]
+    body = _extract_main_content(text)
+    if len(body) < _MIN_MAIN_CONTENT_CHARS:
+        # Pure link-list / JS-shell pages have no article body to find. Falling
+        # back to the tag strip keeps SOMETHING rather than handing the caller
+        # an empty source.
+        body = _strip_tags(text)
+    return body[:max_chars]
 
 
 def summarize_web_sources(sources: list[dict[str, Any]]) -> dict[str, Any]:

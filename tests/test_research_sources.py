@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -135,6 +136,81 @@ def test_outbound_searches_are_paced(monkeypatch) -> None:
     assert slept == []
     sources._pace_outbound_search()  # 0.3s later — owes the remaining 1.2s
     assert slept == [pytest.approx(1.2)]
+
+
+# --- page extraction: the char budget must reach the article, not the nav bar --
+#
+# Measured 2026-07-26 across 7 finance pages: the tag strip led with boilerplate
+# on 7/7 and was pinned at the char cap on 7/7, so the LLM read menus.
+
+_PAGE = """
+<html><head><title>T</title><style>.x{color:red}</style></head><body>
+<nav><a href="/">Skip to main content</a><a href="/login">Log In</a>
+<a href="/sub">Subscribe to our newsletter</a></nav>
+<article><h1>NVIDIA Announces Financial Results</h1>
+<p>Record quarterly revenue of $22.1 billion, up 22% from Q3, up 265% from a year
+ago, driven by Data Center demand. Full-year revenue reached $60.9 billion as
+the company shipped record volumes to cloud providers and enterprises.</p>
+<p>Management guided to continued growth and raised its quarterly dividend.</p>
+</article>
+<footer>Privacy policy. All rights reserved.</footer>
+<script>tracker()</script></body></html>
+"""
+
+
+def test_extraction_keeps_the_article_and_drops_the_furniture() -> None:
+    body = sources._extract_main_content(_PAGE)
+    assert "Record quarterly revenue of $22.1 billion" in body
+    assert "Skip to main content" not in body
+    assert "Subscribe to our newsletter" not in body
+    assert "All rights reserved" not in body
+
+
+def test_tag_strip_is_the_thing_extraction_replaces() -> None:
+    """Pins WHY this changed: the fallback path really does lead with the nav."""
+    stripped = sources._strip_tags(_PAGE)
+    assert stripped.index("Skip to main content") < stripped.index("Record quarterly")
+    assert "tracker()" not in stripped  # <script> still goes
+
+
+def test_fetch_url_falls_back_when_there_is_no_main_content(monkeypatch) -> None:
+    """Link-list pages have no article. Junk beats nothing when the caller
+    asked for page context, so the tag strip stays as the floor."""
+    monkeypatch.setattr(sources, "_is_fetch_url_safe", lambda _u: True)
+    monkeypatch.setattr(sources, "_extract_main_content", lambda _h: "")
+
+    class _Resp:
+        status_code = 200
+        text = _PAGE
+        headers: dict = {}
+
+        def raise_for_status(self) -> None: ...
+
+    class _Client:
+        def __init__(self, *_a, **_k) -> None: ...
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a) -> None: ...
+
+        def get(self, *_a, **_k):
+            return _Resp()
+
+    monkeypatch.setattr(sources.httpx, "Client", _Client)
+    body = sources.fetch_url("https://example.test/links")
+    assert "Skip to main content" in body  # the fallback ran
+    assert "Record quarterly revenue" in body
+
+
+def test_missing_extractor_degrades_and_latches(monkeypatch) -> None:
+    """A missing dependency must degrade to the tag strip, not raise — and the
+    miss latches so every later page skips the retry."""
+    monkeypatch.setattr(sources, "_trafilatura_failed", False)
+    monkeypatch.setitem(sys.modules, "trafilatura", None)  # import → ImportError
+
+    assert sources._extract_main_content(_PAGE) == ""
+    assert sources._trafilatura_failed is True
 
 
 def test_pacing_can_be_switched_off(monkeypatch) -> None:
