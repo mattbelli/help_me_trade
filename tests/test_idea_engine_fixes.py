@@ -12,12 +12,14 @@ Covers spec §8 items 5-6 (IDEA_ENGINE_PHASE1_SPEC_2026-07-17.md §6):
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from ai.research.setup_scan import _run_conviction_pass
+from api import research_jobs
 from api.research_jobs import _count_scan_ideas
 from db.ai_tables import artifact_exists_by_topic, save_research_artifact
 from signals.push import _la_content_state
@@ -140,6 +142,67 @@ def test_artifact_exists_by_topic_exact_match(tmp_path: Path):
     assert artifact_exists_by_topic(f"{topic} extra", db_path=db) is False
     assert artifact_exists_by_topic("Setup scan (nightly) — 2026-07-1%", db_path=db) is False
     assert artifact_exists_by_topic("nonexistent", db_path=db) is False
+
+
+# ---------------------------------------------------------------------------
+# 6b-2. Duplicate-run guard — the marker must survive a backend restart
+#
+# The exact-match lookup above is only half the guard, and the weaker half: it
+# reads the artifact's ``topic``, which the completing writer used to overwrite
+# with the model's free-text title. The marker therefore evaporated the moment
+# the scan finished, and the next tick after a restart re-ran the whole scan —
+# 3 runs on ET-day 07-24 alone, each pushing duplicate ideas into the
+# calibration ledger. The lane_stats day counter is now the primary marker.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _scan_lane(monkeypatch: pytest.MonkeyPatch):
+    """Hermetic stand-in for the lane_stats counters + the artifact fallback."""
+    counters: dict[tuple[str, str, str], float] = {}
+
+    def fake_bump(lane, counter, n=1, *, date=None, **_kw):
+        key = (lane, date or "", counter)
+        counters[key] = counters.get(key, 0) + n
+
+    def fake_day(lane, date, **_kw):
+        return {c: v for (ln, d, c), v in counters.items() if ln == lane and d == date}
+
+    monkeypatch.setattr(research_jobs, "bump", fake_bump)
+    monkeypatch.setattr(research_jobs, "day", fake_day)
+    # No artifact carries the canonical topic — the production shape after the
+    # writer renamed it.
+    monkeypatch.setattr(
+        "db.ai_tables.artifact_exists_by_topic", lambda *_a, **_k: False
+    )
+    monkeypatch.setattr(research_jobs, "_setup_scan_ran_dates", set())
+    return counters
+
+
+def test_setup_scan_guard_survives_a_restart(_scan_lane, monkeypatch):
+    today = date(2026, 1, 5)
+    assert research_jobs._setup_scan_already_ran(today) is False
+
+    research_jobs._mark_setup_scan_ran(today)
+    assert research_jobs._setup_scan_already_ran(today) is True
+
+    # Restart: the in-memory set is gone, the renamed artifact is unfindable,
+    # and only the lane counter is left to say the scan already ran.
+    monkeypatch.setattr(research_jobs, "_setup_scan_ran_dates", set())
+    assert research_jobs._setup_scan_already_ran(today) is True
+
+
+def test_setup_scan_marks_the_lane_exactly_once(_scan_lane):
+    """"ran" is the silent-lane heartbeat too — a double bump would misreport it."""
+    research_jobs._mark_setup_scan_ran(date(2026, 1, 5))
+    assert _scan_lane[("setup_scan", "2026-01-05", "ran")] == 1
+
+
+def test_setup_scan_guard_is_per_day(_scan_lane, monkeypatch):
+    """A new ET day must run again — the marker is a day counter, not a latch."""
+    research_jobs._mark_setup_scan_ran(date(2026, 1, 5))
+    monkeypatch.setattr(research_jobs, "_setup_scan_ran_dates", set())
+    assert research_jobs._setup_scan_already_ran(date(2026, 1, 6)) is False
 
 
 # ---------------------------------------------------------------------------

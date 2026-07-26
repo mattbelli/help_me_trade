@@ -25,17 +25,14 @@ today lights a lane with an empty queue. → card `fusion-contested-wall`, which
 dead subsystems (dossier — `idea_dossiers` table does not exist live; the REASON lane; idea arming —
 `lifecycle_state` NULL on all 1,400 rows; attention idea-tiers).
 
-**Live bugs, all verified, each with a card:**
-`snapshot-account-mismatch-guard` (RiskEngine + proposal_intake can size against ANOTHER account's
-snapshot — `exit_engine` already guards it, they don't) · `perception-winprob-honesty-leak` (calibration
-flags stripped at `ai/perception/context.py:193`; a bare "Win %" tile renders an **edgeless** model —
-Brier 0.2456 vs base-rate 0.2486, n=447, five weeks stale) · `setup-scan-idempotency` (nightly scan ran
-3× on 07-24 → duplicate ledger ideas) · `flow-daily-baseline-frozen` (`options_flow_daily` stuck at
-07-17; unusualness scored against a stale denominator) · `searxng-container-dns` (copilot silently
-web-blind; container resolves nothing, `web_search` reports success anyway) · `chat-dead-ts-surface`
-(dead TS brain, incl. an endpoint that runs `propose_order` with no approval ledger) ·
-`copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**, embeddings backfill never ran) ·
-`fusion-unminted-dots` (4 registered components minted by nothing).
+**Live bugs still open, all verified, each with a card:**
+`flow-daily-baseline-frozen` (`options_flow_daily` stuck at 07-17; unusualness scored against a stale
+denominator) · `searxng-container-dns` (copilot silently web-blind; container resolves nothing,
+`web_search` reports success anyway) · `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that
+runs `propose_order` with no approval ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active
+memories**, embeddings backfill never ran) · `fusion-unminted-dots` (4 registered components minted by
+nothing). *(Three of the nine are closed — snapshot account mismatch, the win% honesty leak, and
+setup-scan idempotency; see the 2026-07-26 BUILD_LOG rows.)*
 
 **Chat safety invariant re-verified INTACT** — no broker toolset in the registry, the loop returns
 without executing on `APPROVAL_TOOLS`, web executes only after an atomic single-consume hash-bound

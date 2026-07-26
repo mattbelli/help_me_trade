@@ -1147,7 +1147,12 @@ async def run_setup_scan(
 
         html = render_report_html(report, meta_label="Setup scan")
         save_research_artifact(
-            topic=str(report.get("title") or display_topic),
+            # The caller's topic, NOT report["title"]. This UPDATEs the row
+            # create_research_run opened, so writing the model's free-text title
+            # here erased the nightly run's "already ran" marker the instant the
+            # scan finished. The model's title still rides in report_json and
+            # heads the rendered report.
+            topic=display_topic,
             symbol=None,
             markdown=markdown,
             status="completed",

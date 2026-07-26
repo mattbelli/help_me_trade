@@ -164,8 +164,10 @@ async def _options_flow_eod_once() -> None:
 # ---------------------------------------------------------------------------
 # Nightly setup scan: keeps the idea-outcomes calibration ledger fed without a
 # human remembering to run it. Weekday evenings after the close; once per ET
-# day. The artifact topic doubles as the restart-safe "already ran" marker.
+# day. The lane_stats day counter is the restart-safe "already ran" marker; the
+# artifact topic is a second layer, not the primary one (see below).
 # ---------------------------------------------------------------------------
+_SETUP_SCAN_LANE = "setup_scan"
 _setup_scan_ran_dates: set[date] = set()
 
 
@@ -176,6 +178,23 @@ def _setup_scan_nightly_topic(today_et: date) -> str:
 def _setup_scan_already_ran(today_et: date) -> bool:
     if today_et in _setup_scan_ran_dates:
         return True
+    # Restart-safe marker — same lane_stats day-counter the options-flow lane
+    # uses above, and the load-bearing check. The artifact-topic probe below
+    # only holds while the scan's own topic survives, and until 07-26 it did
+    # not: the completing writer overwrote `topic` with the model's free-text
+    # title, so the marker vanished the moment the scan finished and the next
+    # post-restart tick re-ran the whole thing (the 07-04/07-14/07-21/07-23/
+    # 07-24 multi-runs, each duplicating ideas into the calibration ledger).
+    try:
+        if day(_SETUP_SCAN_LANE, today_et.isoformat()).get("ran", 0) >= 1:
+            _setup_scan_ran_dates.add(today_et)
+            return True
+    except Exception:
+        logger.exception(
+            "setup scan: lane_stats dedup read failed — falling back to the "
+            "artifact-topic marker"
+        )
+
     from db.ai_tables import artifact_exists_by_topic
 
     # Exact-match indexed lookup, not a bounded list scan: a high artifact volume
@@ -185,6 +204,26 @@ def _setup_scan_already_ran(today_et: date) -> bool:
         _setup_scan_ran_dates.add(today_et)
         return True
     return False
+
+
+def _mark_setup_scan_ran(today_et: date) -> None:
+    _setup_scan_ran_dates.add(today_et)
+    # Bound memory: keep only today and yesterday.
+    for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
+        _setup_scan_ran_dates.discard(d)
+    iso = today_et.isoformat()
+    # Doubles as the lane heartbeat the silent-lane alarm keys on.
+    bump(_SETUP_SCAN_LANE, "ran", 1, date=iso)
+    # bump() is fail-soft by law — verify the restart-safe marker actually landed.
+    try:
+        landed = day(_SETUP_SCAN_LANE, iso).get("ran", 0) >= 1
+    except Exception:
+        landed = False
+    if not landed:
+        logger.error(
+            "setup scan: lane_stats 'ran' marker did not land — "
+            "a same-day restart may re-run the scan"
+        )
 
 
 def _count_scan_ideas(result: object) -> tuple[int, int]:
@@ -220,9 +259,7 @@ async def _setup_scan_nightly_once() -> None:
 
     logger.info("Nightly setup scan starting: %s", today_et)
     result = await run_setup_scan(topic=_setup_scan_nightly_topic(today_et))
-    _setup_scan_ran_dates.add(today_et)
-    for d in [d for d in _setup_scan_ran_dates if d < today_et - timedelta(days=1)]:
-        _setup_scan_ran_dates.discard(d)
+    _mark_setup_scan_ran(today_et)
     structure, conviction = _count_scan_ideas(result)
     logger.info(
         "Nightly setup scan done: %d structure + %d conviction idea(s)",
@@ -230,7 +267,9 @@ async def _setup_scan_nightly_once() -> None:
         conviction,
     )
     try:
-        bump("setup_scan", "ran", 1)  # heartbeat — the silent-lane rule keys on this
+        # "ran" is bumped by _mark_setup_scan_ran above — it is the dedup marker
+        # AND the heartbeat the silent-lane rule keys on, so it must land exactly
+        # once per completed scan.
         bump("setup_scan", "registered", structure + conviction)
         bump("setup_scan", "conviction_ok", conviction)
         # Vetoed shadows are registered inside run_setup_scan and never surface in
