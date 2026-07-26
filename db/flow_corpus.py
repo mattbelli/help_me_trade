@@ -28,7 +28,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # Bump when a bucket boundary or a classification rule changes. Rows carry it so
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
 MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "unknown")
@@ -46,6 +46,17 @@ def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
     with connect(db_path) as conn:
+        # multileg is part of the PRIMARY KEY and SQLite cannot ALTER a key, so a
+        # table that predates it must be rebuilt rather than extended. Dropping is
+        # safe here and nowhere else: flow_rollup is derived data, reproducible
+        # from the raw .dbn.zst prints retained on disk, and every pre-existing row
+        # is already fenced out by ingested_dates()'s schema_version filter -- it
+        # would be re-rolled before any query could read it. The rows are stale,
+        # not precious. This runs before CREATE so the recreate is the same
+        # statement that builds a fresh database, never a second divergent copy.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
+        if cols and "multileg" not in cols:
+            conn.execute("DROP TABLE flow_rollup")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS flow_rollup (
@@ -74,23 +85,28 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 -- post-hoc robustness counterpart. Agreement between the two is
                 -- the directional read -- disagreement means abstain, not pick.
                 u_premium_clipped REAL NOT NULL,
+                -- 1 when the print shared its ts_event with a print on a
+                -- DIFFERENT instrument: the multi-leg signature. A spread leg is
+                -- priced by the firm allocating the package and need not sit
+                -- inside that leg's own NBBO, so its midpoint side is unreliable
+                -- -- and unreliable in ALL THREE measures, since they share one
+                -- per-print sign. Measured 2025-07-28 (in-sample): 12.96% of
+                -- prints, 33.33% of premium, and excluding them FLIPS the session
+                -- sign of net_premium (+553.6M -> -219.3M), u_premium_clipped
+                -- (+95.4M -> -84.3M) and u_premium (+366.4M -> -176.5M).
+                -- It is a grain, not a filter: both arms are stored so neither
+                -- inclusion nor exclusion can be chosen after seeing the answer.
+                -- Heuristic, not ground truth -- OPRA tcbbo `flags` is constant
+                -- 194 across all 6.95M prints and marks nothing (measured by
+                -- tools/tcbbo_flags_probe.py). ts_event is true-ns, so collisions
+                -- are real simultaneity: ~1 coincidence expected per session.
+                multileg INTEGER NOT NULL,
                 schema_version INTEGER NOT NULL,
                 PRIMARY KEY (date, underlying, right, dte_bucket, mny_bucket,
-                             side, strict_side)
+                             side, strict_side, multileg)
             )
             """
         )
-        # CREATE TABLE IF NOT EXISTS is a no-op on a table that predates
-        # u_premium_clipped, so add it explicitly. Existing rows get 0.0, which is
-        # wrong rather than merely missing -- they were written at SCHEMA_VERSION 1
-        # and ingested_dates() filters on the current version, so they read as
-        # not-yet-ingested and are re-rolled before anything can query them.
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
-        if "u_premium_clipped" not in cols:
-            conn.execute(
-                "ALTER TABLE flow_rollup ADD COLUMN "
-                "u_premium_clipped REAL NOT NULL DEFAULT 0.0"
-            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rollup_und_date "
             "ON flow_rollup (underlying, date)"
@@ -162,8 +178,8 @@ def upsert_rollup(rows: list[tuple], db_path: Path = DEFAULT_DB_PATH) -> int:
             "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
             "dte_bucket, mny_bucket, side, strict_side, prints, contracts, "
             "premium_usd, premium_sq, premium_max, u_premium, "
-            "u_premium_clipped, schema_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "u_premium_clipped, multileg, schema_version) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     return len(rows)

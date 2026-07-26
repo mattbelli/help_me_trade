@@ -29,27 +29,40 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
 - **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
   (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
   only 61.9%. Premium is clean at $26,310,928,243.
-- **✅ Direction rule REGISTERED + IMPLEMENTED** — Addendum C + `signals/options_flow/corpus_direction.py`
-  + 8 tests. All three of `net_premium` / `u_premium_clipped` / `u_premium` must agree in sign, else
-  **abstain** (reported as its own mass, never coerced to neutral). Validated on 2025-07-28: **24.68%
-  abstention by PREMIUM** vs 14.15% by count — inside the pre-declared 20–35% band. ⚠️ Robustness checks
-  on this corpus must be **premium-weighted**; disagreement is 0.24% of buckets but 15.8% of premium.
-  **`u_premium` is pre-registered — add measures beside it, never redefine it.** Changing the clip bound
-  or going 2-of-3 = `schema_version` bump + new addendum.
+- **✅ Direction rule REGISTERED + CORRECTED** — Addendum C, corrected by **Addendum D** (C left in the
+  record deliberately; D is appended, not an in-place edit). The rule and the 20–35% band are
+  **unchanged**; what changed is why they are trusted. ⚠️ **The three measures are NOT three votes** —
+  `sign(u)` equals the midpoint side by construction (`half > 0` under `good_q`), so all three share
+  every print's sign and differ only in weight (`w=1` / `min(|u|,1)` / `|u|`). Their agreement tests
+  **only** that direction survives the weighting choice. **A 2-of-3 majority is incoherent here**, not
+  merely unregistered — it counts one opinion twice; the majority-vote `dissenters()` helper is deleted.
+  Abstains now carry a state: `no_opinion` / `weighting_unstable` / `contested`, reported by premium
+  share and **never pooled**. ⚠️ Robustness checks stay **premium-weighted**; raw-vs-clip disagreement is
+  0.24% of buckets but 15.8% of premium. **`u_premium` is pre-registered — add measures beside it, never
+  redefine it.**
+- **⚠️⚠️ MULTI-LEG CONTAMINATION — the biggest live caveat on this corpus.** A spread leg is priced off
+  the package, not its own NBBO, so its midpoint side is unreliable — and unreliable in **all three**
+  measures, since they share one sign. Measured 2025-07-28: **12.96% of prints, 33.33% of premium**, and
+  excluding them **flips the session sign of every measure** (net +$553.6M → −$219.3M, clip +$95.4M →
+  −$84.3M, raw +$366.4M → −$176.5M). Now a **grain** (`multileg` in the rollup PK, `schema_version=3`),
+  so both arms are stored and neither can be chosen after seeing the answer. **No bucket-level reading —
+  directional or abstain — may be presented without both arms.** The flag is a heuristic (shared
+  `ts_event`, different instrument): OPRA `flags` is constant 194 across all 6.95M prints and marks
+  nothing (`tools/tcbbo_flags_probe.py`), but `ts_event` is true-ns so ~1 coincidence is expected per
+  session.
 - **⏳ CONFIRMATORY, once the backfill lands:** the rule was chosen after seeing 2025-07-28, so that
   session is in-sample. Re-measure abstention across the ~258 unexamined sessions and report where it
-  falls against the 20–35% band — **outside the band is a finding, not a reason to retune.**
-- **⏳ Study round owns two follow-ups.** (1) Wire `by_measure` calls into the idea ledger so grading can
-  rank the three estimators ordinally — deliberately not built now (no consumer yet; a hook into nothing
-  is dead code), but the calls are emitted from the start because the comparison cannot be run
-  retroactively. (2) Understand why **`net_premium` is the dominant dissenter** (3,456 buckets vs raw
-  `u`'s 83) — that is the opposite of the expected failure mode and nothing should lean on the rule
-  until it is explained.
+  falls against the 20–35% band — **outside the band is a finding, not a reason to retune.** Report the
+  three abstain states separately; no sub-bands are declared and none may be invented from 07-28.
+- **⏳ Study round owns one follow-up:** wire `by_measure` calls into the idea ledger so grading can rank
+  the three weightings ordinally — deliberately not built now (no consumer yet; a hook into nothing is
+  dead code), but the calls are emitted from the start because the comparison cannot be run
+  retroactively.
 - **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
   whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
-- **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
-  `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
-  universe (not just one session's) has spot.
+- **⏳ Rollup not yet run across the corpus** — verified on 2025-07-28 only (9s/session, 186,768 rows at
+  `schema_version=3`). Run `tools/flow_corpus_rollup.py` once the files land, then re-run
+  `tools/flow_corpus_bars.py` so the full universe (not just one session's) has spot.
 - **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
   are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
   `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —

@@ -12,12 +12,17 @@ Both are written on every row so neither can be chosen after seeing results.
 (Rates measured post-join on 2025-07-28 by tools/flow_classifier_audit.py; the
 10.1% that print exactly at the mid stay unsigned rather than being guessed.)
 
-Directional intensity is written twice for the same reason: `u_premium` exactly as
-pre-registered, and `u_premium_clipped` with u bounded to [-1, 1]. Raw u is a ratio
-over the half-spread and is unbounded, so 0.40% of prints carry 171.92% of the raw
-sum. Agreement between the two is the directional read; disagreement means abstain.
-Net premium (buy minus sell, already implied by the `side` key) is the robust
-third leg and needs no new column.
+Directional intensity is written twice: `u_premium` exactly as pre-registered, and
+`u_premium_clipped` with u bounded to [-1, 1]. Raw u is a ratio over the
+half-spread and is unbounded, so 0.40% of prints carry 171.92% of the raw sum.
+With net premium (implied by the `side` key) that is three weightings of ONE
+signed axis, not three independent votes — `sign(u)` equals the midpoint side by
+construction, since `half > 0` under `good_q`. Their agreement therefore tests
+only whether a bucket's direction survives the choice of weighting.
+
+It does NOT test the sign itself, which is why `multileg` is a grain (Addendum D):
+a spread leg is priced off the package, not its own NBBO, and dropping those
+prints flips the 2025-07-28 session sign of all three measures at once.
 
   python tools/flow_corpus_rollup.py --start 2026-07-23 --end 2026-07-24
 """
@@ -89,6 +94,33 @@ def _load_definitions(session: date) -> tuple[np.ndarray, ...] | None:
     dte = (exp_days - sess_days).astype(np.int32)
 
     return ids, und_code, uniq_und, right, strike, dte
+
+
+def _multileg(ts_event: np.ndarray, iid: np.ndarray) -> np.ndarray:
+    """True where a print shares its ts_event with a print on a DIFFERENT
+    instrument — the multi-leg signature.
+
+    A spread leg is priced by the firm allocating the package, so it need not sit
+    inside that leg's own NBBO and its midpoint side is unreliable. Because all
+    three registered measures share one per-print sign, that unreliability is not
+    confined to the intensity measures: on 2025-07-28 excluding these prints flips
+    the session sign of net_premium too.
+
+    Sorting by (ts_event, instrument_id) makes a group multi-leg iff its first and
+    last instrument_id differ — no per-group Python loop over 6.9M prints.
+
+    Requiring a *different* instrument is what separates a package from a sweep:
+    same instrument at the same nanosecond is one order crossing several venues
+    (44.5% of the 2-print groups), which is not contamination.
+    """
+    order = np.lexsort((iid, ts_event))
+    ts_s, iid_s = ts_event[order], iid[order]
+    starts = np.flatnonzero(np.r_[True, ts_s[1:] != ts_s[:-1]])
+    ends = np.r_[starts[1:], len(ts_s)] - 1
+    mixed = np.repeat(iid_s[starts] != iid_s[ends], ends - starts + 1)
+    out = np.empty(len(ts_event), dtype=bool)
+    out[order] = mixed
+    return out
 
 
 def _bucket_dte(dte: np.ndarray) -> np.ndarray:
@@ -176,6 +208,9 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
 
     premium = price / PX * size * 100.0
 
+    ml = _multileg(arr["ts_event"].astype(np.int64),
+                   arr["instrument_id"].astype(np.int64)).astype(np.int64)
+
     # --- moneyness against the session close --------------------------------
     closes = bars_for_date(session.isoformat(), **kw)
     spot_by_code = np.array(
@@ -188,8 +223,8 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     mny_b = _bucket_mny(strike, spot, right)
 
     # --- aggregate ----------------------------------------------------------
-    key = ((((und_code.astype(np.int64) * 2 + right) * 4 + dte_b) * 5 + mny_b) * 3
-           + side) * 3 + strict
+    key = (((((und_code.astype(np.int64) * 2 + right) * 4 + dte_b) * 5 + mny_b) * 3
+            + side) * 3 + strict) * 2 + ml
     uniq, inv = np.unique(key, return_inverse=True)
     n = len(uniq)
     prints_ = np.bincount(inv, minlength=n)
@@ -208,6 +243,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     np.maximum.at(prem_max, inv, premium)
 
     k = uniq
+    k, s_ml = np.divmod(k, 2)
     k, s_strict = np.divmod(k, 3)
     k, s_side = np.divmod(k, 3)
     k, s_mny = np.divmod(k, 5)
@@ -221,7 +257,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
          DTE_BUCKETS[s_dte[i]], MNY_BUCKETS[s_mny[i]], SIDES[s_side[i]],
          SIDES[s_strict[i]], int(prints_[i]), int(contracts[i]),
          float(prem[i]), float(prem_sq[i]), float(prem_max[i]),
-         float(u_prem[i]), float(u_prem_clip[i]), SCHEMA_VERSION)
+         float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), SCHEMA_VERSION)
         for i in range(n)
     ]
     upsert_rollup(rows, **kw)
