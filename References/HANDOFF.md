@@ -10,6 +10,26 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 
 ---
 
+## ▶ 2026-07-26 whole-market flow corpus — backfill IN FLIGHT, deadline is real
+
+Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
+daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
+
+- **⏳ Backfill running** (`tools/opra_tcbbo_backfill.py`, ~260 sessions to `data/databento/opra_tcbbo/`,
+  definitions chained after). **If it dies, restart it** — it is resumable and every day left unarchived
+  ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
+  cost guard refusing to spend, and it means a day fell outside the window.
+- **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
+  `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
+  universe (not just one session's) has spot.
+- **Open question, do not assume benign:** 0.37% of prints (40,886/session) do not resolve against the
+  same session's definitions. Characterize before the study reads through them.
+- **Index roots have no spot by construction** (SPX/SPXW/NDX/VIX/RUT = 30.8% of premium, `mny_bucket`
+  = 'unknown'). The prereg's secondary arm excludes index roots, so this is acceptable — but it is a
+  decision, not an oversight, and a SPY×10-style proxy is the option if that changes.
+- **Do NOT build** the anchor-seeding / hot-pool / promotion tuning for the 1,000-sub cap. It was queued
+  before the subscription and is now dead work.
+
 ## ▶ 2026-07-26 audit round — four Opus investigators; findings are ON THE BOARD, not here
 
 Four parallel audits (perception layer, idea engine + fusion, AI chat, all 64 non-done cards) ran against
