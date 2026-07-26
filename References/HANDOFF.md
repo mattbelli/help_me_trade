@@ -40,11 +40,12 @@ ran) · `fusion-unminted-dots` (4 registered components minted by nothing). *(Si
 — snapshot account mismatch, the win% honesty leak, setup-scan idempotency, the contested wall, the
 frozen flow baseline, and the web-blind copilot; see the 2026-07-26 BUILD_LOG rows.)*
 
-⏳ **One command, needs an interactive sudo — the copilot is still web-blind until it runs:**
-`sudo systemctl restart hmt-backend`. We now run our own SearXNG on **8586** (`hmt-searxng`, up and
-returning 17 results; odysseus's dead 8585 was deliberately left untouched — that project waits on its
-healthcheck) and serv's `.env` already points at it, but `get_searxng_url()` reads `os.environ` first,
-so the live process keeps using 8585 until it restarts.
+✅ **The copilot's web arm is live again** — our own `hmt-searxng` on **8586** (`deploy/searxng/`),
+backend restarted, `.env` *and* `data/settings.json` both repointed, end-to-end verified: 30 results
+across startpage/bing/duckduckgo/mojeek. Odysseus's dead 8585 was deliberately left untouched — that
+project waits on its healthcheck. **Open, founder's call only:** the `braveapi` engine is the
+sanctioned path to brave (it throttles this IP and always will), but it needs a signup and attaches
+queries to an account — likely unnecessary at 30 results without it.
 
 ⏳ **Monday 2026-07-27, flow-EOD:** confirm the 16:xx ET run lands an `options_flow_daily` row for
 07-27 and that no 00:1x ET run appears. The 5 missing sessions are backfilled, but backfilled rows are

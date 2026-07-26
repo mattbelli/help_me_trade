@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
+from ai.research import sources
 from ai.research.source_text import source_content_excerpt, source_for_analysis
 from ai.research.sources import (
     _searxng_search,
@@ -103,10 +106,46 @@ def test_searxng_search_reads_unresponsive_engines_off_the_payload() -> None:
         def get(self, *_a, **_k):
             return _Resp()
 
-    with patch("ai.research.sources.httpx.Client", _Client):
+    with (
+        patch("ai.research.sources.SEARXNG_MIN_INTERVAL_S", 0.0),
+        patch("ai.research.sources.httpx.Client", _Client),
+    ):
         results, health = _searxng_search("http://searx.test", "NVDA", limit=3)
     assert results == []
     assert health == {"reachable": True, "unresponsive_engines": ["bing", "google"]}
+
+
+# --- outbound pacing: engines throttle by requests-per-IP, not by user agent --
+#
+# SearXNG already rotates a Firefox UA pool and brave still answers "Too many
+# request", so the lever is volume. _collect_web_for_queries fans queries out
+# with no spacing, which is what flagged this host's IP on 07-14.
+
+
+def test_outbound_searches_are_paced(monkeypatch) -> None:
+    slept: list[float] = []
+    # monotonic() is read twice per call: once for the gap, once to re-stamp.
+    ticks = iter([100.0, 100.0, 100.3, 100.3])
+    monkeypatch.setattr(sources, "SEARXNG_MIN_INTERVAL_S", 1.5)
+    monkeypatch.setattr(sources, "_last_search_at", 0.0)
+    monkeypatch.setattr(sources.time, "sleep", slept.append)
+    monkeypatch.setattr(sources.time, "monotonic", lambda: next(ticks))
+
+    sources._pace_outbound_search()  # first search of the process — no wait
+    assert slept == []
+    sources._pace_outbound_search()  # 0.3s later — owes the remaining 1.2s
+    assert slept == [pytest.approx(1.2)]
+
+
+def test_pacing_can_be_switched_off(monkeypatch) -> None:
+    """The tunable is a real escape hatch, not decoration."""
+    monkeypatch.setattr(sources, "SEARXNG_MIN_INTERVAL_S", 0.0)
+    monkeypatch.setattr(sources, "_last_search_at", 0.0)
+    monkeypatch.setattr(
+        sources.time, "sleep", lambda _s: pytest.fail("paced with the interval off")
+    )
+    sources._pace_outbound_search()
+    sources._pace_outbound_search()
 
 
 def test_summarize_web_sources_flags_mock() -> None:

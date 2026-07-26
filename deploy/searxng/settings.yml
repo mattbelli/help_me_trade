@@ -15,9 +15,24 @@ search:
 # bing in the general pool leaves a resilient fallback so a blocked engine set
 # does not leave the agent web-blind. Adapted from the odysseus project's
 # SearXNG config, which hit and solved the same problem on this box.
+#
+# Resilience here comes from ENGINE DIVERSITY, not from looking less like a bot:
+# SearXNG already rotates a Firefox user-agent pool and brave still answers
+# "Too many request", because the big engines throttle by requests-per-IP.
+# mojeek runs its own independent index (not a Bing/Google reseller) and does
+# not throttle this host, so it holds the floor up when the majors block —
+# `disabled: true` upstream, enabled here on purpose.
 engines:
   - name: bing
     engine: bing
+    disabled: false
+    categories:
+      - general
+      - web
+
+  - name: mojeek
+    engine: mojeek
+    shortcut: mjk
     disabled: false
     categories:
       - general

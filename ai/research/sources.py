@@ -5,8 +5,11 @@ from __future__ import annotations
 import ipaddress
 import itertools
 import logging
+import os
 import re
 import socket
+import threading
+import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -21,6 +24,39 @@ from config.settings import broker_is_configured
 from db.sqlite import get_latest_snapshot
 
 logger = logging.getLogger(__name__)
+
+# --- outbound search pacing -------------------------------------------------
+# Engines rate-limit by REQUESTS PER IP, not by how bot-like a request looks:
+# SearXNG already rotates a Firefox user-agent pool and Brave still answers
+# "Too many request (suspended_time=180)". So the lever is volume, not disguise.
+#
+# A research pass fans queries out across specialists and rounds with no spacing
+# (_collect_web_for_queries loops straight through them), which is what flagged
+# this host's IP on 2026-07-14 — brave throttling, duckduckgo + startpage
+# CAPTCHA — and what still throttles brave today. One minimum interval between
+# outbound searches, enforced at the single point that makes the HTTP call, so
+# every caller is paced without each one having to remember to.
+#
+# Deliberately serialized: all callers share one egress IP, so one global gap is
+# the honest model. The cost is that an interactive chat search can queue behind
+# a running research pass — acceptable at this interval, and the tunable exists
+# for when it is not.
+SEARXNG_MIN_INTERVAL_S = float(os.environ.get("SEARXNG_MIN_INTERVAL_S", "1.5"))
+_search_pace_lock = threading.Lock()
+_last_search_at = 0.0
+
+
+def _pace_outbound_search() -> None:
+    """Block until at least SEARXNG_MIN_INTERVAL_S has passed since the last search."""
+    global _last_search_at
+    if SEARXNG_MIN_INTERVAL_S <= 0:
+        return
+    with _search_pace_lock:
+        wait = SEARXNG_MIN_INTERVAL_S - (time.monotonic() - _last_search_at)
+        if wait > 0:
+            time.sleep(wait)
+        _last_search_at = time.monotonic()
+
 
 _SOURCE_COUNTER = itertools.count(1)
 _MOCK_REASON = (
@@ -285,6 +321,7 @@ def _searxng_search(
     params: dict[str, str] = {"q": query, "format": "json", "categories": "general"}
     if time_range in ("day", "week", "month", "year"):
         params["time_range"] = time_range
+    _pace_outbound_search()
     try:
         with httpx.Client(timeout=20.0) as client:
             resp = client.get(
