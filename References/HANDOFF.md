@@ -29,17 +29,22 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
 - **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
   (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
   only 61.9%. Premium is clean at $26,310,928,243.
-- **★ Direction is read from THREE measures, and agreement is the rule.** `u_premium_clipped` shipped
-  07-26 (`SCHEMA_VERSION` 1→2). Ranked by robustness: **net premium** (buy−sell, already implied by the
-  `side` key — each print contributes at most its own premium with a sign, outlier-immune by
-  construction, no new column needed) → **`u_premium_clipped`** → **`u_premium`** raw. The registered
-  metric is stored unchanged; the clipped one is the labelled post-hoc robustness check.
-  **Measured agreement, 2025-07-28, 45,384 buckets: all three agree on 92.15% of BUCKETS but only
-  75.33% of PREMIUM.** `u_raw` vs `u_clip` disagree on just 0.24% of buckets — and those carry **15.8%
-  of premium**. ⚠️ The fragility sits exactly where the money is; a count-weighted check calls it a
-  non-issue and is wrong. **Operating rule: require all three to agree, else abstain** (~25% of premium).
-  Raw `u` is unbounded (range **[-61, +90]**); |u|>2 is 0.40% of prints but 171.92% of the raw sum.
-  **`u_premium` is pre-registered — do not let an agent redefine it; add measures beside it instead.**
+- **✅ Direction rule REGISTERED + IMPLEMENTED** — Addendum C + `signals/options_flow/corpus_direction.py`
+  + 8 tests. All three of `net_premium` / `u_premium_clipped` / `u_premium` must agree in sign, else
+  **abstain** (reported as its own mass, never coerced to neutral). Validated on 2025-07-28: **24.68%
+  abstention by PREMIUM** vs 14.15% by count — inside the pre-declared 20–35% band. ⚠️ Robustness checks
+  on this corpus must be **premium-weighted**; disagreement is 0.24% of buckets but 15.8% of premium.
+  **`u_premium` is pre-registered — add measures beside it, never redefine it.** Changing the clip bound
+  or going 2-of-3 = `schema_version` bump + new addendum.
+- **⏳ CONFIRMATORY, once the backfill lands:** the rule was chosen after seeing 2025-07-28, so that
+  session is in-sample. Re-measure abstention across the ~258 unexamined sessions and report where it
+  falls against the 20–35% band — **outside the band is a finding, not a reason to retune.**
+- **⏳ Study round owns two follow-ups.** (1) Wire `by_measure` calls into the idea ledger so grading can
+  rank the three estimators ordinally — deliberately not built now (no consumer yet; a hook into nothing
+  is dead code), but the calls are emitted from the start because the comparison cannot be run
+  retroactively. (2) Understand why **`net_premium` is the dominant dissenter** (3,456 buckets vs raw
+  `u`'s 83) — that is the opposite of the expected failure mode and nothing should lean on the rule
+  until it is explained.
 - **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
   whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
 - **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
