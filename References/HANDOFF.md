@@ -1,4 +1,4 @@
-# Handoff — open threads (2026-07-23)
+# Handoff — open threads (2026-07-26)
 
 *Bootstrap for a fresh session: read this, then `CLAUDE.md` (auto-loaded), `AGENTS.md` (module map),
 `References/INDEX.md` (which doc is current).*
@@ -7,6 +7,47 @@
 verifies, armed experiments, decisions in flight. PAST tense lives in `BUILD_LOG.md` (one dense row per
 round — grep it) and git; don't re-narrate shipped work here beyond one line + a pointer. When a thread
 closes, **delete its entry** — there is no archive. In-flight build work lives on `board.json`, not here.*
+
+---
+
+## ▶ 2026-07-26 audit round — four Opus investigators; findings are ON THE BOARD, not here
+
+Four parallel audits (perception layer, idea engine + fusion, AI chat, all 64 non-done cards) ran against
+**live serv state**, not just code. Every load-bearing claim below was re-verified by the orchestrator
+before being written down. **Nine new cards carry the findings** — this section exists only so the
+threads are not lost; read the cards for detail, and delete this section once they are worked.
+
+**★ The structural finding: PERCEIVE runs daily and works. REASON/DECIDE has never executed once.**
+`reason_runs` = **0 rows all-time**. The blocker is NOT `REASON_EMIT_ENABLED=False` — it is that
+**~92% of stacks score `contested`**, so the shadow gate has admitted nothing since 2026-07-22
+(archetype non-contested scorings: 99 on 07-22, **0** on 07-23, **0** on 07-24). Flipping the arm flag
+today lights a lane with an empty queue. → card `fusion-contested-wall`, which is upstream of four
+dead subsystems (dossier — `idea_dossiers` table does not exist live; the REASON lane; idea arming —
+`lifecycle_state` NULL on all 1,400 rows; attention idea-tiers).
+
+**Live bugs, all verified, each with a card:**
+`snapshot-account-mismatch-guard` (RiskEngine + proposal_intake can size against ANOTHER account's
+snapshot — `exit_engine` already guards it, they don't) · `perception-winprob-honesty-leak` (calibration
+flags stripped at `ai/perception/context.py:193`; a bare "Win %" tile renders an **edgeless** model —
+Brier 0.2456 vs base-rate 0.2486, n=447, five weeks stale) · `setup-scan-idempotency` (nightly scan ran
+3× on 07-24 → duplicate ledger ideas) · `flow-daily-baseline-frozen` (`options_flow_daily` stuck at
+07-17; unusualness scored against a stale denominator) · `searxng-container-dns` (copilot silently
+web-blind; container resolves nothing, `web_search` reports success anyway) · `chat-dead-ts-surface`
+(dead TS brain, incl. an endpoint that runs `propose_order` with no approval ledger) ·
+`copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**, embeddings backfill never ran) ·
+`fusion-unminted-dots` (4 registered components minted by nothing).
+
+**Chat safety invariant re-verified INTACT** — no broker toolset in the registry, the loop returns
+without executing on `APPROVAL_TOOLS`, web executes only after an atomic single-consume hash-bound
+claim, mobile diverts to a PENDING phone proposal, chat cannot arm a trade rule. The one side door is
+the dead endpoint on `chat-dead-ts-surface`.
+
+⚠️ **Two memories were corrected by this round** — pushes are NOT dead (75 sent in 3 days; the budget
+gates one lane, not the phone), and SearXNG has a third failure mode (container DNS).
+
+⏳ **Watch, do not yet conclude:** `fusion_mech` measures **11 won / 107 lost** vs a 33.3% breakeven,
+`llm_conviction` 0/8. n=118 resolved against **977 still open**, over one rough week for longs — which
+is exactly the tape that produces "0 of 107 losses reached target". Re-read on a fuller sample.
 
 ---
 
