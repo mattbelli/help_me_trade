@@ -28,7 +28,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # Bump when a bucket boundary or a classification rule changes. Rows carry it so
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
 MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "unknown")
@@ -62,12 +62,35 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 premium_sq REAL NOT NULL,
                 premium_max REAL NOT NULL,
                 u_premium REAL NOT NULL,
+                -- Same sum with u clipped to [-1, 1]. u is a RATIO with the
+                -- half-spread underneath, so a print far from a tight quote
+                -- explodes it (measured range [-61, +90]) and |u|>2 -- 0.40% of
+                -- prints -- carries 171.92% of sum(u*premium). Past the touch a
+                -- larger |u| measures quote quality, not conviction: 36% of those
+                -- prints share a ts_event with a different instrument (multi-leg
+                -- legs priced off their own NBBO), the rest sit against stale or
+                -- wide quotes. u_premium stays EXACTLY as pre-registered so the
+                -- registered test still runs as written; this is the labelled
+                -- post-hoc robustness counterpart. Agreement between the two is
+                -- the directional read -- disagreement means abstain, not pick.
+                u_premium_clipped REAL NOT NULL,
                 schema_version INTEGER NOT NULL,
                 PRIMARY KEY (date, underlying, right, dte_bucket, mny_bucket,
                              side, strict_side)
             )
             """
         )
+        # CREATE TABLE IF NOT EXISTS is a no-op on a table that predates
+        # u_premium_clipped, so add it explicitly. Existing rows get 0.0, which is
+        # wrong rather than merely missing -- they were written at SCHEMA_VERSION 1
+        # and ingested_dates() filters on the current version, so they read as
+        # not-yet-ingested and are re-rolled before anything can query them.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
+        if "u_premium_clipped" not in cols:
+            conn.execute(
+                "ALTER TABLE flow_rollup ADD COLUMN "
+                "u_premium_clipped REAL NOT NULL DEFAULT 0.0"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rollup_und_date "
             "ON flow_rollup (underlying, date)"
@@ -116,16 +139,31 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         )
 
 
+def delete_session_rows(date: str, db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Clear a session before re-rolling it.
+
+    Row-scoped INSERT OR REPLACE is NOT enough: the primary key contains
+    ``mny_bucket``, and a re-roll can legitimately move a row to a different
+    bucket (e.g. once spot is available, 'unknown' becomes 'otm2_10'). The old
+    row keeps its old key and survives, so the session ends up counted twice.
+    Observed 2026-07-26 — premium doubled to $45.6B under a phantom 'unknown'
+    bucket. Session-scoped delete is the only idempotent unit here.
+    """
+    with connect(db_path) as conn:
+        cur = conn.execute("DELETE FROM flow_rollup WHERE date = ?", (date,))
+        return cur.rowcount
+
+
 def upsert_rollup(rows: list[tuple], db_path: Path = DEFAULT_DB_PATH) -> int:
-    """Replace-on-conflict so a re-run of a session is idempotent."""
     if not rows:
         return 0
     with connect(db_path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
             "dte_bucket, mny_bucket, side, strict_side, prints, contracts, "
-            "premium_usd, premium_sq, premium_max, u_premium, schema_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "premium_usd, premium_sq, premium_max, u_premium, "
+            "u_premium_clipped, schema_version) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     return len(rows)

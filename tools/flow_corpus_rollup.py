@@ -6,9 +6,18 @@ collectors, so this stays on numpy structured arrays (measured 0.89 GB array,
 OPRA socket.
 
 Classification follows `FLOW_BASELINE_PREREG_2026-07-26.md` + Addendum A:
-  PRIMARY   midpoint rule   price vs (bid+ask)/2      → ~89% of prints
-  SECONDARY strict rule     price >= ask / <= bid     → ~57% of prints
+  PRIMARY   midpoint rule   price vs (bid+ask)/2      → 87.8% of prints
+  SECONDARY strict rule     price >= ask / <= bid     → 61.9% of prints
 Both are written on every row so neither can be chosen after seeing results.
+(Rates measured post-join on 2025-07-28 by tools/flow_classifier_audit.py; the
+10.1% that print exactly at the mid stay unsigned rather than being guessed.)
+
+Directional intensity is written twice for the same reason: `u_premium` exactly as
+pre-registered, and `u_premium_clipped` with u bounded to [-1, 1]. Raw u is a ratio
+over the half-spread and is unbounded, so 0.40% of prints carry 171.92% of the raw
+sum. Agreement between the two is the directional read; disagreement means abstain.
+Net premium (buy minus sell, already implied by the `side` key) is the robust
+third leg and needs no new column.
 
   python tools/flow_corpus_rollup.py --start 2026-07-23 --end 2026-07-24
 """
@@ -32,6 +41,7 @@ from db.flow_corpus import (  # noqa: E402
     SCHEMA_VERSION,
     SIDES,
     bars_for_date,
+    delete_session_rows,
     ingested_dates,
     init_db,
     record_session,
@@ -187,6 +197,13 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     prem = np.bincount(inv, weights=premium, minlength=n)
     prem_sq = np.bincount(inv, weights=premium * premium, minlength=n)
     u_prem = np.bincount(inv, weights=u * premium, minlength=n)
+    # Pre-registered u_prem above, unchanged. Clipped counterpart below: u is a
+    # ratio over the half-spread, so 0.40% of prints with |u|>2 carry 171.92% of
+    # the raw sum. Bounding at the touch says direction saturates where the quote
+    # does. Both are stored so the registered test still runs as registered and
+    # the robustness check is visible rather than baked in.
+    u_prem_clip = np.bincount(inv, weights=np.clip(u, -1.0, 1.0) * premium,
+                              minlength=n)
     prem_max = np.zeros(n)
     np.maximum.at(prem_max, inv, premium)
 
@@ -198,12 +215,13 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     s_und, s_right = np.divmod(k, 2)
 
     ds = session.isoformat()
+    delete_session_rows(ds, **kw)
     rows = [
         (ds, str(uniq_und[s_und[i]]), "P" if s_right[i] else "C",
          DTE_BUCKETS[s_dte[i]], MNY_BUCKETS[s_mny[i]], SIDES[s_side[i]],
          SIDES[s_strict[i]], int(prints_[i]), int(contracts[i]),
          float(prem[i]), float(prem_sq[i]), float(prem_max[i]),
-         float(u_prem[i]), SCHEMA_VERSION)
+         float(u_prem[i]), float(u_prem_clip[i]), SCHEMA_VERSION)
         for i in range(n)
     ]
     upsert_rollup(rows, **kw)

@@ -29,17 +29,19 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
 - **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
   (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
   only 61.9%. Premium is clean at $26,310,928,243.
-- **⛔ FOUNDER DECISION — `u_prem`'s sign is set by 0.40% of prints, and it is a pre-registered metric.**
-  `u = (price-mid)/half` is unbounded (measured range **[-61, +90]**) and `u_prem` is a premium-weighted
-  **sum**. Prints with `|u|>2` are 0.40% of the corpus but contribute **171.92%** of `sum(u*premium)`:
-  total `+366,445,672` while that tail alone is `+629,989,228`, so the other 99.6% sums to
-  **−263,543,556**. The aggregate reads bullish while the bulk of flow leans bearish. Any "flow leaned
-  long/short" read off `u_prem` is an outlier artifact until `u` is bounded (winsorize / clip to [-1,1])
-  or stored beside a robust counterpart. **Changing `u` post-hoc is a prereg violation — do not let an
-  agent silently redefine it.**
-- **Minor, before the 260-session run:** rollup line 158 `nan_to_num(u, nan=0.0)` maps bad-quote prints
-  onto `u=0.0`, the exact value meaning "printed at mid" (0.54% of premium). And line 123 `to_ndarray()`
-  does **no chunking** — it materializes a whole session (~500 MB raw plus float64 copies) per iteration.
+- **★ Direction is read from THREE measures, and agreement is the rule.** `u_premium_clipped` shipped
+  07-26 (`SCHEMA_VERSION` 1→2). Ranked by robustness: **net premium** (buy−sell, already implied by the
+  `side` key — each print contributes at most its own premium with a sign, outlier-immune by
+  construction, no new column needed) → **`u_premium_clipped`** → **`u_premium`** raw. The registered
+  metric is stored unchanged; the clipped one is the labelled post-hoc robustness check.
+  **Measured agreement, 2025-07-28, 45,384 buckets: all three agree on 92.15% of BUCKETS but only
+  75.33% of PREMIUM.** `u_raw` vs `u_clip` disagree on just 0.24% of buckets — and those carry **15.8%
+  of premium**. ⚠️ The fragility sits exactly where the money is; a count-weighted check calls it a
+  non-issue and is wrong. **Operating rule: require all three to agree, else abstain** (~25% of premium).
+  Raw `u` is unbounded (range **[-61, +90]**); |u|>2 is 0.40% of prints but 171.92% of the raw sum.
+  **`u_premium` is pre-registered — do not let an agent redefine it; add measures beside it instead.**
+- **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
+  whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
 - **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
   `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
   universe (not just one session's) has spot.
