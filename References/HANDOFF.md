@@ -21,13 +21,14 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
   cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
   schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
-- **⏳ `tcbbo` BBO semantics — NOT settled, and the corpus is built on the answer.** Is the attached quote
-  the one prevailing *immediately before* the print? Founder's recollection and ours both say yes; neither
-  is evidence. Empirical lean so far: 30.0% of prints at/below bid, 27.9% at/above ask — hard mass at the
-  touch is difficult to produce if the quote had already moved to accommodate the trade. **Still owed:**
-  Databento's own written statement, and the sweep test (do consecutive same-millisecond prints on one
-  instrument carry *different* quotes?). Partial finding from the killed reviewer: `action` surfaces as
-  `_reserved1` (84 = `'T'`), `bid_pb`/`ask_pb` present. Re-run **one** reviewer at a time.
+- **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
+  pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
+  quote. Right reference for signing direction, but **N legs are not N independent quote observations**
+  and book-walking depth cannot be read off the attached BBO. Anything that weights by print count
+  across a sweep needs to know this.
+- **Open, not yet audited:** ~37% of prints fall **strictly inside** the spread, so the touch test cannot
+  sign them — the corpus's 89.0%-classified figure must be leaning on a midpoint/tick rule for that
+  third. Confirm which rule, and how exact-mid prints are handled, before the study reads through it.
 - **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
   `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
   universe (not just one session's) has spot.
