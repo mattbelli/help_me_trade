@@ -27,6 +27,11 @@ beta.
 Phases 2–4 each attack one known blind spot, in the order the founder set:
 open-vs-close (Phase 2), who was on the other side (Phase 3), and the regime gate (Phase 4).
 
+**The highest-information step is 1c, not any of those.** It runs the study backwards — take the
+big moves that already happened and characterize the flow that preceded them. It is descriptive, so
+it does not need to clear a significance bar to be useful, and it tells us what the later phases
+should even be looking for. Do not skip it to get to the detectors.
+
 ---
 
 ## Phase 0 — the live lane (PARALLEL TRACK, blocks nothing below)
@@ -96,21 +101,64 @@ Each decides something downstream. Run them, do not skip to building.
       *Decides:* fuse, rank separately, or keep as rivals. *Pre-registered expectation:* they overlap
       heavily on thin names and barely on liquid ones.
 
-### 1c. The prereg amendment (Addendum E)
+### 1c. Backwards discovery — what actually preceded the big moves
 
-- [ ] **1.11 Correct baseline #4** to production's real parameters. It currently says "$500k
+**Founder's framing, 2026-07-26, and it reorders the phase:** *"We don't need to prove edge by
+entry/exit/slippage. We need to find what more often foreshadows the rise/fall in a stock. Is it
+multiple days of bull flow, is it abnormally large sweeps on smaller caps, could be both — or maybe
+bullish flow correlates more with bearish movement. We need a pattern, not absolutes."*
+
+This runs the study **backwards**: not "given this flow, what happens" but "given a big move, what
+was the flow before it." That is a different and more data-efficient question. The 6.4-effective-names
+problem bites **significance testing**; it bites far less when describing a conditional
+distribution, because conditioning on large moves selects the informative subset instead of diluting
+across every name-day. Sits before the amendment deliberately — what this finds should shape what
+Addendum E registers, so the amendment absorbs it in one pass.
+
+⚠️ **The trap that would make this worthless, and the rule that prevents it.**
+`P(flow | big move)` is NOT `P(big move | flow)`. If 80% of big rises had heavy bullish flow, that is
+worth nothing when 78% of all name-days do. **Every statistic here is computed against a matched
+control set — same liquidity tier, same sector, same period, names that did NOT move — and reported
+as lift over base rate, never as a raw frequency.** A number without its control is not a finding,
+it is a description of the market. No exceptions.
+
+- [ ] **1.11 Define the event set.** Large forward move in **ATR units** (never percent) on the
+      underlying, at 3/10/21/45 days. Top decile of `|terminal move / ATR14|`. Rises and falls kept
+      **separate** throughout — pooling them is what hides a reversal effect.
+- [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
+      sector and date. *Done when:* the control set's own base rates are computed and written down
+      BEFORE any mover statistic is looked at.
+- [ ] **1.13 Profile the preceding flow**, 5 / 10 / 20 days before each event, movers vs controls:
+      consecutive same-sign tilt days (*the "multiple days of bull flow" hypothesis*); largest single
+      print relative to that name's own normal, split by liquidity tier (*the "abnormally large
+      sweeps on smaller caps" hypothesis*); concentration — one day or spread out; DTE mix; moneyness
+      mix; call/put mix; multi-leg share.
+- [ ] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
+      **falls** separately. Same profile ⇒ no signal. Bullish flow preceding falls more often ⇒ the
+      reversal effect, which is what Pan & Poteshman measured (price pressure at d+1, significantly
+      reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
+      entire retail industry sells**, which would be the most valuable single finding available to us.
+      *Note:* partially absorbs measurement 1.10's cross-tab — run 1.10 inside this frame.
+
+**Output is a PROFILE, not a score.** Ships as perception, labelled unvalidated. Discovery runs on
+the **training window only**; the test split (2026-06-01 → 2026-07-25) stays untouched, and anything
+found here becomes a registered hypothesis in Addendum E before it may be tested there.
+
+### 1d. The prereg amendment (Addendum E)
+
+- [ ] **1.15 Correct baseline #4** to production's real parameters. It currently says "$500k
       premium, DTE≤30", which describes nothing we run. "We beat production" would be a false claim.
-- [ ] **1.12 Make the kill rule able to fail.** Today: dead only if it fails at **all** four horizons
+- [ ] **1.16 Make the kill rule able to fail.** Today: dead only if it fails at **all** four horizons
       across **all** five quintiles, over ~64 declared arm variants. Something always survives by
       luck. *Fix:* declare **one primary cell** (recommend: midpoint sign, multileg-excluded,
       pooled quintiles, terminal alpha vs SPY in ATR units). Alive only if that passes. Everything
       else is exploratory, labelled, with no survival authority.
-- [ ] **1.13 Horizon of record = 10 trading days.** 12 months gives 2–4 independent observations at
+- [ ] **1.17 Horizon of record = 10 trading days.** 12 months gives 2–4 independent observations at
       21/45 days. Report them; state in advance they cannot confirm or kill anything.
-- [ ] **1.14 Fix the significance bar.** Naive √N assumes 5,554 independent names; the real figure is
+- [ ] **1.18 Fix the significance bar.** Naive √N assumes 5,554 independent names; the real figure is
       **6.4** (verified). Use time-block-clustered standard errors and require ≥20 independent event
       dates per cell.
-- [ ] **1.15 State universe size on every table.** The top ~1,000 names carry 99.6% of premium.
+- [ ] **1.19 State universe size on every table.** The top ~1,000 names carry 99.6% of premium.
 
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum E is
 committed. Only then does anything below produce a trustworthy result.
