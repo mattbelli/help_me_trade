@@ -19,14 +19,14 @@ from ai.reflection.scheduler import REFLECTION_INTERVAL_SECONDS, reflection_once
 from api.jobs import Job, register_job
 from brokers.errors import BrokerError
 from brokers.factory import get_broker, get_market_data_provider
-from brokers.market_clock import market_session as _market_session
 from db.lane_stats import bump, day
 from db.momentum_bars import latest_universe_bar_date
 from db.strategies import list_strategies
 from signals.momentum import refresh_universe_bars
 from signals.universe import all_watchlist_symbols, profile_universe
 from signals.volume_profile import build_profile, profile_dir
-from trading.market_hours import _ET
+from trading.market_calendar import is_trading_day
+from trading.market_hours import _ET, is_after_close
 
 logger = logging.getLogger(__name__)
 
@@ -108,10 +108,19 @@ async def _options_flow_eod_once() -> None:
     """After-close EOD options-flow scan; once per ET day; fail-soft."""
     global _options_flow_non_alpaca_logged
     try:
-        if _market_session() not in ("post", "closed", "overnight"):
+        # Scan an ET date only once ITS OWN session is history. The old gate
+        # admitted the `market_session()` label "overnight", which spans ET
+        # midnight (20:00 → 04:00): the ~00:1x ET tick scanned the ET day that
+        # had just BEGUN, found nothing (events=0, daily_rows=0), and then
+        # consumed the once-per-ET-day dedup slot — so the real post-close run
+        # was skipped as already-ran and options_flow_daily, the UV-2
+        # unusualness DENOMINATOR, froze at 2026-07-17 for five sessions.
+        # is_after_close() is half-day aware; is_trading_day() keeps weekends
+        # and holidays out (is_after_close alone reads them as after-close).
+        now_et = datetime.now(_ET)
+        today_et = now_et.date()
+        if not is_trading_day(today_et) or not is_after_close(now_et):
             return
-
-        today_et = datetime.now(_ET).date()
         if not _should_options_flow_scan(today_et):
             return
 
@@ -138,7 +147,22 @@ async def _options_flow_eod_once() -> None:
         summary = await asyncio.to_thread(
             run_eod_scan, broker, symbols=symbols, event_date=event_date
         )
-        _mark_options_flow_scanned(today_et)
+        # Consume the day's slot only if the scan actually wrote its baseline
+        # rows. A run that logs success and writes nothing is the failure shape
+        # that hid this bug for five sessions — /health and the dead-man both
+        # read it as alive — so an empty result now RETRIES on the next tick
+        # (bounded: after-close on a trading day only, every
+        # OPTIONS_FLOW_INTERVAL_SECONDS until ET midnight) instead of silently
+        # burning the day.
+        daily_rows = int(summary.get("daily_rows") or 0)
+        if daily_rows:
+            _mark_options_flow_scanned(today_et)
+        else:
+            logger.warning(
+                "options_flow EOD: date=%s wrote NO daily rows — leaving the day "
+                "unmarked so the next tick retries",
+                event_date,
+            )
         logger.info(
             "options_flow EOD: date=%s underlyings=%s events=%s daily_rows=%s",
             event_date,

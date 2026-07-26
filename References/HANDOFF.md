@@ -28,14 +28,23 @@ decision). The four dead subsystems downstream (dossier — `idea_dossiers` does
 lane; idea arming — `lifecycle_state` NULL on all 1,400 rows; attention idea-tiers) stay dark until that
 flip.
 
+⚠️ **NOT DEPLOYED — both Monday-dated items above and below depend on this.** serv runs
+`/home/mbelli/dev/help_me_trade` on `main` (`7e97aa1`); the 07-26 audit fixes are on
+`BeerBelly69/clear-the-board`. Until that branch is merged and deployed, Monday 07-27 runs the old
+gate and the old flow-EOD schedule, and neither Monday check means anything.
+
 **Live bugs still open, all verified, each with a card:**
-`flow-daily-baseline-frozen` (`options_flow_daily` stuck at 07-17; unusualness scored against a stale
-denominator) · `searxng-container-dns` (copilot silently web-blind; container resolves nothing,
-`web_search` reports success anyway) · `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that
-runs `propose_order` with no approval ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active
-memories**, embeddings backfill never ran) · `fusion-unminted-dots` (4 registered components minted by
-nothing). *(Four of the nine are closed — snapshot account mismatch, the win% honesty leak, setup-scan
-idempotency, and the contested wall; see the 2026-07-26 BUILD_LOG rows.)*
+`searxng-container-dns` (copilot silently web-blind; container resolves nothing, `web_search` reports
+success anyway) · `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that runs `propose_order`
+with no approval ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**,
+embeddings backfill never ran) · `fusion-unminted-dots` (4 registered components minted by nothing).
+*(Five of the nine are closed — snapshot account mismatch, the win% honesty leak, setup-scan
+idempotency, the contested wall, and the frozen flow baseline; see the 2026-07-26 BUILD_LOG rows.)*
+
+⏳ **Monday 2026-07-27, flow-EOD:** confirm the 16:xx ET run lands an `options_flow_daily` row for
+07-27 and that no 00:1x ET run appears. The 5 missing sessions are backfilled, but backfilled rows are
+a **different measurement** than native ones (~7% of native summed volume; `close_oi IS NULL` marks
+them) — the baseline window self-heals to all-native ~20 sessions after deploy.
 
 **Chat safety invariant re-verified INTACT** — no broker toolset in the registry, the loop returns
 without executing on `APPROVAL_TOOLS`, web executes only after an atomic single-consume hash-bound
