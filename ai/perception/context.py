@@ -191,13 +191,31 @@ def _flatten_session_nodes(payload: dict[str, Any] | None) -> dict[str, Any] | N
 
 
 def _compact_decision_score(raw: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Compact score_symbol's output under the same honesty contract as
+    signals/push.py:_la_content_state — a win% NEVER travels without the
+    qualifiers that say whether it means anything.
+
+    This is the GENERIC 22-feature scorer, which research/artifacts/README.md
+    records as edgeless (Brier ~= base rate). Stripping `sufficient` here was
+    the 07-08 leak in another costume: the bare number reaches the LLM's
+    context and a UI tile labelled "Win %", and both read it as validated.
+    So when the bucket is insufficient or there is no win_prob, ship ONLY the
+    verdict and no number; when it is trustworthy, its qualifiers ride along.
+    """
     if raw is None:
         return None
-    out: dict[str, Any] = {
-        "win_prob": raw.get("win_prob"),
-        "ev": raw.get("ev_pct"),
-        "top_factors": raw.get("top_factors"),
-    }
+    out: dict[str, Any] = {"top_factors": raw.get("top_factors")}
+    win_prob = raw.get("win_prob")
+    if not raw.get("sufficient") or win_prob is None:
+        out["calibration"] = "unproven"
+        return out
+    out["calibration"] = "calibrated"
+    out["win_prob"] = win_prob
+    out["ev"] = raw.get("ev_pct")
+    out["n_samples"] = raw.get("n_samples")
+    out["base_rate"] = raw.get("base_rate")
+    out["brier"] = raw.get("brier")
+    out["low_confidence"] = raw.get("low_confidence")
     ci_lo = raw.get("ci_low")
     ci_hi = raw.get("ci_high")
     if ci_lo is not None or ci_hi is not None:

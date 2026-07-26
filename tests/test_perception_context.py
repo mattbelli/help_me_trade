@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ai.perception.context import build_symbol_context, list_capabilities
+from ai.perception.context import (
+    _compact_decision_score,
+    build_symbol_context,
+    list_capabilities,
+)
 from brokers.alpaca import StockBar
 from db import base as db_base
 from db.chart_features import create_price_alert, init_chart_features
@@ -146,6 +150,11 @@ async def test_build_symbol_context_assembles_blocks(
             "ev_pct": 1.8,
             "ci_low": 0.55,
             "ci_high": 0.69,
+            "sufficient": True,
+            "n_samples": 4200,
+            "base_rate": 0.51,
+            "brier": 0.21,
+            "low_confidence": False,
             "top_factors": [{"name": "rsi_14", "direction": "bullish"}],
         },
     )
@@ -167,6 +176,11 @@ async def test_build_symbol_context_assembles_blocks(
     assert ctx["earnings"]["next"] == "2026-05-28"
     assert ctx["decision_score"]["win_prob"] == 0.62
     assert ctx["decision_score"]["ev"] == 1.8
+    # A trustworthy number never travels alone — its qualifiers ride with it.
+    assert ctx["decision_score"]["calibration"] == "calibrated"
+    assert ctx["decision_score"]["n_samples"] == 4200
+    assert ctx["decision_score"]["base_rate"] == 0.51
+    assert ctx["decision_score"]["brier"] == 0.21
     assert len(ctx["active_alerts"]) == 1
     assert ctx["active_alerts"][0]["price"] == 900.0
 
@@ -309,3 +323,67 @@ async def test_build_symbol_context_fail_soft_without_provider(
     assert "quote" not in ctx
     assert ctx["decision_score"] is None
     assert ctx["active_alerts"] == []
+
+
+# --- the win% honesty contract -------------------------------------------
+# The generic 22-feature scorer is edgeless (research/artifacts/README.md:
+# "Brier ~= base rate"). Its number is only meaningful when the EV bucket is
+# `sufficient`; shipping it bare put an unvalidated figure under a "Win %" tile
+# and into the LLM's context. Same contract as signals/push.py.
+
+
+def test_compact_decision_score_withholds_an_insufficient_number() -> None:
+    out = _compact_decision_score(
+        {
+            "win_prob": 0.62,
+            "ev_pct": 1.8,
+            "ci_low": 0.55,
+            "ci_high": 0.69,
+            "sufficient": False,
+            "n_samples": 12,
+            "top_factors": [{"name": "rsi_14"}],
+        }
+    )
+
+    assert out is not None
+    assert out["calibration"] == "unproven"
+    # Absent, not None: a null still renders as a key the LLM may reason about.
+    assert "win_prob" not in out
+    assert "ev" not in out
+    assert "ci" not in out
+    # Factors are observations, not a claim about accuracy — they stay.
+    assert out["top_factors"] == [{"name": "rsi_14"}]
+
+
+def test_compact_decision_score_withholds_when_win_prob_is_missing() -> None:
+    out = _compact_decision_score({"sufficient": True, "win_prob": None, "ev_pct": 1.8})
+
+    assert out is not None
+    assert out["calibration"] == "unproven"
+    assert "win_prob" not in out
+    assert "ev" not in out
+
+
+def test_compact_decision_score_keeps_qualifiers_with_a_trustworthy_number() -> None:
+    out = _compact_decision_score(
+        {
+            "win_prob": 0.62,
+            "ev_pct": 1.8,
+            "ci_low": 0.55,
+            "ci_high": 0.69,
+            "sufficient": True,
+            "n_samples": 4200,
+            "base_rate": 0.51,
+            "brier": 0.21,
+            "low_confidence": False,
+        }
+    )
+
+    assert out is not None
+    assert out["calibration"] == "calibrated"
+    assert out["win_prob"] == 0.62
+    assert out["ci"] == [0.55, 0.69]
+    # The qualifiers are inseparable from the number — dropping any of these is
+    # the leak this test exists to catch.
+    for key in ("n_samples", "base_rate", "brier", "low_confidence"):
+        assert key in out, f"{key} must travel with win_prob"

@@ -377,6 +377,7 @@ export function FactsSection({ facts }: { facts: TickerFacts }) {
   const t = facts.technicals ?? {};
   const nodes = facts.session_nodes ?? {};
   const score = facts.decision_score ?? null;
+  const scoreUnproven = score != null && score.calibration !== "calibrated";
   const trendColor =
     t.trend === "up"
       ? "var(--c-green)"
@@ -402,7 +403,17 @@ export function FactsSection({ facts }: { facts: TickerFacts }) {
     { label: "RSI(14)", value: fmtNum(t.rsi14, 1) },
     { label: "ATR(14)", value: fmtNum(t.atr14, 2) },
     { label: "Trend", value: t.trend ?? DASH, color: trendColor },
-    { label: "Win %", value: winProbLabel(score?.win_prob) },
+    // The backend withholds win_prob/ev when the sample is insufficient. Say
+    // "unproven" rather than painting a bare dash, which reads as "not loaded"
+    // when the truth is "we have no calibrated number to give you".
+    scoreUnproven
+      ? {
+          label: "Win %",
+          value: "unproven",
+          color: "var(--fg-faint)",
+          title: "Too few resolved setups to calibrate — no win% is shown.",
+        }
+      : { label: "Win %", value: winProbLabel(score?.win_prob) },
     { label: "EV", value: fmtPct(score?.ev) },
     { label: "Next earns", value: facts.earnings?.next ?? DASH },
     { label: "Last earns", value: facts.earnings?.last ?? DASH },

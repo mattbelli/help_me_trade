@@ -163,7 +163,7 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
     }),
     create_rule: tool({
       description:
-        "Creates AND ENABLES a signal/alert rule immediately — confirm parameters with the user before calling. Call on alert/signal/watch requests — do not narrate or fake [Calling create_rule...].",
+        "Creates a signal/alert rule. An alert rule is ENABLED immediately; a rule whose action is a TRADE is saved DISABLED and the user must arm it himself — read `enabled` in the result and tell him which happened. Confirm parameters with the user before calling. Call on alert/signal/watch requests — do not narrate or fake [Calling create_rule...].",
       inputSchema: z.object({
         spec: z.object({
           name: z.string(),

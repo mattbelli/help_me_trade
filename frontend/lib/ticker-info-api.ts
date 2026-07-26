@@ -76,9 +76,16 @@ export type TickerFacts = {
     market_cap?: number;
   };
   earnings?: { last?: string; next?: string };
+  // calibration === "unproven" means the backend deliberately withheld the
+  // number (insufficient sample) — win_prob/ev are absent, not merely null.
   decision_score?: {
+    calibration?: "calibrated" | "unproven";
     win_prob?: number | null;
     ev?: number | null;
+    n_samples?: number | null;
+    base_rate?: number | null;
+    brier?: number | null;
+    low_confidence?: boolean | null;
     top_factors?: unknown;
     ci?: [number | null, number | null];
   } | null;

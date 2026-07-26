@@ -75,3 +75,57 @@ def test_alert_turn_does_not_create_memory(monkeypatch, tmp_path) -> None:
         session_id="sess_test",
     )
     assert saved == []
+
+
+@pytest.mark.asyncio
+async def test_create_rule_trade_reports_it_is_not_armed(monkeypatch, tmp_path) -> None:
+    """db.ai_tables.create_rule force-disables a trade rule (correct safety) —
+    the tool used to answer "Armed alert:" anyway, telling the user a watch was
+    running when nothing was watching."""
+    db = tmp_path / "rules.db"
+    monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
+
+    spec = {
+        "name": "AAPL auto buy",
+        "condition": {
+            "metric": "rsi_14",
+            "symbol": "AAPL",
+            "operator": "lessThan",
+            "value": 30,
+        },
+        "action": {
+            "type": "trade",
+            "symbol": "AAPL",
+            "side": "buy",
+            "notional_usd": 500,
+        },
+    }
+    result = await execute_tool("create_rule", {"spec": spec})
+
+    assert result["status"] == "created"
+    assert ai_tables.list_rules(db_path=db)[0]["enabled"] is False
+    # The claim the user (and the LLM) reads must match the stored state.
+    assert result["enabled"] is False
+    assert "Armed" not in result["message"]
+    assert "DISABLED" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_create_rule_alert_still_reports_armed(monkeypatch, tmp_path) -> None:
+    db = tmp_path / "rules.db"
+    monkeypatch.setattr(ai_tables, "DEFAULT_DB_PATH", db)
+
+    spec = {
+        "name": "AAPL RSI low",
+        "condition": {
+            "metric": "rsi_14",
+            "symbol": "AAPL",
+            "operator": "lessThan",
+            "value": 30,
+        },
+        "action": {"type": "alert", "message": "AAPL RSI dropped below 30"},
+    }
+    result = await execute_tool("create_rule", {"spec": spec})
+
+    assert result["enabled"] is True
+    assert result["message"].startswith("Armed alert:")

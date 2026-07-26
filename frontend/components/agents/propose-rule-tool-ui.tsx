@@ -27,6 +27,7 @@ type ProposalResult = {
   status?: string;
   rule_id?: string;
   rule_name?: string;
+  enabled?: boolean;
   summary?: string;
   message?: string;
   error?: string;
@@ -150,15 +151,21 @@ export const ProposeRuleToolUI = makeAssistantToolUI<ProposalArgs, ProposalResul
         }
 
         const name = result.rule_name ?? args.spec?.name ?? "Alert rule";
+        // A trade-action rule is force-disabled at creation (db/ai_tables.py).
+        // Never paint that green "Armed" — nothing is watching until the user
+        // enables it himself.
+        const armed = result.enabled !== false;
 
         return (
           <ProposalStatusBanner
-            variant="success"
-            title={`Armed: ${name}`}
+            variant={armed ? "success" : "rejected"}
+            title={armed ? `Armed: ${name}` : `Saved, not armed: ${name}`}
             description={
               result.message ??
               result.summary ??
-              "Rule saved and enabled — the signal scan will evaluate it."
+              (armed
+                ? "Rule saved and enabled — the signal scan will evaluate it."
+                : "Rule saved but DISABLED — enable it yourself to start watching.")
             }
           />
         );

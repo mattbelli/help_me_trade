@@ -1153,12 +1153,22 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             )
         except Exception as exc:
             return {"error": str(exc)}
+        # db.ai_tables.create_rule force-disables any action.type == "trade"
+        # rule — the agent never arms something that can propose real trades.
+        # Report what actually happened: claiming "Armed" for a rule sitting
+        # disabled tells the user a watch is running when nothing is watching.
         return {
             "status": "created",
             "rule_id": rule["id"],
             "rule_name": rule["name"],
+            "enabled": rule["enabled"],
             "summary": _summarize_rule_spec(spec),
-            "message": f"Armed alert: {rule['name']}",
+            "message": (
+                f"Armed alert: {rule['name']}"
+                if rule["enabled"]
+                else f"Saved (DISABLED, not watching): {rule['name']} — a rule that "
+                "can propose trades has to be enabled by you, not by me."
+            ),
         }
 
     if name == "create_price_alert":
