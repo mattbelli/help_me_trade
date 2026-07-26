@@ -26,14 +26,29 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   quote. Right reference for signing direction, but **N legs are not N independent quote observations**
   and book-walking depth cannot be read off the attached BBO. Anything that weights by print count
   across a sweep needs to know this.
-- **Open, not yet audited:** ~37% of prints fall **strictly inside** the spread, so the touch test cannot
-  sign them — the corpus's 89.0%-classified figure must be leaning on a midpoint/tick rule for that
-  third. Confirm which rule, and how exact-mid prints are handled, before the study reads through it.
+- **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
+  (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
+  only 61.9%. Premium is clean at $26,310,928,243.
+- **⛔ FOUNDER DECISION — `u_prem`'s sign is set by 0.40% of prints, and it is a pre-registered metric.**
+  `u = (price-mid)/half` is unbounded (measured range **[-61, +90]**) and `u_prem` is a premium-weighted
+  **sum**. Prints with `|u|>2` are 0.40% of the corpus but contribute **171.92%** of `sum(u*premium)`:
+  total `+366,445,672` while that tail alone is `+629,989,228`, so the other 99.6% sums to
+  **−263,543,556**. The aggregate reads bullish while the bulk of flow leans bearish. Any "flow leaned
+  long/short" read off `u_prem` is an outlier artifact until `u` is bounded (winsorize / clip to [-1,1])
+  or stored beside a robust counterpart. **Changing `u` post-hoc is a prereg violation — do not let an
+  agent silently redefine it.**
+- **Minor, before the 260-session run:** rollup line 158 `nan_to_num(u, nan=0.0)` maps bad-quote prints
+  onto `u=0.0`, the exact value meaning "printed at mid" (0.54% of premium). And line 123 `to_ndarray()`
+  does **no chunking** — it materializes a whole session (~500 MB raw plus float64 copies) per iteration.
 - **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
   `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
   universe (not just one session's) has spot.
-- **Open question, do not assume benign:** 0.37% of prints (40,886/session) do not resolve against the
-  same session's definitions. Characterize before the study reads through them.
+- **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
+  are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
+  `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —
+  they are not options. ⚠️ They also carry `size == UINT32_MAX`, so the C/P filter is the **only** thing
+  stopping `premium = price/PX * size * 100` from inflating a session ~918,000,000x ($26.3B → $24.2
+  quintillion). Do **not** relax the join to "recover" unresolved prints without a size-sentinel guard.
 - **Index roots have no spot by construction** (SPX/SPXW/NDX/VIX/RUT = 30.8% of premium, `mny_bucket`
   = 'unknown'). The prereg's secondary arm excludes index roots, so this is acceptable — but it is a
   decision, not an oversight, and a SPY×10-style proxy is the option if that changes.
