@@ -15,10 +15,19 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
 daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
 
-- **⏳ Backfill running** (`tools/opra_tcbbo_backfill.py`, ~260 sessions to `data/databento/opra_tcbbo/`,
-  definitions chained after). **If it dies, restart it** — it is resumable and every day left unarchived
+- **⏳ Backfill running** — restarted 07-26 19:47 via `tools/opra_backfill_run.sh` (setsid-detached so it
+  outlives the session, `nice`+`ionice`, **defs THEN tcbbo sequentially**). Progress: `tail
+  data/databento/run.log`. **If it dies, restart it** — it is resumable and every day left unarchived
   ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
-  cost guard refusing to spend, and it means a day fell outside the window.
+  cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
+  schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
+- **⏳ `tcbbo` BBO semantics — NOT settled, and the corpus is built on the answer.** Is the attached quote
+  the one prevailing *immediately before* the print? Founder's recollection and ours both say yes; neither
+  is evidence. Empirical lean so far: 30.0% of prints at/below bid, 27.9% at/above ask — hard mass at the
+  touch is difficult to produce if the quote had already moved to accommodate the trade. **Still owed:**
+  Databento's own written statement, and the sweep test (do consecutive same-millisecond prints on one
+  instrument carry *different* quotes?). Partial finding from the killed reviewer: `action` surfaces as
+  `_reserved1` (84 = `'T'`), `bid_pb`/`ask_pb` present. Re-run **one** reviewer at a time.
 - **⏳ Rollup not yet run across the corpus** — verified on 2026-07-23 only (11s/session). Run
   `tools/flow_corpus_rollup.py` once the files land, then re-run `tools/flow_corpus_bars.py` so the full
   universe (not just one session's) has spot.
