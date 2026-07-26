@@ -28,10 +28,12 @@ decision). The four dead subsystems downstream (dossier — `idea_dossiers` does
 lane; idea arming — `lifecycle_state` NULL on all 1,400 rows; attention idea-tiers) stay dark until that
 flip.
 
-⚠️ **NOT DEPLOYED — both Monday-dated items above and below depend on this.** serv runs
-`/home/mbelli/dev/help_me_trade` on `main` (`7e97aa1`); the 07-26 audit fixes are on
-`BeerBelly69/clear-the-board`. Until that branch is merged and deployed, Monday 07-27 runs the old
-gate and the old flow-EOD schedule, and neither Monday check means anything.
+✅ **DEPLOYED 2026-07-26** — `BeerBelly69/clear-the-board` ff-merged to `main` at `9e39914`, frontend
+rebuilt in the main checkout (`BUILD_ID` mtime moved, served `/api/version` buildId matches), all four
+units restarted with new MainPIDs, backend booted with zero tracebacks. Live-verified on the new
+process: SearXNG → 8586, pacing 1.5s, and `fetch_url` extracting the article ("Record quarterly revenue
+of $22.1 billion…") on a content page while correctly falling back to the tag strip on a link-list page.
+So the Monday checks below now exercise the new code.
 
 **Live bugs still open, all verified, each with a card:**
 `chat-dead-ts-surface` (dead TS brain, incl. an endpoint that runs `propose_order` with no approval
