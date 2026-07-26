@@ -45,7 +45,7 @@ CREATE INDEX IF NOT EXISTS idx_minute_bars_symbol_source_ts
 _CHUNK_MAX_DAYS = 30
 
 # Our cache timeframe labels -> Alpaca's. Schwab's fetch path is minute-only.
-_ALPACA_TIMEFRAMES = {"1min": "1Min", "5min": "5Min"}
+_ALPACA_TIMEFRAMES = {"1min": "1Min", "5min": "5Min", "1hour": "1Hour"}
 
 
 class IntradayBar(Bar):
