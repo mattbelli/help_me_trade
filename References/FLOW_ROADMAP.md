@@ -39,13 +39,26 @@ should even be looking for. Do not skip it to get to the detectors.
 Independent of the research track: Phases 1–4 all run on historical files. This phase blocks only
 **arming the live Databento provider**, which is a separate decision.
 
-- [ ] **0.1 Liveness proof.** Prints/minute counter, a loud alarm on zero prints during RTH, and a
-      subscription-echo assert that the server acked what we asked for.
-      *Done when:* a deliberately killed socket raises inside 2 minutes.
-      *Why:* right now a dead feed and a quiet market look identical. This is the arming
-      precondition from the 07-26 audit and it is still not built.
-- [ ] **0.2 Corpus-gap check.** A daily job that reports which sessions are missing from the corpus.
-      *Done when:* deleting one session's file makes the check fail loudly.
+- [x] **0.1 Liveness proof. — DONE 2026-07-27.** `FeedLiveness` in `signals/options_flow/dbn_stream.py`,
+      judged on **records, not `is_connected()`** — the failure that matters is a socket that still
+      reports healthy while nothing arrives. **Three faults, deliberately separate because they need
+      different responses:** subscription never acked → raises (and it is the only check valid outside
+      RTH, since symbol mappings arrive on subscribe regardless of market activity); no records for 90s
+      during RTH → raises `FeedDead`, inside the 2-minute budget; records arriving but no prints for
+      300s → logs loudly and does **not** raise, because a symbology/meta fault should not tear down a
+      healthy socket. Prints/min counter added so a dying feed is visible before a threshold fires.
+      RTH from the existing holiday/half-day-aware `trading.market_hours.is_market_open`. 15 tests,
+      including the subtle one: a closed-market tick must **reset** the silence clocks or the first
+      tick after the bell reports a dead feed on a healthy one. ⏳ Not yet proven against a real
+      socket — that rides with the provider-arming check.
+- [x] **0.2 Corpus-gap check. — DONE 2026-07-27.** `tools/flow_corpus_gaps.py`, exits 1 on any gap.
+      Absent / not-rolled-at-current-`SCHEMA_VERSION` / **truncated** — the third because the
+      backfill's skip guard is `exists() and size > 0`, so a partial download is skipped forever and
+      looks finished (it has bitten twice: the eight 7 KB defs files, and 2025-09-02 at 64.5 MB against
+      a ~270 MB median). Calendar derived from `equity_bars`, not hardcoded.
+      **First run found three sessions with NO definition file** — 2025-08-07, 2026-04-28, 2026-07-09 —
+      behind a defs pass reporting 258/260 done. A session without definitions cannot be rolled at all,
+      so all three would silently never have entered the corpus.
 
 ---
 
@@ -95,8 +108,14 @@ being free the moment we grade anything.
 - [ ] **1.4 Declare the delisting/acquisition rule.** Acquired names are the archetypal winners and
       their bars simply stop. *Fix:* write the terminal-value rule into the prereg **before**
       grading. *Done when:* it is registered in Addendum E.
-      *Now has a surface:* 1.2's `no_spot_missing` bucket enumerates exactly these names per session
-      (PARA on 2025-07-28), so the rule can be written against a real list instead of a guess.
+      *Now has a surface, and it is better than expected:* 1.2's `no_spot_missing` bucket enumerates
+      exactly these names per session **with premium attached**, so the rule can be written against an
+      observed list instead of a guess. Measured across 37 sessions the bucket runs $54M–$574M (median
+      $123M) and **the spikes are corporate actions**: the top session is **WBA at $386M**
+      (2025-08-27 — Walgreens taken private, equity bars stop while options keep trading), then SATS
+      $70.5M (EchoStar) and BRKB $37.3M (ticker format, not a corporate action — worth fixing
+      separately). This is the "acquired names are the archetypal winners" case arriving with a
+      dollar figure on it.
 - [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum E.**
       `premium = price/PX * size * 100.0` hardcodes 100 and adjusted contracts do not always deliver
       100 shares. **No field in the OPRA definition record can fix it** — every candidate is UNDEF

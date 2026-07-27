@@ -30,12 +30,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections import deque
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
 from signals.options_flow.intraday import normalize_print
+from trading.market_hours import is_market_open
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,124 @@ QUOTE_BASIS = "dbn_nbbo"
 # Mirrors OptionsFlowStream.collected_prints (stream.py:156).
 COLLECTED_PRINTS_MAX = 5000
 QUOTE_STALE_MS = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
+
+# --- liveness (roadmap 0.1) --------------------------------------------------
+# Without these a dead feed and a quiet market are indistinguishable, which is
+# the arming precondition this lane was missing. `client.is_connected()` is not
+# enough on its own: it reports the transport's opinion of itself, and the
+# failure that matters is the one where the socket looks fine and no records
+# arrive. So liveness is judged on DATA, not on connection state.
+#
+# Roadmap 0.1 requires a killed socket to raise inside 2 minutes. The flush tick
+# is 1s, so 90s detects well inside that. It is also far longer than any real gap
+# on a whole-chain parent subscription during RTH -- a 40-name subscription
+# carries a large share of a tape that runs millions of prints a session.
+SILENCE_S = 90.0
+# Subscription echo. Databento sends symbol mappings when the subscription is
+# accepted, independent of market activity, so this is the ONE check valid
+# outside RTH -- and the only one that catches "we asked for 40 parents and the
+# server acked nothing", which is otherwise identical to a quiet market.
+SUBSCRIPTION_ACK_S = 60.0
+# Transport alive, nothing usable coming out: meta lookups missing or symbology
+# not resolving. Logged loudly but NOT fatal -- tearing down a healthy socket is
+# the wrong response to a mapping problem, and it is a different bug with a
+# different fix than a dead feed.
+PIPELINE_STALL_S = 300.0
+RATE_LOG_S = 60.0
+
+
+class FeedDead(RuntimeError):
+    """The transport stopped delivering. Raised so the failure cannot be mistaken
+    for a clean shutdown — `runner._stream_run_databento` catches it and logs a
+    traceback, which is the loud outcome. Never caught and retried in here: no
+    auto-fallback is a deliberate property of this lane."""
+
+
+class FeedLiveness:
+    """Data-driven liveness for the OPRA feed.
+
+    Pure and clock-injected so the failure paths are testable without a socket.
+    Tracks three things that fail independently:
+      * the subscription was never acked,
+      * records stopped arriving (dead transport),
+      * records arrive but produce no prints (dead pipeline).
+    """
+
+    def __init__(self, now: float) -> None:
+        self._last_msg_at = now
+        self._last_print_at = now
+        self._started_at = now
+        self._msgs = 0
+        self._prints = 0
+        self._mapped = 0
+        self._acked = False
+        self._rate_at = now
+        self._rate_prints = 0
+        self._pipeline_warned = False
+
+    def observe(self, *, msgs: int, prints: int, mapped: int, now: float) -> None:
+        if msgs > self._msgs:
+            self._last_msg_at = now
+        if prints > self._prints:
+            self._last_print_at = now
+            self._pipeline_warned = False
+        self._msgs, self._prints, self._mapped = msgs, prints, mapped
+        if mapped > 0:
+            self._acked = True
+
+    def idle(self, now: float) -> None:
+        """Market is closed: restart the silence clocks.
+
+        Without this, the first tick after the opening bell compares against a
+        timestamp from the previous session and reports a dead feed on a feed
+        that is working perfectly.
+        """
+        self._last_msg_at = self._last_print_at = now
+
+    def check(self, *, now: float, market_open: bool) -> float | None:
+        """Raise `FeedDead` on a dead transport.
+
+        Returns the pipeline-stall duration when records are arriving but no
+        prints come out of them — a *different* fault with a different fix, so it
+        is returned for the caller to log with its own counters rather than being
+        fatal. Returns None when healthy. Reported once per stall, not per tick.
+        """
+        if not self._acked and now - self._started_at > SUBSCRIPTION_ACK_S:
+            raise FeedDead(
+                f"subscription never acked: no symbol mappings "
+                f"{now - self._started_at:.0f}s after subscribe "
+                f"(msgs={self._msgs}). The server did not accept what we asked "
+                f"for; this is NOT a quiet market."
+            )
+        if not market_open:
+            self.idle(now)
+            return None
+        silent = now - self._last_msg_at
+        if silent > SILENCE_S:
+            raise FeedDead(
+                f"no records for {silent:.0f}s during RTH "
+                f"(msgs={self._msgs} prints={self._prints}). The transport is "
+                f"dead — a quiet market still delivers quotes."
+            )
+        stalled = now - self._last_print_at
+        if stalled > PIPELINE_STALL_S and not self._pipeline_warned:
+            self._pipeline_warned = True
+            return stalled
+        return None
+
+    def take_rate(self, now: float) -> float | None:
+        """Prints per minute since the last call, once per `RATE_LOG_S`.
+
+        None between windows, so the caller can log unconditionally on the truthy
+        result. The counter is the observability half of 0.1: a rate trending to
+        zero is visible in the log before any threshold fires.
+        """
+        elapsed = now - self._rate_at
+        if elapsed < RATE_LOG_S:
+            return None
+        rate = (self._prints - self._rate_prints) * 60.0 / max(elapsed, 1e-9)
+        self._rate_at, self._rate_prints = now, self._prints
+        return rate
 
 
 class DatabentoFlowStream:
@@ -87,6 +207,9 @@ class DatabentoFlowStream:
         self._pending_lock = threading.Lock()
         self._client: Any = None
         self._stopping = False
+        # Populated on run(); exposed so /health can read the feed's
+        # own view of itself rather than inferring it from counters.
+        self.liveness: FeedLiveness | None = None
 
     # --- the surface runner.sweep_loop consumes ----------------------------
 
@@ -191,12 +314,44 @@ class DatabentoFlowStream:
             len(symbols), SCHEMA,
         )
 
+        live = FeedLiveness(time.monotonic())
+        self.liveness = live
         try:
             while not self._stopping:
                 await asyncio.sleep(self._flush_interval_s)
                 batch = self._drain()
                 if batch:
                     self._on_prints(batch)
+
+                # Liveness is judged on records, not on is_connected() — the
+                # failure that matters is a socket that still reports healthy
+                # while nothing arrives. monotonic() so an NTP step cannot
+                # manufacture or mask a stall.
+                now = time.monotonic()
+                try:
+                    mapped = len(client.symbology_map)
+                except Exception:
+                    mapped = 0
+                live.observe(msgs=self.msgs, prints=self.prints, mapped=mapped,
+                             now=now)
+                stalled = live.check(now=now, market_open=is_market_open())
+                if stalled is not None:
+                    logger.error(
+                        "dbn stream: records flowing but NO prints for %.0fs "
+                        "during RTH (msgs=%s unresolved_symbols=%s "
+                        "skipped_no_meta=%s). The socket is alive and the "
+                        "pipeline is not — check symbology and meta, not the "
+                        "connection.",
+                        stalled, self.msgs, self.unresolved_symbols,
+                        self.skipped_no_meta,
+                    )
+                rate = live.take_rate(now)
+                if rate is not None:
+                    logger.info(
+                        "dbn stream: %.1f prints/min (msgs=%s prints=%s "
+                        "mapped=%s)", rate, self.msgs, self.prints, mapped,
+                    )
+
                 if not client.is_connected():
                     # Loud, not silent: the Alpaca lane is one settings flip away
                     # and a human should make that call, not a fallback branch.

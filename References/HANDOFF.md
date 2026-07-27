@@ -82,9 +82,15 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   landed, so this is one pass (~1 hour for 260 sessions), not two. Adding a column after this point
   costs a second full re-roll.
   **Watch `no_spot_$` in the log during the unattended run.** It counts only the `no_spot_missing`
-  arm — ordinary names that should have had an equity bar. Baseline is ~$65M/session; an index root
-  missing from `INDEX_ROOTS` would show up as **billions**, and that is the designed failure signal
-  for the curated list.
+  arm — ordinary names that should have had an equity bar. **Measured over 37 sessions: $54M–$574M,
+  median $123M** (the one-session ~$65M figure was not representative). An index root missing from
+  `INDEX_ROOTS` would read **billions** — index flow is ~$10B/session — so the alarm line is orders
+  of magnitude clear of normal variation.
+  **▸ The spikes are corporate actions, and that is a feature.** The $574M session (2025-08-27) is
+  **WBA at $386M** — Walgreens, taken private in 2025, so its equity bars stop while its options keep
+  trading — plus SATS $70.5M (EchoStar) and BRKB $37.3M (ticker format). So this bucket doubles as a
+  **corporate-action detector with premium attached**, which is exactly the input item **1.4** needs:
+  the delisting rule can be written against an observed list rather than a guess.
 - **⏳ ONE KNOWN BACKFILL GAP: `2025-09-02`.** Checked 07-27 at 89/260 — every other processed
   session is on disk, and the two 0-byte files (`2025-09-01` Labor Day, `2025-11-27` Thanksgiving)
   are correct recorded holidays. **Remedy: re-run `tools/opra_tcbbo_backfill.py` over the same range
@@ -104,6 +110,20 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   3 lost out of ~520 pulls. Remedy is a second pass (definitions are L0/free, $0.00, and unlike
   tcbbo they carry **no rolling deadline**); deliberately NOT run concurrently with the in-flight
   tcbbo pass, because two simultaneous ALL_SYMBOLS streams are what swamped the box on 07-26.
+- **✅ ROADMAP 0.1 SHIPPED 07-27 — the live lane can now tell a dead feed from a quiet market.**
+  `FeedLiveness` in `dbn_stream.py`, judged on **records, not `is_connected()`** — the failure that
+  matters is a socket that still reports healthy while nothing arrives. Three faults kept separate
+  because they need different responses: **subscription never acked** (raises; the only check valid
+  outside RTH, since Databento sends symbol mappings on subscribe regardless of market activity),
+  **transport dead** (no records for 90s during RTH → raises `FeedDead`, well inside the roadmap's
+  2-minute budget), and **pipeline dead** (records arriving, no prints for 300s → logs loudly but
+  does **not** raise, because tearing down a healthy socket is the wrong fix for a symbology/meta
+  problem). Plus a prints/min counter so a feed dying is visible before any threshold trips. RTH
+  comes from the existing holiday- and half-day-aware `trading.market_hours.is_market_open` (15 tests).
+  ⚠️ A closed-market tick **resets** the silence clocks — without that the first tick after the
+  opening bell compares against last session's timestamp and reports a dead feed on a healthy one.
+  ⏳ Still unproven against a real socket: the arming check remains verifying the provider against a
+  session whose ground truth we already hold.
 - **▶ `tools/flow_corpus_gaps.py` (roadmap 0.2, shipped 07-27) is how you check any of this.**
   Exits 1 on any gap so it can be a cron. Three checks: absent files, files present but not rolled at
   the current `SCHEMA_VERSION`, and **truncated pulls** — a partial download passes the backfill's
