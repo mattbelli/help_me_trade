@@ -49,8 +49,23 @@ PX_SCALE = 1e9
 # classification regimes pool silently and any history that spans the swap is
 # quietly meaningless — the lesson `schema_version` encodes for the corpus.
 QUOTE_BASIS = "dbn_nbbo"
-# Mirrors OptionsFlowStream.collected_prints (stream.py:156).
-COLLECTED_PRINTS_MAX = 5000
+# NOT mirroring OptionsFlowStream's 5,000 any more — that number was sized for
+# the Alpaca lane and `runner.on_prints` still documents its assumption as
+# "~530 prints/min peak vs 5,000 cap". This lane subscribes whole CHAINS by
+# parent symbol, so it is a different order of magnitude entirely.
+#
+# Measured on 2026-03-20 for the 30 names actually armed (100,232 contracts):
+# 4,469,593 prints, 43.6% of the whole-market session, mean 191/s and a
+# PEAK 1s OF 3,191/s. Against 5,000 with a ~1s drain that is 1.57x headroom —
+# and `sweep_loop` sleeps 1.0s *plus* its own processing time, so a cycle that
+# runs 0.6s long at the peak overflows. Overflow is counted (dropped_prints)
+# but the prints are gone, and it would land on exactly the open/close bursts
+# the gauge exists to measure.
+#
+# 60,000 is ~19s of backlog at this lane's measured peak, and ~9s at the
+# whole-market peak of 6,642/s if the subscription is ever widened. The deque
+# is near-empty in steady state; maxlen only bounds a pathological stall.
+COLLECTED_PRINTS_MAX = 60_000
 # How often to re-check an empty watchlist. Cheap (an in-process poll-state
 # read), and 30s is well inside the pre-open warm window it is waiting for.
 WATCHLIST_WAIT_S = 30.0
