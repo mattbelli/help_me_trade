@@ -498,6 +498,11 @@ class OptionsFlowRunner:
                         for ev in rolling.check_bursts(now_ms) + rolling.check_clusters(
                             now_ms
                         ):
+                            # On the whole-market lane, stamp what the detector
+                            # actually saw; the Alpaca lane keeps the
+                            # watchlist_capped default.
+                            if stream.acked_market_wide:
+                                ev.setdefault("coverage", "market_wide")
                             of_db.insert_event(ev)
                     except Exception:
                         logger.exception("options_flow rolling: check failed")
@@ -596,6 +601,9 @@ class OptionsFlowRunner:
                     await enrich_sweep_events(events, broker)
 
                 for ev in events:
+                    # Same coverage stamp as the rolling detectors above.
+                    if stream.acked_market_wide:
+                        ev.setdefault("coverage", "market_wide")
                     of_db.insert_event(ev)
 
                 if broker is None:
