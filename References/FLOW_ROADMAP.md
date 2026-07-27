@@ -266,6 +266,11 @@ it is a description of the market. No exceptions.
       reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
       entire retail industry sells**, which would be the most valuable single finding available to us.
       *Note:* partially absorbs measurement 1.10's cross-tab — run 1.10 inside this frame.
+- [ ] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
+      at catalyst moments — earnings, guidance, M&A, FDA). "Someone knew about the event" and
+      "someone moved the stock" are different stories with plausibly different preceding-flow
+      profiles; pooling them repeats the index/single-name mistake one level down. Earnings/opex
+      flags already exist as covariates — this makes the split a registered look in the ledger.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
@@ -307,6 +312,19 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
       **6.4** (verified). Use time-block-clustered standard errors and require ≥20 independent event
       dates per cell.
 - [ ] **1.19 State universe size on every table.** The top ~1,000 names carry 99.6% of premium.
+- [ ] **1.20 Split the abstention band's reporting into single-name vs index/ETF arms** (founder,
+      07-27). The registered 20–35% band (Addenda C/D) is measured on POOLED premium, which is
+      index-dominated (~31% of premium is index roots alone; `t`-coded SPX floor packages were
+      10.35% of one session) — so the pooled band largely reports SPX's behavior with single names
+      along for the ride. Reporting both arms alongside the pooled number is legal now; making the
+      band BINDING per-arm is a rule change and lands here.
+- [ ] **1.21 Standing rule: every pooled premium-weighted statistic reports its single-name arm
+      alongside** (founder, 07-27). Measured justification: single names net −$354M while
+      index/ETF net +$908M on the same session — pooled statistics cancel opposing signals and
+      read as mush. This generalizes 1.8's lesson from multi-leg to everything.
+- [ ] **1.22 Harden the ETF classification before 1.20/1.21 lean on it.** `ETF_SET` in
+      `tools/multileg_arm_probe.py` is hand-built and incomplete (its own header says so). Derive
+      or curate a proper equity-vs-ETF-vs-index classification once, register it, reuse everywhere.
 
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
