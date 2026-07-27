@@ -10,6 +10,219 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 
 ---
 
+## ▶ 2026-07-26 whole-market flow corpus — backfill IN FLIGHT, deadline is real
+
+Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
+daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
+
+- **⏳ Backfill running** — restarted 07-26 19:47 via `tools/opra_backfill_run.sh` (setsid-detached so it
+  outlives the session, `nice`+`ionice`, **defs THEN tcbbo sequentially**). Progress: `tail
+  data/databento/run.log`. **If it dies, restart it** — it is resumable and every day left unarchived
+  ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
+  cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
+  schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
+- **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
+  pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
+  quote. Right reference for signing direction, but **N legs are not N independent quote observations**
+  and book-walking depth cannot be read off the attached BBO. Anything that weights by print count
+  across a sweep needs to know this.
+- **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
+  (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
+  only 61.9%. Premium is clean at $26,310,928,243.
+- **✅ Direction rule REGISTERED + CORRECTED** — Addendum C, corrected by **Addendum D** (C left in the
+  record deliberately; D is appended, not an in-place edit). The rule and the 20–35% band are
+  **unchanged**; what changed is why they are trusted. ⚠️ **The three measures are NOT three votes** —
+  `sign(u)` equals the midpoint side by construction (`half > 0` under `good_q`), so all three share
+  every print's sign and differ only in weight (`w=1` / `min(|u|,1)` / `|u|`). Their agreement tests
+  **only** that direction survives the weighting choice. **A 2-of-3 majority is incoherent here**, not
+  merely unregistered — it counts one opinion twice; the majority-vote `dissenters()` helper is deleted.
+  Abstains now carry a state: `no_opinion` / `weighting_unstable` / `contested`, reported by premium
+  share and **never pooled**. ⚠️ Robustness checks stay **premium-weighted**; raw-vs-clip disagreement is
+  0.24% of buckets but 15.8% of premium. **`u_premium` is pre-registered — add measures beside it, never
+  redefine it.**
+- **⚠️⚠️ MULTI-LEG CONTAMINATION — the biggest live caveat on this corpus.** A spread leg is priced off
+  the package, not its own NBBO, so its midpoint side is unreliable — and unreliable in **all three**
+  measures, since they share one sign. Measured 2025-07-28: **12.96% of prints, 33.33% of premium**, and
+  excluding them **flips the session sign of every measure** (net +$553.6M → −$219.3M, clip +$95.4M →
+  −$84.3M, raw +$366.4M → −$176.5M). Now a **grain** (`multileg` in the rollup PK, `schema_version=3`),
+  so both arms are stored and neither can be chosen after seeing the answer. **No bucket-level reading —
+  directional or abstain — may be presented without both arms.** The flag is a heuristic (shared
+  `ts_event`, different instrument): OPRA `flags` is constant 194 across all 6.95M prints and marks
+  nothing (`tools/tcbbo_flags_probe.py`), but `ts_event` is true-ns so ~1 coincidence is expected per
+  session.
+  **▸ DE-ESCALATED 07-27 by roadmap 1.8 — it is an index/ETF artifact.** Split three ways
+  (`tools/multileg_arm_probe.py`): **single names flip 0/3** measures (10.9% of prints / 19.5% of
+  premium multi-leg), **index roots + ETFs flip 3/3** (16.5% / 48.5%). Institutional hedging is
+  overwhelmingly spread structures; single-name flow is not. The both-arms presentation rule above
+  **still stands** — but the alarm does not reach the single-name flow the 3–45 day thesis targets.
+  ⚠️ One session, in-sample; re-run across the corpus. Related, and it matters for the Phase 4
+  aggregate's denominator: single names were net **short** (−$354M) while index/ETF was net **long**
+  (+$908M) the same session, so pooling them cancels two opposite signals.
+- **⚠️ `orders`, NEVER `prints`, is the N for any z-score or standard error** (`schema_version=4`).
+  A sweep arrives as N prints of one order; counting it N times inflates √N by up to 1.051× at p90,
+  worst in thin heavily-swept names (TLRY 16.0%, SNAP 15.0%) — the exact tier measurement 1.7 is
+  about. `prints` is retained unchanged because it is pre-registered. Do **not** sum `orders` across
+  buckets for a session total: a sweep whose legs disagree on side is counted in each bucket it
+  touches, so the sum runs 0.13% above the true group count. Correct per bucket, which is the grain
+  every statistic uses.
+- **⏳ CONFIRMATORY, once the backfill lands:** the rule was chosen after seeing 2025-07-28, so that
+  session is in-sample. Re-measure abstention across the ~258 unexamined sessions and report where it
+  falls against the 20–35% band — **outside the band is a finding, not a reason to retune.** Report the
+  three abstain states separately; no sub-bands are declared and none may be invented from 07-28.
+- **⏳ Study round owns one follow-up:** wire `by_measure` calls into the idea ledger so grading can rank
+  the three weightings ordinally — deliberately not built now (no consumer yet; a hook into nothing is
+  dead code), but the calls are emitted from the start because the comparison cannot be run
+  retroactively.
+- **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
+  whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
+- **⏳ Rollup not yet run across the corpus** — verified on 2025-07-28 only (13s/session, 186,750 rows
+  at `schema_version=4`). Run `tools/flow_corpus_rollup.py` once the files land, then re-run
+  `tools/flow_corpus_bars.py` so the full universe (not just one session's) has spot.
+  **The schema is FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three have
+  landed, so this is one pass (~1 hour for 260 sessions), not two. Adding a column after this point
+  costs a second full re-roll.
+  **Watch `no_spot_$` in the log during the unattended run.** It counts only the `no_spot_missing`
+  arm — ordinary names that should have had an equity bar. **Measured over 37 sessions: $54M–$574M,
+  median $123M** (the one-session ~$65M figure was not representative). An index root missing from
+  `INDEX_ROOTS` would read **billions** — index flow is ~$10B/session — so the alarm line is orders
+  of magnitude clear of normal variation.
+  ⚠️ **BOTH SENTENCES ABOVE WERE WRONG AND ARE CORRECTED — 2026-07-27 review.** Measured over 138
+  sessions the bucket runs **$41.3M–$7,196.6M, mean $256.0M**, so the "billions ⇒ missed index root"
+  discriminator is **already saturated and cannot identify a missed root**: the covered roots are
+  VIX $89.8M / XSP $31.9M / RUT $94.9M / NDX $234M per session, all well inside the bucket's own swing,
+  and only SPX ($9,891M) would clear it. The tail is **adjusted contracts** inflated by the hardcoded
+  100 multiplier (roadmap 1.5) — WOLF1 alone is $7,082M on 2025-12-19.
+  ⚠️ **It is also NOT a clean delisting list** — calling it a "corporate-action detector" was an
+  overclaim. It mixes four unrelated causes: adjusted contracts (WOLF1, OPEN1, BABA2), ticker-format
+  breaks (BRKB, $3.8B over 110 sessions), genuine corporate actions (WBA, PARA, SATS), and **plain
+  equity-bar coverage gaps on live, actively traded names** — CMA, PSTG, MMC, CTRA, CFLT, MPW appear in
+  **all 110** of their sessions and AZN has no bars in range at all. **Those live names currently get
+  no moneyness whatsoever in the corpus**, which is a data gap to close, not a corporate action.
+  **Roadmap 1.4 must read the per-root breakdown**, not treat this bucket as its list.
+- **⏳ ONE KNOWN BACKFILL GAP: `2025-09-02`.** Checked 07-27 at 89/260 — every other processed
+  session is on disk, and the two 0-byte files (`2025-09-01` Labor Day, `2025-11-27` Thanksgiving)
+  are correct recorded holidays. **Remedy: re-run `tools/opra_tcbbo_backfill.py` over the same range
+  after the current pass finishes** — the skip guard is `exists() and size > 0`, so a second pass
+  fetches only what is absent. Cause was a leftover `.part` from a 502-storm process death: the
+  Databento client validates the write path before contacting the server, so a stale partial made
+  the day fail forever for a reason unrelated to the download. Fixed 07-27 (the `.part` is now
+  cleared *before* the request, not only after a caught failure), but the running process predates
+  the fix, **so verify the gap set again when it lands.**
+- **⏳ THREE SESSIONS HAVE NO DEFINITION FILE: `2025-08-07`, `2026-04-28`, `2026-07-09`.** Found by
+  the new gap check, 07-27 — the defs pass reported "258/260 done" and this was invisible behind it.
+  **A session without definitions cannot be rolled at all** (`_load_definitions` returns None and the
+  rollup logs *"no definitions — cannot attribute prints"*), so all three would have silently never
+  entered the corpus. All three causes are **transient, not systematic**: a stale `.part`
+  (2025-08-07, now fixed), `BentoError: Response ended prematurely` (2026-04-28) and a failed
+  `get_cost` call (2026-07-09). **The backfill has no retry — one blip drops a session permanently**,
+  3 lost out of ~520 pulls. Remedy is a second pass (definitions are L0/free, $0.00, and unlike
+  tcbbo they carry **no rolling deadline**); deliberately NOT run concurrently with the in-flight
+  tcbbo pass, because two simultaneous ALL_SYMBOLS streams are what swamped the box on 07-26.
+- **✅ ROADMAP 0.1 SHIPPED 07-27 — the live lane can now tell a dead feed from a quiet market.**
+  `FeedLiveness` in `dbn_stream.py`, judged on **records, not `is_connected()`** — the failure that
+  matters is a socket that still reports healthy while nothing arrives. Three faults kept separate
+  because they need different responses: **subscription never acked** (raises; the only check valid
+  outside RTH, since Databento sends symbol mappings on subscribe regardless of market activity),
+  **transport dead** (no records for 90s during RTH → raises `FeedDead`, well inside the roadmap's
+  2-minute budget), and **pipeline dead** (records arriving, no prints for 300s → logs loudly but
+  does **not** raise, because tearing down a healthy socket is the wrong fix for a symbology/meta
+  problem). Plus a prints/min counter so a feed dying is visible before any threshold trips. RTH
+  comes from the existing holiday- and half-day-aware `trading.market_hours.is_market_open` (15 tests).
+  ⚠️ A closed-market tick **resets** the silence clocks — without that the first tick after the
+  opening bell compares against last session's timestamp and reports a dead feed on a healthy one.
+  ⚠️ **Corrected same day by review, and the correction matters more than the feature.** The first
+  version judged silence on `msgs`, which databento increments for **gateway heartbeats too** (every
+  30s), so it could never fire — a watchdog that manufactured confidence. Liveness now runs on
+  `data_msgs` (records carrying a book level). Also: a hard socket kill is already caught at ~41s by
+  databento's own monitor flipping `is_connected()`, so this clock's unique value is narrower —
+  gateway-side data stalls and wedged callback threads.
+  ✅ **The ack premise is SETTLED against the real gateway (07-27, 00:07 ET) and the check was rewritten.**
+  Two halves, one true and one false: the gateway **acks in ~17ms off-hours**, but `symbology_map` stays
+  **empty**, because mappings are only emitted for instruments that trade. The check was inferring the
+  ack from `len(symbology_map)`, so it fired a *false* "never acked" on a healthy subscription — the
+  RTH-only hedge was the only thing preventing a 60-second collector restart loop all weekend. It now
+  keys on `SystemCode.SUBSCRIPTION_ACK` and **raises at any hour**. Do not reintroduce `mapped` as an
+  ack signal.
+- **⚠️ `databento` is deliberately NOT in `requirements.txt`** — `dbn_stream.py` and
+  `tools/flow_corpus_rollup.py` both import it lazily at their use sites so everything else stays
+  testable without it. CI installs only `requirements.txt`, so **the 5 control-plane tests in
+  `test_dbn_stream.py` SKIP in CI** (`requires_dbn`), and `_on_control`'s dispatch is covered only on a
+  box that has the package. That is a real coverage gap, accepted on purpose: stubbing the records would
+  defeat the test, since the dispatch keys on `type(rec).__name__` plus an enum comparison and a
+  hand-rolled double can agree with the code while the wire type disagrees. To check a change the way CI
+  will see it, hide the package rather than trusting the marker — a `sitecustomize.py` that returns
+  `None` from `find_spec` for `databento*` and raises on real import reproduces it exactly (verified
+  07-27: 2,857 passed / 5 skipped, matching CI's population).
+  ⚠️ If the provider is ever set to `databento` in production, `databento` becomes a **hard runtime
+  dependency** of the collector and belongs in `requirements.txt` — arming and that line move together.
+- **▶ `tools/dbn_live_probe.py` is how you exercise the live lane without deploying anything.** It runs
+  the real `DatabentoFlowStream` with the real `runner.meta_for` in its own process — it does not read
+  `options_flow.provider`, does not touch `hmt-flow-collector`, and writes nothing, so it is safe to run
+  while the Alpaca lane is live. `--replay-from <ISO>` uses the live API's **intraday replay**.
+  ⚠️ **The replay floor is real and the gateway names it** — measured 07-27: asking for Friday returned
+  `Invalid start time. Must be 2026-07-26T00:00:00+00:00 or later,` **and closed the connection**. It
+  snaps to a UTC midnight rather than rolling strictly, so the window runs 24-48h back depending on the
+  hour; a Friday session is gone by Sunday night regardless. The usable slot is **a weekday after the
+  close, replaying that day's open** (Monday's session stays reachable through Tuesday morning).
+  ⚠️ **Never enable reconnect on a replay session.** databento re-subscribes with `start=None` hardcoded
+  (`session.py:762-769`), so a dropped replay comes back LIVE and the run keeps reporting as if it were
+  still replaying — the only trace is `reconnects`. `run()` forces `reconnect_policy="none"` whenever
+  `replay_from` is set; do not "simplify" that back to one policy.
+  Replay is also the only way to exercise the slow-reader path without a market, since it arrives as
+  fast as the gateway will push it.
+  ⏳ **Not yet done: the replay run itself** — 09:30→16:00 ET on the real flow watchlist. That is the
+  first test of symbology at scale, of print production, of the 89%/92.7% classification claim against
+  live plumbing rather than the corpus, and of throughput. It gates arming; nothing needs deploying
+  first.
+- **⚠️ `reconnect_policy="reconnect"` is ON, and it changed what `is_connected()` means.** With a policy
+  set, `is_disconnected()` returns `_reconnect_task.done()` (`session.py:452-458`), so **`is_connected()`
+  reads True right through an outage of any length.** Do not treat it as a health signal — the 90s data
+  silence clock is now the *only* detector of a session that never comes back, which is why the
+  heartbeat fix had to land first. The `is_connected()` branch in `run()` is the terminal case only:
+  databento has stopped trying. Reconnects and cumulative gap seconds are counted and logged.
+  ⏳ **Known, bounded, not fixed:** a sweep cluster straddling a reconnect gap closes with legs missing
+  and understates. Strictly smaller than the status quo it replaced (a restart discarded every buffered
+  cluster plus `RollingFlow` and the gauges), so it was not worth speculative cross-module plumbing —
+  but if reconnects turn out to be common in practice, dropping the `SweepBuffer` on `_on_reconnect` is
+  the fix. The pressure gauge is already gap-honest: `window_stats()` counts only minutes that have
+  cells, so a wholly-missed minute never enters `minutes_observed`.
+- **▶ Four gateway conditions are now counted** (`subscription_acks`, `slow_reader_warnings`,
+  `skipped_by_gateway`, `symbol_resolution_failures`, plus `callback_errors`) and appear in the periodic
+  rate line. They exist because each one **makes the tape wrong without making it stop**, which is the
+  one failure class the liveness clocks structurally cannot see. `run()` passes
+  `slow_reader_behavior="warn"` **explicitly** — Databento flipped that default to `skip` for the
+  stateless schemas on 2026-04-26 and tcbbo escaped only by not being on the list.
+- **The Databento lane has no quote store at all any more** (fixed 07-27, see the BUILD_LOG row) — the
+  NBBO rides on the print as `nbbo`, and `sweep_loop` reads `p["nbbo"] or stream.quote_at(...)`. Keep it
+  that way: `dbn_stream.quote_at` returns `None` by design and re-growing a store re-opens a thread race,
+  a false `quote_basis="dbn_nbbo"` label on same-millisecond prints, and an unevicted ring. The Alpaca
+  lane is unchanged and still classifies through `quote_at`.
+- **⚠️ Two known holes in the new guards, both deliberate and both worth closing later.** (1) The
+  16:00–16:15 ET index-settlement window is **unmonitored** — `is_market_open()` is the equity session
+  and flips False at 16:00, so `idle()` resets the clocks, yet the backfill deliberately captures to
+  16:15 because index options settle there and carry ~31% of corpus premium. (2) Truncation detection
+  is size-only and **has a hard ceiling**: real median 264.8 MB, smallest legitimate session Christmas
+  Eve at 0.469×, so the 0.35 fraction cannot rise past ~0.44 and the 0.35–0.47 band is invisible at any
+  threshold. The durable fix is temporal — assert the file's last record reaches ~16:15 ET.
+- **▶ `tools/flow_corpus_gaps.py` (roadmap 0.2, shipped 07-27) is how you check any of this.**
+  Exits 1 on any gap so it can be a cron. Three checks: absent files, files present but not rolled at
+  the current `SCHEMA_VERSION`, and **truncated pulls** — a partial download passes the backfill's
+  `exists() and size > 0` skip guard and is skipped forever, which has now bitten this project twice
+  (the eight 7 KB definition files from the UTC-window bug, and 2025-09-02's 64.5 MB against a
+  ~270 MB median). The trading calendar is derived from `equity_bars`, not hardcoded, so it cannot
+  drift out of sync with the corpus it checks.
+- **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
+  are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
+  `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —
+  they are not options. ⚠️ They also carry `size == UINT32_MAX`, so the C/P filter is the **only** thing
+  stopping `premium = price/PX * size * 100` from inflating a session ~918,000,000x ($26.3B → $24.2
+  quintillion). Do **not** relax the join to "recover" unresolved prints without a size-sentinel guard.
+- **Index roots have no spot by construction** (SPX/SPXW/NDX/VIX/RUT = 30.8% of premium, `mny_bucket`
+  = 'unknown'). The prereg's secondary arm excludes index roots, so this is acceptable — but it is a
+  decision, not an oversight, and a SPY×10-style proxy is the option if that changes.
+- **Do NOT build** the anchor-seeding / hot-pool / promotion tuning for the 1,000-sub cap. It was queued
+  before the subscription and is now dead work.
+
 ## ▶ 2026-07-26 audit round — four Opus investigators; findings are ON THE BOARD, not here
 
 Four parallel audits (perception layer, idea engine + fusion, AI chat, all 64 non-done cards) ran against

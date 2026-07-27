@@ -646,6 +646,19 @@ async def test_stop_ends_run_promptly() -> None:
     await asyncio.wait_for(task, timeout=1.0)
 
 
+def test_alpaca_prints_never_carry_a_book_so_quote_at_stays_the_path() -> None:
+    """sweep_loop now reads `p["nbbo"] or stream.quote_at(...)`, because the
+    Databento lane stamps the book on the print. This lane has no book to stamp
+    — quotes arrive on a separate channel — so its prints must stay bare or the
+    `or` would short-circuit past the time-matching that IS this lane's
+    classification."""
+    p = normalize_print(
+        {"t": "2026-07-09T14:30:00Z", "p": "4.20", "s": "10", "x": "C", "c": []},
+        meta=_meta_for(OCC),
+    )
+    assert p is not None and "nbbo" not in p
+
+
 def test_quote_at_prevailing_before_print_wins() -> None:
     stream = OptionsFlowStream(
         key="k",

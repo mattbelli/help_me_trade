@@ -425,7 +425,12 @@ class OptionsFlowRunner:
                         direction = "undetermined"
                         basis = "none"
                         lab_quote: tuple[float, float, int] | None = None
-                        q = stream.quote_at(
+                        # A transport whose prints carry their own book (Databento
+                        # tcbbo) stamps it at ingest, so there is nothing to look
+                        # up and nothing shared to race on. quote_at is the Alpaca
+                        # lane, where quotes arrive on a separate channel and must
+                        # be matched to the print by timestamp.
+                        q = p.get("nbbo") or stream.quote_at(
                             str(p.get("occ_symbol") or ""),
                             int(p.get("ts_ms") or 0),
                         )
@@ -437,7 +442,12 @@ class OptionsFlowRunner:
                                     price=float(p.get("price") or 0), bid=bid, ask=ask
                                 )
                                 if direction != "undetermined":
-                                    basis = "stream_quote"
+                                    # Provider-stamped so post-swap events stay
+                                    # distinguishable from the Alpaca era in the
+                                    # same table (dbn_nbbo vs stream_quote).
+                                    basis = str(
+                                        p.get("quote_basis") or "stream_quote"
+                                    )
                         p["direction"] = direction
                         p["direction_basis"] = basis
                         row = {
@@ -608,7 +618,23 @@ class OptionsFlowRunner:
                 logger.exception("options_flow sweeps: cycle failed")
 
     async def stream_run(self) -> None:
-        """OPRA websocket transport (Phase 3a); prints feed `sweep_loop`."""
+        """OPRA transport; prints feed `sweep_loop`.
+
+        Provider is chosen by ``options_flow.provider`` and DEFAULTS TO ALPACA —
+        the Databento lane ships off and is armed deliberately, the same way a
+        new strategy does. Neither path falls back to the other: a dead session
+        is loud, because a silent downgrade in direction quality would look
+        exactly like a quiet market.
+        """
+        from config.settings import load_settings
+
+        provider = str(
+            (load_settings().get("options_flow") or {}).get("provider") or "alpaca"
+        ).strip().lower()
+        if provider == "databento":
+            await self._stream_run_databento()
+            return
+
         if not broker_is_configured("alpaca"):
             logger.warning("options_flow stream: Alpaca not configured; not starting")
             return
@@ -640,6 +666,37 @@ class OptionsFlowRunner:
             raise
         except Exception:
             logger.exception("options_flow stream: run loop exited unexpectedly")
+        finally:
+            self.stream = None
+
+    async def _stream_run_databento(self) -> None:
+        """Databento OPRA live — NBBO travels on the print, so no quote budget."""
+        import os
+
+        key = str(os.environ.get("DATABENTO_API_KEY") or "").strip()
+        if not key:
+            logger.error(
+                "options_flow stream: provider=databento but DATABENTO_API_KEY is "
+                "unset; NOT starting and NOT falling back to Alpaca"
+            )
+            return
+
+        from signals.options_flow.dbn_stream import DatabentoFlowStream
+
+        stream = DatabentoFlowStream(
+            key=key,
+            on_prints=self.on_prints,
+            get_subscription_set=self.subscription_set,
+            meta_for=self.meta_for,
+        )
+        self.stream = stream
+        logger.info("options_flow stream: starting Databento OPRA live (DARK collector)")
+        try:
+            await stream.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("options_flow stream: databento run loop exited")
         finally:
             self.stream = None
 
