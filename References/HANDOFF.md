@@ -147,10 +147,17 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   the real `DatabentoFlowStream` with the real `runner.meta_for` in its own process — it does not read
   `options_flow.provider`, does not touch `hmt-flow-collector`, and writes nothing, so it is safe to run
   while the Alpaca lane is live. `--replay-from <ISO>` uses the live API's **intraday replay**.
-  ⚠️ That window is the last 24 **hours** and shrinks when data isn't publishing, so a Friday session is
-  already unreachable by Sunday night — the usable slot is **a weekday after the close, replaying that
-  day's open**. Replay is also the only way to exercise the slow-reader path without a market, since it
-  arrives as fast as the gateway will push it.
+  ⚠️ **The replay floor is real and the gateway names it** — measured 07-27: asking for Friday returned
+  `Invalid start time. Must be 2026-07-26T00:00:00+00:00 or later,` **and closed the connection**. It
+  snaps to a UTC midnight rather than rolling strictly, so the window runs 24-48h back depending on the
+  hour; a Friday session is gone by Sunday night regardless. The usable slot is **a weekday after the
+  close, replaying that day's open** (Monday's session stays reachable through Tuesday morning).
+  ⚠️ **Never enable reconnect on a replay session.** databento re-subscribes with `start=None` hardcoded
+  (`session.py:762-769`), so a dropped replay comes back LIVE and the run keeps reporting as if it were
+  still replaying — the only trace is `reconnects`. `run()` forces `reconnect_policy="none"` whenever
+  `replay_from` is set; do not "simplify" that back to one policy.
+  Replay is also the only way to exercise the slow-reader path without a market, since it arrives as
+  fast as the gateway will push it.
   ⏳ **Not yet done: the replay run itself** — 09:30→16:00 ET on the real flow watchlist. That is the
   first test of symbology at scale, of print production, of the 89%/92.7% classification claim against
   live plumbing rather than the corpus, and of throughput. It gates arming; nothing needs deploying

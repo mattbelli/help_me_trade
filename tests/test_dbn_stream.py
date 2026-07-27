@@ -229,6 +229,31 @@ def test_a_reconnect_with_unusable_timestamps_still_counts():
     assert s.reconnect_gap_s == 0.0
 
 
+def test_production_sets_no_replay_window():
+    """replay_from is an arming-check affordance. If it ever defaulted to a
+    value, production would silently stream yesterday."""
+    assert _stream([])._replay_from is None
+
+
+def test_a_reconnect_during_replay_says_the_replay_is_over(caplog):
+    """databento re-subscribes with start=None hardcoded (session.py:762-769),
+    so a dropped replay silently returns as a LIVE session. Observed 07-27:
+    asking for an out-of-window Friday got the connection closed, reconnect
+    fired 15ms later with start='now', and the run then looked healthy — ack
+    received, zero data — with reconnects=1 as the only trace. run() now
+    disables the policy whenever replay_from is set; this is the second line of
+    defence, because the failure is a wrong measurement, not an error."""
+    import logging
+    s = DatabentoFlowStream(key="k", on_prints=lambda b: None,
+                            get_subscription_set=lambda: ["TSLA"],
+                            meta_for=lambda occ: dict(META),
+                            replay_from="2026-07-27T13:30:00Z")
+    with caplog.at_level(logging.ERROR):
+        s._on_reconnect(None, None)
+    assert "RECONNECT DURING REPLAY" in caplog.text
+    assert s.reconnects == 1
+
+
 def test_callback_errors_are_counted_not_just_logged():
     """databento catches an exception out of _on_record, logs it, and keeps the
     session alive — so a systematic failure reads exactly like a dead pipeline.

@@ -433,6 +433,16 @@ class DatabentoFlowStream:
         flapping session hides, and these seconds are prints we never saw.
         """
         self.reconnects += 1
+        if self._replay_from is not None:
+            # Unreachable while run() disables the policy for replay; kept
+            # because the consequence is a silently wrong measurement rather
+            # than an error, and it must never come back quietly.
+            logger.error(
+                "dbn stream: RECONNECT DURING REPLAY — databento re-subscribes "
+                "with start=None, so this session is now LIVE, not a replay of "
+                "%s. Anything measured after this point is the current tape.",
+                self._replay_from,
+            )
         try:
             gap = float((gap_end - gap_start).total_seconds())
         except Exception:
@@ -500,10 +510,20 @@ class DatabentoFlowStream:
         # fixed on 07-27 (it used to be defeated by heartbeats). The
         # is_connected() check further down still matters: it fires when the
         # reconnect task itself gives up, which is the terminal case.
+        # ⚠️ Reconnect is DISABLED for replay, and this is not tidiness.
+        # databento's reconnect re-subscribes with `start=None` hardcoded
+        # (session.py:762-769), so a replay session that drops comes back as a
+        # LIVE one. Caught 2026-07-27 by asking for a Friday outside the replay
+        # window: the gateway rejected it and closed, reconnect fired 15ms later
+        # with start='now', and the probe then reported a healthy session —
+        # ack received, zero data — with `reconnects=1` as the only trace. That
+        # is a replay run silently measuring an empty overnight tape while
+        # looking like it measured the session. Production sets no replay_from
+        # and keeps reconnect.
         client = dbn.Live(
             key=self._key,
             slow_reader_behavior="warn",
-            reconnect_policy="reconnect",
+            reconnect_policy="none" if self._replay_from else "reconnect",
         )
         client.add_callback(self._on_record, self._on_callback_error)
         client.add_reconnect_callback(self._on_reconnect)

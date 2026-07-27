@@ -106,6 +106,23 @@ async def _run(args: argparse.Namespace) -> int:
         print(f"  {'of which carried an NBBO':<28} {with_book} "
               f"({with_book / len(got):.1%})")
 
+    if args.replay_from:
+        print("\n[probe] REPLAY:", end=" ")
+        if stream.reconnects:
+            print("⚠️ RECONNECTED — databento re-subscribes with start=None, so "
+                  "this stopped being a replay and became a live session. The "
+                  "numbers above are NOT the replayed window.")
+        elif not stream.data_msgs:
+            print("no records. Either the window holds no data (a weekend, an "
+                  "overnight) or the start was rejected — the gateway names its "
+                  "floor in the log above: 'Invalid start time. Must be … or "
+                  "later'. Measured 2026-07-27: the floor snaps to a UTC "
+                  "midnight, so it runs 24-48h back, and a Friday session is "
+                  "already gone by Sunday night.")
+        else:
+            print(f"{stream.data_msgs:,} records replayed.")
+        return 0
+
     # The question this probe exists to answer. State it as a finding, not a
     # pass/fail: an unacked subscription off-hours is not necessarily a fault,
     # it is the thing we do not know.
