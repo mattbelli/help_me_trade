@@ -24,7 +24,7 @@ from signals.options_flow.dbn_stream import (
 def _live(t0: float = 1000.0, *, acked: bool = True) -> FeedLiveness:
     live = FeedLiveness(t0)
     if acked:
-        live.observe(data_msgs=1, prints=1, mapped=40, now=t0)
+        live.observe(data_msgs=1, prints=1, acks=1, now=t0)
     return live
 
 
@@ -48,7 +48,7 @@ def test_arriving_records_reset_the_silence_clock():
     live = _live()
     for i in range(1, 6):
         t = 1000.0 + i * (SILENCE_S - 5)
-        live.observe(data_msgs=1 + i, prints=1 + i, mapped=40, now=t)
+        live.observe(data_msgs=1 + i, prints=1 + i, acks=1, now=t)
         assert live.check(now=t, market_open=True) is None
 
 
@@ -74,29 +74,37 @@ def test_the_clock_restarts_at_the_open_after_a_closed_stretch():
 
 def test_a_subscription_never_acked_raises_during_rth():
     """Asking for 40 parents and having the server ack nothing looks exactly like
-    a quiet market, so during RTH it is fatal."""
+    a quiet market, so it is fatal."""
     live = FeedLiveness(1000.0)
     with pytest.raises(FeedDead, match="never acked"):
         live.check(now=1000.0 + SUBSCRIPTION_ACK_S + 1, market_open=True)
 
 
-def test_a_missing_ack_outside_rth_does_not_raise():
-    """The restart-loop guard. The deployed owner is hmt-flow-collector, where a
-    raise ends the process and systemd restarts it in 3s — so a condition that
-    re-raises every cycle is an unbounded restart loop. Whether mappings even
-    arrive off-hours is unverified against a real socket, so the off-hours branch
-    must log rather than raise. Nothing is lost: a subscription that failed
-    overnight is still caught by the silence check at 09:30."""
+def test_a_missing_ack_outside_rth_ALSO_raises():
+    """Reversed on 2026-07-27 by probing the real gateway, and the reversal is
+    the point. This used to log instead of raising, because the ack was inferred
+    from `len(symbology_map)` and nobody knew whether mappings arrive off-hours.
+    They do NOT — measured at 00:07 ET, `symbology_map` stayed empty for 75s
+    while the gateway acked in ~17ms. So the old check read a signal that is
+    absent by design overnight and fired a FALSE 'never acked' on a healthy
+    subscription; the RTH-only hedge was the only thing standing between that
+    and a collector restart every 60s all weekend. Keyed on the real ack the
+    condition is honest at every hour, and a rejected subscription is now caught
+    at 03:00 rather than surviving until the opening bell."""
     live = FeedLiveness(1000.0)
+    with pytest.raises(FeedDead, match="never acked"):
+        live.check(now=1000.0 + SUBSCRIPTION_ACK_S + 1, market_open=False)
+
+
+def test_the_gateway_ack_satisfies_it_with_no_symbols_mapped():
+    """The exact off-hours shape the probe recorded: one ack, zero mappings,
+    zero data. Must be silent — this is a healthy idle subscription."""
+    live = FeedLiveness(1000.0)
+    live.observe(data_msgs=0, prints=0, acks=1, now=1000.0 + 5)
+    assert live.check(now=1000.0 + SUBSCRIPTION_ACK_S + 1, market_open=False) is None
     for i in range(1, 200):                       # a whole weekend of ticks
         assert live.check(now=1000.0 + SUBSCRIPTION_ACK_S + i * 60,
                           market_open=False) is None
-
-
-def test_mappings_arriving_satisfy_the_ack():
-    live = FeedLiveness(1000.0)
-    live.observe(data_msgs=0, prints=0, mapped=12, now=1000.0 + 5)
-    assert live.check(now=1000.0 + SUBSCRIPTION_ACK_S + 1, market_open=False) is None
 
 
 def test_grace_period_before_the_ack_is_expected():
@@ -113,7 +121,7 @@ def test_records_without_prints_is_reported_but_not_fatal():
     t = 1000.0
     for i in range(1, 40):                      # msgs climb, prints never do
         t = 1000.0 + i * 10
-        live.observe(data_msgs=1 + i, prints=1, mapped=40, now=t)
+        live.observe(data_msgs=1 + i, prints=1, acks=1, now=t)
         stalled = live.check(now=t, market_open=True)
         if stalled is not None:
             assert stalled > PIPELINE_STALL_S
@@ -127,9 +135,9 @@ def test_the_pipeline_stall_is_reported_once_not_every_tick():
     bury the thing it is warning about."""
     live = _live()
     t = 1000.0 + PIPELINE_STALL_S + 1
-    live.observe(data_msgs=99, prints=1, mapped=40, now=t)
+    live.observe(data_msgs=99, prints=1, acks=1, now=t)
     assert live.check(now=t, market_open=True) is not None
-    live.observe(data_msgs=100, prints=1, mapped=40, now=t + 1)
+    live.observe(data_msgs=100, prints=1, acks=1, now=t + 1)
     assert live.check(now=t + 1, market_open=True) is None
 
 
@@ -138,11 +146,11 @@ def test_a_print_rearms_the_pipeline_warning():
     silent after its first report."""
     live = _live()
     t = 1000.0 + PIPELINE_STALL_S + 1
-    live.observe(data_msgs=99, prints=1, mapped=40, now=t)
+    live.observe(data_msgs=99, prints=1, acks=1, now=t)
     assert live.check(now=t, market_open=True) is not None
-    live.observe(data_msgs=100, prints=2, mapped=40, now=t + 1)     # recovered
+    live.observe(data_msgs=100, prints=2, acks=1, now=t + 1)     # recovered
     t2 = t + 1 + PIPELINE_STALL_S + 1
-    live.observe(data_msgs=200, prints=2, mapped=40, now=t2)
+    live.observe(data_msgs=200, prints=2, acks=1, now=t2)
     assert live.check(now=t2, market_open=True) is not None
 
 
@@ -152,15 +160,15 @@ def test_rate_is_none_between_windows_and_a_number_at_the_window():
     # Built without the shared helper so the arithmetic is visible: 0 -> 120
     # prints across exactly one window is 120/min.
     live = FeedLiveness(1000.0)
-    live.observe(data_msgs=1, prints=0, mapped=40, now=1000.0)
+    live.observe(data_msgs=1, prints=0, acks=1, now=1000.0)
     assert live.take_rate(1000.0 + RATE_LOG_S - 1) is None
-    live.observe(data_msgs=200, prints=120, mapped=40, now=1000.0 + RATE_LOG_S)
+    live.observe(data_msgs=200, prints=120, acks=1, now=1000.0 + RATE_LOG_S)
     assert live.take_rate(1000.0 + RATE_LOG_S) == pytest.approx(120.0)
 
 
 def test_rate_resets_so_windows_do_not_accumulate():
     live = FeedLiveness(1000.0)
-    live.observe(data_msgs=2, prints=60, mapped=40, now=1000.0 + RATE_LOG_S)
+    live.observe(data_msgs=2, prints=60, acks=1, now=1000.0 + RATE_LOG_S)
     live.take_rate(1000.0 + RATE_LOG_S)
     # no new prints in the second window
     assert live.take_rate(1000.0 + 2 * RATE_LOG_S) == pytest.approx(0.0)
@@ -170,8 +178,8 @@ def test_a_rate_falling_to_zero_is_visible_before_the_alarm_fires():
     """The observability half of 0.1: the counter should show the feed dying
     before the 90s threshold trips, not only after."""
     live = FeedLiveness(1000.0)
-    live.observe(data_msgs=1, prints=0, mapped=40, now=1000.0)
-    live.observe(data_msgs=2, prints=0, mapped=40, now=1000.0 + RATE_LOG_S)
+    live.observe(data_msgs=1, prints=0, acks=1, now=1000.0)
+    live.observe(data_msgs=2, prints=0, acks=1, now=1000.0 + RATE_LOG_S)
     assert live.take_rate(1000.0 + RATE_LOG_S) == pytest.approx(0.0)
 
 
@@ -205,7 +213,7 @@ def test_a_feed_delivering_only_heartbeats_is_declared_dead():
     with pytest.raises(FeedDead, match="transport is dead"):
         for i in range(1, 12):                 # 11 heartbeats, no data
             t = 1000.0 + i * 30
-            live.observe(data_msgs=1, prints=1, mapped=40, now=t)
+            live.observe(data_msgs=1, prints=1, acks=1, now=t)
             live.check(now=t, market_open=True)
 
 
@@ -215,9 +223,9 @@ def test_a_pipeline_fault_is_reported_again_the_next_session():
     reported once on Monday and never again."""
     live = _live()
     t = 1000.0 + PIPELINE_STALL_S + 1
-    live.observe(data_msgs=99, prints=1, mapped=40, now=t)
+    live.observe(data_msgs=99, prints=1, acks=1, now=t)
     assert live.check(now=t, market_open=True) is not None      # day 1
     live.check(now=t + 40_000, market_open=False)               # overnight
     t2 = t + 40_000 + PIPELINE_STALL_S + 1
-    live.observe(data_msgs=200, prints=1, mapped=40, now=t2)
+    live.observe(data_msgs=200, prints=1, acks=1, now=t2)
     assert live.check(now=t2, market_open=True) is not None, "day 2 went silent"

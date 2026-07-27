@@ -130,20 +130,24 @@ class FeedLiveness:
         self._rate_at = now
         self._rate_prints = 0
         self._pipeline_warned = False
-        self._ack_warned = False
 
-    def observe(self, *, data_msgs: int, prints: int, mapped: int,
+    def observe(self, *, data_msgs: int, prints: int, acks: int,
                 now: float) -> None:
         """``data_msgs`` must be records carrying market data, NOT every record
         the callback sees -- gateway heartbeats arrive every 30s and would keep
-        this clock alive through a totally dead feed."""
+        this clock alive through a totally dead feed.
+
+        ``acks`` is the gateway's own ``SystemCode.SUBSCRIPTION_ACK`` count. It
+        used to be ``mapped`` -- the size of ``symbology_map`` -- and that was
+        simply the wrong signal; see `check`.
+        """
         if data_msgs > self._msgs:
             self._last_msg_at = now
         if prints > self._prints:
             self._last_print_at = now
             self._pipeline_warned = False
         self._msgs, self._prints = data_msgs, prints
-        if mapped > 0:
+        if acks > 0:
             self._acked = True
 
     def idle(self, now: float) -> None:
@@ -167,27 +171,31 @@ class FeedLiveness:
         is returned for the caller to log with its own counters rather than being
         fatal. Returns None when healthy. Reported once per stall, not per tick.
         """
+        # Fatal at any hour, and that is a MEASURED change, not a tidy-up.
+        #
+        # This used to infer the ack from `len(symbology_map)` and could only
+        # raise during RTH, because nobody had checked whether mappings arrive
+        # off-hours. Probed against the real gateway on 2026-07-27 at 00:07 ET
+        # (tools/dbn_live_probe.py): the two halves of that premise came apart.
+        # The gateway acks in ~17ms, off-hours included -- "system message
+        # code=subscription_ack msg='Subscription request 0 for tcbbo data
+        # succeeded'" -- but `symbology_map` stayed EMPTY for the full 75s,
+        # because mappings are emitted for instruments that trade.
+        #
+        # So the old check was reading a signal that is absent by design when
+        # the market is shut, and it duly fired a false "subscription never
+        # acked" at t+60s on a subscription the server had already accepted.
+        # The RTH-only hedge was load-bearing -- without it that false positive
+        # would have restarted the collector every 60s all weekend. Keyed on the
+        # real ack it is true at every hour, so the hedge is gone and a genuinely
+        # rejected subscription is now caught at 03:00 instead of at 09:30.
         if not self._acked and now - self._started_at > SUBSCRIPTION_ACK_S:
-            msg = (
-                f"subscription never acked: no symbol mappings "
+            raise FeedDead(
+                f"the gateway never acked the subscription "
                 f"{now - self._started_at:.0f}s after subscribe "
-                f"(data_msgs={self._msgs}). The server did not accept what we "
-                f"asked for; this is NOT a quiet market."
+                f"(data_msgs={self._msgs}). Measured latency for a good one is "
+                f"~17ms at any hour, so this is a rejection, not a quiet market."
             )
-            # Fatal only during RTH. The claim that mappings arrive on subscribe
-            # regardless of market activity is UNVERIFIED against a real socket,
-            # and the deployed owner is hmt-flow-collector, where any raise ends
-            # the process and systemd restarts it in 3s. If the premise is wrong,
-            # raising off-hours is an unbounded restart loop -- ~1,100 fresh live
-            # sessions across a weekend, each one re-raising at t+60s. Logging
-            # instead costs nothing: a subscription that failed overnight is
-            # still caught at 09:30 by the silence check below.
-            if not market_open:
-                if not self._ack_warned:
-                    self._ack_warned = True
-                    logger.error("dbn stream: %s", msg)
-            else:
-                raise FeedDead(msg)
         if not market_open:
             self.idle(now)
             return None
@@ -230,12 +238,20 @@ class DatabentoFlowStream:
         get_subscription_set: Callable[[], list[str]],
         meta_for: Callable[[str], dict | None],
         flush_interval_s: float = 1.0,
+        replay_from: Any = None,
     ) -> None:
         self._key = key
         self._on_prints = on_prints
         self._get_subscription_set = get_subscription_set
         self._meta_for = meta_for
         self._flush_interval_s = flush_interval_s
+        # Intraday replay: the live gateway will resend the last ≤24h from a
+        # given start time. None in production. It exists so the arming check
+        # can push a REAL session through this exact code path on a weeknight
+        # instead of waiting for an open — and because replay arrives as fast
+        # as the gateway will send it, it is also the only honest way to
+        # exercise the slow-reader path without a market.
+        self._replay_from = replay_from
 
         self.collected_prints: deque[dict] = deque(maxlen=COLLECTED_PRINTS_MAX)
         self.dropped_prints = 0
@@ -492,7 +508,8 @@ class DatabentoFlowStream:
         client.add_callback(self._on_record, self._on_callback_error)
         client.add_reconnect_callback(self._on_reconnect)
         client.subscribe(
-            dataset=DATASET, schema=SCHEMA, stype_in="parent", symbols=symbols
+            dataset=DATASET, schema=SCHEMA, stype_in="parent", symbols=symbols,
+            start=self._replay_from,
         )
         self._client = client
         client.start()
@@ -519,7 +536,7 @@ class DatabentoFlowStream:
                 except Exception:
                     mapped = 0
                 live.observe(data_msgs=self.data_msgs, prints=self.prints,
-                             mapped=mapped, now=now)
+                             acks=self.subscription_acks, now=now)
                 if self._stopping:
                     break
                 stalled = live.check(now=now, market_open=is_market_open())

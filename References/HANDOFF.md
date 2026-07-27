@@ -136,15 +136,25 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `data_msgs` (records carrying a book level). Also: a hard socket kill is already caught at ~41s by
   databento's own monitor flipping `is_connected()`, so this clock's unique value is narrower —
   gateway-side data stalls and wedged callback threads.
-  ⚠️ **The ack check raises only during RTH.** Off-hours it logs. `OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`
-  means `hmt-flow-collector` owns the stream and awaits legs `FIRST_COMPLETED`, so **any raise exits
-  the process and systemd restarts it in 3s** — and the premise that symbol mappings arrive off-hours
-  is still UNVERIFIED, so raising then would have been an unbounded weekend restart loop.
-  ⏳ Still unproven against a real socket: the arming check remains verifying the provider against a
-  session whose ground truth we already hold. **Verify the off-hours ack behaviour at the same time** —
-  `SystemCode.SUBSCRIPTION_ACK` is now counted as `stream.subscription_acks`, so that run records the
-  answer instead of leaving it inferred. If acks do arrive off-hours, the RTH-only hedge can be dropped
-  and the ack check can raise whenever it fires.
+  ✅ **The ack premise is SETTLED against the real gateway (07-27, 00:07 ET) and the check was rewritten.**
+  Two halves, one true and one false: the gateway **acks in ~17ms off-hours**, but `symbology_map` stays
+  **empty**, because mappings are only emitted for instruments that trade. The check was inferring the
+  ack from `len(symbology_map)`, so it fired a *false* "never acked" on a healthy subscription — the
+  RTH-only hedge was the only thing preventing a 60-second collector restart loop all weekend. It now
+  keys on `SystemCode.SUBSCRIPTION_ACK` and **raises at any hour**. Do not reintroduce `mapped` as an
+  ack signal.
+- **▶ `tools/dbn_live_probe.py` is how you exercise the live lane without deploying anything.** It runs
+  the real `DatabentoFlowStream` with the real `runner.meta_for` in its own process — it does not read
+  `options_flow.provider`, does not touch `hmt-flow-collector`, and writes nothing, so it is safe to run
+  while the Alpaca lane is live. `--replay-from <ISO>` uses the live API's **intraday replay**.
+  ⚠️ That window is the last 24 **hours** and shrinks when data isn't publishing, so a Friday session is
+  already unreachable by Sunday night — the usable slot is **a weekday after the close, replaying that
+  day's open**. Replay is also the only way to exercise the slow-reader path without a market, since it
+  arrives as fast as the gateway will push it.
+  ⏳ **Not yet done: the replay run itself** — 09:30→16:00 ET on the real flow watchlist. That is the
+  first test of symbology at scale, of print production, of the 89%/92.7% classification claim against
+  live plumbing rather than the corpus, and of throughput. It gates arming; nothing needs deploying
+  first.
 - **⚠️ `reconnect_policy="reconnect"` is ON, and it changed what `is_connected()` means.** With a policy
   set, `is_disconnected()` returns `_reconnect_task.done()` (`session.py:452-458`), so **`is_connected()`
   reads True right through an outage of any length.** Do not treat it as a health signal — the 90s data
