@@ -85,6 +85,16 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   arm — ordinary names that should have had an equity bar. Baseline is ~$65M/session; an index root
   missing from `INDEX_ROOTS` would show up as **billions**, and that is the designed failure signal
   for the curated list.
+- **⏳ ONE KNOWN BACKFILL GAP: `2025-09-02`.** Checked 07-27 at 89/260 — every other processed
+  session is on disk, and the two 0-byte files (`2025-09-01` Labor Day, `2025-11-27` Thanksgiving)
+  are correct recorded holidays. **Remedy: re-run `tools/opra_tcbbo_backfill.py` over the same range
+  after the current pass finishes** — the skip guard is `exists() and size > 0`, so a second pass
+  fetches only what is absent. Cause was a leftover `.part` from a 502-storm process death: the
+  Databento client validates the write path before contacting the server, so a stale partial made
+  the day fail forever for a reason unrelated to the download. Fixed 07-27 (the `.part` is now
+  cleared *before* the request, not only after a caught failure), but the running process predates
+  the fix, **so verify the gap set again when it lands.** This is the concrete argument for roadmap
+  **0.2** — nothing but a manual check found it.
 - **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
   are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
   `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —

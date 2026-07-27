@@ -128,6 +128,15 @@ def main() -> int:
 
         t0 = time.time()
         tmp = out.with_suffix(".part")
+        # A leftover .part PERMANENTLY blocks its own retry: get_range validates
+        # the write path and raises FileExistsError before contacting the server,
+        # so the day fails again for a reason unrelated to the download. The
+        # handler below cleans up after a caught failure, but a hard kill or an
+        # error raised outside it does not run — and that is exactly what happened
+        # to 2025-09-02 in the 07-26 run (502 storm, process died, then every
+        # retry failed on the stale file). Clearing it here makes a retry
+        # self-healing regardless of how the previous attempt ended.
+        tmp.unlink(missing_ok=True)
         try:
             client.timeseries.get_range(
                 dataset=DATASET, schema=schema, symbols="ALL_SYMBOLS",
