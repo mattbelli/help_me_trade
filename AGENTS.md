@@ -11,7 +11,8 @@ Runs on an always-on Linux box ("serv") as systemd units: `hmt-backend`, `hmt-fr
 market-data collectors `hmt-flow-collector` (OPRA options socket, `tools/flow_collector.py`) and
 `hmt-equity-collector` (equity tape wildcard socket, `tools/equity_collector.py`) — env-interlocked so the
 API and collector never both own a socket. Brokers: Alpaca (paper execution + SIP data), Schwab (READ-ONLY
-real accounts + futures data). LLM: provider-agnostic factory. Autonomy ladder: alerts ✅ → phone-approval
+real accounts + futures data); Databento OPRA is a swappable options-flow provider (Alpaca is the default) +
+the whole-market research corpus. LLM: provider-agnostic factory. Autonomy ladder: alerts ✅ → phone-approval
 proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-gated).
 
 ## Backend map
@@ -23,13 +24,13 @@ proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-
 | **Auto engines** | `trading/exit_engine.py` (stop/target/trail over `db/managed_positions.py`), `signals/strategy_scan.py` + `strategy_kinds.py` + `strategy_universe.py` (registry-driven entry scans → propose), `signals/exit_evaluators.py` | Every strategy ships DISABLED + propose-mode; founder arms manually |
 | **★ Idea ledger** | `db/idea_outcomes.py` (`register_idea`, dedup, fabricated-probability wall), `research/idea_tracker.py` (`sweep_open_ideas` — Grading Law resolution: target/stop/time, SPY alpha leg, stop-wins tie-break), `db/lane_stats.py` (bump/gauge meters), `signals/pipeline_audit.py` (silence alarms + daily canary), `config/idea_engine.py` (constants = "law") | EVERY idea outcome-tracked, taken or not; calibration ground truth |
 | **Decision scoring** | `signals/decision_scorer.py` + `research/artifacts/` (offline-trained calibrator/EV tables), `signals/strategy_stats.py`, `signals/confluence_score.py` (unusualness, NOT a win%), `ai/journal_review.py` (predicted-vs-realized calibration) | Win% displayed = calibrated, never fabricated |
-| **Options flow** | `signals/options_flow/` — `runner.py` (pipeline host), `stream.py` (OPRA ws), `poll.py`, `detect.py` (UV-1/2), `sweeps.py`, `convergence.py`, `opening_pressure.py` (index gauge), `scan.py` (EOD) | Runs in `hmt-flow-collector`, NOT the API (`OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`) |
+| **Options flow** | `signals/options_flow/` — `runner.py` (pipeline host), `stream.py` (Alpaca OPRA ws), `dbn_stream.py` (Databento OPRA transport, swappable via `options_flow.provider`), `poll.py`, `detect.py` (UV-1/2), `sweeps.py`, `convergence.py`, `opening_pressure.py` (index gauge), `scan.py` (EOD), `corpus_direction.py` (whole-market corpus direction rule) | Runs in `hmt-flow-collector`, NOT the API (`OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`) |
 | **Equity tape** | `signals/equity_tape.py` (blocks/dark pool), `signals/equity_stream/` (wildcard ws + detectors) | Runs in `hmt-equity-collector` |
 | **Other perception** | `signals/`: `regime.py` (FRED/VIX), `momentum.py`, `volume_profile.py` (RVOL), `earnings_edgar.py` + `earnings_refresh.py`, `finra.py` (short interest), `filings/` (Form 4/13D + congress), `social_buzz.py`, `session_node_strategy.py`, `screener.py` | Perception sources — "no proven edge" is never a reason not to build one |
 | **Rules/alerts** | `signals/rule_schema.py` + `scan.py`, `ai/rules/engine.py`, `signals/backtest.py` | User rules: ~40-metric registry, transitions + cooldown |
 | **Delivery** | `signals/notify.py` (persist-then-deliver chokepoint, `INBOX_ONLY_KINDS` demotion), `signals/push.py` (phone, budget-gated), `db/notifications.py`, `db/device_tokens.py`, `db/live_activities.py` | One notify path; push budget in settings |
 | **AI — chat** | `ai/chat/loop.py` (ONE provider-agnostic tool loop for all surfaces), `web_agent.py` (AI-SDK stream for Next proxy), `mobile_agent.py` (SSE), `tools.py` + `tool_specs.py`, `context.py`, `memory_extract.py` | **`trading` toolset NEVER exposed to chat** — propose-only |
-| **AI — other** | `ai/llm/` (factory: anthropic/openai/deepseek/openrouter/ollama/mock), `ai/research/` (engine v2 + `setup_scan.py` = nightly idea scan), `ai/memories/` (judge-gated writes + FTS5 retrieval), `ai/reflection/`, `ai/insights.py`, `ai/retrospective.py`, `ai/perception/` (read-layer: context + resource registry) | |
+| **AI — other** | `ai/llm/` (factory: anthropic/openai/deepseek/openrouter/ollama/mock), `ai/research/` (engine v2 + `setup_scan.py` = nightly idea scan), `ai/memories/` (judge-gated writes + hybrid model2vec+FTS5 RRF retrieval, fail-soft to lexical), `ai/reflection/`, `ai/insights.py`, `ai/retrospective.py`, `ai/perception/` (read-layer: context + resource registry) | |
 | **API host** | `api/main.py` (~17 asyncio loops + `api/jobs.py` registry: poll, scans, sweeps, idea tracker, pipeline audit, nightly setup scan, retention, reflection…), routers: `ai_routes`, `trade_routes`, `performance_routes`, `strategy/notification/scan/schwab/journal/ticker/social/orders/device/fill_orphan` | |
 | **DB — ledger** | `db/trades.py` (event ledger), `db/realized_pnl.py` (**net-cash = truth**), `db/fifo_round_trips.py` (approximate — never authoritative), `db/decision_journal.py`, `db/order_executions.py` (audited, adversarial-review zone), `db/account_scope.py` (selector→ledger id resolver, label-fragile), `db/retention.py` | Money = TEXT/Decimal |
 | **Brokers** | `brokers/alpaca.py` (primary), `brokers/schwab*.py` (read-only real + futures), `factory.py`, `hybrid_market_data.py`/`hybrid_market_stream.py` (per-asset-class routing: futures→Schwab, equities→Alpaca), `market_stream.py` (browser-facing WS hub), `options_chain.py` | Schwab NEVER a hard dependency; never burst-request it (WAF) |
@@ -39,7 +40,7 @@ proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-
 
 | Subsystem | Key files | Purpose |
 |---|---|---|
-| **Workspace shell** | `app/page.tsx` (workspace IS the main URL), `components/workspace/workspace-grid.tsx`, `lib/workspace/widget-registry.tsx` (**30 widgets**: chart, watchlist, options-flow, index-pressure, idea-outcomes, agent-proposals, notifications, chat…), `lib/workspace/channels.ts` (6 colored symbol-link channels), `use-workspace-store.ts` (workspaces = named page groups) | Tickers everywhere click-to-focus-chart via channels |
+| **Workspace shell** | `app/page.tsx` (workspace IS the main URL), `components/workspace/workspace-grid.tsx`, `lib/workspace/widget-registry.tsx` (**35 widgets**: chart, watchlist, options-flow, index-pressure, idea-outcomes, agent-proposals, notifications, chat…), `lib/workspace/channels.ts` (6 colored symbol-link channels), `use-workspace-store.ts` (workspaces = named page groups) | Tickers everywhere click-to-focus-chart via channels |
 | **Terminal** | `components/workspace/terminal/terminal.tsx` (bottom drawer: chat + commands), `lib/workspace/use-workspace-commands.ts` | |
 | **★ Chart engine (ours)** | `lib/chart-engine/` — `engine.ts`, `canvas2d.ts`, `painter.ts` (RN-Skia later), pure `scales/ticks/series/merge` + vitest; `components/trading/native-chart.tsx` | TradingView is DELETED — this is the only chart. Controls in top toolbar, never floating |
 | **Chat** | `app/api/chat/route.ts` (proxies to Python brain via `lib/python-server.ts`; `CHAT_BRAIN=ts` = legacy revert), `components/assistant-ui/` | Brain is Python; Node never places orders |
@@ -55,7 +56,7 @@ approve w/ biometric, Live Activities, APNs), `src/api/chat-stream.ts` (SSE from
 
 - **Money is `Decimal`** in `trading/` (float→Decimal seam at propose_order); SQLite stores money as TEXT.
 - **Net-cash realized P&L is truth; FIFO is approximate** — never present FIFO as authoritative.
-- **Tests**: ~2,300 collected. Run TARGETED modules (`python -m pytest tests/test_x.py -q`) — the full
+- **Tests**: ~2,850 collected. Run TARGETED modules (`python -m pytest tests/test_x.py -q`) — the full
   suite hangs on network/ws tests. Require pytest's own exit code AND the "N passed" line (`| tail` masks
   hangs). Options-flow convergence tests need the `dedup_store` fixture.
 - **Lint/typecheck**: `ruff check .` (config `ruff.toml`, py312, line 100) + `cd frontend && npm run typecheck`.

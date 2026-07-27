@@ -69,7 +69,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `PERCEPTION_LAYER.md` | Agent read layer design (get_context/query/manifest — built) |
 | `RESEARCH_ENGINE_V2.md` | Research engine specialist fan-out design (built 07-03) |
 | `MULTI_ACCOUNT_PLAN.md` | Durable multi-account architecture spec |
-| `MEMORY_OVERHAUL_DESIGN.md` | Copilot memory overhaul — Phase 0+1 SHIPPED 07-06/07 (judge + authority model live in `ai/memories/`); Phase 2 retrieval pending (board: `memory-overhaul`) |
+| `MEMORY_OVERHAUL_DESIGN.md` | Copilot memory overhaul — Phase 0+1 SHIPPED 07-06/07 (judge + authority model live in `ai/memories/`); Phase 2 hybrid retriever (model2vec+FTS5 RRF) SHIPPED 07-24 (`ai/memories/retrieval.py`, fail-soft to lexical); board: `memory-overhaul` |
 | `ALPHA_PREP_SPEC.md` | Single-founder → alpha-testable/cloud plan (directional, parked) |
 | `DATA_LAYER_LIMITS_AUDIT_2026-07-14.md` | Alpaca/system rate limits audit |
 | `SHORT_TRADING_FINDINGS.md` | Decision record: no agent-traded shorts (measurement stays short-aware) |
