@@ -262,9 +262,15 @@ class OptionsFlowRunner:
         if stream is None:
             return
         # deque(maxlen) drops oldest SILENTLY on overflow — count it (audit F7a).
-        # Safe margin today (~530 prints/min peak vs 5,000 cap, 1s drain), but the
-        # gauge lane raises open-burst print rates on exactly the minutes we care
-        # about; a silent drop here would truncate the gauge invisibly.
+        # ⚠️ The margin depends entirely on which provider is feeding this. The
+        # Alpaca lane peaks near ~530 prints/MIN, which is what the 5,000 cap was
+        # sized for. The Databento lane subscribes whole chains by parent symbol
+        # and peaks at 3,191 prints/SECOND on the 30 names armed today (measured
+        # 2026-03-20) — 360x the old assumption, which is why dbn_stream carries
+        # its own, much larger COLLECTED_PRINTS_MAX. Do not re-unify these two
+        # constants without re-measuring; the gauge lane raises open-burst rates
+        # on exactly the minutes we care about, and a silent drop here truncates
+        # the gauge invisibly.
         maxlen = stream.collected_prints.maxlen
         overflow = (
             len(stream.collected_prints) + len(batch) - maxlen
