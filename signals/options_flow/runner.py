@@ -425,7 +425,12 @@ class OptionsFlowRunner:
                         direction = "undetermined"
                         basis = "none"
                         lab_quote: tuple[float, float, int] | None = None
-                        q = stream.quote_at(
+                        # A transport whose prints carry their own book (Databento
+                        # tcbbo) stamps it at ingest, so there is nothing to look
+                        # up and nothing shared to race on. quote_at is the Alpaca
+                        # lane, where quotes arrive on a separate channel and must
+                        # be matched to the print by timestamp.
+                        q = p.get("nbbo") or stream.quote_at(
                             str(p.get("occ_symbol") or ""),
                             int(p.get("ts_ms") or 0),
                         )

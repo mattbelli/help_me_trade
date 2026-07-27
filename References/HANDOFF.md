@@ -142,14 +142,11 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   is still UNVERIFIED, so raising then would have been an unbounded weekend restart loop.
   ⏳ Still unproven against a real socket: the arming check remains verifying the provider against a
   session whose ground truth we already hold. **Verify the off-hours ack behaviour at the same time.**
-- **⚠️ FLAGGED, NOT FIXED — pre-existing `deque mutated during iteration` in the Databento lane.**
-  `_on_record` appends to `_quote_ring[occ]` on databento's dedicated thread while `quote_at` iterates
-  it from the asyncio loop (`runner.py:428`, inside `sweep_loop`). Measured under contention: **48
-  raises in 104,117 iterations (~0.05%)** — and `sweep_loop`'s `except Exception` swallows it *after*
-  the batch was already `popleft`-ed off `collected_prints`, so **that cycle's prints are discarded**.
-  Lane-specific: the Alpaca stream writes its ring from the same asyncio loop and has no thread
-  boundary. `_pending_lock` guards the pending list, not the quote ring. **Must be fixed before the
-  provider is armed.**
+- **The Databento lane has no quote store at all any more** (fixed 07-27, see the BUILD_LOG row) — the
+  NBBO rides on the print as `nbbo`, and `sweep_loop` reads `p["nbbo"] or stream.quote_at(...)`. Keep it
+  that way: `dbn_stream.quote_at` returns `None` by design and re-growing a store re-opens a thread race,
+  a false `quote_basis="dbn_nbbo"` label on same-millisecond prints, and an unevicted ring. The Alpaca
+  lane is unchanged and still classifies through `quote_at`.
 - **⚠️ Two known holes in the new guards, both deliberate and both worth closing later.** (1) The
   16:00–16:15 ET index-settlement window is **unmonitored** — `is_market_open()` is the equity session
   and flips False at 16:00, so `idle()` resets the clocks, yet the backfill deliberately captures to

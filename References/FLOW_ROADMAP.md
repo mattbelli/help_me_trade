@@ -59,8 +59,8 @@ Independent of the research track: Phases 1–4 all run on historical files. Thi
       ⚠️ The ack check **raises only during RTH**; off-hours it logs, because the deployed owner is
       `hmt-flow-collector` where any raise restarts the process in 3s, and the off-hours mapping premise
       is unverified. ⏳ Not yet proven against a real socket — that rides with the provider-arming check,
-      which must also **fix the pre-existing `_quote_ring` thread race** (0.05% of sweep cycles
-      discarded) and verify the off-hours ack behaviour.
+      which must verify the off-hours ack behaviour. (The `_quote_ring` thread race that was queued onto
+      the same check is **closed 07-27**: the ring is deleted and the NBBO rides on the print.)
 - [x] **0.2 Corpus-gap check. — DONE 2026-07-27.** `tools/flow_corpus_gaps.py`, exits 1 on any gap.
       Absent / not-rolled-at-current-`SCHEMA_VERSION` / **truncated** — the third because the
       backfill's skip guard is `exists() and size > 0`, so a partial download is skipped forever and

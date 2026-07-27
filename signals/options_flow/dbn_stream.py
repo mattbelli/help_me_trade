@@ -35,7 +35,6 @@ from collections import deque
 from datetime import UTC, datetime
 from typing import Any, Callable
 
-from signals.options_flow.constants import QUOTE_STALE_FOR_DIR1_SECONDS
 from signals.options_flow.intraday import normalize_print
 from trading.market_hours import is_market_open
 
@@ -52,7 +51,6 @@ PX_SCALE = 1e9
 QUOTE_BASIS = "dbn_nbbo"
 # Mirrors OptionsFlowStream.collected_prints (stream.py:156).
 COLLECTED_PRINTS_MAX = 5000
-QUOTE_STALE_MS = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 
 # --- liveness (roadmap 0.1) --------------------------------------------------
 # Without these a dead feed and a quiet market are indistinguishable, which is
@@ -255,7 +253,6 @@ class DatabentoFlowStream:
         # subscription the Alpaca lane means by this flag, so it stays False.
         self.acked_market_wide = False
 
-        self._quote_ring: dict[str, deque[tuple[int, float, float]]] = {}
         self._pending: list[dict] = []
         self._pending_lock = threading.Lock()
         self._client: Any = None
@@ -264,19 +261,17 @@ class DatabentoFlowStream:
     # --- the surface runner.sweep_loop consumes ----------------------------
 
     def quote_at(self, occ: str, ts_ms: int) -> tuple[float, float, int] | None:
-        """The NBBO that travelled with the print. Exact by construction — there is
-        no staleness window to tune because the quote is not sampled separately."""
-        ring = self._quote_ring.get(occ)
-        if not ring:
-            return None
-        best: tuple[int, float, float] | None = None
-        for entry_ts, bid, ask in ring:
-            if entry_ts <= ts_ms and (best is None or entry_ts > best[0]):
-                if ts_ms - entry_ts <= QUOTE_STALE_MS:
-                    best = (entry_ts, bid, ask)
-        if best is None:
-            return None
-        return best[1], best[2], best[0]
+        """Always None: this lane keeps NO quote store to look a print up in.
+
+        Part of the duck-typed surface only. A tcbbo record IS a print plus the
+        NBBO that stood behind it, so the quote is stamped onto the print at
+        ingest (``nbbo``) and `sweep_loop` reads it from there. `occ` and `ts_ms`
+        are the Alpaca lane's question — "which sampled quote was prevailing at
+        this timestamp" — and it has no meaning here. When a print reaches the
+        runner without an ``nbbo`` its book was UNDEF on the wire, and None is
+        the honest answer rather than a neighbouring print's quote.
+        """
+        return None
 
     def stop(self) -> None:
         self._stopping = True
@@ -319,15 +314,6 @@ class DatabentoFlowStream:
             self.skipped_no_meta += 1
             return
 
-        ts_ms = int(rec.ts_recv // 1_000_000)
-        bid, ask = levels[0].bid_px, levels[0].ask_px
-        if bid != UNDEF_PX and ask != UNDEF_PX and 0 < bid < ask:
-            ring = self._quote_ring.get(occ)
-            if ring is None:
-                ring = deque(maxlen=64)
-                self._quote_ring[occ] = ring
-            ring.append((ts_ms, bid / PX_SCALE, ask / PX_SCALE))
-
         raw = {
             "t": datetime.fromtimestamp(rec.ts_recv / 1e9, UTC).isoformat(),
             "p": rec.price / PX_SCALE,
@@ -339,6 +325,24 @@ class DatabentoFlowStream:
         if normalized is None:
             return
         normalized["quote_basis"] = QUOTE_BASIS
+        # The book travels ON the print rather than in a store keyed by
+        # (occ, ts_ms). Do not re-grow the store — it replaced one on 07-27 and
+        # a lock would have fixed only the first of its three problems:
+        #   * racy — databento.Live runs its own loop on its own thread
+        #     (client.py:78-80), so this callback and sweep_loop's read ran
+        #     concurrently over a deque; sweep_loop catches the resulting
+        #     RuntimeError AFTER popleft, discarding that whole cycle's prints.
+        #   * inexact, and dishonestly so — ts_ms truncates nanoseconds, so two
+        #     prints on one contract in the same millisecond are ONE key and
+        #     both got the first book of that ms under a quote_basis that
+        #     claims the print's own NBBO. Same-ms repeats are the sweeps this
+        #     lane exists to classify (~0.8% of prints got a different book).
+        #   * unbounded — it had no eviction at all, unlike the Alpaca ring.
+        bid, ask = levels[0].bid_px, levels[0].ask_px
+        if bid != UNDEF_PX and ask != UNDEF_PX and 0 < bid < ask:
+            normalized["nbbo"] = (
+                bid / PX_SCALE, ask / PX_SCALE, int(rec.ts_recv // 1_000_000)
+            )
         self.prints += 1
         with self._pending_lock:
             self._pending.append(normalized)
