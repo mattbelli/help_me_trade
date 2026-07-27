@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { LayoutAnimation, ScrollView, TextInput, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 
 import {
   useBars,
@@ -8,15 +11,14 @@ import {
   useDeletePriceAlert,
   useEarningsHistory,
   usePriceAlerts,
+  useTicker,
   useWatchlistMarket,
 } from '@/api/queries';
-import type { EarningsEvent, PriceAlert, WatchlistQuote } from '@/api/types';
+import type { PriceAlert, TickerNewsItem, TickerProfile, WatchlistQuote } from '@/api/types';
 import { sessionView } from '@/features/watchlist/session';
 import { Icon } from '@/components/ui/icon';
 import {
-  Button,
   BackRow,
-  Card,
   Divider,
   ErrorState,
   Eyebrow,
@@ -25,51 +27,92 @@ import {
   PressableScale,
   Row,
   Screen,
+  Segmented,
   Skeleton,
   Stack,
   Text,
+  formatUsd,
 } from '@/components/ui';
-import { CandleChart, type ChartMode } from '@/features/chart/candle-chart';
+import { SkiaChart, type ChartAlertLevel, type ChartMode } from '@/features/chart/skia-chart';
 import { ChartPill } from '@/features/chart/chart-pill';
-import {
-  CHART_RANGES,
-  INLINE_RANGE_KEYS,
-  RANGE_TO_INTERVAL,
-  rangeFor,
-  type RangeKey,
-} from '@/features/chart/ranges';
-import { hairline, radius, spacing, useColors } from '@/theme';
+import { EpsChart } from '@/features/chart/eps-chart';
+import { INTERVALS, intervalFor, type IntervalKey } from '@/features/chart/ranges';
+import { decodeSymbolParam } from '@/lib/symbol-route';
+import { duration, hairline, haptics, radius, spacing, useColors, type Colors } from '@/theme';
 
-const INLINE_RANGES = CHART_RANGES.filter((r) => INLINE_RANGE_KEYS.includes(r.key));
+const TABS = [
+  { key: 'chart', label: 'chart' },
+  { key: 'fundamentals', label: 'fundamentals' },
+] as const;
+type TabKey = (typeof TABS)[number]['key'];
 
 export default function SymbolDetailScreen() {
   const colors = useColors();
   const router = useRouter();
   const params = useLocalSearchParams<{ symbol: string }>();
-  const symbol = typeof params.symbol === 'string' ? params.symbol : (params.symbol?.[0] ?? '');
+  const rawSymbol = typeof params.symbol === 'string' ? params.symbol : (params.symbol?.[0] ?? '');
+  const symbol = decodeSymbolParam(rawSymbol);
 
-  const [alertPrice, setAlertPrice] = useState('');
-  const [direction, setDirection] = useState<'above' | 'below'>('above');
-  const [infoOpen, setInfoOpen] = useState(false);
-  const [range, setRange] = useState<RangeKey>('1M');
+  const [tab, setTab] = useState<TabKey>('chart');
+  const [interval, setInterval] = useState<IntervalKey>('1D');
   const [chartMode, setChartMode] = useState<ChartMode>('candle');
 
-  const activeRange = rangeFor(range);
+  const iv = intervalFor(interval);
   const market = useWatchlistMarket(symbol ? [symbol] : undefined);
   const quote = symbol ? market.data?.quotes[symbol] : undefined;
-  const bars = useBars(symbol, activeRange.timeframe, activeRange.days);
-  const earnings = useEarningsHistory(symbol, 6, infoOpen);
+  const bars = useBars(symbol, iv.timeframe, iv.days);
+  // Today's daily bar for "Open" — tiny fetch, cached separately from the chart.
+  const dailyBars = useBars(symbol, '1Day', 7);
+  const ticker = useTicker(symbol);
+  const earnings = useEarningsHistory(symbol, 6, tab === 'fundamentals');
   const alerts = usePriceAlerts(symbol);
-
-  const toggleInfo = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setInfoOpen((v) => !v);
-  };
   const createAlert = useCreatePriceAlert();
   const deleteAlert = useDeletePriceAlert();
 
-  const parsedPrice = Number(alertPrice);
-  const canAddAlert = Number.isFinite(parsedPrice) && parsedPrice > 0 && !createAlert.isPending;
+  const sv = quote ? sessionView(quote) : null;
+  const last = sv?.last;
+
+  // Only trust the latest daily bar's open when it IS today's bar (pre-market it
+  // is yesterday's — showing that as "Open" would lie).
+  const dayOpen = useMemo(() => {
+    const list = dailyBars.data?.bars;
+    if (!list?.length) return null;
+    const barDate = new Date(list[list.length - 1].time);
+    const now = new Date();
+    const sameDay =
+      barDate.getFullYear() === now.getFullYear() &&
+      barDate.getMonth() === now.getMonth() &&
+      barDate.getDate() === now.getDate();
+    return sameDay ? list[list.length - 1].open : null;
+  }, [dailyBars.data]);
+
+  const chartAlerts = useMemo<ChartAlertLevel[]>(
+    () =>
+      (alerts.data?.alerts ?? []).map((a) => ({
+        id: a.id,
+        price: a.price,
+        direction: a.direction,
+      })),
+    [alerts.data],
+  );
+
+  // Create-from-chart (crosshair release pill). Smart default direction mirrors
+  // the web chart: above if the picked price is over the last, below if under.
+  const onCreateAlertAtPrice = useCallback(
+    (price: number) => {
+      if (!symbol) return;
+      const rounded = Math.round(price * 100) / 100;
+      const direction =
+        last == null || rounded === last ? 'cross' : rounded > last ? 'above' : 'below';
+      createAlert.mutate(
+        { symbol, price: rounded, direction, repeat: false },
+        { onSuccess: () => haptics.success() },
+      );
+    },
+    [symbol, last, createAlert],
+  );
+
+  const metrics = ticker.data?.metrics;
 
   if (market.isError) {
     return (
@@ -82,333 +125,440 @@ export default function SymbolDetailScreen() {
     );
   }
 
+  const rv = rvolView(quote?.rvol, colors);
+  const marketItems: StatItem[] = [
+    { label: 'Open', value: fmtMoney(dayOpen) },
+    { label: 'Prev close', value: fmtMoney(quote?.prev_close) },
+    { label: 'Day high', value: fmtMoney(quote?.day_high) },
+    { label: 'Day low', value: fmtMoney(quote?.day_low) },
+    { label: '52W high', value: fmtMoney(metrics?.week_52_high) },
+    { label: '52W low', value: fmtMoney(metrics?.week_52_low) },
+    { label: 'Volume', value: quote?.volume != null ? formatVolume(quote.volume) : '—' },
+    { label: 'RVOL', value: rv.text, color: rv.color },
+  ];
+
+  const hasNextEarnings = Boolean(quote?.next_earnings);
+  const revGrowth = metrics?.revenue_growth_yoy;
+  const fundamentalItems: StatItem[] = [
+    {
+      label: 'Mkt cap',
+      value: fmtMarketCap(
+        quote?.market_cap ?? (metrics?.market_cap != null ? metrics.market_cap * 1e6 : null),
+      ),
+    },
+    { label: 'P/E', value: fmtNum(quote?.pe ?? metrics?.pe_ttm) },
+    { label: 'EPS (ttm)', value: fmtUsd2(quote?.eps ?? metrics?.eps_ttm) },
+    { label: 'Div yield', value: fmtPctStr(quote?.div_yield ?? metrics?.div_yield) },
+    { label: 'Beta', value: metrics?.beta != null ? metrics.beta.toFixed(2) : '—' },
+    { label: 'P/S', value: fmtNum(metrics?.ps_ttm) },
+    { label: 'ROE', value: fmtPctStr(metrics?.roe_ttm) },
+    { label: 'Gross margin', value: fmtPctStr(metrics?.gross_margin) },
+    { label: 'Net margin', value: fmtPctStr(metrics?.net_margin) },
+    {
+      label: 'Rev growth',
+      value: revGrowth == null ? '—' : `${revGrowth >= 0 ? '+' : ''}${revGrowth.toFixed(1)}%`,
+      color: revGrowth == null ? undefined : revGrowth >= 0 ? colors.positive : colors.negative,
+    },
+    {
+      label: hasNextEarnings ? 'Next earnings' : 'Last earnings',
+      value: fmtDate(hasNextEarnings ? quote?.next_earnings : quote?.last_earnings) ?? '—',
+    },
+  ];
+
   return (
     <Screen>
-      <ScrollView
-        contentContainerStyle={{
-          paddingTop: spacing.sm,
-          paddingHorizontal: spacing.xl,
-          paddingBottom: 110,
-        }}
-      >
-        <Stack gap={spacing.xl}>
+      <View style={{ flex: 1, paddingTop: spacing.sm }}>
+        {/* Persistent header: ticker + live price + tabs */}
+        <Stack gap={spacing.lg} style={{ paddingHorizontal: spacing.xl }}>
           <BackRow onBack={() => router.back()} />
-
           <Stack gap={spacing.sm}>
-            <PressableScale onPress={toggleInfo} haptic>
-              <Row gap={spacing.xs} align="center">
-                <Text variant="display" style={{ fontSize: 30, lineHeight: 34 }}>
-                  {symbol || '—'}
-                </Text>
-                <Icon
-                  name={infoOpen ? 'chevron-up' : 'chevron-down'}
-                  size={22}
-                  color={infoOpen ? colors.accent : colors.textMuted}
-                />
-              </Row>
-            </PressableScale>
+            <Text variant="display" style={{ fontSize: 30, lineHeight: 34 }}>
+              {symbol || '—'}
+            </Text>
             {market.isLoading ? (
               <Skeleton height={36} width={160} />
-            ) : quote ? (
-              (() => {
-                const sv = sessionView(quote);
-                return (
-                  <Row gap={spacing.md} align="baseline">
-                    <Money value={sv.last} size="lg" />
-                    <Pct value={sv.changePct} signed pnl />
-                    {sv.badge ? (
-                      <Text variant="caption" style={{ color: colors.warm, letterSpacing: 0.6 }}>
-                        {sv.badge}
-                      </Text>
-                    ) : null}
-                  </Row>
-                );
-              })()
+            ) : sv ? (
+              <Row gap={spacing.md} align="baseline">
+                <Money value={sv.last} size="lg" />
+                <Pct value={sv.changePct} signed pnl />
+                {sv.badge ? (
+                  <Text variant="caption" style={{ color: colors.warm, letterSpacing: 0.6 }}>
+                    {sv.badge}
+                  </Text>
+                ) : null}
+              </Row>
             ) : (
               <Text variant="body" color="textMuted">
                 No quote available
               </Text>
             )}
           </Stack>
-
-          {infoOpen ? (
-            <CompanyPanel
-              quote={quote}
-              events={earnings.data?.events ?? []}
-              loading={earnings.isLoading}
-            />
-          ) : null}
-
-          <Stack gap={spacing.md}>
-            <Row justify="flex-end">
-              <PressableScale
-                onPress={() =>
-                  router.push(`/chart/${symbol}?interval=${RANGE_TO_INTERVAL[range]}&mode=${chartMode}`)
-                }
-                haptic
-              >
-                <Row
-                  gap={spacing.xs}
-                  align="center"
-                  style={{
-                    paddingHorizontal: spacing.md,
-                    paddingVertical: spacing.xs,
-                    borderRadius: radius.pill,
-                    borderWidth: hairline,
-                    borderColor: colors.border,
-                    backgroundColor: colors.surface,
-                  }}
-                >
-                  <Icon name="expand" size={14} color={colors.textMuted} />
-                  <Text variant="caption" color="textMuted">
-                    Expand
-                  </Text>
-                </Row>
-              </PressableScale>
-            </Row>
-            <CandleChart
-              bars={bars.data?.bars ?? []}
-              mode={chartMode}
-              livePrice={quote ? sessionView(quote).last : undefined}
-              height={240}
-              loading={bars.isLoading}
-            />
-            <Row justify="space-between" align="center">
-              <Row gap={spacing.xs}>
-                {INLINE_RANGES.map((r) => (
-                  <ChartPill
-                    key={r.key}
-                    label={r.key}
-                    active={r.key === range}
-                    onPress={() => setRange(r.key)}
-                  />
-                ))}
-              </Row>
-              <Row gap={spacing.xs}>
-                <ChartPill label="Line" active={chartMode === 'line'} onPress={() => setChartMode('line')} />
-                <ChartPill label="Candle" active={chartMode === 'candle'} onPress={() => setChartMode('candle')} />
-              </Row>
-            </Row>
-          </Stack>
-
-          {quote ? <KeyInfoGrid quote={quote} /> : null}
-
-          <Stack gap={spacing.md}>
-            <Eyebrow>price alerts</Eyebrow>
-
-            <Card>
-              <Stack gap={spacing.md}>
-                <Row gap={spacing.sm}>
-                  <TextInput
-                    value={alertPrice}
-                    onChangeText={setAlertPrice}
-                    placeholder="Price"
-                    placeholderTextColor={colors.textFaint}
-                    keyboardType="decimal-pad"
-                    selectionColor={colors.accent}
-                    style={{
-                      flex: 1,
-                      color: colors.text,
-                      fontSize: 16,
-                      paddingHorizontal: spacing.lg,
-                      paddingVertical: spacing.md,
-                      backgroundColor: colors.bgInset,
-                      borderRadius: radius.lg,
-                      borderWidth: hairline,
-                      borderColor: colors.border,
-                    }}
-                  />
-                  <DirectionToggle value={direction} onChange={setDirection} />
-                </Row>
-                <Button
-                  label="Add alert"
-                  onPress={() => {
-                    if (!canAddAlert || !symbol) return;
-                    createAlert.mutate({ symbol, price: parsedPrice, direction });
-                    setAlertPrice('');
-                  }}
-                  disabled={!canAddAlert}
-                />
-              </Stack>
-            </Card>
-
-            {alerts.isLoading ? (
-              <Stack gap={spacing.sm}>
-                <Skeleton height={44} />
-                <Skeleton height={44} />
-              </Stack>
-            ) : alerts.isError ? (
-              <ErrorState onRetry={alerts.refetch} />
-            ) : (alerts.data?.alerts.length ?? 0) === 0 ? (
-              <Text variant="body" color="textMuted">
-                No alerts set for {symbol}
-              </Text>
-            ) : (
-              <Stack gap={spacing.sm}>
-                {alerts.data?.alerts.map((alert) => (
-                  <AlertRow
-                    key={alert.id}
-                    alert={alert}
-                    onDelete={() => deleteAlert.mutate(alert.id)}
-                    deleting={deleteAlert.isPending}
-                  />
-                ))}
-              </Stack>
-            )}
-          </Stack>
+          <Segmented options={TABS} value={tab} onChange={setTab} />
         </Stack>
-      </ScrollView>
+
+        <ScrollView contentContainerStyle={{ paddingTop: spacing.xl, paddingBottom: 110 }}>
+          {tab === 'chart' ? (
+            <Animated.View entering={FadeIn.duration(duration.fast)}>
+              <Stack gap={spacing.xl}>
+                <Stack gap={spacing.md}>
+                  {/* Full-bleed hero chart */}
+                  <SkiaChart
+                    bars={bars.data?.bars ?? []}
+                    mode={chartMode}
+                    livePrice={sv?.last}
+                    height={340}
+                    loading={bars.isLoading}
+                    resetKey={`${symbol}:${interval}`}
+                    alerts={chartAlerts}
+                    onCreateAlertAtPrice={onCreateAlertAtPrice}
+                  />
+                  <Stack gap={spacing.sm} style={{ paddingHorizontal: spacing.xl }}>
+                    <Row gap={spacing.xs} style={{ flexWrap: 'wrap' }}>
+                      {INTERVALS.map((i) => (
+                        <ChartPill
+                          key={i.key}
+                          label={i.key}
+                          active={i.key === interval}
+                          onPress={() => setInterval(i.key)}
+                        />
+                      ))}
+                    </Row>
+                    <Row justify="flex-end" gap={spacing.xs}>
+                      <ChartPill label="Line" active={chartMode === 'line'} onPress={() => setChartMode('line')} />
+                      <ChartPill label="Candle" active={chartMode === 'candle'} onPress={() => setChartMode('candle')} />
+                    </Row>
+                  </Stack>
+                </Stack>
+
+                <Stack gap={spacing.xl} style={{ paddingHorizontal: spacing.xl }}>
+                  <Stack gap={spacing.md}>
+                    <Eyebrow>market data</Eyebrow>
+                    <StatsGrid items={marketItems} />
+                    {/* Top-of-book only (no depth feed) — an honest bid|spread|ask
+                        strip, not a ladder. Alpaca-only symbols stream 0s → hidden. */}
+                    {quote?.bid != null && quote?.ask != null && quote.bid > 0 && quote.ask > 0 ? (
+                      <BidAskStrip bid={quote.bid} ask={quote.ask} />
+                    ) : null}
+                  </Stack>
+
+                  <Stack gap={spacing.md}>
+                    <Eyebrow>price alerts</Eyebrow>
+                    {alerts.isLoading ? (
+                      <Stack gap={spacing.sm}>
+                        <Skeleton height={40} />
+                        <Skeleton height={40} />
+                      </Stack>
+                    ) : alerts.isError ? (
+                      <ErrorState onRetry={alerts.refetch} />
+                    ) : (alerts.data?.alerts.length ?? 0) === 0 ? (
+                      <Text variant="callout" color="textMuted">
+                        No alerts for {symbol}. Long-press the chart, release, then tap the
+                        “＋ alert” pill to set one.
+                      </Text>
+                    ) : (
+                      <Stack gap={0}>
+                        {alerts.data?.alerts.map((alert, i) => (
+                          <View key={alert.id}>
+                            {i > 0 ? <Divider /> : null}
+                            <AlertRow
+                              alert={alert}
+                              onDelete={() => deleteAlert.mutate(alert.id)}
+                              deleting={deleteAlert.isPending}
+                            />
+                          </View>
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Stack>
+              </Stack>
+            </Animated.View>
+          ) : (
+            <Animated.View
+              entering={FadeIn.duration(duration.fast)}
+              style={{ paddingHorizontal: spacing.xl }}
+            >
+              <Stack gap={spacing['2xl']}>
+                <CompanyHeader
+                  symbol={symbol}
+                  profile={ticker.data?.profile}
+                  loading={ticker.isLoading}
+                />
+
+                <Stack gap={spacing.md}>
+                  <Eyebrow>valuation · quality</Eyebrow>
+                  {ticker.isLoading && !ticker.data ? (
+                    <Stack gap={spacing.sm}>
+                      <Skeleton height={34} />
+                      <Skeleton height={34} />
+                      <Skeleton height={34} />
+                    </Stack>
+                  ) : (
+                    <StatsGrid items={fundamentalItems} />
+                  )}
+                </Stack>
+
+                <Stack gap={spacing.md}>
+                  <Eyebrow>eps · estimate → actual</Eyebrow>
+                  {earnings.isLoading ? (
+                    <Skeleton height={170} />
+                  ) : (earnings.data?.events.length ?? 0) === 0 ? (
+                    <Text variant="body" color="textMuted">
+                      No earnings history
+                    </Text>
+                  ) : (
+                    <EpsChart events={earnings.data?.events ?? []} />
+                  )}
+                </Stack>
+
+                <NewsSection news={ticker.data?.news ?? []} loading={ticker.isLoading} />
+              </Stack>
+            </Animated.View>
+          )}
+        </ScrollView>
+      </View>
     </Screen>
   );
 }
 
-function KeyInfoGrid({ quote }: { quote: WatchlistQuote }) {
+// ── stats grid ──
+
+type StatItem = { label: string; value: string; color?: string };
+
+/** Dense two-column labeled stats (iOS-Stocks style): muted label left, mono
+ *  tabular value right, hairline dividers, column-major fill. */
+function StatsGrid({ items }: { items: StatItem[] }) {
+  const mid = Math.ceil(items.length / 2);
+  const cols = [items.slice(0, mid), items.slice(mid)];
   return (
-    <Row gap={spacing.md} style={{ flexWrap: 'wrap' }}>
-      <InfoCell label="Prev close" value={quote.prev_close} money />
-      <InfoCell label="Day high" value={quote.day_high} money />
-      <InfoCell label="Day low" value={quote.day_low} money />
-      <InfoCell label="Volume" value={quote.volume} volume />
+    <Row gap={spacing['2xl']} align="flex-start">
+      {cols.map((col, ci) => (
+        <Stack key={ci} gap={0} style={{ flex: 1 }}>
+          {col.map((item, i) => (
+            <View key={item.label}>
+              {i > 0 ? <Divider /> : null}
+              <Row justify="space-between" align="center" style={{ paddingVertical: spacing.sm + 1 }}>
+                <Text variant="caption" color="textMuted">
+                  {item.label}
+                </Text>
+                <Text variant="figureSm" style={item.color ? { color: item.color } : undefined}>
+                  {item.value}
+                </Text>
+              </Row>
+            </View>
+          ))}
+        </Stack>
+      ))}
     </Row>
   );
 }
 
-function InfoCell({
-  label,
-  value,
-  money,
-  volume,
-}: {
-  label: string;
-  value?: number;
-  money?: boolean;
-  volume?: boolean;
-}) {
-  return (
-    <Card style={{ flex: 1, minWidth: '45%', padding: spacing.md }}>
-      <Stack gap={spacing.xs}>
-        <Eyebrow>{label}</Eyebrow>
-        {value == null ? (
-          <Text variant="bodyStrong">—</Text>
-        ) : money ? (
-          <Money value={value} size="sm" />
-        ) : volume ? (
-          <Text variant="figureSm">{formatVolume(value)}</Text>
-        ) : (
-          <Text variant="bodyStrong">{value}</Text>
-        )}
-      </Stack>
-    </Card>
-  );
-}
-
-function CompanyPanel({
-  quote,
-  events,
-  loading,
-}: {
-  quote?: WatchlistQuote;
-  events: EarningsEvent[];
-  loading: boolean;
-}) {
-  const hasNext = Boolean(quote?.next_earnings);
-  const earningsLabel = hasNext ? 'Next earnings' : 'Last earnings';
-  const earningsValue =
-    fmtDate(hasNext ? quote?.next_earnings : quote?.last_earnings) ?? '—';
-
-  return (
-    <Card>
-      <Stack gap={spacing.lg}>
-        <Stack gap={spacing.md}>
-          <Eyebrow>company</Eyebrow>
-          <Row gap={spacing.md} style={{ flexWrap: 'wrap' }}>
-            <StatCell label="Mkt cap" value={fmtMarketCap(quote?.market_cap)} />
-            <StatCell label="P/E" value={fmtNum(quote?.pe)} />
-            <StatCell label="EPS (ttm)" value={fmtUsd2(quote?.eps)} />
-            <StatCell label="Div yield" value={fmtPctStr(quote?.div_yield)} />
-            <StatCell label={earningsLabel} value={earningsValue} />
-          </Row>
-        </Stack>
-
-        <Divider />
-
-        <Stack gap={spacing.md}>
-          <Eyebrow>EPS surprise · beat / miss</Eyebrow>
-          {loading ? (
-            <Stack gap={spacing.sm}>
-              <Skeleton height={34} />
-              <Skeleton height={34} />
-              <Skeleton height={34} />
-            </Stack>
-          ) : events.length === 0 ? (
-            <Text variant="body" color="textMuted">
-              No earnings history
-            </Text>
-          ) : (
-            <Stack gap={spacing.md}>
-              {events.map((event) => (
-                <EpsBeatRow key={event.period} event={event} />
-              ))}
-            </Stack>
-          )}
-        </Stack>
-      </Stack>
-    </Card>
-  );
-}
-
-function StatCell({ label, value }: { label: string; value: string }) {
-  return (
-    <Stack gap={spacing.xs} style={{ minWidth: '28%', flexGrow: 1 }}>
-      <Eyebrow>{label}</Eyebrow>
-      <Text variant="figureSm">{value}</Text>
-    </Stack>
-  );
-}
-
-function EpsBeatRow({ event }: { event: EarningsEvent }) {
+/** Top-of-book strip — bid | spread | ask. Deliberately NOT a depth ladder:
+ *  the stream only carries NBBO, so this presents exactly that. */
+function BidAskStrip({ bid, ask }: { bid: number; ask: number }) {
   const colors = useColors();
-  const surprise = event.surprise_pct;
-  const beat = (surprise ?? 0) >= 0;
-  // Cap the bar at ±10% surprise so a single blowout doesn't dwarf the rest.
-  const frac = surprise == null ? 0 : Math.min(Math.abs(surprise) / 10, 1);
-
+  const spread = Math.max(ask - bid, 0);
+  const mid = (bid + ask) / 2;
+  const spreadPct = mid > 0 ? (spread / mid) * 100 : 0;
   return (
-    <Stack gap={spacing.xs}>
-      <Row justify="space-between" align="baseline">
-        <Row gap={spacing.sm} align="baseline">
-          <Text variant="bodyStrong">{event.label}</Text>
-          <Text variant="caption" color="textMuted">
-            {fmtUsd2(event.eps_actual)} vs {fmtUsd2(event.eps_estimate)} est
-          </Text>
-        </Row>
-        {surprise == null ? (
-          <Text variant="figureSm" color="textFaint">
-            —
-          </Text>
-        ) : (
-          <Pct value={surprise} signed pnl size="sm" />
-        )}
-      </Row>
-      <View
+    <Row
+      gap={0}
+      style={{
+        backgroundColor: colors.bgInset,
+        borderRadius: radius.lg,
+        borderWidth: hairline,
+        borderColor: colors.border,
+        paddingVertical: spacing.md,
+      }}
+    >
+      <Stack gap={spacing.xs} style={{ flex: 1, alignItems: 'center' }}>
+        <Eyebrow>bid</Eyebrow>
+        <Text variant="figure" style={{ color: colors.positive }}>
+          {bid.toFixed(2)}
+        </Text>
+      </Stack>
+      <Stack
+        gap={spacing.xs}
         style={{
-          height: 4,
-          borderRadius: radius.pill,
-          backgroundColor: colors.bgInset,
-          overflow: 'hidden',
+          flex: 1,
+          alignItems: 'center',
+          borderLeftWidth: hairline,
+          borderRightWidth: hairline,
+          borderColor: colors.border,
         }}
       >
-        <View
+        <Eyebrow>spread</Eyebrow>
+        <Row gap={spacing.xs} align="baseline">
+          <Text variant="figure">{spread.toFixed(2)}</Text>
+          <Text variant="caption" color="textFaint">
+            {spreadPct.toFixed(2)}%
+          </Text>
+        </Row>
+      </Stack>
+      <Stack gap={spacing.xs} style={{ flex: 1, alignItems: 'center' }}>
+        <Eyebrow>ask</Eyebrow>
+        <Text variant="figure" style={{ color: colors.negative }}>
+          {ask.toFixed(2)}
+        </Text>
+      </Stack>
+    </Row>
+  );
+}
+
+// ── fundamentals ──
+
+function CompanyHeader({
+  symbol,
+  profile,
+  loading,
+}: {
+  symbol: string;
+  profile?: TickerProfile;
+  loading: boolean;
+}) {
+  const colors = useColors();
+  if (loading && !profile) {
+    return (
+      <Row gap={spacing.md} align="center">
+        <Skeleton height={40} width={40} />
+        <Stack gap={spacing.xs} style={{ flex: 1 }}>
+          <Skeleton height={18} width={180} />
+          <Skeleton height={12} width={120} />
+        </Stack>
+      </Row>
+    );
+  }
+  const sub = [profile?.exchange, profile?.finnhubIndustry].filter(Boolean).join(' · ');
+  return (
+    <Row gap={spacing.md} align="center">
+      {profile?.logo ? (
+        <Image
+          source={{ uri: profile.logo }}
           style={{
-            width: `${frac * 100}%`,
-            height: 4,
-            borderRadius: radius.pill,
-            backgroundColor: beat ? colors.positive : colors.negative,
+            width: 40,
+            height: 40,
+            borderRadius: radius.md,
+            backgroundColor: colors.surfaceRaised,
           }}
+          contentFit="contain"
         />
-      </View>
+      ) : null}
+      <Stack gap={2} style={{ flex: 1 }}>
+        <Text variant="heading" numberOfLines={1}>
+          {profile?.name ?? symbol}
+        </Text>
+        {sub ? (
+          <Text variant="caption" color="textMuted" numberOfLines={1}>
+            {sub}
+          </Text>
+        ) : null}
+      </Stack>
+    </Row>
+  );
+}
+
+function NewsSection({ news, loading }: { news: TickerNewsItem[]; loading: boolean }) {
+  const items = news.slice(0, 4);
+  if (!loading && items.length === 0) return null;
+  return (
+    <Stack gap={spacing.md}>
+      <Eyebrow>news</Eyebrow>
+      {loading && items.length === 0 ? (
+        <Stack gap={spacing.sm}>
+          <Skeleton height={40} />
+          <Skeleton height={40} />
+        </Stack>
+      ) : (
+        <Stack gap={0}>
+          {items.map((item, i) => (
+            <View key={item.url}>
+              {i > 0 ? <Divider /> : null}
+              <NewsRow item={item} />
+            </View>
+          ))}
+        </Stack>
+      )}
     </Stack>
   );
+}
+
+function NewsRow({ item }: { item: TickerNewsItem }) {
+  return (
+    <PressableScale
+      onPress={() => void WebBrowser.openBrowserAsync(item.url)}
+      scaleTo={0.985}
+      haptic
+    >
+      <Stack gap={spacing.xs} style={{ paddingVertical: spacing.md }}>
+        <Text variant="callout" numberOfLines={2}>
+          {item.headline}
+        </Text>
+        <Text variant="caption" color="textFaint">
+          {[item.source, relTime(item.datetime)].filter(Boolean).join(' · ')}
+        </Text>
+      </Stack>
+    </PressableScale>
+  );
+}
+
+// ── price alerts ──
+
+function AlertRow({
+  alert,
+  onDelete,
+  deleting,
+}: {
+  alert: PriceAlert;
+  onDelete: () => void;
+  deleting?: boolean;
+}) {
+  const colors = useColors();
+  const dir = alert.direction;
+  const dirColor =
+    dir === 'above' ? colors.positive : dir === 'below' ? colors.negative : colors.textMuted;
+  const arrow = dir === 'above' ? '↑' : dir === 'below' ? '↓' : '↕';
+  return (
+    <Row justify="space-between" align="center" style={{ paddingVertical: spacing.sm }}>
+      <Row gap={spacing.md} align="center" style={{ flex: 1, marginRight: spacing.md }}>
+        <Text variant="figure" style={{ color: dirColor }}>
+          {arrow}
+        </Text>
+        <Money value={alert.price} size="sm" />
+        <Text variant="caption" color="textMuted">
+          {dir}
+          {alert.repeat ? ' · repeats' : ''}
+        </Text>
+        {alert.note ? (
+          <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {alert.note}
+          </Text>
+        ) : null}
+      </Row>
+      <PressableScale onPress={onDelete} disabled={deleting} haptic>
+        <View style={{ padding: spacing.sm }}>
+          <Icon name="close" size={16} color={colors.textMuted} />
+        </View>
+      </PressableScale>
+    </Row>
+  );
+}
+
+// ── formatters ──
+
+/** RVOL display, mirroring the watchlist bands: <1.5 dim · 1.5–2 yellow ·
+ *  2–3 amber · >3 red; warming/null → "—". */
+function rvolView(rvol: WatchlistQuote['rvol'], colors: Colors): { text: string; color?: string } {
+  if (!rvol || rvol.value == null || rvol.state === 'warming') {
+    return { text: '—' };
+  }
+  const v = rvol.value;
+  const color =
+    v >= 3 ? colors.danger : v >= 2 ? colors.chart[4] : v >= 1.5 ? colors.warning : colors.textMuted;
+  return { text: `${v.toFixed(1)}×`, color };
+}
+
+function fmtMoney(value?: number | null): string {
+  return value == null ? '—' : formatUsd(value);
 }
 
 function fmtMarketCap(value?: number | null): string {
@@ -452,64 +602,15 @@ function fmtDate(iso?: string | null): string | null {
   return `${name} ${Number(day)}, ${year}`;
 }
 
-function DirectionToggle({
-  value,
-  onChange,
-}: {
-  value: 'above' | 'below';
-  onChange: (v: 'above' | 'below') => void;
-}) {
-  const colors = useColors();
-  return (
-    <Row gap={spacing.xs}>
-      {(['above', 'below'] as const).map((opt) => {
-        const active = value === opt;
-        return (
-          <PressableScale key={opt} onPress={() => onChange(opt)} haptic>
-            <View
-              style={{
-                paddingHorizontal: spacing.md,
-                paddingVertical: spacing.sm,
-                borderRadius: radius.pill,
-                backgroundColor: active ? colors.accentWash : colors.surface,
-                borderWidth: 1,
-                borderColor: active ? colors.accent : colors.border,
-              }}
-            >
-              <Text variant="callout" style={{ color: active ? colors.accent : colors.textMuted }}>
-                {opt === 'above' ? 'Above' : 'Below'}
-              </Text>
-            </View>
-          </PressableScale>
-        );
-      })}
-    </Row>
-  );
-}
-
-function AlertRow({
-  alert,
-  onDelete,
-  deleting,
-}: {
-  alert: PriceAlert;
-  onDelete: () => void;
-  deleting?: boolean;
-}) {
-  const colors = useColors();
-  return (
-    <Row justify="space-between" align="center">
-      <Row gap={spacing.xs} align="center">
-        <Text variant="body">{alert.direction}</Text>
-        <Money value={alert.price} size="sm" />
-      </Row>
-      <PressableScale onPress={onDelete} disabled={deleting} haptic>
-        <View style={{ padding: spacing.sm }}>
-          <Icon name="close" size={18} color={colors.textMuted} />
-        </View>
-      </PressableScale>
-    </Row>
-  );
+function relTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60_000));
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 function formatVolume(value: number): string {

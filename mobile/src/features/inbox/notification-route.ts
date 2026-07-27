@@ -1,4 +1,5 @@
 import type { FeedNotification } from '@/api/types';
+import { decodeSymbolParam, symbolRoute } from '@/lib/symbol-route';
 
 const SYMBOL_KINDS = new Set([
   'fill_report',
@@ -41,8 +42,9 @@ function idFromData(
 }
 
 function symbolFromPath(actionUrl: string): string | null {
-  const match = pathOnly(actionUrl).match(/^\/(?:symbol|watchlist)\/([^/]+)/);
-  return match?.[1] ? match[1].toUpperCase() : null;
+  // `(.+)` not `([^/]+)` — futures symbols carry a slash ("/symbol//ES").
+  const match = pathOnly(actionUrl).match(/^\/(?:symbol|watchlist)\/(.+)/);
+  return match?.[1] ? decodeSymbolParam(match[1]).toUpperCase() : null;
 }
 
 function resolveSymbol(n: FeedNotification): string | null {
@@ -77,7 +79,7 @@ export function notificationRoute(n: FeedNotification): string | null {
   const hasDataSymbol = typeof n.data?.symbol === 'string';
   const hasSymbolPath = /^\/(?:symbol|watchlist)\//.test(pathOnly(actionUrl));
   if (sym && (SYMBOL_KINDS.has(n.kind) || hasDataSymbol || hasSymbolPath)) {
-    return `/symbol/${sym}`;
+    return symbolRoute(sym);
   }
 
   if (pathOnly(actionUrl) === '/alerts') {

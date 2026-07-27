@@ -7,13 +7,6 @@ import type { FeedNotification, MarketAlert } from './types';
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 10_000;
-// Ticks are coalesced per symbol and flushed on this cadence. Measured 2026-07-27
-// against the real hub: a 40-symbol watchlist arrives at ~132 frames/sec (the server
-// throttles to ~10 Hz PER SYMBOL, so the per-client rate scales with list length).
-// Delivering those straight through meant ~132 react-query cache writes a second on
-// the JS thread, each cloning the whole quote map. Latest-wins per symbol at 4 Hz
-// keeps the displayed price identical while cutting cache writes ~30x.
-const QUOTE_FLUSH_MS = 250;
 
 type MarketSession = 'pre' | 'regular' | 'post' | 'overnight' | 'closed';
 
@@ -22,6 +15,10 @@ export interface QuoteUpdate {
   price: number;
   change_pct: number;
   sparkline?: number[];
+  // Top-of-book — serv sends these on every frame; 0 = no NBBO quote (e.g.
+  // Alpaca-only symbols), so consumers should treat 0 as "absent".
+  bid?: number;
+  ask?: number;
   // Extended-hours (serv now folds these into the stream — present pre/post, null in regular):
   ext_price?: number | null;
   ext_change_pct?: number | null;
@@ -32,8 +29,7 @@ export interface UseMarketWsOptions {
   token: string | null;
   onAlert?: (alert: MarketAlert) => void;
   onNotification?: (notification: FeedNotification) => void;
-  /** Coalesced batch — latest value per symbol, at most one call per QUOTE_FLUSH_MS. */
-  onQuotes?: (quotes: QuoteUpdate[]) => void;
+  onQuote?: (quote: QuoteUpdate) => void;
   onProposal?: (proposalId: string) => void;
 }
 
@@ -43,15 +39,17 @@ interface WsQuoteMessage {
   price?: number;
   change_pct?: number;
   sparkline?: number[];
+  bid?: number;
+  ask?: number;
   ext_price?: number | null;
   ext_change_pct?: number | null;
   market_session?: MarketSession;
 }
 
 /** Bulk snapshot. serv sends one the instant a socket is accepted, and again on
- * every `subscribe`. The app used to have no branch for it and dropped it on the
- * floor, so a reconnect showed the pre-drop prices until each symbol happened to
- * trade again — the whole point of the snapshot is to close exactly that gap. */
+ * every `subscribe`. Without a branch for it a reconnect showed the pre-drop
+ * prices until each symbol happened to trade again — the whole point of the
+ * snapshot is to close exactly that gap. */
 interface WsQuotesMessage {
   type: 'quotes';
   quotes?: Record<string, Omit<WsQuoteMessage, 'type' | 'symbol'>>;
@@ -103,6 +101,20 @@ type WsMessage =
   | WsAlertMessage
   | WsNotificationMessage
   | Record<string, unknown>;
+
+function toQuoteUpdate(symbol: string, p: Omit<WsQuoteMessage, 'type' | 'symbol'>): QuoteUpdate {
+  return {
+    symbol,
+    price: p.price ?? 0,
+    change_pct: p.change_pct ?? 0,
+    sparkline: p.sparkline,
+    bid: p.bid,
+    ask: p.ask,
+    ext_price: p.ext_price,
+    ext_change_pct: p.ext_change_pct,
+    market_session: p.market_session,
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -163,7 +175,7 @@ export function useMarketWs({
   token,
   onAlert,
   onNotification,
-  onQuotes,
+  onQuote,
   onProposal,
 }: UseMarketWsOptions) {
   const [connected, setConnected] = useState(false);
@@ -178,38 +190,21 @@ export function useMarketWs({
 
   const onAlertRef = useRef(onAlert);
   const onNotificationRef = useRef(onNotification);
-  const onQuotesRef = useRef(onQuotes);
+  const onQuoteRef = useRef(onQuote);
   const onProposalRef = useRef(onProposal);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(INITIAL_BACKOFF_MS);
-  // symbol -> latest tick seen since the last flush.
-  const pendingQuotesRef = useRef(new Map<string, QuoteUpdate>());
-  // Last requested subscription, replayed on every open so a reconnect can never
-  // leave us connected-but-silent.
+  // Last requested subscription, replayed on every open so a reconnect can
+  // never leave us connected-but-silent.
   const lastSymbolsRef = useRef<string[]>([]);
 
   useEffect(() => {
     onAlertRef.current = onAlert;
     onNotificationRef.current = onNotification;
-    onQuotesRef.current = onQuotes;
+    onQuoteRef.current = onQuote;
     onProposalRef.current = onProposal;
-  }, [onAlert, onNotification, onQuotes, onProposal]);
-
-  // Flush loop lives outside the connection effect on purpose: it must survive
-  // reconnects, and a socket that drops mid-window still gets its last ticks out.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const pending = pendingQuotesRef.current;
-      if (pending.size === 0) {
-        return;
-      }
-      const batch = Array.from(pending.values());
-      pending.clear();
-      onQuotesRef.current?.(batch);
-    }, QUOTE_FLUSH_MS);
-    return () => clearInterval(timer);
-  }, []);
+  }, [onAlert, onNotification, onQuote, onProposal]);
 
   const subscribe = useCallback((symbols: string[]) => {
     // Remember it either way. serv sends a client NOTHING until it subscribes —
@@ -255,20 +250,6 @@ export function useMarketWs({
       reconnectTimerRef.current = setTimeout(connect, delay);
     }
 
-    function bufferQuote(symbol: string, payload: Omit<WsQuoteMessage, 'type' | 'symbol'>) {
-      // Latest wins: a symbol ticking 10x inside one flush window costs one entry,
-      // not ten renders. Same field mapping the single-quote path always used.
-      pendingQuotesRef.current.set(symbol, {
-        symbol,
-        price: payload.price ?? 0,
-        change_pct: payload.change_pct ?? 0,
-        sparkline: payload.sparkline,
-        ext_price: payload.ext_price,
-        ext_change_pct: payload.ext_change_pct,
-        market_session: payload.market_session,
-      });
-    }
-
     function handleMessage(event: MessageEvent<string>) {
       try {
         const msg = JSON.parse(event.data) as WsMessage;
@@ -309,7 +290,7 @@ export function useMarketWs({
           if (typeof quoteMsg.symbol !== 'string') {
             return;
           }
-          bufferQuote(quoteMsg.symbol, quoteMsg);
+          onQuoteRef.current?.(toQuoteUpdate(quoteMsg.symbol, quoteMsg));
           return;
         }
 
@@ -320,7 +301,7 @@ export function useMarketWs({
           }
           for (const [symbol, payload] of Object.entries(bulk)) {
             if (isRecord(payload)) {
-              bufferQuote(symbol, payload);
+              onQuoteRef.current?.(toQuoteUpdate(symbol, payload));
             }
           }
         }
@@ -336,12 +317,13 @@ export function useMarketWs({
 
       clearReconnectTimer();
       // Detach the outgoing socket's handlers BEFORE closing it. Closing an open
-      // socket fires its `onclose` asynchronously — often after the replacement is
-      // already open — and that handler both flips `connected` back to false and
-      // schedules ANOTHER reconnect, which then closes the healthy socket a second
-      // later. That is a self-sustaining loop: it leaves `connected` false most of
-      // the time, so the re-subscribe effect never fires, so the server has us down
-      // as a client with an empty symbol set and sends nothing. Silent frozen prices.
+      // socket fires its `onclose` asynchronously — often after the replacement
+      // is already open — and that handler both flips `connected` back to false
+      // and schedules ANOTHER reconnect, which then closes the healthy socket a
+      // second later. That is a self-sustaining loop: it leaves `connected`
+      // false most of the time, so the re-subscribe effect never fires, so the
+      // server has us down as a client with an empty symbol set and sends
+      // nothing. Silent frozen prices.
       const previous = wsRef.current;
       if (previous) {
         previous.onopen = null;
