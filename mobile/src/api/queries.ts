@@ -82,6 +82,9 @@ export function useWatchlist() {
     queryFn: getWatchlist,
     enabled,
     staleTime: 60_000,
+    // Track active-list switches made on other devices while the app stays
+    // foregrounded (focus refetch only covers background→foreground).
+    refetchInterval: 30_000,
   });
 }
 
