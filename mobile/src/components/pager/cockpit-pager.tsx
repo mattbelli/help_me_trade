@@ -12,7 +12,7 @@ import { View } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { usePendingProposals, useWatchlist } from '@/api/queries';
+import { usePendingProposals, useWatchlists } from '@/api/queries';
 import { useMarketWs, type QuoteUpdate } from '@/api/use-market-ws';
 import type { WatchlistMarket } from '@/api/types';
 import { TabBar, type TabDef } from '@/components/nav/tab-bar';
@@ -27,6 +27,7 @@ import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
 import { PortfolioScreen } from '@/features/portfolio/portfolio-screen';
 import { isExtendedSession } from '@/features/watchlist/session';
+import { useSelectedWatchlist } from '@/features/watchlist/use-selected-watchlist';
 import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
@@ -58,63 +59,107 @@ export function CockpitPager() {
   usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
   useLiveActivity({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
-  // Live prices: subscribe the active watchlist's symbols and merge each tick
+  // Live prices: subscribe the SELECTED watchlist's symbols and merge ticks
   // into every watchlist-market cache entry, so rows update in real time
   // instead of waiting on the 6s REST poll. Spread the prior quote and touch
   // ONLY the price-bearing fields — never clobber rvol or the company-info
   // fields the poll fills in. ext_* / market_session let pre/post-market rows
   // headline the live extended-hours price straight off the stream.
-  // Subscribe the SAME query the watchlist screen renders (['watchlist']), not
-  // active_id out of ['watchlists'] — two caches with different staleness can
-  // diverge after a list switch on another device, leaving the screen showing
-  // list A while the socket streams list B (frozen rows).
-  const { data: watchlist } = useWatchlist();
-  const activeSymbols = useMemo(() => watchlist?.symbols ?? [], [watchlist]);
+  //
+  // PERF: ticks arrive far faster than anyone can read (SIP bursts are
+  // hundreds of msgs/sec across the list; a per-tick setQueriesData recopied
+  // the whole quotes map + re-rendered per message — measured 53% JS-thread
+  // CPU + 36× GC at the open). Buffer latest-per-symbol in a ref and flush
+  // ONE cache write per 100ms — visually identical at 10Hz.
+  // Subscribe the SAME list the watchlist screen renders — the device-local
+  // selection — not `active_id` (the server-global active list, which any
+  // desktop session can move). The two diverged on the live phone: it showed
+  // the main list while streaming ai-power-energy, freezing every visible row
+  // with no error. useSelectedWatchlist's shared store keeps this instance and
+  // the screen's in lockstep when the user switches lists in the picker.
+  const { data: watchlists } = useWatchlists();
+  const { selected } = useSelectedWatchlist(watchlists);
+  const activeSymbols = useMemo(() => selected?.symbols ?? [], [selected]);
 
-  const onQuotes = useCallback(
-    (batch: QuoteUpdate[]) => {
-      // ONE cache write per flush, not one per tick: the whole batch folds into a
-      // single quotes object so a 40-symbol list costs one render, not forty.
-      qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
-        if (!old) return old;
-        let quotes = old.quotes;
-        let touched = false;
-        for (const q of batch) {
-          const prev = quotes[q.symbol];
-          if (!prev) continue;
-          const session = q.market_session ?? prev.market_session;
-          const extended = isExtendedSession(session);
-          const next = { ...prev };
-          // In extended hours, keep the REST regular-session close as the price
-          // baseline (sessionView derives the headline from it + the live ext %).
-          // Only let the WS overwrite price/change in the regular session.
-          if (!extended) {
-            next.price = q.price;
-            next.change_pct = q.change_pct;
-          }
-          if (q.sparkline) next.sparkline = q.sparkline;
-          if (q.market_session !== undefined) next.market_session = q.market_session;
-          if (q.ext_price != null) next.ext_price = q.ext_price;
-          if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
-          if (!touched) {
-            quotes = { ...quotes };
-            touched = true;
-          }
-          quotes[q.symbol] = next;
+  const pendingQuotesRef = useRef<Map<string, QuoteUpdate>>(new Map());
+  const quoteFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushQuotes = useCallback(() => {
+    quoteFlushTimerRef.current = null;
+    const pending = pendingQuotesRef.current;
+    if (pending.size === 0) return;
+    pendingQuotesRef.current = new Map();
+    qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
+      if (!old) return old;
+      let quotes: WatchlistMarket['quotes'] | null = null;
+      for (const q of pending.values()) {
+        const prev = (quotes ?? old.quotes)[q.symbol];
+        if (!prev) continue;
+        const session = q.market_session ?? prev.market_session;
+        const extended = isExtendedSession(session);
+        const next = { ...prev };
+        // In extended hours, keep the REST regular-session close as the price
+        // baseline (sessionView derives the headline from it + the live ext %).
+        // Only let the WS overwrite price/change in the regular session.
+        if (!extended) {
+          next.price = q.price;
+          next.change_pct = q.change_pct;
         }
-        // Returning `old` unchanged when nothing matched keeps react-query from
-        // notifying subscribers for a batch of symbols this cache doesn't hold.
-        return touched ? { ...old, quotes } : old;
-      });
+        if (q.sparkline) next.sparkline = q.sparkline;
+        // Top-of-book is session-agnostic — merge whenever the frame carries it
+        // (0 means "no NBBO quote"; consumers hide the strip on 0).
+        if (typeof q.bid === 'number') next.bid = q.bid;
+        if (typeof q.ask === 'number') next.ask = q.ask;
+        if (q.market_session !== undefined) next.market_session = q.market_session;
+        if (q.ext_price != null) next.ext_price = q.ext_price;
+        if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
+        if (!quotes) quotes = { ...old.quotes };
+        quotes[q.symbol] = next;
+      }
+      return quotes ? { ...old, quotes } : old;
+    });
+  }, [qc]);
+
+  const onQuote = useCallback(
+    (q: QuoteUpdate) => {
+      const pending = pendingQuotesRef.current;
+      const held = pending.get(q.symbol);
+      // Latest frame wins, but keep fields an earlier pending frame carried
+      // that this one doesn't (sparkline/bid/ext_* ride only some frames).
+      pending.set(
+        q.symbol,
+        held
+          ? {
+              ...held,
+              ...q,
+              sparkline: q.sparkline ?? held.sparkline,
+              bid: q.bid ?? held.bid,
+              ask: q.ask ?? held.ask,
+              ext_price: q.ext_price ?? held.ext_price,
+              ext_change_pct: q.ext_change_pct ?? held.ext_change_pct,
+              market_session: q.market_session ?? held.market_session,
+            }
+          : q,
+      );
+      if (quoteFlushTimerRef.current == null) {
+        quoteFlushTimerRef.current = setTimeout(flushQuotes, 100);
+      }
     },
-    [qc],
+    [flushQuotes],
+  );
+
+  useEffect(
+    () => () => {
+      if (quoteFlushTimerRef.current != null) clearTimeout(quoteFlushTimerRef.current);
+    },
+    [],
   );
 
   const { connected, subscribe } = useMarketWs({
     token,
     onAlert: pushAlert,
     onNotification: pushNotification,
-    onQuotes,
+    onQuote,
     onProposal: () => {
       haptics.warning();
       void qc.invalidateQueries({ queryKey: ['proposals', 'pending'] });
@@ -124,8 +169,12 @@ export function CockpitPager() {
   });
 
   // (Re)subscribe whenever the socket reconnects or the active list changes.
+  // NOT gated on `connected`: subscribe() records the symbols and the hook
+  // replays them in onopen, so calling while disconnected is how a socket that
+  // opens later learns what to stream. Gating here once left a socket
+  // permanently subscribed to nothing when `connected` never visibly flipped.
   useEffect(() => {
-    if (connected && activeSymbols.length > 0) {
+    if (activeSymbols.length > 0) {
       subscribe(activeSymbols);
     }
   }, [connected, activeSymbols, subscribe]);
@@ -143,7 +192,7 @@ export function CockpitPager() {
   );
 
   return (
-    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX), setSwipeEnabled }}>
+    <NavProvider value={{ openInbox: () => goTo(INBOX_INDEX), setSwipeEnabled, activeTab: TABS[page].key }}>
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <PagerView
           ref={pagerRef}

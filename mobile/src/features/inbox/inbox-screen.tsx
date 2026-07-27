@@ -19,6 +19,7 @@ import { Badge, formatUsd, PageHeading, PressableScale, Row, Screen, Stack, Text
 import { ProposalCard } from '@/features/approvals/proposal-card';
 import { notificationRoute } from '@/features/inbox/notification-route';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
+import { symbolRoute } from '@/lib/symbol-route';
 import { useAlerts } from '@/state/alerts';
 import { hairline, spacing, useColors } from '@/theme';
 
@@ -234,7 +235,7 @@ export function InboxScreen() {
               item={item}
               onPress={() => {
                 markRead(item.alert.id);
-                if (item.alert.symbol) router.push(`/symbol/${item.alert.symbol}`);
+                if (item.alert.symbol) router.push(symbolRoute(item.alert.symbol));
               }}
             />
           );
