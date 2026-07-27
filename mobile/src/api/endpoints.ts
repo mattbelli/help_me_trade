@@ -18,6 +18,7 @@ import type {
   ResearchArtifact,
   Snapshot,
   Strategy,
+  TickerInfo,
   WatchlistMarket,
   WatchlistsState,
   WebCustomTheme,
@@ -31,12 +32,21 @@ export function getSnapshot(): Promise<Snapshot> {
   return apiFetch<Snapshot>('/api/snapshot');
 }
 
+// With account_id (`acct_*` | `all_paper`) serv serves the curve from its own
+// ~15s poller snapshots — per-account curves the broker API can't provide —
+// and adds window P&L (change / realized / unrealized_change).
 export function getPortfolioHistory(
   range: PortfolioRange,
+  accountId?: string,
 ): Promise<PortfolioHistory> {
-  return apiFetch<PortfolioHistory>(
-    `/api/portfolio/history?range=${encodeURIComponent(range)}`,
-  );
+  const params = new URLSearchParams({ range });
+  if (accountId) {
+    params.set('account_id', accountId);
+    // Scoped history must come from serv's snapshot tables (window realized/
+    // unrealized fields) — a bare acct_* would hit the Lab's broker passthrough.
+    params.set('source', 'snapshots');
+  }
+  return apiFetch<PortfolioHistory>(`/api/portfolio/history?${params.toString()}`);
 }
 
 // Realized (net-cash, ET-day) day P&L for a scope id (e.g. `all_paper`, `all_real`,
@@ -48,23 +58,9 @@ export function getDayPnl(accountId: string): Promise<DayPnl> {
   );
 }
 
-export function getWatchlist(): Promise<{ symbols: string[] }> {
-  return apiFetch<{ symbols: string[] }>('/api/watchlist');
-}
-
-export function addWatchlistSymbol(symbol: string): Promise<{ symbols: string[] }> {
-  return apiFetch<{ symbols: string[] }>('/api/watchlist', {
-    method: 'POST',
-    body: { symbol: symbol.trim().toUpperCase() },
-  });
-}
-
-export function removeWatchlistSymbol(symbol: string): Promise<{ symbols: string[] }> {
-  return apiFetch<{ symbols: string[] }>(`/api/watchlist/${encodeURIComponent(symbol)}`, {
-    method: 'DELETE',
-  });
-}
-
+// The active-list endpoints (/api/watchlist GET/POST/DELETE) are intentionally
+// unused on mobile: they follow the DESKTOP-active list. The phone's selection
+// is device-local and all edits go through the per-list PUT below.
 export function getWatchlists(): Promise<WatchlistsState> {
   return apiFetch<WatchlistsState>('/api/watchlists');
 }
@@ -106,6 +102,12 @@ export function getBars(
   return apiFetch<{ symbol: string; timeframe: string; bars: Bar[] }>(
     `/api/bars?${params.toString()}`,
   );
+}
+
+/** Company profile + curated fundamentals + recent news (Finnhub, fail-soft:
+ *  missing key/error degrades to empty sections, never a 500). */
+export function getTicker(symbol: string): Promise<TickerInfo> {
+  return apiFetch<TickerInfo>(`/api/ticker/${encodeURIComponent(symbol)}`);
 }
 
 export function getEarningsHistory(symbol: string, n = 6): Promise<EarningsHistory> {
@@ -175,8 +177,10 @@ export function getPriceAlerts(symbol?: string): Promise<{ alerts: PriceAlert[] 
 export function createPriceAlert(input: {
   symbol: string;
   price: number;
-  direction: 'above' | 'below';
+  direction: 'above' | 'below' | 'cross';
   note?: string;
+  /** Persistent alert — re-arms after each crossing instead of one-shot. */
+  repeat?: boolean;
 }): Promise<PriceAlert> {
   return apiFetch<PriceAlert>('/api/price-alerts', { method: 'POST', body: input });
 }

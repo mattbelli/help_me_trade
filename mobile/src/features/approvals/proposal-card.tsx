@@ -233,13 +233,13 @@ export function ProposalCard({
             <Badge label={isSell ? 'Sell' : 'Buy'} tone={isSell ? 'negative' : 'positive'} />
             <Text variant="title">{proposal.symbol}</Text>
           </Row>
-          {proposal.account_id ? (
-            <Stack gap={0} style={{ alignItems: 'flex-end' }}>
+          {proposal.account_label || proposal.account_id ? (
+            <Stack gap={0} style={{ alignItems: 'flex-end', flexShrink: 1 }}>
               <Text variant="label" upper color="textFaint">
                 account
               </Text>
-              <Text variant="caption" color="textMuted">
-                {proposal.account_id}
+              <Text variant="callout" color="text" style={{ textAlign: 'right' }}>
+                {proposal.account_label ?? proposal.account_id}
               </Text>
             </Stack>
           ) : null}

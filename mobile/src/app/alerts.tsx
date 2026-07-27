@@ -19,6 +19,7 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
+import { symbolRoute } from '@/lib/symbol-route';
 import { spacing, useColors } from '@/theme';
 
 export default function AlertsScreen() {
@@ -63,7 +64,7 @@ export default function AlertsScreen() {
         renderItem={({ item }) => (
           <AlertListRow
             alert={item}
-            onOpenSymbol={() => router.push(`/symbol/${item.symbol}`)}
+            onOpenSymbol={() => router.push(symbolRoute(item.symbol))}
             onDelete={() => deleteAlert.mutate(item.id)}
             deleting={deleteAlert.isPending}
           />

@@ -1,8 +1,8 @@
 import { useAuth } from '@/auth/auth-context';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { focusManager, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 
 import {
-  addWatchlistSymbol,
   approveProposal,
   createPriceAlert,
   deleteChatSession,
@@ -20,14 +20,13 @@ import {
   getReport,
   getResearch,
   getSnapshot,
-  getWatchlist,
   getWatchlistMarket,
   getWatchlists,
   rejectProposal,
-  removeWatchlistSymbol,
   searchSymbols,
   getSettings,
   getStrategies,
+  getTicker,
   updateSettings,
   updateStrategy,
   updateWatchlistSymbols,
@@ -39,84 +38,96 @@ function useAuthenticated(enabled = true) {
   return { enabled: enabled && !isLoading && token !== null };
 }
 
-export function useSnapshot() {
+/**
+ * Tab-gated polling. Pager surfaces stay mounted, so a query can't stop
+ * polling by unmounting — the visible tab passes poll=true, the rest false.
+ *
+ * Deliberately NOT RQ's `refetchInterval`: flipping it false→6000 failed to
+ * reschedule on device (verified via serv access logs 2026-07-10 — the
+ * resume refetch fired but no interval followed), so we own the timer. A
+ * plain effect keyed on `poll` re-runs by React's contract: on flip-on it
+ * refetches immediately (the catch-up) and starts a 6s interval; on flip-off
+ * the cleanup kills it. Ticks skip while backgrounded via the same
+ * focusManager gate RQ's own intervals use (wired to AppState in _layout).
+ */
+function usePollWhile(poll: boolean, refetch: () => unknown, intervalMs = 6_000) {
+  const prev = useRef(poll);
+  useEffect(() => {
+    const was = prev.current;
+    prev.current = poll;
+    if (!poll) return;
+    // Catch up on re-entry (poll was off), but not on a poll-on mount — the
+    // query's initial fetch is already in flight there.
+    if (!was) void refetch();
+    const id = setInterval(() => {
+      if (focusManager.isFocused()) void refetch();
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [poll, refetch, intervalMs]);
+}
+
+export function useSnapshot(opts?: { poll?: boolean }) {
+  const poll = opts?.poll ?? true;
   const { enabled } = useAuthenticated();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['snapshot'],
     queryFn: getSnapshot,
     enabled,
-    refetchInterval: 6_000,
     staleTime: 4_000,
   });
+  usePollWhile(poll && enabled, query.refetch);
+  return query;
 }
 
-export function usePortfolioHistory(range: PortfolioRange) {
+export function usePortfolioHistory(
+  range: PortfolioRange,
+  accountId?: string,
+  opts?: { poll?: boolean },
+) {
+  const poll = opts?.poll ?? false;
   const { enabled } = useAuthenticated();
 
-  return useQuery({
-    queryKey: ['portfolio-history', range],
-    queryFn: () => getPortfolioHistory(range),
+  const query = useQuery({
+    queryKey: ['portfolio-history', accountId ?? 'broker', range],
+    queryFn: () => getPortfolioHistory(range, accountId),
     enabled,
-    staleTime: 30_000,
+    staleTime: 10_000,
   });
+  // 15s keeps the headline delta and pills in step with the 6s snapshot poll
+  // without hammering the (cheap, SQL-only) scoped endpoint.
+  usePollWhile(poll && enabled, query.refetch, 15_000);
+  return query;
 }
 
-export function useDayPnl(accountId: string) {
+export function useDayPnl(accountId: string, opts?: { poll?: boolean }) {
+  const poll = opts?.poll ?? true;
   const { enabled } = useAuthenticated();
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['day-pnl', accountId],
     queryFn: () => getDayPnl(accountId),
     enabled,
-    refetchInterval: 6_000,
     staleTime: 4_000,
   });
+  usePollWhile(poll && enabled, query.refetch);
+  return query;
 }
 
-export function useWatchlist() {
-  const { enabled } = useAuthenticated();
-
-  return useQuery({
-    queryKey: ['watchlist'],
-    queryFn: getWatchlist,
-    enabled,
-    staleTime: 60_000,
-    // Track active-list switches made on other devices while the app stays
-    // foregrounded (focus refetch only covers background→foreground).
-    refetchInterval: 30_000,
-  });
-}
-
-export function useAddWatchlistSymbol() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (symbol: string) => addWatchlistSymbol(symbol),
-    onSuccess: (data) => {
-      qc.setQueryData(['watchlist'], data);
-      void qc.invalidateQueries({ queryKey: ['watchlist'] });
-    },
-  });
-}
-
-export function useRemoveWatchlistSymbol() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (symbol: string) => removeWatchlistSymbol(symbol),
-    onSuccess: (data) => {
-      qc.setQueryData(['watchlist'], data);
-      void qc.invalidateQueries({ queryKey: ['watchlist'] });
-    },
-  });
-}
-
+// Saved watchlists (shared with web). Which list the phone SHOWS is
+// device-local (features/watchlist/use-selected-watchlist) — all symbol edits
+// go through the per-list PUT below, never the active-list endpoints.
 export function useWatchlists() {
   const { enabled } = useAuthenticated();
   return useQuery({
     queryKey: ['watchlists'],
     queryFn: getWatchlists,
     enabled,
-    staleTime: 300_000,
+    staleTime: 60_000,
+    // Track list edits made on other devices while the app stays foregrounded
+    // (focus refetch only covers background→foreground) — the WS subscription
+    // is derived from this data, so a stale list means stale streaming symbols.
+    refetchInterval: 30_000,
   });
 }
 
@@ -126,8 +137,6 @@ export function useReorderWatchlist() {
     mutationFn: ({ id, symbols }: { id: string; symbols: string[] }) => updateWatchlistSymbols(id, symbols),
     onSuccess: (data: WatchlistsState) => {
       qc.setQueryData(['watchlists'], data);
-      const active = data.lists.find((l) => l.id === data.active_id);
-      if (active) qc.setQueryData(['watchlist'], { symbols: active.symbols });
     },
   });
 }
@@ -143,12 +152,13 @@ export function useSymbolSearch(query: string) {
   });
 }
 
-export function useWatchlistMarket(symbols: string[] | undefined) {
+export function useWatchlistMarket(symbols: string[] | undefined, opts?: { poll?: boolean }) {
+  const poll = opts?.poll ?? true;
   const { enabled } = useAuthenticated();
   const qc = useQueryClient();
   const symbolsKey = symbols?.slice().sort().join(',') ?? '';
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['watchlist-market', symbolsKey],
     queryFn: async () => {
       const data = await getWatchlistMarket(symbols);
@@ -156,7 +166,6 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
       return { ...data, quotes: { ...prev?.quotes, ...data.quotes } };
     },
     enabled: enabled && Boolean(symbolsKey),
-    refetchInterval: 6_000,
     staleTime: 4_000,
     // Show instantly from any already-cached watchlist-market entry (e.g. the
     // full watchlist) while the fresh single-symbol fetch lands — so tapping a
@@ -177,6 +186,8 @@ export function useWatchlistMarket(symbols: string[] | undefined) {
       return Object.keys(quotes).length ? { quotes } : undefined;
     },
   });
+  usePollWhile(poll && enabled && Boolean(symbolsKey), query.refetch);
+  return query;
 }
 
 export function useBars(symbol: string, timeframe = '1Day', days = 180) {
@@ -198,6 +209,17 @@ export function useEarningsHistory(symbol: string, n = 6, enabledOverride = true
     queryFn: () => getEarningsHistory(symbol, n),
     enabled: enabled && enabledOverride && Boolean(symbol),
     staleTime: 60 * 60_000, // EPS history is quarterly — cache an hour
+  });
+}
+
+export function useTicker(symbol: string, enabledOverride = true) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['ticker', symbol],
+    queryFn: () => getTicker(symbol),
+    enabled: enabled && enabledOverride && Boolean(symbol),
+    staleTime: 10 * 60_000, // profile/metrics are server-cached ~24h, news ~15min
   });
 }
 

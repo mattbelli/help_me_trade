@@ -11,7 +11,7 @@
  * prev_close, volume, day_high, day_low. change$ = price − prev_close.
  * rvol shows "1.8×" once serv sends it. Reorder is local (no serv persist endpoint yet).
  */
-import { ActivityIndicator, Dimensions, Pressable, RefreshControl, TextInput, View } from 'react-native';
+import { Dimensions, Pressable, RefreshControl, TextInput, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import Animated, {
   FadeInDown,
@@ -29,19 +29,16 @@ import ReorderableList, {
   useReorderableDrag,
 } from 'react-native-reorderable-list';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  useAddWatchlistSymbol,
-  useRemoveWatchlistSymbol,
   useReorderWatchlist,
   useSymbolSearch,
-  useWatchlist,
   useWatchlists,
   useWatchlistMarket,
 } from '@/api/queries';
 import { useNav } from '@/state/nav';
-import type { WatchlistQuote } from '@/api/types';
+import type { WatchlistList, WatchlistQuote } from '@/api/types';
 import { Icon } from '@/components/ui/icon';
 import {
   EmptyState,
@@ -57,10 +54,12 @@ import {
   Text,
 } from '@/components/ui';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
+import { symbolRoute } from '@/lib/symbol-route';
 import { colors, fonts, haptics, hairline, pnlColor, spacing, useColors } from '@/theme';
 
 import { MiniDayChart } from './mini-day-chart';
 import { sessionBadge, sessionView } from './session';
+import { useSelectedWatchlist } from './use-selected-watchlist';
 
 const SCREEN_W = Dimensions.get('window').width;
 const PAD_L = 24; // left gutter holds the grip / + in line with the content
@@ -77,7 +76,11 @@ const ROW_TOP = 14;
 const ROW_MID = 20;
 const ROW_BOT = 14;
 // "Opposite" of the old black drop-shadow: a faint light edge for depth.
-const ROW_SHADOW = '0px 1px 1.5px rgba(220,228,240,0.05)';
+// A 1px top border, NOT a boxShadow: iOS composites every layer shadow as an
+// offscreen render pass — profiling measured 18–21 passes/frame (one per
+// visible row) eating ~43% of the 8.33ms GPU budget during scroll. In a
+// full-bleed stack, an edge atop row N reads the same as a glow under row N−1.
+const ROW_EDGE = 'rgba(220,228,240,0.05)';
 
 type SortKey = 'sym' | 'last' | 'chg' | 'vol';
 type SortState = { key: SortKey | null; dir: 'asc' | 'desc' };
@@ -190,7 +193,12 @@ function GripDots() {
 }
 
 // ─── 1-col row body (shared by reorderable + sorted views) ────────────────────
-function RowBody({
+// memo'd so the 100ms quote flush only re-renders rows whose quote object
+// changed (the coalesced merge keeps untouched symbols referentially stable).
+// The comparator deliberately ignores handler identity — callers pass fresh
+// closures every render, but they all wrap stable targets (router.push,
+// setState, the delete mutation), so data props are the only render inputs.
+const RowBody = memo(function RowBody({
   symbol,
   quote,
   loading,
@@ -237,9 +245,10 @@ function RowBody({
     <Animated.View
       style={[
         {
+          borderTopWidth: 1,
+          borderTopColor: ROW_EDGE,
           borderBottomWidth: hairline,
           borderBottomColor: colors.border,
-          boxShadow: ROW_SHADOW,
           // Excel-style zebra: odd rows get a barely-there tint over the base bg.
           backgroundColor: active ? colors.surfaceRaised : (index ?? 0) % 2 === 1 ? colors.stripe : colors.bg,
         },
@@ -331,7 +340,18 @@ function RowBody({
       </PressableScale>
     </Animated.View>
   );
-}
+}, (prev, next) =>
+  prev.symbol === next.symbol &&
+  prev.quote === next.quote &&
+  prev.loading === next.loading &&
+  prev.grip === next.grip &&
+  prev.active === next.active &&
+  prev.editing === next.editing &&
+  prev.index === next.index &&
+  // onPress flips defined/undefined with edit mode (rows aren't tappable while
+  // editing) — identity is ignored, but presence matters.
+  (prev.onPress === undefined) === (next.onPress === undefined),
+);
 
 function ReorderableRow({
   symbol,
@@ -456,12 +476,20 @@ function ColumnHeader({ sort, onSort }: { sort: SortState; onSort: (k: SortKey) 
 }
 
 // ─── Page header ──────────────────────────────────────────────────────────────
-function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void; session?: string | null }) {
+function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session, listName, menuOpen, onToggleMenu }: { onAdd: () => void; onOpenAlerts: () => void; editing: boolean; onDone: () => void; session?: string | null; listName?: string; menuOpen: boolean; onToggleMenu: () => void }) {
   const colors = useColors();
   return (
     <Row justify="space-between" align="center" style={{ paddingLeft: PAD_L, paddingRight: PAD_R, paddingBottom: spacing.sm }}>
       <Row gap={spacing.sm} align="center">
         <PageHeading title="watchlist" />
+        {listName ? (
+          <PressableScale onPress={onToggleMenu} haptic>
+            <Row gap={4} align="center" style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.surface, borderWidth: hairline, borderColor: colors.border }}>
+              <Text style={{ ...mono, fontSize: 12, letterSpacing: 0.4, color: colors.text }}>{listName}</Text>
+              <Icon name={menuOpen ? 'chevron-up' : 'chevron-down'} size={13} color={colors.textMuted} />
+            </Row>
+          </PressableScale>
+        ) : null}
         {session ? (
           <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: colors.warmWash }}>
             <Text style={{ ...mono, fontSize: 10, letterSpacing: 0.6, color: colors.warm }}>{session}</Text>
@@ -492,6 +520,31 @@ function WatchlistHeader({ onAdd, onOpenAlerts, editing, onDone, session }: { on
   );
 }
 
+// ─── Saved-lists menu — dropdown under the header; selection is device-local ──
+function ListMenu({ lists, selectedId, onSelect }: { lists: WatchlistList[]; selectedId?: string; onSelect: (id: string) => void }) {
+  const colors = useColors();
+  return (
+    <Animated.View entering={FadeInDown.duration(140)} style={{ borderBottomWidth: hairline, borderBottomColor: colors.border, backgroundColor: colors.surface }}>
+      {lists.map((l) => {
+        const active = l.id === selectedId;
+        return (
+          <PressableScale key={l.id} onPress={() => onSelect(l.id)} haptic>
+            <Row justify="space-between" align="center" style={{ paddingVertical: spacing.md, paddingLeft: PAD_L, paddingRight: PAD_R }}>
+              <Row gap={spacing.sm} align="center">
+                <Text variant={active ? 'bodyStrong' : 'body'} style={active ? undefined : { color: colors.textMuted }}>
+                  {l.name}
+                </Text>
+                <Text style={{ ...mono, fontSize: 11, color: colors.textFaint }}>{l.symbols.length}</Text>
+              </Row>
+              {active ? <Icon name="check" size={16} color={colors.accent} /> : null}
+            </Row>
+          </PressableScale>
+        );
+      })}
+    </Animated.View>
+  );
+}
+
 // ─── Inline add-ticker row — slides in at the top; type → autocomplete ─────────
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -507,20 +560,17 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
   const [text, setText] = useState('');
   const debounced = useDebounced(text, 220);
   const search = useSymbolSearch(debounced);
-  const add = useAddWatchlistSymbol();
   const suggestions = (search.data ?? []).slice(0, 6);
 
-  // Tapping a suggestion adds it directly (always a real symbol).
+  // Tapping a suggestion adds it directly (always a real symbol). The parent
+  // persists to the SELECTED list (PUT /api/watchlists/{id}) — never the
+  // desktop-active one.
   const doAdd = (sym: string) => {
     const s = sym.trim().toUpperCase();
-    if (!s || add.isPending) return;
-    add.mutate(s, {
-      onSuccess: () => {
-        setText('');
-        onAdded(s);
-        onClose();
-      },
-    });
+    if (!s) return;
+    setText('');
+    onAdded(s);
+    onClose();
   };
   // Enter key: only add a REAL symbol — exact search match, else the top suggestion.
   // Prevents adding a typed string that isn't a tradable ticker.
@@ -548,7 +598,6 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
           onSubmitEditing={submitTyped}
           style={{ ...mono, flex: 1, fontSize: 17, color: colors.text, paddingVertical: 2 }}
         />
-        {add.isPending ? <ActivityIndicator size="small" color={colors.accent} /> : null}
         <PressableScale onPress={onClose} haptic>
           <Icon name="close" size={20} color={colors.textMuted} />
         </PressableScale>
@@ -565,9 +614,7 @@ function AddRow({ onAdded, onClose }: { onAdded: (sym: string) => void; onClose:
           ))}
         </View>
       ) : null}
-      {add.isError ? (
-        <Text variant="caption" style={{ color: colors.danger, paddingLeft: PAD_L, paddingBottom: spacing.sm }}>Couldn't add — check the symbol.</Text>
-      ) : noMatch ? (
+      {noMatch ? (
         <Text variant="caption" style={{ color: colors.textFaint, paddingLeft: PAD_L, paddingBottom: spacing.sm }}>No matching symbol.</Text>
       ) : null}
     </Animated.View>
@@ -602,24 +649,29 @@ export function WatchlistScreen() {
   const [order, setOrder] = useState<string[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
-  const { setSwipeEnabled } = useNav();
+  const { setSwipeEnabled, activeTab } = useNav();
 
-  const watchlist = useWatchlist();
-  const symbols: string[] = watchlist.data?.symbols ?? [];
-  const market = useWatchlistMarket(symbols);
+  // Saved lists are shared with the web app; WHICH one shows here is
+  // device-local (never /api/watchlists/active — desktop switches can't move
+  // the phone, and vice versa). Lists are selectable from the header menu.
+  const watchlists = useWatchlists();
+  const { selected, select } = useSelectedWatchlist(watchlists.data);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const listId = selected?.id;
+  const symbols: string[] = selected?.symbols ?? [];
+  // Poll only while this tab is visible — live prices ride the WS stream
+  // anyway; the 6s REST poll's job (rvol/company fields) can idle off-tab.
+  const market = useWatchlistMarket(symbols, { poll: activeTab === 'watchlist' });
   const quotes = market.data?.quotes ?? {};
   // One session indicator for the whole list (all tickers share the session) —
   // shown in the header during extended hours instead of a badge on every row.
   const sessionTag = sessionBadge(Object.values(quotes)[0]?.market_session);
 
-  const watchlists = useWatchlists();
-  const activeId = watchlists.data?.active_id;
   const reorder = useReorderWatchlist();
-  const remove = useRemoveWatchlistSymbol();
 
-  const { refreshing, onRefresh } = usePullRefresh(() => Promise.all([watchlist.refetch(), market.refetch()]));
+  const { refreshing, onRefresh } = usePullRefresh(() => Promise.all([watchlists.refetch(), market.refetch()]));
 
-  const loading = watchlist.isLoading;
+  const loading = watchlists.isLoading;
   const marketLoading = market.isLoading && symbols.length > 0;
 
   useEffect(() => {
@@ -632,13 +684,11 @@ export function WatchlistScreen() {
     return () => setSwipeEnabled(true);
   }, [editing, setSwipeEnabled]);
 
-  // Sorting isn't reorderable, so leave edit mode if a column sort turns on.
-  useEffect(() => {
-    if (sort.key) setEditing(false);
-  }, [sort.key]);
-
-  const onSort = (key: SortKey) =>
+  // Sorting isn't reorderable, so leave edit mode when a column sort turns on.
+  const onSort = (key: SortKey) => {
+    setEditing(false);
     setSort((s) => (s.key !== key ? { key, dir: 'desc' } : s.dir === 'desc' ? { key, dir: 'asc' } : { key: null, dir: 'desc' }));
+  };
 
   // User order: keep the user's local order, reconciled with the server's set.
   const userOrder = useMemo(() => {
@@ -666,11 +716,23 @@ export function WatchlistScreen() {
     return sort.dir === 'desc' ? arr.reverse() : arr;
   }, [userOrder, quotes, sort]);
 
-  // Persist the order to the active list (PUT /api/watchlists/{id}) so it survives
-  // restarts; setOrder gives instant local feedback.
+  // Persist to the SELECTED list (PUT /api/watchlists/{id}) so it survives
+  // restarts; setOrder gives instant local feedback. Adds and deletes ride the
+  // same PUT — every edit is scoped to this list, never the desktop-active one.
   const persistOrder = (next: string[]) => {
     setOrder(next);
-    if (activeId) reorder.mutate({ id: activeId, symbols: next });
+    if (listId) reorder.mutate({ id: listId, symbols: next });
+  };
+
+  // Switching lists: the local drag-order is per-list state — reset it.
+  const onSelectList = (id: string) => {
+    if (id !== listId) {
+      select(id);
+      setOrder(null);
+      setSort({ key: null, dir: 'desc' });
+      setEditing(false);
+    }
+    setMenuOpen(false);
   };
 
   const onReorder = ({ from, to }: ReorderableListReorderEvent) => {
@@ -686,8 +748,7 @@ export function WatchlistScreen() {
   };
 
   const onDelete = (sym: string) => {
-    setOrder((prev) => (prev ?? symbols).filter((s) => s !== sym));
-    remove.mutate(sym);
+    persistOrder((order ?? symbols).filter((s) => s !== sym));
     haptics.impact();
   };
 
@@ -701,7 +762,13 @@ export function WatchlistScreen() {
         editing={editing}
         onDone={() => setEditing(false)}
         session={sessionTag}
+        listName={selected?.name}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((o) => !o)}
       />
+      {menuOpen ? (
+        <ListMenu lists={watchlists.data?.lists ?? []} selectedId={listId} onSelect={onSelectList} />
+      ) : null}
       <ColumnHeader sort={sort} onSort={onSort} />
       {adding ? <AddRow onAdded={onAdded} onClose={() => setAdding(false)} /> : null}
     </View>
@@ -709,15 +776,15 @@ export function WatchlistScreen() {
 
   const empty = loading ? <SkeletonRows /> : <EmptyState title="Watchlist empty" subtitle="Tap + to add a symbol." />;
   const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />;
-  const openSymbol = (symbol: string) => router.push(`/symbol/${symbol}`);
+  const openSymbol = (symbol: string) => router.push(symbolRoute(symbol));
 
-  if (watchlist.isError || market.isError) {
+  if (watchlists.isError || market.isError) {
     return (
       <Screen>
         <View style={{ flex: 1, paddingTop: spacing.xs }}>
           {header}
           <View style={{ paddingHorizontal: spacing.xl }}>
-            <ErrorState onRetry={() => { void watchlist.refetch(); void market.refetch(); }} />
+            <ErrorState onRetry={() => { void watchlists.refetch(); void market.refetch(); }} />
           </View>
         </View>
       </Screen>

@@ -9,9 +9,11 @@ interface NavValue {
   openInbox: () => void;
   /** Toggle horizontal page-swipe (watchlist edit mode disables it for swipe-to-delete). */
   setSwipeEnabled: (enabled: boolean) => void;
+  /** Key of the tab the pager is showing — surfaces gate their 6s polls to it. */
+  activeTab: string;
 }
 
-const NavContext = createContext<NavValue>({ openInbox: () => {}, setSwipeEnabled: () => {} });
+const NavContext = createContext<NavValue>({ openInbox: () => {}, setSwipeEnabled: () => {}, activeTab: 'home' });
 
 export function NavProvider({ value, children }: { value: NavValue; children: ReactNode }) {
   return <NavContext.Provider value={value}>{children}</NavContext.Provider>;
