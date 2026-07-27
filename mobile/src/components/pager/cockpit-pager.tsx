@@ -12,7 +12,7 @@ import { View } from 'react-native';
 import PagerView from 'react-native-pager-view';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { usePendingProposals, useWatchlists } from '@/api/queries';
+import { usePendingProposals, useWatchlist } from '@/api/queries';
 import { useMarketWs, type QuoteUpdate } from '@/api/use-market-ws';
 import type { WatchlistMarket } from '@/api/types';
 import { TabBar, type TabDef } from '@/components/nav/tab-bar';
@@ -64,32 +64,47 @@ export function CockpitPager() {
   // ONLY the price-bearing fields — never clobber rvol or the company-info
   // fields the poll fills in. ext_* / market_session let pre/post-market rows
   // headline the live extended-hours price straight off the stream.
-  const { data: watchlists } = useWatchlists();
-  const activeSymbols = useMemo(() => {
-    const list = watchlists?.lists.find((l) => l.id === watchlists.active_id);
-    return list?.symbols ?? [];
-  }, [watchlists]);
+  // Subscribe the SAME query the watchlist screen renders (['watchlist']), not
+  // active_id out of ['watchlists'] — two caches with different staleness can
+  // diverge after a list switch on another device, leaving the screen showing
+  // list A while the socket streams list B (frozen rows).
+  const { data: watchlist } = useWatchlist();
+  const activeSymbols = useMemo(() => watchlist?.symbols ?? [], [watchlist]);
 
-  const onQuote = useCallback(
-    (q: QuoteUpdate) => {
+  const onQuotes = useCallback(
+    (batch: QuoteUpdate[]) => {
+      // ONE cache write per flush, not one per tick: the whole batch folds into a
+      // single quotes object so a 40-symbol list costs one render, not forty.
       qc.setQueriesData<WatchlistMarket>({ queryKey: ['watchlist-market'] }, (old) => {
-        const prev = old?.quotes[q.symbol];
-        if (!prev) return old;
-        const session = q.market_session ?? prev.market_session;
-        const extended = isExtendedSession(session);
-        const next = { ...prev };
-        // In extended hours, keep the REST regular-session close as the price
-        // baseline (sessionView derives the headline from it + the live ext %).
-        // Only let the WS overwrite price/change in the regular session.
-        if (!extended) {
-          next.price = q.price;
-          next.change_pct = q.change_pct;
+        if (!old) return old;
+        let quotes = old.quotes;
+        let touched = false;
+        for (const q of batch) {
+          const prev = quotes[q.symbol];
+          if (!prev) continue;
+          const session = q.market_session ?? prev.market_session;
+          const extended = isExtendedSession(session);
+          const next = { ...prev };
+          // In extended hours, keep the REST regular-session close as the price
+          // baseline (sessionView derives the headline from it + the live ext %).
+          // Only let the WS overwrite price/change in the regular session.
+          if (!extended) {
+            next.price = q.price;
+            next.change_pct = q.change_pct;
+          }
+          if (q.sparkline) next.sparkline = q.sparkline;
+          if (q.market_session !== undefined) next.market_session = q.market_session;
+          if (q.ext_price != null) next.ext_price = q.ext_price;
+          if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
+          if (!touched) {
+            quotes = { ...quotes };
+            touched = true;
+          }
+          quotes[q.symbol] = next;
         }
-        if (q.sparkline) next.sparkline = q.sparkline;
-        if (q.market_session !== undefined) next.market_session = q.market_session;
-        if (q.ext_price != null) next.ext_price = q.ext_price;
-        if (q.ext_change_pct != null) next.ext_change_pct = q.ext_change_pct;
-        return { ...old, quotes: { ...old.quotes, [q.symbol]: next } };
+        // Returning `old` unchanged when nothing matched keeps react-query from
+        // notifying subscribers for a batch of symbols this cache doesn't hold.
+        return touched ? { ...old, quotes } : old;
       });
     },
     [qc],
@@ -99,7 +114,7 @@ export function CockpitPager() {
     token,
     onAlert: pushAlert,
     onNotification: pushNotification,
-    onQuote,
+    onQuotes,
     onProposal: () => {
       haptics.warning();
       void qc.invalidateQueries({ queryKey: ['proposals', 'pending'] });
