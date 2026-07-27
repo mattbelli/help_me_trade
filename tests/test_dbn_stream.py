@@ -131,6 +131,41 @@ def test_ingest_from_another_thread_never_disturbs_a_reader():
     assert seen == N
 
 
+def test_osi_padding_is_stripped_or_every_print_is_discarded():
+    """The outage of 2026-07-27 13:30, in one assertion.
+
+    databento's OPRA symbology is the 21-char OSI form — a 6-char root
+    LEFT-JUSTIFIED AND SPACE-PADDED. `_on_record` did `str(occ).strip()`, which
+    leaves the interior padding, so `_OCC_RE` never matched, `meta_for` returned
+    None, and every print was dropped as `skipped_no_meta`. Live at the open:
+    data_msgs=161,899, prints=0. Measured across 2,043,111 real symbols: 0.00%
+    parse as-is, 98.49% parse once the padding is gone."""
+    from imports.option_symbol import parse_occ_symbol
+    from signals.options_flow.dbn_stream import occ_from_osi
+
+    padded = "IPI   261218P00050000"
+    assert parse_occ_symbol(padded.strip().upper()) is None, "the old path"
+    assert occ_from_osi(padded) == "IPI261218P00050000"
+    assert parse_occ_symbol(occ_from_osi(padded)) is not None
+
+
+def test_a_padded_symbol_produces_a_print_end_to_end():
+    """Driven through `_on_record` with a padded symbol, because the unit above
+    would still pass if the call site forgot to use the helper — which is
+    exactly the shape of the original bug."""
+    sent: list = []
+    s = DatabentoFlowStream(key="k", on_prints=sent.extend,
+                            meta_for=lambda occ: dict(META, occ_symbol=occ))
+    s._client = types.SimpleNamespace(
+        symbology_map={42: "TSLA  260821C00400000"}
+    )
+    s._on_record(_rec(7_700_000_000, 7_400_000_000, 8_100_000_000))
+    batch = s._drain()
+    assert len(batch) == 1, f"print discarded; skipped_no_meta={s.skipped_no_meta}"
+    assert batch[0]["occ_symbol"] == "TSLA260821C00400000"
+    assert s.skipped_no_meta == 0
+
+
 def test_unresolved_instrument_is_counted_not_crashed():
     s = _stream([])
     s._client = types.SimpleNamespace(symbology_map={})
