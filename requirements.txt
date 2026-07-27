@@ -15,3 +15,4 @@ pytest-asyncio>=0.24.0
 pytest-timeout>=2.3.0
 tzdata>=2024.1  # Windows zoneinfo (ET market dates in chat prompt)
 msgpack>=1.0
+databento>=0.81.0  # OPRA live + historical; a HARD runtime dep once options_flow.provider=databento

@@ -143,18 +143,15 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   RTH-only hedge was the only thing preventing a 60-second collector restart loop all weekend. It now
   keys on `SystemCode.SUBSCRIPTION_ACK` and **raises at any hour**. Do not reintroduce `mapped` as an
   ack signal.
-- **⚠️ `databento` is deliberately NOT in `requirements.txt`** — `dbn_stream.py` and
-  `tools/flow_corpus_rollup.py` both import it lazily at their use sites so everything else stays
-  testable without it. CI installs only `requirements.txt`, so **the 5 control-plane tests in
-  `test_dbn_stream.py` SKIP in CI** (`requires_dbn`), and `_on_control`'s dispatch is covered only on a
-  box that has the package. That is a real coverage gap, accepted on purpose: stubbing the records would
-  defeat the test, since the dispatch keys on `type(rec).__name__` plus an enum comparison and a
-  hand-rolled double can agree with the code while the wire type disagrees. To check a change the way CI
-  will see it, hide the package rather than trusting the marker — a `sitecustomize.py` that returns
-  `None` from `find_spec` for `databento*` and raises on real import reproduces it exactly (verified
-  07-27: 2,857 passed / 5 skipped, matching CI's population).
-  ⚠️ If the provider is ever set to `databento` in production, `databento` becomes a **hard runtime
-  dependency** of the collector and belongs in `requirements.txt` — arming and that line move together.
+- **`databento` is in `requirements.txt` as of 2026-07-27** — arming the lane made it a hard runtime
+  dependency of the collector, and leaving it hand-installed meant a venv rebuild would break the live
+  flow lane at startup. Both use sites still import it lazily; that costs nothing and keeps the pure
+  bucketing/grouping helpers importable on a partial install.
+  ⚠️ The `requires_dbn` marker on the 5 control-plane tests in `test_dbn_stream.py` **stays** — it is
+  now a no-op in CI, but it is what keeps the suite honest anywhere the package is absent. To check a
+  change the way a package-less environment sees it, hide the package rather than trusting the marker:
+  a `sitecustomize.py` returning `None` from `find_spec` for `databento*` and raising on real import
+  reproduces it exactly.
 - **▶ `tools/dbn_live_probe.py` is how you exercise the live lane without deploying anything.** It runs
   the real `DatabentoFlowStream` with the real `runner.meta_for` in its own process — it does not read
   `options_flow.provider`, does not touch `hmt-flow-collector`, and writes nothing, so it is safe to run
