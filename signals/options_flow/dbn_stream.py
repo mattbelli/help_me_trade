@@ -314,10 +314,13 @@ class DatabentoFlowStream:
         self.callback_errors = 0
         self.reconnects = 0
         self.reconnect_gap_s = 0.0
-        # Databento subscribes by parent symbol, so coverage is every contract on
-        # every watched name — not a rationed slice. It is not the "*" market-wide
-        # subscription the Alpaca lane means by this flag, so it stays False.
-        self.acked_market_wide = False
+        # This lane's ONLY mode is ALL_SYMBOLS (see module docstring) — the whole
+        # OPRA tape, which is exactly what the Alpaca lane means by this flag. The
+        # original parent-symbol comment ("stays False") predated the 07-26
+        # widening and left every whole-market event mis-stamped watchlist_capped.
+        # If the subscribe fails the stream is dead (liveness catches it), not
+        # silently degraded, so a constant True cannot lie about a live stream.
+        self.acked_market_wide = True
 
         self._pending: list[dict] = []
         self._pending_lock = threading.Lock()

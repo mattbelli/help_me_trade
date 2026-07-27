@@ -25,8 +25,20 @@ def _db_path(db_path: Path | None) -> Path:
     return db_path if db_path is not None else DEFAULT_DB_PATH
 
 
+# Paths already initialized this process. Every accessor calls init_db() first,
+# and the body takes WRITE transactions (ingest_seq backfill + bus_ingest_sequences
+# upsert + DDL) — re-running it on every insert made two writer lanes serialize on
+# init instead of their own tiny inserts, and at market open the loser threw
+# "database is locked" and DROPPED its events (sweep cycles failed 121 times in
+# 30 min on 2026-07-27). Init is idempotent, so a racing first-call is harmless.
+_INIT_DONE: set[str] = set()
+
+
 def init_db(db_path: Path | None = None) -> None:
     resolved = _db_path(db_path)
+    key = str(resolved)
+    if key in _INIT_DONE:
+        return
     with _connect(resolved) as conn:
         conn.executescript(
             """
@@ -136,6 +148,8 @@ def init_db(db_path: Path | None = None) -> None:
         _add_column_if_missing(conn, "options_flow_events", "coverage", "TEXT")
         _add_column_if_missing(conn, "options_flow_events", "minutes_into_session", "INTEGER")
         conn.commit()
+    # Only after full success — a failed init must retry on the next call.
+    _INIT_DONE.add(key)
 
 
 def _row_to_event(row: Any) -> dict[str, Any]:

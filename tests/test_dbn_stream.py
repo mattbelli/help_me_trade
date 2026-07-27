@@ -337,3 +337,10 @@ def test_surface_matches_what_sweep_loop_consumes():
     for attr in ("collected_prints", "dropped_prints", "acked_market_wide",
                  "quote_at", "stop", "run"):
         assert hasattr(s, attr), attr
+
+
+def test_whole_market_lane_reports_market_wide_coverage():
+    # ALL_SYMBOLS is this lane's only mode; a False here mis-stamps every event
+    # coverage=watchlist_capped (the pre-07-27 bug — the flag's comment predated
+    # the whole-market widening).
+    assert _stream([]).acked_market_wide is True
