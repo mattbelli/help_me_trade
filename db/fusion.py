@@ -162,6 +162,15 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_fusion_disposition_day
                 ON fusion_dispositions(created_at, disposition);
+            -- _rescore updates by episode_id (once) and dot_id (per collapsed
+            -- dot, in a loop) inside ONE write transaction; unindexed, each
+            -- UPDATE full-scanned 591k rows and the txn held the whole file's
+            -- write lock 3-8s (slow-txn logger, 2026-07-27) — starving the
+            -- flow collector's sweep inserts past their 5s busy timeout.
+            CREATE INDEX IF NOT EXISTS idx_fusion_disposition_episode
+                ON fusion_dispositions(episode_id);
+            CREATE INDEX IF NOT EXISTS idx_fusion_disposition_dot
+                ON fusion_dispositions(dot_id);
 
             CREATE TABLE IF NOT EXISTS fusion_atr_cache (
                 symbol TEXT PRIMARY KEY,
