@@ -90,7 +90,11 @@ def _get(url: str, headers: dict[str, str]) -> dict:
 
 
 def capture_session(
-    session: date, data_dir: Path, out_dir: Path, headers: dict[str, str]
+    session: date,
+    data_dir: Path,
+    out_dir: Path,
+    headers: dict[str, str],
+    workers: int = 8,
 ) -> None:
     stats_path = out_dir / f"{session.isoformat()}.json"
     if stats_path.exists():
@@ -106,20 +110,16 @@ def capture_session(
     symbols = _traded_symbols(tpath, d_ids, d_syms)
     print(f"{session}: {len(symbols):,} traded contracts", flush=True)
 
-    sym_list: list[str] = []
-    sym_idx_of: dict[str, int] = {}
-    parts_t: list[np.ndarray] = []
-    parts_c: list[np.ndarray] = []
-    parts_s: list[np.ndarray] = []
-    parts_i: list[np.ndarray] = []
-    parts_x: list[np.ndarray] = []
-    parts_cc: list[np.ndarray] = []
-    n_req = 0
     start = f"{session}{SESSION_START}"
     end = f"{session}{SESSION_END}"
-    for i in range(0, len(symbols), ALPACA_BATCH):
-        batch = ",".join(symbols[i : i + ALPACA_BATCH])
+
+    def fetch_batch(lo: int) -> tuple[int, list[tuple[str, tuple[np.ndarray, ...]]]]:
+        """One 100-symbol batch, all pages. Runs on a worker thread; touches no
+        shared state — results merge on the main thread."""
+        batch = ",".join(symbols[lo : lo + ALPACA_BATCH])
         tok = None
+        reqs = 0
+        rows: list[tuple[str, tuple[np.ndarray, ...]]] = []
         while True:
             q = {"symbols": batch, "start": start, "end": end, "limit": PAGE_LIMIT}
             if tok:
@@ -129,37 +129,66 @@ def capture_session(
                 + urllib.parse.urlencode(q),
                 headers,
             )
-            n_req += 1
+            reqs += 1
             for sym, trades in (d.get("trades") or {}).items():
+                if not trades:
+                    continue
+                rows.append(
+                    (
+                        sym,
+                        (
+                            np.array(
+                                [
+                                    np.datetime64(t["t"].replace("Z", ""), "ns")
+                                    for t in trades
+                                ],
+                                dtype="datetime64[ns]",
+                            ).astype(np.int64),
+                            np.array(
+                                [int(round(float(t["p"]) * 100)) for t in trades],
+                                dtype=np.int64,
+                            ),
+                            np.array([int(t["s"]) for t in trades], dtype=np.int32),
+                            np.array(
+                                [str(t.get("x") or "") for t in trades], dtype="U1"
+                            ),
+                            np.array(
+                                [str(t.get("c") or "") for t in trades], dtype="U1"
+                            ),
+                        ),
+                    )
+                )
+            tok = d.get("next_page_token")
+            if not tok:
+                return reqs, rows
+
+    sym_list: list[str] = []
+    sym_idx_of: dict[str, int] = {}
+    parts_t: list[np.ndarray] = []
+    parts_c: list[np.ndarray] = []
+    parts_s: list[np.ndarray] = []
+    parts_i: list[np.ndarray] = []
+    parts_x: list[np.ndarray] = []
+    parts_cc: list[np.ndarray] = []
+    n_req = 0
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for reqs, rows in pool.map(
+            fetch_batch, range(0, len(symbols), ALPACA_BATCH)
+        ):
+            n_req += reqs
+            for sym, (a_t, a_c, a_s, a_x, a_cc) in rows:
                 si = sym_idx_of.get(sym)
                 if si is None:
                     si = sym_idx_of[sym] = len(sym_list)
                     sym_list.append(sym)
-                n = len(trades)
-                if not n:
-                    continue
-                parts_t.append(
-                    np.array(
-                        [np.datetime64(t["t"].replace("Z", ""), "ns") for t in trades],
-                        dtype="datetime64[ns]",
-                    ).astype(np.int64)
-                )
-                parts_c.append(
-                    np.array(
-                        [int(round(float(t["p"]) * 100)) for t in trades], dtype=np.int64
-                    )
-                )
-                parts_s.append(np.array([int(t["s"]) for t in trades], dtype=np.int32))
-                parts_i.append(np.full(n, si, dtype=np.int32))
-                parts_x.append(
-                    np.array([str(t.get("x") or "") for t in trades], dtype="U1")
-                )
-                parts_cc.append(
-                    np.array([str(t.get("c") or "") for t in trades], dtype="U1")
-                )
-            tok = d.get("next_page_token")
-            if not tok:
-                break
+                parts_t.append(a_t)
+                parts_c.append(a_c)
+                parts_s.append(a_s)
+                parts_i.append(np.full(len(a_t), si, dtype=np.int32))
+                parts_x.append(a_x)
+                parts_cc.append(a_cc)
 
     n_trades = int(sum(len(a) for a in parts_t))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -199,6 +228,8 @@ def main() -> None:
     p.add_argument("--data-dir", required=True)
     p.add_argument("--out-dir", required=True)
     p.add_argument("--env-file", default=None)
+    p.add_argument("--workers", type=int, default=8,
+                   help="concurrent fetch threads (8 ≈ 25%% of the 10k/min budget)")
     a = p.parse_args()
     if a.env_file:
         for line in Path(a.env_file).read_text().splitlines():
@@ -222,7 +253,7 @@ def main() -> None:
         )
     for s in sessions:
         try:
-            capture_session(s, data_dir, out_dir, headers)
+            capture_session(s, data_dir, out_dir, headers, workers=a.workers)
         except Exception as e:  # keep the unattended run alive; stats absent = retryable
             print(f"{s}: FAILED — {e}", flush=True)
 
