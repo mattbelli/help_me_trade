@@ -248,6 +248,15 @@ class DatabentoFlowStream:
         self.data_msgs = 0
         self.skipped_no_meta = 0
         self.unresolved_symbols = 0
+        # Control-plane counters (added 2026-07-27 from the vendor docs). Each
+        # one is a condition the gateway reports and we were not reading, and
+        # every one of them makes the tape WRONG without making it STOP — which
+        # is the failure class the liveness clocks cannot see.
+        self.subscription_acks = 0
+        self.slow_reader_warnings = 0
+        self.skipped_by_gateway = 0
+        self.symbol_resolution_failures = 0
+        self.callback_errors = 0
         # Databento subscribes by parent symbol, so coverage is every contract on
         # every watched name — not a rationed slice. It is not the "*" market-wide
         # subscription the Alpaca lane means by this flag, so it stays False.
@@ -288,6 +297,7 @@ class DatabentoFlowStream:
         self.msgs += 1
         levels = getattr(rec, "levels", None)
         if not levels:
+            self._on_control(rec)
             return
         # Counted AFTER the levels guard, and that placement is the whole point:
         # databento dispatches EVERY record to this callback, including the
@@ -347,6 +357,67 @@ class DatabentoFlowStream:
         with self._pending_lock:
             self._pending.append(normalized)
 
+    def _on_control(self, rec: Any) -> None:
+        """Non-data records: the gateway telling us something about the session.
+
+        Off the hot path by construction — this runs only for records with no
+        book, which is heartbeats and control messages. The two slow-reader
+        codes are the reason it exists: a client that falls behind does not stop
+        receiving data, so neither the silence clock nor the pipeline clock can
+        see it, and the tape quietly stops being complete or stops being live.
+        """
+        code = getattr(rec, "code", None)
+        if code is None:
+            return
+        from databento_dbn import ErrorCode, SystemCode
+
+        name = type(rec).__name__
+        if name.startswith("SystemMsg"):
+            if code == SystemCode.SUBSCRIPTION_ACK:
+                # The gateway's own ack, as opposed to inferring one from the
+                # first symbol mapping. Counted rather than acted on until the
+                # live-socket check shows whether it arrives outside RTH.
+                self.subscription_acks += 1
+            elif code == SystemCode.SLOW_READER_WARNING:
+                self.slow_reader_warnings += 1
+                logger.warning(
+                    "dbn stream: gateway says we are a SLOW READER (%s warnings)"
+                    " — records are still all being sent, but we are behind real"
+                    " time and the prints we classify are stale.",
+                    self.slow_reader_warnings,
+                )
+        elif name.startswith("ErrorMsg"):
+            if code == ErrorCode.SKIPPED_RECORDS_AFTER_SLOW_READING:
+                # Only reachable if slow_reader_behavior is ever set to "skip".
+                # Loud because it is unrecoverable data loss: the corpus and the
+                # live lane would disagree and nothing else would say why.
+                self.skipped_by_gateway += 1
+                logger.error(
+                    "dbn stream: the GATEWAY DROPPED RECORDS to let us catch up "
+                    "(%s events). Prints are missing and cannot be recovered.",
+                    self.skipped_by_gateway,
+                )
+            elif code == ErrorCode.SYMBOL_RESOLUTION_FAILED:
+                # Since 2026-04-26 an unresolvable symbol no longer kills the
+                # session, so a bad name in a dynamic watchlist now fails by
+                # simply never streaming. This counter is the only trace.
+                self.symbol_resolution_failures += 1
+                logger.error(
+                    "dbn stream: symbol resolution FAILED (%s) — that name is "
+                    "not streaming and the session did not stop: %s",
+                    self.symbol_resolution_failures,
+                    getattr(rec, "err", ""),
+                )
+
+    def _on_callback_error(self, exc: BaseException) -> None:
+        """Count exceptions out of `_on_record`; databento already logs each one.
+
+        Without this they are log lines only. The count is what makes a
+        systematic failure legible — every record raising looks exactly like a
+        dead pipeline in the print rate, and this separates the two.
+        """
+        self.callback_errors += 1
+
     def _drain(self) -> list[dict]:
         with self._pending_lock:
             batch, self._pending = self._pending, []
@@ -364,8 +435,19 @@ class DatabentoFlowStream:
             logger.warning("dbn stream: empty watchlist; not starting")
             return
 
-        client = dbn.Live(key=self._key)
-        client.add_callback(self._on_record)
+        # slow_reader_behavior is passed EXPLICITLY, not left to the default.
+        # Databento flipped that default from "warn" to "skip" on 2026-04-26 for
+        # the stateless schemas (mbp-1, bbo-*, cbbo-*); tcbbo is not on that list
+        # today, but relying on a vendor default that has already moved once is
+        # how a lane starts losing prints without a diff. "warn" is also the
+        # right answer for this lane on the merits: under "skip" the gateway
+        # drops trades to catch us up, and a directional-flow measurement whose
+        # denominator silently shrinks under load is worse than a late one.
+        # Headroom measured 2026-07-27 on real records: _on_record runs at
+        # ~90k rec/s through the real meta_for miss path, against a whole-market
+        # OPRA tcbbo peak of 6,642 rec/s (1s) — ~13x, so this should stay theory.
+        client = dbn.Live(key=self._key, slow_reader_behavior="warn")
+        client.add_callback(self._on_record, self._on_callback_error)
         client.subscribe(
             dataset=DATASET, schema=SCHEMA, stype_in="parent", symbols=symbols
         )
@@ -415,8 +497,12 @@ class DatabentoFlowStream:
                     # matters -- the rate decaying while the market is open.
                     logger.info(
                         "dbn stream: %.1f prints/min (data_msgs=%s msgs=%s "
-                        "prints=%s mapped=%s)",
+                        "prints=%s mapped=%s acks=%s slow=%s dropped=%s "
+                        "unresolved_syms=%s cb_errors=%s)",
                         rate, self.data_msgs, self.msgs, self.prints, mapped,
+                        self.subscription_acks, self.slow_reader_warnings,
+                        self.skipped_by_gateway,
+                        self.symbol_resolution_failures, self.callback_errors,
                     )
 
                 if not client.is_connected():

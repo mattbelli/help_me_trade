@@ -141,7 +141,24 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   the process and systemd restarts it in 3s** — and the premise that symbol mappings arrive off-hours
   is still UNVERIFIED, so raising then would have been an unbounded weekend restart loop.
   ⏳ Still unproven against a real socket: the arming check remains verifying the provider against a
-  session whose ground truth we already hold. **Verify the off-hours ack behaviour at the same time.**
+  session whose ground truth we already hold. **Verify the off-hours ack behaviour at the same time** —
+  `SystemCode.SUBSCRIPTION_ACK` is now counted as `stream.subscription_acks`, so that run records the
+  answer instead of leaving it inferred. If acks do arrive off-hours, the RTH-only hedge can be dropped
+  and the ack check can raise whenever it fires.
+- **⏳ DECISION, not a bug — `reconnect_policy`.** It defaults to `NONE` (verified), which is why our
+  disconnect path exits and lets systemd restart the collector in 3s. But `ReconnectPolicy.RECONNECT`
+  **replays every subscription** and hands `add_reconnect_callback` the exact gap boundaries
+  (`session.py:737-783`), and a process restart discards the in-memory `SweepBuffer`, `RollingFlow` and
+  pressure gauges — and trips the gauge's own "never finalize a window this process wasn't alive inside"
+  guard. Reconnecting to the *same* source is **not** the silent downgrade the no-fallback rule forbids,
+  so this is on the table; it changes failure semantics from loud crash to self-heal, so it needs a
+  reconnect counter and a gap alarm rather than a one-line flag flip.
+- **▶ Four gateway conditions are now counted** (`subscription_acks`, `slow_reader_warnings`,
+  `skipped_by_gateway`, `symbol_resolution_failures`, plus `callback_errors`) and appear in the periodic
+  rate line. They exist because each one **makes the tape wrong without making it stop**, which is the
+  one failure class the liveness clocks structurally cannot see. `run()` passes
+  `slow_reader_behavior="warn"` **explicitly** — Databento flipped that default to `skip` for the
+  stateless schemas on 2026-04-26 and tcbbo escaped only by not being on the list.
 - **The Databento lane has no quote store at all any more** (fixed 07-27, see the BUILD_LOG row) — the
   NBBO rides on the print as `nbbo`, and `sweep_loop` reads `p["nbbo"] or stream.quote_at(...)`. Keep it
   that way: `dbn_stream.quote_at` returns `None` by design and re-growing a store re-opens a thread race,

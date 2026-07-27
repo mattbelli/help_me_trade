@@ -137,6 +137,82 @@ def test_unresolved_instrument_is_counted_not_crashed():
     assert s._drain() == []
 
 
+# --- control plane: conditions that make the tape wrong without stopping it --
+
+def _sys(code):
+    """A REAL SystemMsg, not a stub. The dispatch keys off `type(rec).__name__`
+    and an enum comparison, so a hand-rolled double could agree with the code
+    while the wire type disagrees — which is the whole failure being fenced."""
+    import databento_dbn as d
+    return d.SystemMsg(ts_event=0, code=code, msg="x")
+
+
+def _err(code):
+    import databento_dbn as d
+    return d.ErrorMsg(ts_event=0, code=code, err="bad symbol")
+
+
+def test_slow_reader_warning_is_counted():
+    """The gateway's only signal that we are behind real time. Under the "warn"
+    behaviour it keeps sending everything, so no clock in FeedLiveness can see
+    this — records flow, prints flow, they are just increasingly stale."""
+    from databento_dbn import SystemCode
+    s = _stream([])
+    s._on_record(_sys(SystemCode.SLOW_READER_WARNING))
+    assert s.slow_reader_warnings == 1
+    assert s.data_msgs == 0  # control records are not market data
+
+
+def test_gateway_dropped_records_is_counted():
+    """Unrecoverable loss. Only reachable if slow_reader_behavior is ever set to
+    "skip" — which is why run() passes "warn" explicitly instead of inheriting a
+    vendor default that already moved once (2026-04-26)."""
+    from databento_dbn import ErrorCode
+    s = _stream([])
+    s._on_record(_err(ErrorCode.SKIPPED_RECORDS_AFTER_SLOW_READING))
+    assert s.skipped_by_gateway == 1
+
+
+def test_symbol_resolution_failure_is_counted():
+    """Since 2026-04-26 a bad symbol no longer terminates the session, so with a
+    dynamic watchlist a name can simply never stream. This counter is the trace."""
+    from databento_dbn import ErrorCode
+    s = _stream([])
+    s._on_record(_err(ErrorCode.SYMBOL_RESOLUTION_FAILED))
+    assert s.symbol_resolution_failures == 1
+
+
+def test_subscription_ack_is_counted_but_not_yet_acted_on():
+    """The gateway's own ack, versus inferring one from the first symbol mapping.
+    Instrumented only: whether it arrives outside RTH is the open premise the
+    live-socket check answers, and the ack clock must not move on a guess."""
+    from databento_dbn import SystemCode
+    s = _stream([])
+    s._on_record(_sys(SystemCode.SUBSCRIPTION_ACK))
+    assert s.subscription_acks == 1
+
+
+def test_a_heartbeat_touches_no_counter():
+    """The 07-27 regression, restated for the control path: heartbeats reach this
+    callback and must remain invisible to every liveness-bearing counter."""
+    from databento_dbn import SystemCode
+    s = _stream([])
+    for _ in range(120):
+        s._on_record(_sys(SystemCode.HEARTBEAT))
+    assert (s.data_msgs, s.prints, s.subscription_acks,
+            s.slow_reader_warnings, s.skipped_by_gateway) == (0, 0, 0, 0, 0)
+    assert s.msgs == 120  # the raw diagnostic still moves
+
+
+def test_callback_errors_are_counted_not_just_logged():
+    """databento catches an exception out of _on_record, logs it, and keeps the
+    session alive — so a systematic failure reads exactly like a dead pipeline.
+    The counter is what tells the two apart."""
+    s = _stream([])
+    s._on_callback_error(ValueError("boom"))
+    assert s.callback_errors == 1
+
+
 def test_surface_matches_what_sweep_loop_consumes():
     s = _stream([])
     for attr in ("collected_prints", "dropped_prints", "acked_market_wide",
