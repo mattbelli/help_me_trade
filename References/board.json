@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-27T17:50:00.000000000+00:00",
+  "updated_at": "2026-07-27",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,17 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "postgres-migration-decision",
+      "title": "Postgres migration -- DECIDED: migrate; design doc first, phased cutover, trading/ last",
+      "lane": "in_progress",
+      "type": "infra",
+      "priority": "high",
+      "owner": "agent",
+      "notes": "DECIDED 2026-07-27 (founder): migrate to Postgres. Tipping arguments: migration cost only GROWS (schema, data, and especially future users raise cutover stakes); convoy form is structural to SQLite's one-file-one-writer; multi-user/shared-plane direction wants Postgres anyway. Independent zero-context fable agent concurred. NOT a firefight -- the 07-27 convoy fixes (PRs #115-#121) are verified clean, so we migrate from a healthy system on our own schedule.\n\nSequencing: (1) design doc References/POSTGRES_MIGRATION_2026-07-27.md -- schema inventory, dialect audit, hosting/pooling/backup on serv, phased cutover order; (2) execute in phases, NON-trading stores first, trading/ + ledger + executions LAST behind the mandatory two-Opus adversarial review; (3) slow-txn logger + SQLite health instrumentation stay live until each store cuts over; (4) TEXT-decimal money moves to NUMERIC (correctness upgrade). Event-store SQLite file split is MOOT.\n\nHistory: originally a founder-lane decision card framing a trigger-based wait (see 07-27 BUILD_LOG convoy row for what SQLite did/didn't cause). Superseded by the explicit founder decision.",
+      "created_at": "2026-07-27",
+      "updated_at": "2026-07-27"
+    },
     {
       "id": "settings-lost-update-stale-cache",
       "title": "Settings writes are last-writer-wins from per-process caches -- a stale cache silently deletes other writers' keys",

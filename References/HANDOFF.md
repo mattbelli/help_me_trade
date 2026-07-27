@@ -10,6 +10,21 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 
 ---
 
+## ▶ 2026-07-27 Postgres migration — DECIDED, design doc is the plan of record
+
+Founder decided 07-27: migrate `trading.db` to Postgres. **The governing design is
+`References/POSTGRES_MIGRATION_2026-07-27.md`** (research + 2-Opus adversarial review already folded
+in — read it before touching anything migration-related; the §5 danger register and §9 pre-cutover
+gates are the checklist). Card: `postgres-migration-decision` (in_progress). Open items:
+- **Next: Round 0** (cluster + citest + roles + backup-watchdog fail-closed rewrite + unit
+  ordering/StartLimit + `.env` chmod 600) per the §12 work plan. Nothing cuts over until every §9
+  pre-cutover gate is green.
+- Two pre-cutover fix cards to open when their work starts: the `daily_bars` schema leak
+  (`trading/proposals.py:704` routes a research cache into trading.db) and the `rule_events`
+  10,831-FK-orphan decision.
+- Slow-txn logger + SQLite health instrumentation stay live until cutover (they validate the system
+  we migrate FROM).
+
 ## ▶ 2026-07-26 whole-market flow corpus — backfill IN FLIGHT, deadline is real
 
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
