@@ -11,12 +11,12 @@
   "cards": [
     {
       "id": "postgres-migration-decision",
-      "title": "Postgres migration -- DECIDED: migrate; design doc first, phased cutover, trading/ last",
-      "lane": "in_progress",
+      "title": "Postgres migration -- design BANKED (PR #122); execution PAUSED on trigger (next multi-writer incident)",
+      "lane": "backlog",
       "type": "infra",
       "priority": "high",
       "owner": "agent",
-      "notes": "DECIDED 2026-07-27 (founder): migrate to Postgres. Tipping arguments: migration cost only GROWS (schema, data, and especially future users raise cutover stakes); convoy form is structural to SQLite's one-file-one-writer; multi-user/shared-plane direction wants Postgres anyway. Independent zero-context fable agent concurred. NOT a firefight -- the 07-27 convoy fixes (PRs #115-#121) are verified clean, so we migrate from a healthy system on our own schedule.\n\nSequencing: (1) design doc References/POSTGRES_MIGRATION_2026-07-27.md -- schema inventory, dialect audit, hosting/pooling/backup on serv, phased cutover order; (2) execute in phases, NON-trading stores first, trading/ + ledger + executions LAST behind the mandatory two-Opus adversarial review; (3) slow-txn logger + SQLite health instrumentation stay live until each store cuts over; (4) TEXT-decimal money moves to NUMERIC (correctness upgrade). Event-store SQLite file split is MOOT.\n\nHistory: originally a founder-lane decision card framing a trigger-based wait (see 07-27 BUILD_LOG convoy row for what SQLite did/didn't cause). Superseded by the explicit founder decision.",
+      "notes": "TRIGGER-ARMED 2026-07-27 (founder, same day as the decision): hold execution, watch a few days; if ANOTHER multi-writer incident appears, execute the doc as written -- no re-litigating. Trigger definition (crisp, measurable): dropped sweep cycles attributed db_error, 'database is locked' in logs, or slow-txn logger showing sustained multi-second write queuing. Instrumentation for all three is LIVE. Rationale for the pause: system healthy post-convoy-fixes (PRs #115-#121), multi-user is speculative, and the perishable value -- deciding deliberately + banking a bulletproof design -- is already captured in References/POSTGRES_MIGRATION_2026-07-27.md (merged PR #122). Even a triggered migration is now a deliberate 1-2wk execution, not a firefight.\n\nPulled forward REGARDLESS of Postgres (standalone wins): backup watchdog fails OPEN on unreadable age (api/jobs.py:189-190) -- guards SQLite backups today, must fail closed; .env chmod 600.\n\nWhen triggered: start at doc SS12 Round 0. Pre-cutover fix cards to open then: daily_bars schema leak (trading/proposals.py:704), rule_events 10,831 FK orphans.\n\nHistory: founder-lane trigger-wait card -> DECIDED migrate 2026-07-27 (tipping: migration cost only grows; convoy form structural to SQLite; multi-user direction; independent fable-agent concurrence) -> design doc written, adversarially hardened (3 research + 2 Opus reviewers), merged PR #122 -> founder returned it to trigger-based wait same day, now WITH the design banked.",
       "created_at": "2026-07-27",
       "updated_at": "2026-07-27"
     },
