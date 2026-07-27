@@ -14,11 +14,21 @@ no side at all, 57.4% classified overall. Databento's ``tcbbo`` carries the NBBO
 is flat across the session (58.1% open vs 57.3% rest). There is no quote budget,
 no anchor pre-positioning and no hot pool here, because there is nothing to ration.
 
-Two deliberate constraints:
-  * **One variable changes.** Same watchlist, same detectors, same thresholds — the
-    only difference is where prints come from. Widening to whole-market is a
-    separate step; if source and scope moved together a regression could not be
-    attributed to either.
+**Whole market, matching the corpus.** ``symbols="ALL_SYMBOLS"`` — the same thing
+the backfill has always pulled. This lane originally subscribed to the 30-name
+flow watchlist and called it "one variable changes"; that was a leftover of the
+Alpaca architecture (the 1,000-quote cap this vendor was bought to remove) with a
+methodological justification attached after the fact. The watchlist is a display
+filter over a fixed-cost feed, never a feed limit — and narrow was blind to 70%
+of the tape's premium while the archive next to it held all of it.
+
+Measured 2026-07-27 before widening: 2.3x the prints (whole-market peak 6,642/s
+against a 60,000 buffer per ~1s drain), 1.7x the sweep events (74.6/min vs 43.1),
+1,957,342 symbol mappings costing 260 MB, and 13.6x CPU headroom. tcbbo is
+trade-driven — one record per trade with the NBBO attached — so this is the whole
+US options tape at 438 records/s average, not a quote firehose.
+
+One deliberate constraint remains:
   * **No auto-fallback.** A dropped session fails loudly rather than silently
     degrading to the worse source. Silent degradation is what left the copilot
     web-blind three times (07-02, 07-14, 07-25); a quiet downgrade in direction
@@ -49,26 +59,21 @@ PX_SCALE = 1e9
 # classification regimes pool silently and any history that spans the swap is
 # quietly meaningless — the lesson `schema_version` encodes for the corpus.
 QUOTE_BASIS = "dbn_nbbo"
-# NOT mirroring OptionsFlowStream's 5,000 any more — that number was sized for
-# the Alpaca lane and `runner.on_prints` still documents its assumption as
-# "~530 prints/min peak vs 5,000 cap". This lane subscribes whole CHAINS by
-# parent symbol, so it is a different order of magnitude entirely.
+# NOT mirroring OptionsFlowStream's 5,000 — that number was sized for the Alpaca
+# lane, and `runner.on_prints` still documents its assumption as "~530 prints/min
+# peak vs 5,000 cap". This lane takes the WHOLE MARKET, which is a different
+# order of magnitude entirely.
 #
-# Measured on 2026-03-20 for the 30 names actually armed (100,232 contracts):
-# 4,469,593 prints, 43.6% of the whole-market session, mean 191/s and a
-# PEAK 1s OF 3,191/s. Against 5,000 with a ~1s drain that is 1.57x headroom —
-# and `sweep_loop` sleeps 1.0s *plus* its own processing time, so a cycle that
-# runs 0.6s long at the peak overflows. Overflow is counted (dropped_prints)
-# but the prints are gone, and it would land on exactly the open/close bursts
-# the gauge exists to measure.
+# Measured on 2026-03-20: whole market is 10,246,184 prints, mean 438/s and a
+# PEAK 1s OF 6,642/s. Against 5,000 with a ~1s drain that overflows outright —
+# and `sweep_loop` sleeps 1.0s *plus* its own processing time, so the real
+# backlog is longer than one second. Overflow is counted (dropped_prints) but
+# the prints are gone, and it lands on exactly the open/close bursts the
+# pressure gauge exists to measure.
 #
-# 60,000 is ~19s of backlog at this lane's measured peak, and ~9s at the
-# whole-market peak of 6,642/s if the subscription is ever widened. The deque
-# is near-empty in steady state; maxlen only bounds a pathological stall.
+# 60,000 is ~9s of backlog at the whole-market peak. The deque is near-empty in
+# steady state; maxlen only bounds a pathological consumer stall.
 COLLECTED_PRINTS_MAX = 60_000
-# How often to re-check an empty watchlist. Cheap (an in-process poll-state
-# read), and 30s is well inside the pre-open warm window it is waiting for.
-WATCHLIST_WAIT_S = 30.0
 
 # --- liveness (roadmap 0.1) --------------------------------------------------
 # Without these a dead feed and a quiet market are indistinguishable, which is
@@ -79,8 +84,8 @@ WATCHLIST_WAIT_S = 30.0
 #
 # Roadmap 0.1 requires a killed socket to raise inside 2 minutes. The flush tick
 # is 1s, so 90s detects well inside that. It is also far longer than any real gap
-# on a whole-chain parent subscription during RTH -- a 40-name subscription
-# carries a large share of a tape that runs millions of prints a session.
+# on a whole-market subscription during RTH -- the full OPRA tape runs ~10.2M
+# prints a session and never goes quiet for 90s while the market is open.
 #
 # ⚠️ Judged on `data_msgs`, NOT `msgs`. The first version of this used `msgs` and
 # was dead on arrival: databento dispatches gateway heartbeats (default 30s) to
@@ -95,15 +100,11 @@ WATCHLIST_WAIT_S = 30.0
 # wedged callback thread (a blocking meta lookup), where the client's own monitor
 # runs on the same blocked loop and never fires.
 SILENCE_S = 90.0
-# Subscription echo: catches "we asked for 40 parents and the server acked
-# nothing", which is otherwise identical to a quiet market. symbology_map is
-# per-Live-instance and written only from SymbolMappingMsg on this session
-# (verified in the client), so a non-empty map is genuinely OUR ack.
-# ⚠️ Two limits, both known and neither fixed here. (1) It proves SOME
-# subscription was acked, not the whole list -- subscribe() batches 40 symbols
-# into several requests and a partial rejection still sets acked. (2) Whether
-# mappings arrive off-hours at all is UNVERIFIED against a real socket, which is
-# why the off-hours branch logs instead of raising; see check().
+# Subscription echo: catches "we asked and the server acked nothing", which is
+# otherwise identical to a quiet market. Judged on the gateway's own
+# SystemCode.SUBSCRIPTION_ACK, NOT on len(symbology_map) -- see check() for the
+# measurement that forced that change. One ack is the whole subscription here,
+# because ALL_SYMBOLS is a single request rather than a batched symbol list.
 SUBSCRIPTION_ACK_S = 60.0
 # Transport alive, nothing usable coming out: meta lookups missing or symbology
 # not resolving. Logged loudly but NOT fatal -- tearing down a healthy socket is
@@ -253,14 +254,12 @@ class DatabentoFlowStream:
         *,
         key: str,
         on_prints: Callable[[list[dict]], None],
-        get_subscription_set: Callable[[], list[str]],
         meta_for: Callable[[str], dict | None],
         flush_interval_s: float = 1.0,
         replay_from: Any = None,
     ) -> None:
         self._key = key
         self._on_prints = on_prints
-        self._get_subscription_set = get_subscription_set
         self._meta_for = meta_for
         self._flush_interval_s = flush_interval_s
         # Intraday replay: the live gateway will resend the last ≤24h from a
@@ -487,39 +486,19 @@ class DatabentoFlowStream:
             batch, self._pending = self._pending, []
         return batch
 
-    def _parent_symbols(self) -> list[str]:
-        return [
-            f"{s.strip().upper()}.OPT"
-            for s in (self._get_subscription_set() or [])
-            if str(s).strip()
-        ]
-
     async def run(self) -> None:
-        # WAIT for a watchlist; never return because it is empty.
-        #
-        # `runner.subscription_set()` returns [] whenever the flow session is
-        # closed, which is most of the day. Returning here ends the flow-stream
-        # leg, `tools/flow_collector` awaits its legs FIRST_COMPLETED, so the
-        # whole collector exits and systemd (Restart=always, RestartSec=3)
-        # brings it straight back to do it again. Arming at 06:27 ET would have
-        # been ~3,000 restarts before the pre-open warm window opened. The
-        # Alpaca lane never had this: its run() is a `while not self._stopped`
-        # loop that simply sits there with nothing subscribed.
-        symbols = self._parent_symbols()
-        if not symbols:
-            logger.info(
-                "dbn stream: watchlist empty (outside the session window) — "
-                "waiting, not exiting."
-            )
-            while not symbols and not self._stopping:
-                await asyncio.sleep(WATCHLIST_WAIT_S)
-                symbols = self._parent_symbols()
         if self._stopping:
             return
 
-        # Imported only once there is something to subscribe: databento is not
-        # in requirements.txt, so the wait above stays importable without it.
         import databento as dbn
+
+        # ⚠️ databento logs EVERY symbol mapping at INFO from this logger, and
+        # ALL_SYMBOLS delivers 1,957,342 of them on subscribe (measured
+        # 2026-07-27). Under the collector's basicConfig(level=INFO) that is two
+        # million journal lines per start. Silence the client logger only —
+        # databento.live.protocol still logs gateway errors and system messages,
+        # which is where the slow-reader and symbol-resolution signals live.
+        logging.getLogger("databento.live.client").setLevel(logging.WARNING)
 
         # slow_reader_behavior is passed EXPLICITLY, not left to the default.
         # Databento flipped that default from "warn" to "skip" on 2026-04-26 for
@@ -567,15 +546,26 @@ class DatabentoFlowStream:
         )
         client.add_callback(self._on_record, self._on_callback_error)
         client.add_reconnect_callback(self._on_reconnect)
+        # WHOLE MARKET, matching the corpus. The backfill has always pulled
+        # symbols="ALL_SYMBOLS" (6,997 underlyings, 2.34B prints); the live lane
+        # subscribed to the 30-name flow watchlist, which was a leftover of the
+        # Alpaca architecture — the 1,000-quote cap this vendor was bought to
+        # remove — dressed up as an A/B constraint. Measured cost of the whole
+        # market on 2026-03-20: 2.3x the prints (6,642/s peak vs a 60,000 buffer
+        # per ~1s drain), 1.7x the sweep events (74.6/min vs 43.1), 260 MB of
+        # symbology_map, and 13.6x CPU headroom. What it buys: the watchlist is
+        # 43.0% of prints and only 29.4% of premium, so narrow was blind to 70%
+        # of the tape's dollars on a feed we already pay for and already archive
+        # whole-market. The watchlist is a display filter, not a feed limit.
         client.subscribe(
-            dataset=DATASET, schema=SCHEMA, stype_in="parent", symbols=symbols,
+            dataset=DATASET, schema=SCHEMA, symbols="ALL_SYMBOLS",
             start=self._replay_from,
         )
         self._client = client
         client.start()
         logger.info(
-            "dbn stream: OPRA live started — %d parent symbols, schema=%s",
-            len(symbols), SCHEMA,
+            "dbn stream: OPRA live started — WHOLE MARKET (ALL_SYMBOLS), schema=%s",
+            SCHEMA,
         )
 
         live = FeedLiveness(time.monotonic())

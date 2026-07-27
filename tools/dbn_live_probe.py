@@ -7,20 +7,17 @@ lane is live and owning its own socket.
 
 Two modes:
 
-  * **live** (default) — connect now. Run off-hours this is the cheap test that
-    settles the one premise the arming check is still hedging: does the gateway
-    ack the subscription and deliver symbol mappings when there is NO market
-    data? Everything downstream of that assumption is currently guesswork, and
-    `dbn_stream.FeedLiveness` raises on a missing ack only during RTH precisely
-    because nobody has ever looked.
+  * **live** (default) — connect now, whole market. Off-hours this costs nothing
+    and still exercises auth, subscription, the gateway ack and the full
+    symbology delivery (1,957,342 mappings, ~25s, measured 2026-07-27).
 
   * **--replay-from** — intraday replay. The live gateway resends the last ≤24h
     from a start time, through this same code path. Two things only replay can
     prove: the callback chain on a real session's tape, and the slow-reader path
     (replay arrives as fast as the gateway will push it, which is a harder test
-    than real time). ⚠️ The window is the last 24 HOURS, and on weekends the
-    gateway reports less — so a Friday session is unreachable by Sunday night.
-    The usable slot is a weekday after the close, replaying that day's open.
+    than real time). ⚠️ The floor snaps to a UTC midnight — 24-48h back depending
+    on the hour — and the gateway names it on rejection. A Friday session is
+    already gone by Sunday night; the usable slot is a weekday after the close.
 
 Usage:
   python tools/dbn_live_probe.py --seconds 90
@@ -36,15 +33,11 @@ import os
 import sys
 import time
 
-DEFAULT_SYMBOLS = "SPY,QQQ,TSLA,NVDA,AAPL"
-
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--seconds", type=float, default=90.0,
                    help="how long to stay connected (default 90)")
-    p.add_argument("--symbols", default=DEFAULT_SYMBOLS,
-                   help="parent symbols, comma separated")
     p.add_argument("--replay-from", default=None,
                    help="ISO start time for intraday replay (last 24h only)")
     return p.parse_args()
@@ -59,7 +52,6 @@ async def _run(args: argparse.Namespace) -> int:
         print("DATABENTO_API_KEY is unset", file=sys.stderr)
         return 2
 
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     got: list[dict] = []
     # The REAL meta resolver, not a stub: it is the per-record hot path and the
     # thing most likely to reject every print for an uninteresting reason.
@@ -67,30 +59,35 @@ async def _run(args: argparse.Namespace) -> int:
     stream = DatabentoFlowStream(
         key=key,
         on_prints=got.extend,
-        get_subscription_set=lambda: symbols,
         meta_for=runner.meta_for,
         replay_from=args.replay_from,
     )
 
     mode = f"replay from {args.replay_from}" if args.replay_from else "live now"
-    print(f"[probe] {mode}; {len(symbols)} parents; {args.seconds:.0f}s\n")
+    print(f"[probe] {mode}; WHOLE MARKET (ALL_SYMBOLS); {args.seconds:.0f}s\n")
+
+    def _mapped() -> int:
+        try:
+            return len(stream._client.symbology_map)  # type: ignore[union-attr]
+        except Exception:
+            return 0
 
     t0 = time.monotonic()
+    mapped = 0
     task = asyncio.create_task(stream.run())
     try:
         await asyncio.wait_for(asyncio.shield(task), timeout=args.seconds)
     except asyncio.TimeoutError:
+        # BEFORE stop(): run()'s finally clears _client, so reading the
+        # symbology map afterwards always reported 0 and the probe cheerfully
+        # printed "fully mapped" next to it.
+        mapped = _mapped()
         stream.stop()
         await asyncio.wait_for(task, timeout=15)
     except Exception as exc:
         print(f"[probe] run() RAISED: {type(exc).__name__}: {exc}")
+    mapped = mapped or _mapped()
     elapsed = time.monotonic() - t0
-
-    mapped = 0
-    try:
-        mapped = len(stream._client.symbology_map)  # type: ignore[union-attr]
-    except Exception:
-        pass
 
     print(f"\n[probe] {elapsed:.0f}s elapsed")
     for k in ("msgs", "data_msgs", "prints", "subscription_acks",
@@ -123,18 +120,14 @@ async def _run(args: argparse.Namespace) -> int:
             print(f"{stream.data_msgs:,} records replayed.")
         return 0
 
-    # The question this probe exists to answer. State it as a finding, not a
-    # pass/fail: an unacked subscription off-hours is not necessarily a fault,
-    # it is the thing we do not know.
-    print("\n[probe] ACK PREMISE:", end=" ")
-    if stream.subscription_acks or mapped:
-        print(f"mappings/acks DO arrive (acks={stream.subscription_acks}, "
-              f"mapped={mapped}) — the RTH-only hedge in FeedLiveness.check can "
-              f"be dropped and the ack check can raise whenever it fires.")
+    print("\n[probe] SUBSCRIPTION:", end=" ")
+    if stream.subscription_acks:
+        print(f"acked ({stream.subscription_acks}), {mapped:,} symbols mapped. "
+              f"A healthy off-hours run looks exactly like this: acked, fully "
+              f"mapped, zero data.")
     else:
-        print("NO ack and NO symbol mappings in this window. If this was a "
-              "closed market, the RTH-only hedge is CORRECT and must stay — "
-              "raising off-hours would restart the collector every 60s.")
+        print("NOT ACKED. Measured latency for a good one is ~17ms at any hour, "
+              "so this is a rejection — read the gateway error above.")
     return 0
 
 
@@ -143,9 +136,11 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    # databento logs the gateway's own SystemMsg/ErrorMsg records, which is
-    # half the point of running this at all.
-    logging.getLogger("databento").setLevel(logging.DEBUG)
+    # protocol logs the gateway's own SystemMsg/ErrorMsg records, which is half
+    # the point of running this. The CLIENT logger is silenced: it emits one
+    # INFO line per symbol mapping, and ALL_SYMBOLS delivers ~1.96M of them.
+    logging.getLogger("databento.live.protocol").setLevel(logging.DEBUG)
+    logging.getLogger("databento.live.client").setLevel(logging.WARNING)
     return asyncio.run(_run(_parse_args()))
 
 

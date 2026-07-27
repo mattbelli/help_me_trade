@@ -20,7 +20,6 @@ def _rec(price_1e9: int, bid: int, ask: int, ts_ns: int = 1_784_813_400_000_000_
 
 def _stream(sent):
     s = DatabentoFlowStream(key="k", on_prints=sent.extend,
-                            get_subscription_set=lambda: ["TSLA"],
                             meta_for=lambda occ: dict(META))
     s._client = types.SimpleNamespace(symbology_map={42: META["occ_symbol"]})
     return s
@@ -250,50 +249,18 @@ def test_a_reconnect_with_unusable_timestamps_still_counts():
     assert s.reconnect_gap_s == 0.0
 
 
-def test_an_empty_watchlist_waits_instead_of_ending_the_leg(monkeypatch):
-    """The arming blocker, found at 06:27 ET before flipping the provider.
+def test_the_print_buffer_is_sized_for_the_whole_market():
+    """This lane takes ALL_SYMBOLS, so it is a different order of magnitude from
+    the Alpaca lane the 5,000 cap was written for.
 
-    `runner.subscription_set()` returns [] whenever the flow session is closed.
-    run() used to return on that — which ends the flow-stream leg, and
-    tools/flow_collector awaits its legs FIRST_COMPLETED, so the collector exits
-    and systemd restarts it 3s later to do it again: ~3,000 restarts between
-    06:27 and the pre-open warm window. The Alpaca lane never had this; its
-    run() is a `while not self._stopped` loop. Runs in CI because the wait is
-    now above the databento import."""
-    import asyncio as aio
-
-    s = DatabentoFlowStream(key="k", on_prints=lambda b: None,
-                            get_subscription_set=list,   # always empty
-                            meta_for=lambda occ: None)
-    polls = 0
-
-    async def fake_sleep(_s):
-        nonlocal polls
-        polls += 1
-        if polls >= 3:
-            s._stopping = True          # let it exit the way stop() would
-
-    monkeypatch.setattr(aio, "sleep", fake_sleep)
-    aio.run(s.run())
-    assert polls == 3, "must keep re-checking the watchlist, not return once"
-    assert s._client is None, "must not have reached the databento client"
-
-
-def test_the_print_buffer_is_sized_for_whole_chains_not_the_alpaca_lane():
-    """This lane subscribes whole CHAINS by parent symbol, so it is a different
-    order of magnitude from the lane the 5,000 cap was written for.
-
-    Measured 2026-03-20 across the 30 names actually armed (100,232 contracts):
-    4,469,593 prints, 43.6% of the whole-market session, mean 191/s, PEAK 1s of
-    3,191/s. Against 5,000 with a ~1s drain that is 1.57x — and `sweep_loop`
-    sleeps 1.0s PLUS its own processing time, so a cycle running 0.6s long at
-    the peak overflows. Overflow is counted in `dropped_prints`, but the prints
-    are gone, and it lands on exactly the open/close bursts the pressure gauge
-    exists to measure. Do not re-unify this with the Alpaca constant."""
+    Measured 2026-03-20: the whole OPRA tape is 10,246,184 prints, mean 438/s,
+    PEAK 1s of 6,642/s. Against 5,000 with a ~1s drain that overflows outright —
+    and `sweep_loop` sleeps 1.0s PLUS its own processing time, so the real
+    backlog is longer than a second. Overflow is counted in `dropped_prints`,
+    but the prints are gone, and it lands on exactly the open/close bursts the
+    pressure gauge exists to measure. Do not re-unify with the Alpaca constant."""
     from signals.options_flow.dbn_stream import COLLECTED_PRINTS_MAX
-    ARMED_PEAK_PER_S = 3_191        # 30 names, whole chains
-    WHOLE_MARKET_PEAK_PER_S = 6_642  # if the subscription is ever widened
-    assert COLLECTED_PRINTS_MAX >= 10 * ARMED_PEAK_PER_S
+    WHOLE_MARKET_PEAK_PER_S = 6_642
     assert COLLECTED_PRINTS_MAX >= 5 * WHOLE_MARKET_PEAK_PER_S
 
 
@@ -313,7 +280,6 @@ def test_a_reconnect_during_replay_says_the_replay_is_over(caplog):
     defence, because the failure is a wrong measurement, not an error."""
     import logging
     s = DatabentoFlowStream(key="k", on_prints=lambda b: None,
-                            get_subscription_set=lambda: ["TSLA"],
                             meta_for=lambda occ: dict(META),
                             replay_from="2026-07-27T13:30:00Z")
     with caplog.at_level(logging.ERROR):
