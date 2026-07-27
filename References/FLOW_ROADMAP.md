@@ -167,9 +167,16 @@ Each decides something downstream. Run them, do not skip to building.
       incomplete. Re-run across the corpus before leaning on it. *Original framing below.* Redo the Addendum D flip test on
       single stocks only, excluding index roots and ETFs. *Decides:* whether multi-leg contamination
       is a whole-corpus problem or a big-index artifact. **Cheapest item in this phase — do it first.**
-- [ ] **1.9 (c) Validate the nanosecond multi-leg heuristic, free.** Use `ts_recv` (manually-reported
-      complex trades lag auto-executed ones), quote sizes and price granularity as an independent
-      check. *Decides:* whether we ever need to buy condition-code days. Data is already on disk.
+- [~] **1.9 (c) Validate the nanosecond multi-leg heuristic — GROUND TRUTH FOUND, partial run
+      2026-07-27.** The planned `ts_recv`/quote-size proxy is superseded: the founder's Alpaca
+      condition-code sidecar (design doc §6b) delivers the actual OPRA multi-leg codes, and
+      `tools/alpaca_condition_join_probe.py` joins them print-for-print onto the tcbbo tape
+      (offset exactly 0ns; join 99.5%). **Measured on 2026-07-24, 8 single names: heuristic
+      precision 94.7%, recall 50.9%** — package legs frequently do NOT share one nanosecond, so
+      the `multileg=0` arm still contains ~half the true package legs. The heuristic is a floor,
+      not a fence. *Remaining:* scale to more names/sessions; any change to the registered
+      multileg definition = new addendum (per Addendum D). *Decides (answered):* we do NOT need
+      to buy condition-code days — the codes come free from the Alpaca entitlement.
 - [ ] **1.10 (d) The drift × sweep 2×2 — the founder's original question.** Per name-day: did drift
       fire, did a sweep fire. Grade all four cells separately, split by liquidity. Rebuild the sweep
       lane to **production's real parameters** (`MIN_PREMIUM_USD=25_000`, `SWEEP_WINDOW_MS=500`,

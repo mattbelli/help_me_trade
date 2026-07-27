@@ -206,6 +206,17 @@ serve 1.9 and §3 regardless of Databento's timeline, and nothing downstream dep
 date. The census above is one sample on one underlying; the first whole-market captured session
 re-runs it at scale as the probe's first output.
 
+**PROBE RAN 2026-07-27 (`tools/alpaca_condition_join_probe.py`, 2026-07-24, 8 single names,
+top-250 contracts each) — the join is better than hoped and the heuristic worse:** clock offset
+**exactly 0ns** p1–p99 (both vendors pass the same OPRA participant timestamp); join
+**99.54%/99.60%**; zero cancel-coded prints in RTH; publisher→exchange map fell out free.
+**Heuristic vs codes: precision 94.7%, recall 50.9%** — the ns-collision flag misses ~half of
+true multi-leg prints (`f` MLET and `g` MLAT legs frequently print on different nanoseconds), so
+Addendum D's `multileg=0` arm is a *floor, not a fence*, and measurement 1.8 should be re-read in
+that light. Redefining the flag on this evidence is exactly the "vendor-supplied indicator"
+replacement Addendum D pre-authorizes — **via a new addendum, never an edit.** One session,
+8 names; scale-up is the next step.
+
 ## 7. What this doc explicitly does NOT do
 
 - No change to the direction rule, the three weightings, the abstention band or its states
