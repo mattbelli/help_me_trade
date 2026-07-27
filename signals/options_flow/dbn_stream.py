@@ -51,6 +51,9 @@ PX_SCALE = 1e9
 QUOTE_BASIS = "dbn_nbbo"
 # Mirrors OptionsFlowStream.collected_prints (stream.py:156).
 COLLECTED_PRINTS_MAX = 5000
+# How often to re-check an empty watchlist. Cheap (an in-process poll-state
+# read), and 30s is well inside the pre-open warm window it is waiting for.
+WATCHLIST_WAIT_S = 30.0
 
 # --- liveness (roadmap 0.1) --------------------------------------------------
 # Without these a dead feed and a quiet market are indistinguishable, which is
@@ -469,17 +472,39 @@ class DatabentoFlowStream:
             batch, self._pending = self._pending, []
         return batch
 
-    async def run(self) -> None:
-        import databento as dbn
-
-        symbols = [
+    def _parent_symbols(self) -> list[str]:
+        return [
             f"{s.strip().upper()}.OPT"
             for s in (self._get_subscription_set() or [])
             if str(s).strip()
         ]
+
+    async def run(self) -> None:
+        # WAIT for a watchlist; never return because it is empty.
+        #
+        # `runner.subscription_set()` returns [] whenever the flow session is
+        # closed, which is most of the day. Returning here ends the flow-stream
+        # leg, `tools/flow_collector` awaits its legs FIRST_COMPLETED, so the
+        # whole collector exits and systemd (Restart=always, RestartSec=3)
+        # brings it straight back to do it again. Arming at 06:27 ET would have
+        # been ~3,000 restarts before the pre-open warm window opened. The
+        # Alpaca lane never had this: its run() is a `while not self._stopped`
+        # loop that simply sits there with nothing subscribed.
+        symbols = self._parent_symbols()
         if not symbols:
-            logger.warning("dbn stream: empty watchlist; not starting")
+            logger.info(
+                "dbn stream: watchlist empty (outside the session window) — "
+                "waiting, not exiting."
+            )
+            while not symbols and not self._stopping:
+                await asyncio.sleep(WATCHLIST_WAIT_S)
+                symbols = self._parent_symbols()
+        if self._stopping:
             return
+
+        # Imported only once there is something to subscribe: databento is not
+        # in requirements.txt, so the wait above stays importable without it.
+        import databento as dbn
 
         # slow_reader_behavior is passed EXPLICITLY, not left to the default.
         # Databento flipped that default from "warn" to "skip" on 2026-04-26 for

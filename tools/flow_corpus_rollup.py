@@ -76,9 +76,10 @@ logger = logging.getLogger("flow_corpus_rollup")
 def _load_definitions(session: date) -> tuple[np.ndarray, ...] | None:
     """instrument_id → (underlying, right, strike, dte), as sorted parallel arrays
     so the print-side join is a vectorized searchsorted rather than 11M dict hits."""
-    # Imported inside the reader, not at module scope: databento is not in
-    # requirements.txt (dbn_stream.py does the same at its use site), and the pure
-    # bucketing/grouping helpers below must stay importable for tests without it.
+    # Imported inside the reader, not at module scope. databento IS in
+    # requirements.txt as of 2026-07-27 (the live lane made it a hard runtime
+    # dep), but keeping the import at the use site costs nothing and keeps the
+    # pure bucketing/grouping helpers below importable on a partial install.
     import databento as dbn
 
     path = DEFS_DIR / f"{session.isoformat()}.dbn.zst"

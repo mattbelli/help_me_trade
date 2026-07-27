@@ -250,6 +250,35 @@ def test_a_reconnect_with_unusable_timestamps_still_counts():
     assert s.reconnect_gap_s == 0.0
 
 
+def test_an_empty_watchlist_waits_instead_of_ending_the_leg(monkeypatch):
+    """The arming blocker, found at 06:27 ET before flipping the provider.
+
+    `runner.subscription_set()` returns [] whenever the flow session is closed.
+    run() used to return on that — which ends the flow-stream leg, and
+    tools/flow_collector awaits its legs FIRST_COMPLETED, so the collector exits
+    and systemd restarts it 3s later to do it again: ~3,000 restarts between
+    06:27 and the pre-open warm window. The Alpaca lane never had this; its
+    run() is a `while not self._stopped` loop. Runs in CI because the wait is
+    now above the databento import."""
+    import asyncio as aio
+
+    s = DatabentoFlowStream(key="k", on_prints=lambda b: None,
+                            get_subscription_set=list,   # always empty
+                            meta_for=lambda occ: None)
+    polls = 0
+
+    async def fake_sleep(_s):
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            s._stopping = True          # let it exit the way stop() would
+
+    monkeypatch.setattr(aio, "sleep", fake_sleep)
+    aio.run(s.run())
+    assert polls == 3, "must keep re-checking the watchlist, not return once"
+    assert s._client is None, "must not have reached the databento client"
+
+
 def test_production_sets_no_replay_window():
     """replay_from is an arming-check affordance. If it ever defaulted to a
     value, production would silently stream yesterday."""
