@@ -122,9 +122,21 @@ control set — same liquidity tier, same sector, same period, names that did NO
 as lift over base rate, never as a raw frequency.** A number without its control is not a finding,
 it is a description of the market. No exceptions.
 
-- [ ] **1.11 Define the event set.** Large forward move in **ATR units** (never percent) on the
-      underlying, at 3/10/21/45 days. Top decile of `|terminal move / ATR14|`. Rises and falls kept
-      **separate** throughout — pooling them is what hides a reversal effect.
+- [ ] **1.11 Define the event set — MARKET-RELATIVE, graded RAW.** Founder, 07-27: *"essentially
+      measuring alpha over average market returns — not every stock went up."* Correct, and it fixes
+      a flaw in the first draft of this file: a top-decile raw move in a rising market selects
+      **high-beta names**, so we would "discover" beta. Define the event on the **residual** (move
+      net of market/sector beta) in **ATR units**, at 3/10/21/45 days. But **grade the raw move
+      alongside it** — a stop does not care about residuals, it is hit by the actual price. Two arms,
+      two different questions. Rises and falls stay **separate** throughout; pooling them is exactly
+      what would hide a reversal effect.
+- [ ] **1.11b Lead, lag, or coincident — run this FIRST, it is an afternoon.** Correlate name-level
+      flow against forward and trailing returns at lags −10 … +10 days. The correlation between
+      option flow and price is **mechanical and not in question** — options are derivatives. The open
+      question is the **arrow of time**: a peak at negative lags means flow leads and there is
+      something to trade; a peak at lag 0 or positive means flow is reacting and there is not. Most
+      published flow work never separates the three, which is one reason it does not work. *Decides
+      where every later step should look.*
 - [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
       sector and date. *Done when:* the control set's own base rates are computed and written down
       BEFORE any mover statistic is looked at.
@@ -133,6 +145,11 @@ it is a description of the market. No exceptions.
       print relative to that name's own normal, split by liquidity tier (*the "abnormally large
       sweeps on smaller caps" hypothesis*); concentration — one day or spread out; DTE mix; moneyness
       mix; call/put mix; multi-leg share.
+- [ ] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
+      footprint — that is seconds, this is days. Did underlying **volume expand** in the sessions
+      following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
+      alone? Free: daily volume is already in `equity_bars.v`. A two-part pattern is also harder to
+      fake than a one-part one, so if it holds it is more likely real.
 - [ ] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
       **falls** separately. Same profile ⇒ no signal. Bullish flow preceding falls more often ⇒ the
       reversal effect, which is what Pan & Poteshman measured (price pressure at d+1, significantly
@@ -252,6 +269,39 @@ separate decisions — a genuinely different measurement.
       place, or just cuts the sample.
 
 ---
+
+---
+
+## The looks ledger — what makes "look again, look differently, look small" work
+
+**Founder directive, 2026-07-27:** *"You are going to tell me there's nothing founded in the past
+data. I will not accept that answer. We will look again. We will look differently. We will look
+small. I know there is correlation with equity and option flow to price movement. We just need to
+look at it the right way."*
+
+This is the `CLAUDE.md` canon applied to this study, and it stands: **a dead end is evidence about
+the METHOD, not the problem.** No agent may conclude "there is no signal here" — the honest report is
+always *"this specific look, on this specific slice, did not separate from its control."* Never
+conclude no-edge until at least two genuinely different methods have failed and the failure is
+**measured, not assumed.**
+
+**Looking a hundred times is legitimate. That is what a training window is for.** The failure is not
+the number of looks — it is looking many times and presenting the survivor as if it were the only
+look. So:
+
+- [ ] **Build a looks ledger.** Every hypothesis tested gets a row: what was tried, on which slice,
+      what came back, **including the duds**. Cheap — one table.
+      *Why it is load-bearing:* something that survived 3 looks and something that survived 300 are
+      different objects, and without the ledger they are indistinguishable. The ledger is what lets
+      us look **without limit** and still know what a survivor is worth. It converts the founder's
+      mandate from a posture into something executable.
+- **Two failure modes, not one.** The founder's fear is a false negative — missing something real.
+  The symmetric risk is a false positive we then trade. **The same machinery prevents both:**
+  matched controls, a sealed test window, and the ledger. Neither risk is a reason to look less.
+- **"Look small" has an economic argument, not only a statistical hazard.** If edge survives
+  anywhere it is in the corners nobody watches — thin names, odd expirations, unfashionable sectors.
+  Mega-caps have a thousand professionals staring at them. Expect small to work; do not treat it as
+  the consolation search after big fails.
 
 ## Standing rules for every phase
 
