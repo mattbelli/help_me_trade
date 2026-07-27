@@ -1,6 +1,7 @@
 """DatabentoFlowStream: shape parity with the Alpaca lane, and provenance."""
 from __future__ import annotations
 
+import importlib.util
 import types
 
 import pytest
@@ -140,6 +141,21 @@ def test_unresolved_instrument_is_counted_not_crashed():
 
 
 # --- control plane: conditions that make the tape wrong without stopping it --
+#
+# ⚠️ These need the real record types, and `databento` is deliberately NOT in
+# requirements.txt — `dbn_stream` and `flow_corpus_rollup` both import it lazily
+# at their use sites so everything else stays testable without it. CI installs
+# only requirements.txt, so CI SKIPS this block; it is covered on any box with
+# the package (serv, and anywhere the lane could actually run). Using stubs
+# instead would defeat the purpose: `_on_control` dispatches on
+# `type(rec).__name__` plus an enum comparison, so a hand-rolled double can
+# agree with the code while the wire type quietly disagrees.
+
+requires_dbn = pytest.mark.skipif(
+    importlib.util.find_spec("databento_dbn") is None,
+    reason="databento is an optional dep, deliberately absent from requirements.txt",
+)
+
 
 def _sys(code):
     """A REAL SystemMsg, not a stub. The dispatch keys off `type(rec).__name__`
@@ -154,6 +170,7 @@ def _err(code):
     return d.ErrorMsg(ts_event=0, code=code, err="bad symbol")
 
 
+@requires_dbn
 def test_slow_reader_warning_is_counted():
     """The gateway's only signal that we are behind real time. Under the "warn"
     behaviour it keeps sending everything, so no clock in FeedLiveness can see
@@ -165,6 +182,7 @@ def test_slow_reader_warning_is_counted():
     assert s.data_msgs == 0  # control records are not market data
 
 
+@requires_dbn
 def test_gateway_dropped_records_is_counted():
     """Unrecoverable loss. Only reachable if slow_reader_behavior is ever set to
     "skip" — which is why run() passes "warn" explicitly instead of inheriting a
@@ -175,6 +193,7 @@ def test_gateway_dropped_records_is_counted():
     assert s.skipped_by_gateway == 1
 
 
+@requires_dbn
 def test_symbol_resolution_failure_is_counted():
     """Since 2026-04-26 a bad symbol no longer terminates the session, so with a
     dynamic watchlist a name can simply never stream. This counter is the trace."""
@@ -184,6 +203,7 @@ def test_symbol_resolution_failure_is_counted():
     assert s.symbol_resolution_failures == 1
 
 
+@requires_dbn
 def test_subscription_ack_is_counted_but_not_yet_acted_on():
     """The gateway's own ack, versus inferring one from the first symbol mapping.
     Instrumented only: whether it arrives outside RTH is the open premise the
@@ -194,6 +214,7 @@ def test_subscription_ack_is_counted_but_not_yet_acted_on():
     assert s.subscription_acks == 1
 
 
+@requires_dbn
 def test_a_heartbeat_touches_no_counter():
     """The 07-27 regression, restated for the control path: heartbeats reach this
     callback and must remain invisible to every liveness-bearing counter."""
