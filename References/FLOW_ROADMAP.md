@@ -126,10 +126,31 @@ it is a description of the market. No exceptions.
       measuring alpha over average market returns — not every stock went up."* Correct, and it fixes
       a flaw in the first draft of this file: a top-decile raw move in a rising market selects
       **high-beta names**, so we would "discover" beta. Define the event on the **residual** (move
-      net of market/sector beta) in **ATR units**, at 3/10/21/45 days. But **grade the raw move
-      alongside it** — a stop does not care about residuals, it is hit by the actual price. Two arms,
-      two different questions. Rises and falls stay **separate** throughout; pooling them is exactly
-      what would hide a reversal effect.
+      net of market/sector beta) in **ATR units**. But **grade the raw move alongside it** — a stop
+      does not care about residuals, it is hit by the actual price. Two arms, two different
+      questions. Rises and falls stay **separate** throughout; pooling them is exactly what would
+      hide a reversal effect.
+- [ ] **1.11a THE HORIZON IS A FINDING, NOT AN INPUT.** Founder, 07-27: *"we don't know if that's 5
+      minutes after a big sweep, or the stock went up 10% over the next 30 days."* Right — so do not
+      inherit the prereg's 3/10/21/45 grid here; that grid belongs to the registered study, not to
+      discovery. **Scan:** 5 min, 15 min, 1 hour, session close, 1 day, 3, 5, 10, 21, 45. We hold the
+      data for every one of them (nanosecond option prints; Alpaca SIP equity trades at the same
+      resolution, free).
+      ⚠️ **Report the WHOLE CURVE, never the peak.** "It works at 10 days" after scanning ten
+      horizons is one look dressed as the only look. "Here is the curve across all ten" is a finding.
+      Same computation, opposite epistemic status. Every scan gets a ledger row.
+- [ ] **1.11a-ii Separate IMPACT from DRIFT — this is the question that matters.** A move 5 minutes
+      after a big sweep is most likely the sweep's own price impact plus the dealer hedging into the
+      stock. It is mechanical, it will show up strongly, and **we cannot trade it** — by the time the
+      print is visible the move has happened. (It is also exactly what Phase 3 detects.) A move over
+      the following weeks is a forecast. So decompose the post-event return into **immediate impact
+      (0–15 min) / short drift (15 min–1 day) / medium (1–10 d) / long (10–45 d)** and ask:
+      **is there anything left after the impact settles?** All of it in bucket one ⇒ price impact,
+      nothing to capture. Drift after the impact ⇒ information leaking out over time, and that is the
+      tradeable part. This also makes the immediate move *useful rather than useless*: it stops being
+      the trade and becomes the **confirmation** that something real happened.
+      *Not an assumption about founder reaction speed* — if a pattern lands at 15 minutes and is
+      actionable, that is live. The axis is impact vs drift, not fast vs slow.
 - [ ] **1.11b Lead, lag, or coincident — run this FIRST, it is an afternoon.** Correlate name-level
       flow against forward and trailing returns at lags −10 … +10 days. The correlation between
       option flow and price is **mechanical and not in question** — options are derivatives. The open
@@ -156,6 +177,18 @@ it is a description of the market. No exceptions.
       reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
       entire retail industry sells**, which would be the most valuable single finding available to us.
       *Note:* partially absorbs measurement 1.10's cross-tab — run 1.10 inside this frame.
+
+**THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
+to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
+no slippage, no position sizing, no P&L** appears anywhere in 1c. The only output is of the form
+
+> *this configuration of flow preceded larger-than-average market-relative moves N× more often than
+> its matched controls, and here is the horizon curve.*
+
+Backtesting is a **separate, later decision**, taken only if a pattern is strong enough to be worth
+spending the test window on. Most will not be, and that is a normal outcome — the profile still
+tells us where to look next. Anyone who reaches for entry/exit mechanics inside this phase has
+misread it.
 
 **Output is a PROFILE, not a score.** Ships as perception, labelled unvalidated. Discovery runs on
 the **training window only**; the test split (2026-06-01 → 2026-07-25) stays untouched, and anything
