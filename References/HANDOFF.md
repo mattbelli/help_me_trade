@@ -21,6 +21,14 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
   cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
   schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
+- **⏳ Condition-label backfill running + v6 re-roll ARMED (Addendum E)** — Alpaca per-session
+  captures land in `data/alpaca_conditions/` (stats JSON = completion marker; resumable; never run
+  two copies). The v6 machinery is BUILT and verified (07-27 BUILD_LOG row): when the backfill
+  finishes, run `tools/condition_label_join.py --sweep` (fills `join_ledger.json`, the migration
+  gate), and only when **every** session reads `floor_pass: true` flip `SCHEMA_VERSION = 6` in
+  `db/flow_corpus.py` and re-roll all 250 — **niced, AFTER the backfill, never alongside** (a
+  12M-print session peaks ~4.5GB and thrashed serv once already). Then re-run 1.8 on the
+  code-labeled arms — its "single names flip 0/3" verdict is provisional until then.
 - **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
   pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
   quote. Right reference for signing direction, but **N legs are not N independent quote observations**

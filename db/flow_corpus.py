@@ -20,6 +20,7 @@ Two rules this schema exists to enforce, both learned the hard way:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -28,7 +29,21 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # Bump when a bucket boundary or a classification rule changes. Rows carry it so
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
-SCHEMA_VERSION = 5
+#
+# ⚠️ Changing the DEFAULT to "6" IS the Addendum E migration switch, and it is
+# deliberately ONE line: at 6, `multileg` comes from joined Alpaca condition
+# codes (heuristic fallback per print / per session below the 98% floor), the
+# raw code becomes a `cond` grain in the rollup key, and init_db rebuilds the
+# table. All-or-nothing per the addendum — flip it ONLY when every corpus
+# session passes the floor in `data/alpaca_conditions/join_ledger.json`
+# (`tools/condition_label_join.py --sweep`), then re-roll all 250 sessions.
+# The env override exists so the v6 machinery can be tested against a SCRATCH
+# db_path before migration day; never set it against the production DB — at 6,
+# init_db drops and rebuilds `flow_rollup`.
+SCHEMA_VERSION = int(os.environ.get("FLOW_CORPUS_SCHEMA_VERSION", "5"))
+
+# schema_version 6 = Addendum E (code-based multileg + cond grain).
+LABELED = SCHEMA_VERSION >= 6
 
 DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
 # 'unknown' was two different things wearing one label, and it is 38.75% of a
@@ -71,12 +86,13 @@ INDEX_ROOTS = frozenset({
 
 # Columns the current vintage must have. init_db rebuilds when any is absent --
 # see the comment there for why dropping is safe for this table specifically.
+# At v6 `cond` joins the set, so flipping SCHEMA_VERSION triggers the rebuild.
 _ROLLUP_COLUMNS = frozenset({
     "date", "underlying", "right", "dte_bucket", "mny_bucket", "side",
     "strict_side", "prints", "orders", "contracts", "premium_usd", "premium_sq",
     "premium_max", "u_premium", "u_premium_clipped", "multileg", "schema_version",
     "premium_sq_orders",
-})
+}) | (frozenset({"cond"}) if LABELED else frozenset())
 
 
 def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -103,8 +119,15 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
         if cols and not _ROLLUP_COLUMNS <= cols:
             conn.execute("DROP TABLE flow_rollup")
+        # The v6 pieces of the DDL. `cond` is the raw Alpaca condition code the
+        # print matched ('' where none joined and the flag fell back to the
+        # heuristic) — a GRAIN like multileg, in the key, so finer splits
+        # (electronic vs auction vs floor vs tied) stay available without
+        # another schema change, exactly as Addendum E registered.
+        cond_col = "cond TEXT NOT NULL," if LABELED else ""
+        cond_key = ", cond" if LABELED else ""
         conn.execute(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS flow_rollup (
                 date TEXT NOT NULL,
                 underlying TEXT NOT NULL,
@@ -190,9 +213,10 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 -- tools/tcbbo_flags_probe.py). ts_event is true-ns, so collisions
                 -- are real simultaneity: ~1 coincidence expected per session.
                 multileg INTEGER NOT NULL,
+                {cond_col}
                 schema_version INTEGER NOT NULL,
                 PRIMARY KEY (date, underlying, right, dte_bucket, mny_bucket,
-                             side, strict_side, multileg)
+                             side, strict_side, multileg{cond_key})
             )
             """
         )
@@ -242,6 +266,17 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
             """
         )
+        # Addendum E audit trail, additive and nullable so v5 rows are
+        # untouched: which multileg source labeled the session
+        # ('codes'|'heuristic'), the label join rate the floor was judged on,
+        # and the share of joined prints that actually carried a code.
+        sess_cols = {r["name"]
+                     for r in conn.execute("PRAGMA table_info(corpus_sessions)")}
+        for col, typ in (("multileg_source", "TEXT"),
+                         ("label_join_rate", "REAL"),
+                         ("label_coverage", "REAL")):
+            if col not in sess_cols:
+                conn.execute(f"ALTER TABLE corpus_sessions ADD COLUMN {col} {typ}")
 
 
 def delete_session_rows(date: str, db_path: Path = DEFAULT_DB_PATH) -> int:
@@ -260,16 +295,19 @@ def delete_session_rows(date: str, db_path: Path = DEFAULT_DB_PATH) -> int:
 
 
 def upsert_rollup(rows: list[tuple], db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Row shape follows the vintage: at v6 each tuple carries `cond` between
+    `multileg` and `schema_version` (matching rollup_session's emit order)."""
     if not rows:
         return 0
+    cond = "cond, " if LABELED else ""
     with connect(db_path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
             "dte_bucket, mny_bucket, side, strict_side, prints, orders, "
             "contracts, premium_usd, premium_sq, premium_sq_orders, "
-            "premium_max, u_premium, u_premium_clipped, multileg, "
+            f"premium_max, u_premium, u_premium_clipped, multileg, {cond}"
             "schema_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            f"VALUES ({','.join('?' * (18 + LABELED))})",
             rows,
         )
     return len(rows)
@@ -352,6 +390,9 @@ def record_session(
     unresolved_prints: int,
     no_spot_prints: int,
     ingested_at: str,
+    multileg_source: str | None = None,
+    label_join_rate: float | None = None,
+    label_coverage: float | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
     """Ledger one processed session.
@@ -367,9 +408,11 @@ def record_session(
         conn.execute(
             "INSERT OR REPLACE INTO corpus_sessions (date, prints, rows, "
             "underlyings, unresolved_prints, no_spot_prints, schema_version, "
-            "ingested_at) VALUES (?,?,?,?,?,?,?,?)",
+            "ingested_at, multileg_source, label_join_rate, label_coverage) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (date, prints, rows, underlyings, unresolved_prints,
-             no_spot_prints, SCHEMA_VERSION, ingested_at),
+             no_spot_prints, SCHEMA_VERSION, ingested_at,
+             multileg_source, label_join_rate, label_coverage),
         )
 
 

@@ -52,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from db.flow_corpus import (  # noqa: E402
     DTE_BUCKETS,
     INDEX_ROOTS,
+    LABELED,
     MNY_BUCKETS,
     SCHEMA_VERSION,
     SIDES,
@@ -63,12 +64,18 @@ from db.flow_corpus import (  # noqa: E402
     upsert_rollup,
     upsert_spot,
 )
+from tools.condition_labels import (  # noqa: E402
+    JOIN_FLOOR,
+    PACKAGE_CODES,
+    join_condition_codes,
+)
 
 UNDEF = 9223372036854775807
 PX = 1e9  # DBN fixed-point scale
 ROOT = Path(__file__).resolve().parent.parent
 TCBBO_DIR = ROOT / "data" / "databento" / "opra_tcbbo"
 DEFS_DIR = ROOT / "data" / "databento" / "opra_defs"
+LABELS_DIR = ROOT / "data" / "alpaca_conditions"
 
 logger = logging.getLogger("flow_corpus_rollup")
 
@@ -299,8 +306,47 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
 
     premium = price / PX * size * 100.0
 
-    ml = _multileg(arr["ts_event"].astype(np.int64),
-                   arr["instrument_id"].astype(np.int64)).astype(np.int64)
+    # --- multileg: Addendum E at v6, ns-collision heuristic at v5 ------------
+    # At v6 the flag comes from the joined Alpaca condition code (package
+    # family = multi-leg packages + stock-option combos), with the registered
+    # fallback hierarchy: an unmatched PRINT falls back to the heuristic; a
+    # SESSION whose join rate misses the 98% floor (or has no completed
+    # capture) stays wholly on the heuristic with the reason logged — mixed
+    # provenance would be worse than an honestly-heuristic session.
+    ts_ev = arr["ts_event"].astype(np.int64)
+    iid = arr["instrument_id"].astype(np.int64)
+    ml_heur = _multileg(ts_ev, iid)
+    cond = np.full(len(arr), "", dtype="U1")
+    ml_source, join_rate, coverage = "heuristic", None, None
+    if LABELED:
+        cents = np.round(price / PX * 100.0).astype(np.int64)
+        res = join_condition_codes(session, ts_ev, iid, cents,
+                                   arr["size"].astype(np.int64),
+                                   data_dir=TCBBO_DIR.parent,
+                                   npz_dir=LABELS_DIR)
+        if res is None:
+            logger.warning("%s: no completed label capture — heuristic multileg",
+                           session)
+        else:
+            cond_j, lstats = res
+            join_rate = lstats["join_rate_dbn"]
+            if join_rate >= JOIN_FLOOR:
+                cond = cond_j
+                labeled = cond != ""
+                coverage = float(labeled.mean())
+                ml_source = "codes"
+            else:
+                logger.warning(
+                    "%s: label join rate %.2f%% below the %.0f%% floor — "
+                    "session stays on the heuristic", session,
+                    join_rate * 100, JOIN_FLOOR * 100)
+    if ml_source == "codes":
+        ml = np.where(cond != "", np.isin(cond, list(PACKAGE_CODES)),
+                      ml_heur).astype(np.int64)
+    else:
+        # cond was never assigned, so a below-floor session stores no partial
+        # labels — its rows are honestly all-heuristic, cond=''
+        ml = ml_heur.astype(np.int64)
 
     # --- moneyness against the PRIOR session's close -------------------------
     # Addendum B registers the prior close, and using this session's own close was
@@ -345,11 +391,16 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     n_r, n_d, n_m, n_s, n_ml = 2, len(DTE_BUCKETS), len(MNY_BUCKETS), len(SIDES), 2
     key = (((((und_code.astype(np.int64) * n_r + right) * n_d + dte_b) * n_m
              + mny_b) * n_s + side) * n_s + strict) * n_ml + ml
+    if LABELED:
+        # cond is a grain like multileg: the innermost radix, alphabet derived
+        # from the session's own codes (~20 values; the radix product stays far
+        # inside int64).
+        cond_codes, cond_inv = np.unique(cond, return_inverse=True)
+        key = key * len(cond_codes) + cond_inv
     uniq, inv = np.unique(key, return_inverse=True)
     n = len(uniq)
     prints_ = np.bincount(inv, minlength=n)
-    gid, n_groups = _order_groups(arr["ts_event"].astype(np.int64),
-                                  arr["instrument_id"].astype(np.int64))
+    gid, n_groups = _order_groups(ts_ev, iid)
     orders, prem_sq_orders = _order_stats(inv, gid, premium, n_groups, n)
     contracts = np.bincount(inv, weights=size, minlength=n)
     prem = np.bincount(inv, weights=premium, minlength=n)
@@ -366,6 +417,8 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     np.maximum.at(prem_max, inv, premium)
 
     k = uniq
+    if LABELED:
+        k, s_c = np.divmod(k, len(cond_codes))
     k, s_ml = np.divmod(k, n_ml)
     k, s_strict = np.divmod(k, n_s)
     k, s_side = np.divmod(k, n_s)
@@ -375,13 +428,18 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
 
     ds = session.isoformat()
     delete_session_rows(ds, **kw)
+    # v6 rows carry `cond` between multileg and schema_version — the same
+    # position upsert_rollup's column list puts it in.
+    tail = ((lambda i: (str(cond_codes[s_c[i]]),)) if LABELED
+            else (lambda i: ()))
     rows = [
         (ds, str(uniq_und[s_und[i]]), "P" if s_right[i] else "C",
          DTE_BUCKETS[s_dte[i]], MNY_BUCKETS[s_mny[i]], SIDES[s_side[i]],
          SIDES[s_strict[i]], int(prints_[i]), int(orders[i]), int(contracts[i]),
          float(prem[i]), float(prem_sq[i]), float(prem_sq_orders[i]),
          float(prem_max[i]),
-         float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), SCHEMA_VERSION)
+         float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), *tail(i),
+         SCHEMA_VERSION)
         for i in range(n)
     ]
     upsert_rollup(rows, **kw)
@@ -393,12 +451,16 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     record_session(ds, prints=n_prints, rows=len(rows),
                    underlyings=int(len(np.unique(und_code))),
                    unresolved_prints=unresolved, no_spot_prints=no_spot,
-                   ingested_at=datetime.now(UTC).isoformat(), **kw)
+                   ingested_at=datetime.now(UTC).isoformat(),
+                   multileg_source=ml_source if LABELED else None,
+                   label_join_rate=join_rate, label_coverage=coverage, **kw)
     return {"prints": n_prints, "joined": int(len(arr)), "orders": n_groups,
             "rows": len(rows),
             "unresolved": unresolved, "stale_spot": stale_spot,
             "no_spot": no_spot, "no_spot_index": no_spot_index,
             "no_spot_premium": no_spot_premium,
+            "multileg_source": ml_source, "label_join_rate": join_rate,
+            "label_coverage": coverage,
             "underlyings": int(len(np.unique(und_code)))}
 
 
@@ -437,6 +499,15 @@ def main() -> int:
                     f"{res.get('stale_spot', 0):,}",
                     (datetime.now(UTC) - t0).total_seconds(),
                 )
+                if LABELED and res.get("rows"):
+                    jr = res.get("label_join_rate")
+                    cv = res.get("label_coverage")
+                    logger.info(
+                        "%s multileg_source=%s join_rate=%s coverage=%s", d,
+                        res.get("multileg_source"),
+                        f"{jr:.4f}" if jr is not None else "-",
+                        f"{cv:.4f}" if cv is not None else "-",
+                    )
         d += timedelta(days=1)
     return 0
 

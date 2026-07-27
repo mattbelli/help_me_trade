@@ -146,12 +146,22 @@ being free the moment we grade anything.
       have landed, so this is one pass, not two. Blocked only on the tcbbo backfill (71/260 at
       2026-07-27 01:00, ~0.8 min/session). One session rolls in 13s, so 260 is ~1 hour.
       **Do not add a column after this point without accepting a second full re-roll.**
-- [ ] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
+- [~] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
       every corpus session's Alpaca OPRA trades (with `c`) to raw per-session files, join per the
       frozen method, then re-roll the corpus at `schema_version=6` with code-based `multileg`.
       **All-or-nothing:** v6 only when every session's label file clears the ≥98% join floor — a
       mid-window definition seam is the Addendum B failure. 1.8 re-runs at v6. Until then v5
       readings carry the floor-not-fence caveat.
+      **Machinery BUILT + verified 07-27 (backfill still running):** the frozen join lives in ONE
+      place (`tools/condition_labels.py`), consumed by both the floor-check
+      (`tools/condition_label_join.py --sweep` → `data/alpaca_conditions/join_ledger.json`, THE
+      migration gate) and the rollup. The v6 switch is one line — `SCHEMA_VERSION = 6` in
+      `db/flow_corpus.py` — which atomically activates code-based multileg, the raw-code `cond`
+      grain (row key), per-session `multileg_source`/`label_join_rate` audit columns, and the
+      table rebuild. End-to-end verified on scratch DBs: premium totals match v5 exactly (drift 0);
+      2025-07-28 join 98.40% PASS, true package premium **58.13% vs heuristic 33.33%** — the
+      in-sample session Addendum D's "33%" was measured on; cond-grain row expansion 1.66×.
+      Remaining: backfill completes → sweep all 250 → flip the constant → re-roll → 1.8 at v6.
 
 ### 1b. The four measurements
 
