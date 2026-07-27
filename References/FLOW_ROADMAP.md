@@ -190,6 +190,15 @@ spending the test window on. Most will not be, and that is a normal outcome — 
 tells us where to look next. Anyone who reaches for entry/exit mechanics inside this phase has
 misread it.
 
+**Report the outcome DISTRIBUTION, never a hit rate.** Founder, 07-27: *"I'm looking for ideas, not
+expecting everyone to hit — but if more hit than lose, or those gains are larger than the losses, we
+have alpha."* That is **expectancy**, and it is a more forgiving bar than a win rate: 35% right with
+winners 3× the losers is a good pattern. So a hit-count screen would discard exactly what we are
+hunting — the setup that is usually a small loss and occasionally a large win looks terrible on
+frequency and excellent on expectancy. Report the full MFE / MAE / terminal / giveback distribution
+against controls, in ATR units. Those metrics were chosen because they carry **magnitude**; a
+win/loss tally throws that away.
+
 **Output is a PROFILE, not a score.** Ships as perception, labelled unvalidated. Discovery runs on
 the **training window only**; the test split (2026-06-01 → 2026-07-25) stays untouched, and anything
 found here becomes a registered hypothesis in Addendum E before it may be tested there.
@@ -328,6 +337,14 @@ look. So:
       different objects, and without the ledger they are indistinguishable. The ledger is what lets
       us look **without limit** and still know what a survivor is worth. It converts the founder's
       mandate from a posture into something executable.
+- **★ Forward paper testing is the test resource that REGENERATES — so do not ration historical
+  looks.** The historical test split is finite and burns once. Forward paper accrues one day per
+  day, forever, is out-of-sample by construction, and cannot be look-ahead-contaminated. The rail
+  already exists and is live: `book_deepseek`, `book_fable`, `book_panel`, all `enabled=1`,
+  `entry_mode='propose'` (verified 2026-07-27). **So the arrangement is: look freely on history, log
+  every look, and let forward paper be the arbiter.** Worst case for a hypothesis that does not hold
+  up is some paper trades — not the study. This is what makes "we will look again, we will look
+  differently" fully safe rather than merely permitted.
 - **Two failure modes, not one.** The founder's fear is a false negative — missing something real.
   The symmetric risk is a false positive we then trade. **The same machinery prevents both:**
   matched controls, a sealed test window, and the ledger. Neither risk is a reason to look less.
