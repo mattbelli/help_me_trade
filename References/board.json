@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-27T17:50:00.000000000+00:00",
+  "updated_at": "2026-07-27T18:05:00.000000000+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,17 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "postgres-migration-decision",
+      "title": "Postgres migration -- founder leaning yes; decide on a measured trigger, not mid-firefight",
+      "lane": "founder",
+      "type": "decision",
+      "priority": "medium",
+      "owner": "founder",
+      "notes": "2026-07-27, after the write-lock convoy round (PRs #115-#121). FOUNDER: 'leaning more and more towards Postgres... these little bugs are gonna continue to pop up.'\n\nWhat today PROVED: the convoy form is structural to SQLite (one file = one write lock; fusion's slow UPDATE starved the flow collector's inserts). Postgres shrinks blast radius to the guilty subsystem and aligns with the multi-user/shared-plane direction.\n\nWhat Postgres would NOT have fixed from today: the missing fusion index (slow there too, just localized), sync-DB-calls-on-the-event-loop (WORSE over a network), the settings.json stale-cache clobber (not a DB bug at all). Only init-per-call write txns truly evaporate.\n\nEconomics changed today: db/base slow-write-txn logger (HMT_SLOW_TXN_MS=1500) now names any future holder in minutes with a stack -- the per-bug cost dropped from a multi-hour hunt to a ten-minute fix.\n\nPROPOSED DECISION RULE: (a) watch the logger + lock errors ~2 weeks post-fix; recurrence at meaningful rates despite sane txns = migrate on evidence; (b) quiet = bank it, and go Postgres-first when multi-user/shared-plane work starts anyway; (c) cheap structural middle step available anytime: split options_flow_events + equity_tape_events into their OWN SQLite files (separate write locks, ~a day) -- kills cross-subsystem convoys without a migration.\n\nMigration scope if/when: dialect (PRAGMA/executescript/autoincrement/upsert), pooling, systemd service + backups on serv, and MANDATORY two-Opus adversarial re-review of every trading/ data path (ledger + executions move to NUMERIC -- actually an upgrade over TEXT-decimal).",
+      "created_at": "2026-07-27",
+      "updated_at": "2026-07-27"
+    },
     {
       "id": "settings-lost-update-stale-cache",
       "title": "Settings writes are last-writer-wins from per-process caches -- a stale cache silently deletes other writers' keys",
