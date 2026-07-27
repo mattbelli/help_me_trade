@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import date, datetime
@@ -486,8 +487,11 @@ async def build_symbol_context(
     try:
         from signals.decision_scorer import score_symbol
 
+        # score_symbol is sync and heavy — ~800 days of bars for the symbol AND
+        # SPY (network fetch + SQLite cache write). Inline it parked the event
+        # loop for 2-7s at market open (loop_probe stack, 2026-07-27).
         ctx["decision_score"] = _compact_decision_score(
-            score_symbol(sym, db_path=db_path)
+            await asyncio.to_thread(score_symbol, sym, db_path=db_path)
         )
     except Exception:
         logger.debug("Decision score block failed for %s", sym, exc_info=True)

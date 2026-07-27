@@ -153,7 +153,19 @@ async def news_stream_loop(mark_alive=None) -> None:
                         m for m in messages if isinstance(m, dict) and m.get("T") == "n"
                     ]
                     if news_items:
-                        await asyncio.to_thread(_store_items, news_items)
+                        # A store failure (e.g. "database is locked" at the
+                        # open) must never escape into the outer except and
+                        # tear down a healthy socket — that was 6-25 needless
+                        # reconnects/day since 07-23. Drop the batch and move
+                        # on; the REST backfill covers gaps on reconnect.
+                        try:
+                            await asyncio.to_thread(_store_items, news_items)
+                        except Exception:
+                            logger.warning(
+                                "news_stream: store failed for %d items; dropped",
+                                len(news_items),
+                                exc_info=True,
+                            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

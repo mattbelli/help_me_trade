@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-27T16:20:00.000000000+00:00",
+  "updated_at": "2026-07-27T16:00:00.000000000+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,28 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "alpaca-stream-keepalive-flap",
+      "title": "Alpaca quote stream flapping: keepalive ping timeout every ~60-90s during RTH since 07-23",
+      "lane": "next",
+      "type": "build",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Spotted by the Mac agent in serv logs 2026-07-27; measured here. hmt-backend brokers.market_stream: 'sent 1011 keepalive ping timeout; no close frame received' -> reconnect in 2s, self-heals every time. Counts/day: 3-12 background through 07-22, then 45 (07-23), 48 (07-24), ~1 on the weekend, 40+ today -- trading days only, RTH only, today starting 13:30:28 UTC (the open, to the second). RULED OUT: our event-loop stalls (max 7.0s recovered vs ping_timeout=20s; flap timestamps do not line up with stall timestamps). Direction of blame: WE send the ping, Alpaca fails to answer for 20s and sends no close frame -- upstream congestion or a per-connection/account interaction. Onset follows the 07-22 deploys (Alpaca news WS v1beta1/news went live that day = a second standing WS to Alpaca infra from the same account/process). No 'market stream cap' warnings. Impact per flap: 2s gap + resubscribe + baseline reseed on the watchlist quote lane. NEXT ROUND: correlate flap times against news-WS activity; try disabling the news WS for one session as the A/B; log subscribed-symbol count at connect; consider ping_timeout bump only if evidence supports tolerance over cause.\n\n[2026-07-27 DIAGNOSIS REVISED] Upstream-leaning read was likely WRONG. Stalls, quote flaps, and news-stream flaps all exploded together on 07-23 (stalls 14->271/day). The news flap mechanism is proven and fixed: a 'database is locked' from _store_items propagated into the outer except and TORE DOWN a healthy socket (signals/news_stream.py; now caught + dropped, REST backfill covers). The quote-stream keepalive flap is now presumed collateral of the same loop congestion (at 271-479 stalls/day, cumulative reader starvation inside a 20s pong window is plausible). VERIFY: after the loop fixes deploy, count flaps at tomorrow's open; if they persist at ~40/day with a healthy loop, reopen the upstream/news-WS-A-B theory.",
+      "created_at": "2026-07-27",
+      "updated_at": "2026-07-27"
+    },
+    {
+      "id": "signal-scan-sync-sqlite-on-loop",
+      "title": "Event-loop stall class at the open (2-7s, 271-479/day since 07-23) \u2014 three sync-on-loop offenders fixed",
+      "lane": "done",
+      "type": "build",
+      "priority": "medium",
+      "owner": "agent",
+      "notes": "Found 2026-07-27 while chasing the Alpaca stream flap (NOT its cause -- flaps uncorrelated). loop_probe: ~27 stalls of 2-7s during 13:00-15:00 UTC, market hours. MainThread stack caught in the act: api/main.py:542 _signal_scan_loop -> run_signal_scan -> signals/scan.py:47 _has_enabled_rules -> db/ai_tables.py:1139 list_rules -> :116 init_ai_tables -> conn.execute, synchronous on the event loop; at the open this contends with busy writers and parks the whole loop (httpx completion burst visible right after recovery). Same shape as the 07-21 pipeline_audit fix (sync sweep inline on loop -> to_thread). Fix sketch: to_thread the scan's DB reads and/or stop re-running init_ai_tables on every scan tick (module-level once-flag). NOT the 30-41s class (extinct 07-21) -- this is a distinct 2-7s open-hours class the probe now exposes.\n\n[2026-07-27 SHIPPED] Full diagnosis overturned the first read. Stall counts/day: 19 (07-21), 14 (07-22), 271 (07-23), 479 (07-24) -- the explosion dates to 07-23, same day the quote-stream flaps and news db-locked errors began: ONE congestion event, three symptoms. Thread-attributed every caught stack today (probe dumps ALL threads; first histogram was contaminated -- fusion intake_once/_rescore is correctly in a worker thread, NOT a stall cause). Verified MainThread blockers: (1) init_ai_tables 14/31 -- called by ~every accessor in db/ai_tables (34 sites), body takes a WRITE txn (research_artifacts backfill) every call; fixed with once-per-process guard keyed on db_path, set only after success. (2) ai/perception/context.py build_symbol_context ran sync score_symbol inline -- ~800 days of bars for symbol AND SPY, network + SQLite cache write, on the loop (stack: ticker_routes _facts -> build_symbol_context -> score_symbol -> get_daily_bars -> cache_bars); fixed with to_thread. (3) signals/scan.py run_signal_scan sync DB reads on loop; fixed with to_thread. Remaining minor blockers seen once each (db/notifications, save_snapshot_analytics on loop) -- left, revisit if the probe still fires. VERIFY: loop_probe stall rate over the rest of today's session + tomorrow's open.",
+      "created_at": "2026-07-27",
+      "updated_at": "2026-07-27"
+    },
     {
       "id": "mobile-market-ws-frozen-watchlist",
       "title": "Phone watchlist frozen -- reconnect loop left the socket subscribed to NOTHING; fixed, VERIFIED on device 2026-07-27",
