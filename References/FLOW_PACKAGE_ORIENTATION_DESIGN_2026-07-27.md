@@ -44,8 +44,9 @@ condition-code-rich tape; ours is not.
   registered ns-collision heuristic (same `ts_event`, different instrument), and roadmap **1.9**
   (validate that heuristic from `ts_recv`/quote-size/granularity, free) is the prerequisite for
   everything in §3. The TL\*-as-advance-notice "cheat code" and the MLAT auction-print customer
-  prior are **unavailable** unless we later buy condition-code days (already queued in the research
-  round's build list — unchanged by this doc).
+  prior are **unavailable from the Databento tape**. ~~unless we later buy condition-code days~~ —
+  **superseded same-day by §6b: the founder's Alpaca cross-tape idea makes the codes available from
+  a subscription we already pay for, and the purchase queue item likely retires.**
 - **`side` is 'N' on 100% of prints** [VERIFIED 07-26] — direction is quote-derived by necessity;
   nothing in the conversation changes that.
 - **The four-critic kill on package direction stands at the per-leg level.** Nothing below claims
@@ -139,6 +140,71 @@ which is the honest ceiling. **Sequencing: after Phases 1–3 deliver the featur
 30-min-cadence regime/aggregate reads (Phase 4 consumes daily aggregates; an intraday version would
 ride this). Not proposed for build now — recorded so the option is priced correctly when Phase 4
 arrives, and so nobody assumes the historic API is end-of-day-only.
+
+## 6b. The Alpaca condition-code sidecar (founder's idea, 2026-07-27 — VERIFIED same day)
+
+**The idea (founder's):** Alpaca's OPRA entitlement caps quote subs at 1,000 but allows **wildcard
+trades** — so capture every OPRA print from Alpaca *with its condition code*, match trade-for-trade
+against the Databento tcbbo tape, and assign each Databento print its code. A bandaid until
+Databento ships condition codes natively (vendor statement to founder, ~May 2026: "later this
+year" — [RECORDED as a vendor statement, no committed date; nothing may depend on it]).
+
+**Verified 2026-07-27, from this repo and the live API:**
+
+- **Wildcard trades is demonstrated on our account, not assumed.** [VERIFIED]
+  `signals/options_flow/stream.py:194` (`acked_market_wide()` checks `"*"` in the acked trade
+  subs) exists because the 07-14 market-wide tape soak ran through it; `constants.py` carries the
+  measurements. ⚠️ The `no-wildcard-trades-lane` decision (#93) forbids *production signal code*
+  subscribing `*` — a capture daemon is a new, separate consumer and does not touch that decision.
+- **The condition taxonomy is the full post-2019 OPRA message-type family.** [VERIFIED —
+  `/v1beta1/options/meta/conditions/trade`, live pull]: single-leg `a–e`, **multi-leg
+  `f g h i j l m t u`** (MLET/MLAT/MLCT/MLFT/MESL/MASL/MFSL/CBMO/MCTP), **tied-to-stock
+  `k n o p q r s`** (TLAT/TLET/TLCT/TLFT/TESL/TASL/TFSL), cancels `A C E G`, late `B D F H`,
+  auto `I`, **ISO sweep `S`**, ext-hours `v`.
+- **The historical REST tape carries the codes at full fidelity.** [VERIFIED — census
+  2026-07-24, 400 active SPY contracts, 169,769 trades]: 100% of trades carry `c`; multi-leg
+  family = **14.4% of premium** in the sample (`g` MLAT alone 9.8%), tied-to-stock present
+  (`n`=31, `k`=1 — thin on SPY as expected, index products hedge in futures), ISO sweeps `S` =
+  5.2% of trades. Our live stream already parses the field (`stream.py:628`) and the hygiene
+  sets in `constants.py:24-29` were built on this taxonomy — the Alpaca lane knew these codes
+  all along; the corpus lane just never had them.
+- **Coverage floor is a non-issue for us**: our corpus window starts 2025-07-28, inside Alpaca's
+  options-history floor (chat claim: Feb 2024 — [UNVERIFIED, irrelevant either way]).
+
+**What the codes buy, in roadmap order:**
+
+1. **1.9 gets ground truth instead of a heuristic check** — the `c` census over ns-collision-flagged
+   groups directly validates (or corrects) the registered multileg flag, per code family. Changing
+   the flag's *definition* on this evidence = new addendum, exactly as Addendum D declares.
+2. **The §3 `o`-probe gets labels** (which groups are truly multi-leg, and `g`-auction packages are
+   customer-initiated by mechanism — the structural prior arrives after all, from the other tape).
+3. **The sweep lane gets `S` (ISO) labels** — free validation of the 500ms/3-exchange cluster
+   heuristic, a bonus nobody asked for.
+4. **Tied-to-stock codes (`k,n–s`) pre-identify Phase 3's hedge-matched packages.**
+5. **Cancel codes (`A/C/E/G`) give busted-trade hygiene** the corpus currently cannot have.
+
+**Architecture (adopted from the ideation round, and it fits our constraints exactly):**
+
+- **Sidecar, never schema.** The corpus schema is FROZEN at v5; codes land in a separate join
+  table keyed `(instrument, ts, price, size, exchange, seq-within-key)`. No re-roll, no
+  `schema_version` bump. When Databento ships native codes, we re-roll and the sidecar flips to a
+  cross-vendor validation layer — the diff over the overlap window is exactly the arbitration job
+  the queued Cboe DataShop purchase was for, and likely retires it.
+- **Two capture modes.** Forward: a wildcard-trades capture daemon (msgpack ws), dumping
+  `(symbol, t, p, s, x, c)` per session — gap-logging mandatory; a session with a ws gap is
+  *partially labeled*, never silently complete (Alpaca's open-burst queue lag is measured upstream
+  behavior — lag is fine for labels, drops are not). Backfill: the REST endpoint, per-symbol —
+  contract enumeration comes free from our defs files; prioritize corpus-active underlyings.
+- **Join discipline (all three measured before labels are trusted):** (1) offset histogram between
+  Alpaca `t` and Databento `ts_event` on high-confidence unique matches — never assume the clocks
+  agree; (2) order-preserving k-th-identical-print alignment within contract, not
+  nearest-timestamp alone; (3) per-contract per-session print-count reconciliation, with cancels
+  handled on both tapes — any residual mismatch is a measured vendor-filtering fact.
+
+**Status: capture daemon + join probe are the cheapest high-value build on this board** — they
+serve 1.9 and §3 regardless of Databento's timeline, and nothing downstream depends on the vendor
+date. The census above is one sample on one underlying; the first whole-market captured session
+re-runs it at scale as the probe's first output.
 
 ## 7. What this doc explicitly does NOT do
 
