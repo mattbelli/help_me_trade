@@ -114,6 +114,28 @@ PIPELINE_STALL_S = 300.0
 RATE_LOG_S = 60.0
 
 
+def occ_from_osi(raw: str) -> str:
+    """databento OPRA symbology -> the compact OCC form the parsers expect.
+
+    OPRA `raw_symbol` is the 21-character OSI form: a 6-char root **left-justified
+    and SPACE-PADDED**, then YYMMDD, C/P, and an 8-digit strike —
+    ``'IPI   261218P00050000'``. `_on_record` used to do `str(occ).strip()`, which
+    removes the ends and leaves the interior padding untouched, so
+    `imports.option_symbol._OCC_RE` (`^([A-Z]{1,6})(\\d{6})([CP])(\\d{8})$`) never
+    matched, `runner.meta_for` returned None, and EVERY print was discarded as
+    `skipped_no_meta`.
+
+    Measured on 2026-07-24's definitions, 2,043,111 distinct symbols: **0.00%**
+    parsed as-is, **98.49%** parse with the padding removed. The residual 1.51% is
+    ~80% adjusted contracts carrying a digit in the root (WOLF1, SPGI1 — the
+    regex's `[A-Z]{1,6}` excludes digits) and the rest bare underlying rows that
+    are not contracts at all. Those are still counted in `skipped_no_meta`.
+
+    Removing every space IS the whole conversion: OSI roots never contain one.
+    """
+    return raw.replace(" ", "").upper()
+
+
 class FeedDead(RuntimeError):
     """The transport stopped delivering. Raised so the failure cannot be mistaken
     for a clean shutdown. Never caught and retried in here: no auto-fallback is a
@@ -352,7 +374,7 @@ class DatabentoFlowStream:
         if not occ:
             self.unresolved_symbols += 1
             return
-        occ = str(occ).strip().upper()
+        occ = occ_from_osi(str(occ))
 
         meta = self._meta_for(occ)
         if meta is None:
@@ -608,12 +630,13 @@ class DatabentoFlowStream:
                     logger.info(
                         "dbn stream: %.1f prints/min (data_msgs=%s msgs=%s "
                         "prints=%s mapped=%s acks=%s slow=%s dropped=%s "
-                        "unresolved_syms=%s cb_errors=%s reconnects=%s "
-                        "gap_s=%.1f)",
+                        "unresolved_syms=%s no_meta=%s cb_errors=%s "
+                        "reconnects=%s gap_s=%.1f)",
                         rate, self.data_msgs, self.msgs, self.prints, mapped,
                         self.subscription_acks, self.slow_reader_warnings,
                         self.skipped_by_gateway,
-                        self.symbol_resolution_failures, self.callback_errors,
+                        self.symbol_resolution_failures, self.skipped_no_meta,
+                        self.callback_errors,
                         self.reconnects, self.reconnect_gap_s,
                     )
 
