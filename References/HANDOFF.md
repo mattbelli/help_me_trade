@@ -93,8 +93,24 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   Databento client validates the write path before contacting the server, so a stale partial made
   the day fail forever for a reason unrelated to the download. Fixed 07-27 (the `.part` is now
   cleared *before* the request, not only after a caught failure), but the running process predates
-  the fix, **so verify the gap set again when it lands.** This is the concrete argument for roadmap
-  **0.2** — nothing but a manual check found it.
+  the fix, **so verify the gap set again when it lands.**
+- **⏳ THREE SESSIONS HAVE NO DEFINITION FILE: `2025-08-07`, `2026-04-28`, `2026-07-09`.** Found by
+  the new gap check, 07-27 — the defs pass reported "258/260 done" and this was invisible behind it.
+  **A session without definitions cannot be rolled at all** (`_load_definitions` returns None and the
+  rollup logs *"no definitions — cannot attribute prints"*), so all three would have silently never
+  entered the corpus. All three causes are **transient, not systematic**: a stale `.part`
+  (2025-08-07, now fixed), `BentoError: Response ended prematurely` (2026-04-28) and a failed
+  `get_cost` call (2026-07-09). **The backfill has no retry — one blip drops a session permanently**,
+  3 lost out of ~520 pulls. Remedy is a second pass (definitions are L0/free, $0.00, and unlike
+  tcbbo they carry **no rolling deadline**); deliberately NOT run concurrently with the in-flight
+  tcbbo pass, because two simultaneous ALL_SYMBOLS streams are what swamped the box on 07-26.
+- **▶ `tools/flow_corpus_gaps.py` (roadmap 0.2, shipped 07-27) is how you check any of this.**
+  Exits 1 on any gap so it can be a cron. Three checks: absent files, files present but not rolled at
+  the current `SCHEMA_VERSION`, and **truncated pulls** — a partial download passes the backfill's
+  `exists() and size > 0` skip guard and is skipped forever, which has now bitten this project twice
+  (the eight 7 KB definition files from the UTC-window bug, and 2025-09-02's 64.5 MB against a
+  ~270 MB median). The trading calendar is derived from `equity_bars`, not hardcoded, so it cannot
+  drift out of sync with the corpus it checks.
 - **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
   are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
   `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —
