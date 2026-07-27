@@ -197,7 +197,6 @@ def test_records_without_book_levels_do_not_count_as_data():
     from signals.options_flow.dbn_stream import DatabentoFlowStream
 
     s = DatabentoFlowStream(key="k", on_prints=lambda b: None,
-                            get_subscription_set=lambda: ["TSLA"],
                             meta_for=lambda occ: None)
     heartbeat = types.SimpleNamespace(instrument_id=0, ts_recv=0, price=0, size=0)
     for _ in range(120):                       # an hour of 30s heartbeats

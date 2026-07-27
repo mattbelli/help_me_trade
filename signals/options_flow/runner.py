@@ -689,10 +689,12 @@ class OptionsFlowRunner:
 
         from signals.options_flow.dbn_stream import DatabentoFlowStream
 
+        # No subscription set: this lane takes ALL_SYMBOLS, the same whole
+        # market the backfill archives. The watchlist filters what SURFACES,
+        # never what the feed carries.
         stream = DatabentoFlowStream(
             key=key,
             on_prints=self.on_prints,
-            get_subscription_set=self.subscription_set,
             meta_for=self.meta_for,
         )
         self.stream = stream
