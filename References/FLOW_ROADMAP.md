@@ -120,7 +120,7 @@ being free the moment we grade anything.
       session's group count by 0.13%; correct per bucket, wrong as a session total.
 - [ ] **1.4 Declare the delisting/acquisition rule.** Acquired names are the archetypal winners and
       their bars simply stop. *Fix:* write the terminal-value rule into the prereg **before**
-      grading. *Done when:* it is registered in Addendum E.
+      grading. *Done when:* it is registered in Addendum F (the amendment; E = the 07-27 multileg redefinition).
       *Now has a surface, and it is better than expected:* 1.2's `no_spot_missing` bucket enumerates
       exactly these names per session **with premium attached**, so the rule can be written against an
       observed list instead of a guess. Measured across 37 sessions the bucket runs $54M–$574M (median
@@ -129,7 +129,7 @@ being free the moment we grade anything.
       $70.5M (EchoStar) and BRKB $37.3M (ticker format, not a corporate action — worth fixing
       separately). This is the "acquired names are the archetypal winners" case arriving with a
       dollar figure on it.
-- [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum E.**
+- [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum F (the amendment).**
       `premium = price/PX * size * 100.0` hardcodes 100 and adjusted contracts do not always deliver
       100 shares. **No field in the OPRA definition record can fix it** — every candidate is UNDEF
       on all 1,592,395 C/P contracts: `contract_multiplier`, `original_contract_size` and
@@ -139,13 +139,19 @@ being free the moment we grade anything.
       detectable by the OCC convention of a digit-suffixed root (ENVX1, BABA2, CVX1) and are 225
       roots / 1,897 prints / **$7.2M = 0.028% of session premium**. That is a bounded known
       limitation, not a threat to any result. *Remaining:* register the bound + the digit-suffix
-      detector in Addendum E so nobody re-opens it.
+      detector in Addendum F so nobody re-opens it.
 - [ ] **1.6 Re-roll every session** at the new `schema_version`. *Done when:* `ingested_dates()`
       returns the full corpus at the current version.
       **The schema is now FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three
       have landed, so this is one pass, not two. Blocked only on the tcbbo backfill (71/260 at
       2026-07-27 01:00, ~0.8 min/session). One session rolls in 13s, so 260 is ~1 hour.
       **Do not add a column after this point without accepting a second full re-roll.**
+- [ ] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
+      every corpus session's Alpaca OPRA trades (with `c`) to raw per-session files, join per the
+      frozen method, then re-roll the corpus at `schema_version=6` with code-based `multileg`.
+      **All-or-nothing:** v6 only when every session's label file clears the ≥98% join floor — a
+      mid-window definition seam is the Addendum B failure. 1.8 re-runs at v6. Until then v5
+      readings carry the floor-not-fence caveat.
 
 ### 1b. The four measurements
 
@@ -196,7 +202,7 @@ was the flow before it." That is a different and more data-efficient question. T
 problem bites **significance testing**; it bites far less when describing a conditional
 distribution, because conditioning on large moves selects the informative subset instead of diluting
 across every name-day. Sits before the amendment deliberately — what this finds should shape what
-Addendum E registers, so the amendment absorbs it in one pass.
+Addendum F registers, so the amendment absorbs it in one pass.
 
 ⚠️ **The trap that would make this worthless, and the rule that prevents it.**
 `P(flow | big move)` is NOT `P(big move | flow)`. If 80% of big rises had heavy bullish flow, that is
@@ -284,9 +290,9 @@ win/loss tally throws that away.
 
 **Output is a PROFILE, not a score.** Ships as perception, labelled unvalidated. Discovery runs on
 the **training window only**; the test split (2026-06-01 → 2026-07-25) stays untouched, and anything
-found here becomes a registered hypothesis in Addendum E before it may be tested there.
+found here becomes a registered hypothesis in Addendum F before it may be tested there.
 
-### 1d. The prereg amendment (Addendum E)
+### 1d. The prereg amendment (Addendum F — E was taken 07-27 by the multileg redefinition)
 
 - [ ] **1.15 Correct baseline #4** to production's real parameters. It currently says "$500k
       premium, DTE≤30", which describes nothing we run. "We beat production" would be a false claim.
@@ -302,7 +308,7 @@ found here becomes a registered hypothesis in Addendum E before it may be tested
       dates per cell.
 - [ ] **1.19 State universe size on every table.** The top ~1,000 names carry 99.6% of premium.
 
-**Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum E is
+**Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
 
 ---
