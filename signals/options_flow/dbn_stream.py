@@ -65,11 +65,29 @@ QUOTE_STALE_MS = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 # is 1s, so 90s detects well inside that. It is also far longer than any real gap
 # on a whole-chain parent subscription during RTH -- a 40-name subscription
 # carries a large share of a tape that runs millions of prints a session.
+#
+# ⚠️ Judged on `data_msgs`, NOT `msgs`. The first version of this used `msgs` and
+# was dead on arrival: databento dispatches gateway heartbeats (default 30s) to
+# the same callback, so `msgs` advances forever through a totally dead data feed
+# and this threshold could never trip. Caught in review 2026-07-27 before arming.
+#
+# What this uniquely covers is narrower than it looks, and worth stating: a HARD
+# socket kill is already caught at ~41s by databento's own heartbeat monitor
+# (heartbeat 30s + CLIENT_TIMEOUT_MARGIN 10s), which flips `is_connected()` and
+# takes the pre-existing exit below. This clock is what catches the cases that
+# monitor cannot see -- a gateway-side data stall on a healthy session, or a
+# wedged callback thread (a blocking meta lookup), where the client's own monitor
+# runs on the same blocked loop and never fires.
 SILENCE_S = 90.0
-# Subscription echo. Databento sends symbol mappings when the subscription is
-# accepted, independent of market activity, so this is the ONE check valid
-# outside RTH -- and the only one that catches "we asked for 40 parents and the
-# server acked nothing", which is otherwise identical to a quiet market.
+# Subscription echo: catches "we asked for 40 parents and the server acked
+# nothing", which is otherwise identical to a quiet market. symbology_map is
+# per-Live-instance and written only from SymbolMappingMsg on this session
+# (verified in the client), so a non-empty map is genuinely OUR ack.
+# ⚠️ Two limits, both known and neither fixed here. (1) It proves SOME
+# subscription was acked, not the whole list -- subscribe() batches 40 symbols
+# into several requests and a partial rejection still sets acked. (2) Whether
+# mappings arrive off-hours at all is UNVERIFIED against a real socket, which is
+# why the off-hours branch logs instead of raising; see check().
 SUBSCRIPTION_ACK_S = 60.0
 # Transport alive, nothing usable coming out: meta lookups missing or symbology
 # not resolving. Logged loudly but NOT fatal -- tearing down a healthy socket is
@@ -81,9 +99,17 @@ RATE_LOG_S = 60.0
 
 class FeedDead(RuntimeError):
     """The transport stopped delivering. Raised so the failure cannot be mistaken
-    for a clean shutdown — `runner._stream_run_databento` catches it and logs a
-    traceback, which is the loud outcome. Never caught and retried in here: no
-    auto-fallback is a deliberate property of this lane."""
+    for a clean shutdown. Never caught and retried in here: no auto-fallback is a
+    deliberate property of this lane.
+
+    ⚠️ Know what raising actually costs before adding one. The deployed owner is
+    `hmt-flow-collector` (`OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`, so `api/main.py`
+    does NOT run the stream in-process). `runner._stream_run_databento` catches
+    and logs the traceback, then `stream_run` returns — and `tools/flow_collector`
+    awaits its legs FIRST_COMPLETED, so the whole collector exits and systemd
+    restarts it 3s later. A raise is therefore a process restart, not just a log
+    line, and a condition that re-raises every cycle is an unbounded restart loop.
+    """
 
 
 class FeedLiveness:
@@ -102,19 +128,23 @@ class FeedLiveness:
         self._started_at = now
         self._msgs = 0
         self._prints = 0
-        self._mapped = 0
         self._acked = False
         self._rate_at = now
         self._rate_prints = 0
         self._pipeline_warned = False
+        self._ack_warned = False
 
-    def observe(self, *, msgs: int, prints: int, mapped: int, now: float) -> None:
-        if msgs > self._msgs:
+    def observe(self, *, data_msgs: int, prints: int, mapped: int,
+                now: float) -> None:
+        """``data_msgs`` must be records carrying market data, NOT every record
+        the callback sees -- gateway heartbeats arrive every 30s and would keep
+        this clock alive through a totally dead feed."""
+        if data_msgs > self._msgs:
             self._last_msg_at = now
         if prints > self._prints:
             self._last_print_at = now
             self._pipeline_warned = False
-        self._msgs, self._prints, self._mapped = msgs, prints, mapped
+        self._msgs, self._prints = data_msgs, prints
         if mapped > 0:
             self._acked = True
 
@@ -126,6 +156,10 @@ class FeedLiveness:
         that is working perfectly.
         """
         self._last_msg_at = self._last_print_at = now
+        # Clearing the latch matters as much as the clocks: prints never advance
+        # while the pipeline is broken, so without this a fault reported once on
+        # Monday is never reported again on Tuesday, Wednesday or ever.
+        self._pipeline_warned = False
 
     def check(self, *, now: float, market_open: bool) -> float | None:
         """Raise `FeedDead` on a dead transport.
@@ -136,12 +170,26 @@ class FeedLiveness:
         fatal. Returns None when healthy. Reported once per stall, not per tick.
         """
         if not self._acked and now - self._started_at > SUBSCRIPTION_ACK_S:
-            raise FeedDead(
+            msg = (
                 f"subscription never acked: no symbol mappings "
                 f"{now - self._started_at:.0f}s after subscribe "
-                f"(msgs={self._msgs}). The server did not accept what we asked "
-                f"for; this is NOT a quiet market."
+                f"(data_msgs={self._msgs}). The server did not accept what we "
+                f"asked for; this is NOT a quiet market."
             )
+            # Fatal only during RTH. The claim that mappings arrive on subscribe
+            # regardless of market activity is UNVERIFIED against a real socket,
+            # and the deployed owner is hmt-flow-collector, where any raise ends
+            # the process and systemd restarts it in 3s. If the premise is wrong,
+            # raising off-hours is an unbounded restart loop -- ~1,100 fresh live
+            # sessions across a weekend, each one re-raising at t+60s. Logging
+            # instead costs nothing: a subscription that failed overnight is
+            # still caught at 09:30 by the silence check below.
+            if not market_open:
+                if not self._ack_warned:
+                    self._ack_warned = True
+                    logger.error("dbn stream: %s", msg)
+            else:
+                raise FeedDead(msg)
         if not market_open:
             self.idle(now)
             return None
@@ -194,7 +242,12 @@ class DatabentoFlowStream:
         self.collected_prints: deque[dict] = deque(maxlen=COLLECTED_PRINTS_MAX)
         self.dropped_prints = 0
         self.prints = 0
+        # Every record dispatched to us, INCLUDING gateway heartbeats and symbol
+        # mappings. Diagnostic only -- never a liveness signal, see _on_record.
         self.msgs = 0
+        # Records carrying a book level: the feed actually delivering market data.
+        # This is what liveness is judged on.
+        self.data_msgs = 0
         self.skipped_no_meta = 0
         self.unresolved_symbols = 0
         # Databento subscribes by parent symbol, so coverage is every contract on
@@ -207,9 +260,6 @@ class DatabentoFlowStream:
         self._pending_lock = threading.Lock()
         self._client: Any = None
         self._stopping = False
-        # Populated on run(); exposed so /health can read the feed's
-        # own view of itself rather than inferring it from counters.
-        self.liveness: FeedLiveness | None = None
 
     # --- the surface runner.sweep_loop consumes ----------------------------
 
@@ -244,6 +294,14 @@ class DatabentoFlowStream:
         levels = getattr(rec, "levels", None)
         if not levels:
             return
+        # Counted AFTER the levels guard, and that placement is the whole point:
+        # databento dispatches EVERY record to this callback, including the
+        # gateway's 30s heartbeat (protocol.py calls received_record outside the
+        # SystemMsg branch). Judging silence on `msgs` therefore proves only that
+        # the socket is warm — it advances forever through a completely dead data
+        # feed. `data_msgs` counts records that actually carry a book level, so a
+        # stalled feed goes quiet here even while heartbeats continue.
+        self.data_msgs += 1
         client = self._client
         if client is None:
             return
@@ -315,7 +373,6 @@ class DatabentoFlowStream:
         )
 
         live = FeedLiveness(time.monotonic())
-        self.liveness = live
         try:
             while not self._stopping:
                 await asyncio.sleep(self._flush_interval_s)
@@ -332,8 +389,10 @@ class DatabentoFlowStream:
                     mapped = len(client.symbology_map)
                 except Exception:
                     mapped = 0
-                live.observe(msgs=self.msgs, prints=self.prints, mapped=mapped,
-                             now=now)
+                live.observe(data_msgs=self.data_msgs, prints=self.prints,
+                             mapped=mapped, now=now)
+                if self._stopping:
+                    break
                 stalled = live.check(now=now, market_open=is_market_open())
                 if stalled is not None:
                     logger.error(
@@ -342,14 +401,18 @@ class DatabentoFlowStream:
                         "skipped_no_meta=%s). The socket is alive and the "
                         "pipeline is not — check symbology and meta, not the "
                         "connection.",
-                        stalled, self.msgs, self.unresolved_symbols,
+                        stalled, self.data_msgs, self.unresolved_symbols,
                         self.skipped_no_meta,
                     )
                 rate = live.take_rate(now)
-                if rate is not None:
+                if rate is not None and is_market_open():
+                    # RTH only: overnight this would emit ~1,050 lines of
+                    # "0.0 prints/min" a day and bury the one reading that
+                    # matters -- the rate decaying while the market is open.
                     logger.info(
-                        "dbn stream: %.1f prints/min (msgs=%s prints=%s "
-                        "mapped=%s)", rate, self.msgs, self.prints, mapped,
+                        "dbn stream: %.1f prints/min (data_msgs=%s msgs=%s "
+                        "prints=%s mapped=%s)",
+                        rate, self.data_msgs, self.msgs, self.prints, mapped,
                     )
 
                 if not client.is_connected():

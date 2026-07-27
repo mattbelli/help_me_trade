@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -47,12 +48,14 @@ ROOT = Path(__file__).resolve().parent.parent
 TCBBO_DIR = ROOT / "data" / "databento" / "opra_tcbbo"
 DEFS_DIR = ROOT / "data" / "databento" / "opra_defs"
 
-# A file below this fraction of the median is reported as truncated. Deliberately
-# loose: the point is to catch a partial download (64.5 MB against a 270 MB
-# median = 0.24), not to police the natural spread between a quiet August session
-# and a quarterly expiry. Half-days sit around 0.6 and must not trip it.
+# A file below this fraction of the median is reported as truncated. Measured
+# over 135 real files 2026-07-27: median 264.8 MB, 2025-09-02's partial 64.5 MB
+# = 0.244 (caught), and the smallest LEGITIMATE session is 2025-12-24 at
+# 124.1 MB = 0.469 -- Christmas Eve, not the 0.6 a half-day suggests. Headroom
+# between 0.35 and 0.469 is real but thinner than it looks; see truncated().
 TRUNCATED_FRACTION = 0.35
-# Below this, a "file" is an empty holiday marker rather than a truncated pull.
+# Holiday markers measure 87 bytes on disk. Used to keep them OUT OF THE MEDIAN
+# only -- never out of the report, since a holiday cannot be an expected session.
 HOLIDAY_MAX_BYTES = 1024
 
 logger = logging.getLogger("flow_corpus_gaps")
@@ -87,9 +90,19 @@ def file_sizes(directory: Path) -> dict[str, int]:
 def truncated(sizes: dict[str, int], expected: set[str]) -> list[tuple[str, int]]:
     """Sessions whose file is present but far below the median size.
 
-    Median over the expected sessions only, and excluding holiday markers, so a
-    directory that is half holidays cannot drag the reference down and mask a
-    real truncation.
+    Holiday-sized files are excluded from the MEDIAN but deliberately NOT from
+    the report. Holidays never enter `expected` (they have no equity bars), so
+    inside `expected` a sub-kilobyte file is not a marker — it is the most
+    complete truncation possible, and the original version of this function
+    filtered exactly those out and reported "no gaps" on them.
+
+    ⚠️ Known ceiling, measured 2026-07-27 over 135 real files: median 264.8 MB,
+    and the smallest LEGITIMATE session is 2025-12-24 at 124.1 MB = 0.469x. So
+    the fraction cannot be raised past ~0.44, and a truncation landing in the
+    0.35-0.47 band is invisible to a size test at any threshold. Median-relative
+    also fails outright if a bad vendor day shortened more than half the files.
+    The durable fix is temporal — assert the last record reaches ~16:15 ET — and
+    is deliberately not built here; this catches the gross cases cheaply.
     """
     real = sorted(v for k, v in sizes.items()
                   if k in expected and v > HOLIDAY_MAX_BYTES)
@@ -98,8 +111,7 @@ def truncated(sizes: dict[str, int], expected: set[str]) -> list[tuple[str, int]
     median = real[len(real) // 2]
     floor = median * TRUNCATED_FRACTION
     return sorted(
-        (k, v) for k, v in sizes.items()
-        if k in expected and HOLIDAY_MAX_BYTES < v < floor
+        (k, v) for k, v in sizes.items() if k in expected and v < floor
     )
 
 
@@ -151,7 +163,14 @@ def report(start: str, end: str, db_path: Path = DEFAULT_DB_PATH) -> int:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--start", default="2025-07-28")
-    p.add_argument("--end", default="2026-07-26", help="exclusive")
+    # Tomorrow, not a pinned date: as a cron a hardcoded end silently stops
+    # examining every session after it and keeps reporting "no gaps" for a
+    # window that no longer includes the present.
+    p.add_argument(
+        "--end",
+        default=(date.today() + timedelta(days=1)).isoformat(),
+        help="exclusive; defaults to tomorrow",
+    )
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     return report(args.start, args.end)

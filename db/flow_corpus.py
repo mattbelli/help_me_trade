@@ -28,19 +28,32 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # Bump when a bucket boundary or a classification rule changes. Rows carry it so
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
 # 'unknown' was two different things wearing one label, and it is 38.75% of a
 # session's premium (measured 2025-07-28), so the conflation is not a rounding
 # error. Cash-settled index roots have no spot BY CONSTRUCTION -- SPX and SPXW
 # alone are $9.67B of the $10.20B in that bucket -- while an ordinary name with
-# no bar is a data fault. Pooled, the structural mass hides the fault; split,
-# `no_spot_missing` is $18.9M (0.07% of session premium) and becomes an ALARM:
-# a missed index root or a symbology break would move it by three orders of
-# magnitude. It already surfaces real ones -- BRKB (BRK.B ticker format), FI
-# (renamed from FISV), PARA (acquired) -- which is the 1.4 delisting question
-# arriving on its own.
+# no bar is a data fault. Pooled, the structural mass hides the fault; split, the
+# fault is at least visible.
+# ⚠️ CORRECTED 2026-07-27 by review -- the first version of this comment claimed
+# `no_spot_missing` runs "~$19M/session" and that a missed index root "would move
+# it to billions". Both are wrong. Measured over 138 rolled sessions the bucket
+# runs $41.3M to $7,196.6M (mean $256.0M), so the magnitude discriminator is
+# ALREADY SATURATED and cannot identify a missed root: the largest covered roots
+# are SPX $9,891M but VIX $89.8M / RUT $94.9M / NDX $234M / XSP $31.9M, all well
+# inside the bucket's own swing. The tail is driven by ADJUSTED CONTRACTS whose
+# premium is inflated by the hardcoded 100 multiplier (roadmap 1.5) -- WOLF1 alone
+# is $7,082M on 2025-12-19 and $2,740M on 2026-01-16, OPEN1 $2,188M.
+# ⚠️ It is also NOT a clean delisting list, which an earlier note claimed. It is
+# four unrelated causes mixed: adjusted contracts (WOLF1, OPEN1, BABA2), ticker
+# format breaks (BRKB, $3.8B over 110 sessions), genuine corporate actions (WBA,
+# PARA, SATS), and plain EQUITY-BAR COVERAGE GAPS on live, actively traded names
+# (CMA, PSTG, MMC, CTRA, CFLT, MPW appear in all 110 of their sessions; AZN has no
+# bars inside the range at all). Those live names get NO moneyness in the corpus
+# -- a real data gap to close, not a corporate action. Read the per-root breakdown
+# before drawing any conclusion from this bucket.
 MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "no_spot_index", "no_spot_missing")
 SIDES = ("buy", "sell", "unclassified")
 
@@ -62,6 +75,7 @@ _ROLLUP_COLUMNS = frozenset({
     "date", "underlying", "right", "dte_bucket", "mny_bucket", "side",
     "strict_side", "prints", "orders", "contracts", "premium_usd", "premium_sq",
     "premium_max", "u_premium", "u_premium_clipped", "multileg", "schema_version",
+    "premium_sq_orders",
 })
 
 
@@ -104,14 +118,24 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 -- one order that swept several venues arrives as N prints but is
                 -- ONE observation, and counting it N times inflates every
                 -- dispersion statistic computed off this table. **`orders` is the
-                -- N for any z-score or standard error; `prints` is retained
-                -- unchanged because the prereg registered it.**
+                -- N for an order-grain z-score, used ONLY with
+                -- `premium_sq_orders`; `prints` is retained unchanged because the
+                -- prereg registered it, and pairs with `premium_sq`.**
                 -- Measured 2025-07-28: 6,930,544 prints -> 6,464,608 orders
                 -- (6.72% pooled), but the inflation is CONCENTRATED -- median
                 -- 5.85% / p90 9.44% / max 15.97% across the 480 names with >=1000
                 -- prints, worst in thin, heavily-swept names (TLRY, SNAP, CIFR,
                 -- BITF). At p90 that overstates sqrt(N) by 1.051x, and it does so
                 -- exactly where measurement 1.7 expects false positives.
+                -- ⚠️⚠️ PAIR IT WITH `premium_sq_orders`, NEVER WITH `premium_sq`.
+                -- `premium_sq` is a sum of PER-PRINT squares; feeding it an
+                -- order-grain N breaks the Cauchy-Schwarz bound that keeps a
+                -- variance non-negative, because for one sweep split across two
+                -- venues p1^2 + p2^2 - (p1+p2)^2 = -2*p1*p2 < 0. Measured on the
+                -- live corpus: 411,218 rows (1.55%) go NEGATIVE that way and
+                -- their sd is NaN, while the registered pairing produces exactly
+                -- 1 (float rounding). Caught in review 2026-07-27 before the
+                -- 260-session re-roll, i.e. while the fix was still free.
                 -- Deliberately NOT a re-signing: legs inside a group disagree on
                 -- side in only 1.371% of multi-print groups carrying 0.167% of
                 -- premium, so imposing one sign per group would move almost
@@ -127,6 +151,15 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 contracts INTEGER NOT NULL,
                 premium_usd REAL NOT NULL,
                 premium_sq REAL NOT NULL,
+                -- The order-grain second moment: each (bucket, group) pair's
+                -- premium summed FIRST, then squared, then accumulated. This is
+                -- the statistic "one sweep is one observation" actually implies,
+                -- and it is the only one `orders` may be divided by. `premium_sq`
+                -- is left exactly as pre-registered and still pairs with
+                -- `prints`; both arms are stored so neither grain can be chosen
+                -- after seeing the answer -- the same doctrine as u_premium /
+                -- u_premium_clipped and the multileg grain.
+                premium_sq_orders REAL NOT NULL,
                 premium_max REAL NOT NULL,
                 u_premium REAL NOT NULL,
                 -- Same sum with u clipped to [-1, 1]. u is a RATIO with the
@@ -233,9 +266,10 @@ def upsert_rollup(rows: list[tuple], db_path: Path = DEFAULT_DB_PATH) -> int:
         conn.executemany(
             "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
             "dte_bucket, mny_bucket, side, strict_side, prints, orders, "
-            "contracts, premium_usd, premium_sq, premium_max, u_premium, "
-            "u_premium_clipped, multileg, schema_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "contracts, premium_usd, premium_sq, premium_sq_orders, "
+            "premium_max, u_premium, u_premium_clipped, multileg, "
+            "schema_version) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     return len(rows)

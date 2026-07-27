@@ -49,8 +49,18 @@ Independent of the research track: Phases 1–4 all run on historical files. Thi
       healthy socket. Prints/min counter added so a dying feed is visible before a threshold fires.
       RTH from the existing holiday/half-day-aware `trading.market_hours.is_market_open`. 15 tests,
       including the subtle one: a closed-market tick must **reset** the silence clocks or the first
-      tick after the bell reports a dead feed on a healthy one. ⏳ Not yet proven against a real
-      socket — that rides with the provider-arming check.
+      tick after the bell reports a dead feed on a healthy one.
+      ⚠️ **Shipped with a defect and corrected the same day by review — read this before trusting it.**
+      The first version judged silence on `msgs`, but databento dispatches **gateway heartbeats (30s)**
+      to the same callback, so `msgs` advanced through a completely dead feed and the check could never
+      fire. Now judged on `data_msgs` (records carrying a book level). A hard socket kill was already
+      caught at ~41s by databento's own monitor, so this clock's unique value is narrower than first
+      claimed: gateway-side data stalls and wedged callback threads.
+      ⚠️ The ack check **raises only during RTH**; off-hours it logs, because the deployed owner is
+      `hmt-flow-collector` where any raise restarts the process in 3s, and the off-hours mapping premise
+      is unverified. ⏳ Not yet proven against a real socket — that rides with the provider-arming check,
+      which must also **fix the pre-existing `_quote_ring` thread race** (0.05% of sweep cycles
+      discarded) and verify the off-hours ack behaviour.
 - [x] **0.2 Corpus-gap check. — DONE 2026-07-27.** `tools/flow_corpus_gaps.py`, exits 1 on any gap.
       Absent / not-rolled-at-current-`SCHEMA_VERSION` / **truncated** — the third because the
       backfill's skip guard is `exists() and size > 0`, so a partial download is skipped forever and

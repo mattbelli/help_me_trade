@@ -45,6 +45,10 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "databento"
 # expiry/right. ALL_SYMBOLS files ship no symbology mappings, so the definition
 # pull is not optional — without it a print cannot be attributed to a name.
 OUT_DIRS = {"tcbbo": DATA_DIR / "opra_tcbbo", "definition": DATA_DIR / "opra_defs"}
+# A .part untouched for this long is abandoned, not in flight. Sessions take
+# 0.2-2.3 min and the client writes continuously, so 10 min is far past any
+# live download while still clearing a crashed one on the very next run.
+PART_STALE_S = 600.0
 
 logger = logging.getLogger("opra_tcbbo_backfill")
 
@@ -136,7 +140,28 @@ def main() -> int:
         # to 2025-09-02 in the 07-26 run (502 storm, process died, then every
         # retry failed on the stale file). Clearing it here makes a retry
         # self-healing regardless of how the previous attempt ended.
-        tmp.unlink(missing_ok=True)
+        #
+        # STALE ONLY, and the age test is load-bearing. An unconditional unlink
+        # is worse than the bug it fixes when two runs overlap: the second
+        # process detaches the first's inode, the first then stat()s and
+        # renames the SECOND's partial into place, and the result is a
+        # truncated file with size > 0 that the resume guard above skips
+        # forever -- a poisoned artifact where the old failure mode was merely
+        # a crash. A live download touches its .part continuously, so anything
+        # written to within PART_STALE_S belongs to a running process.
+        try:
+            age = time.time() - tmp.stat().st_mtime
+        except FileNotFoundError:
+            age = None
+        if age is not None and age > PART_STALE_S:
+            tmp.unlink(missing_ok=True)
+        elif age is not None:
+            logger.error(
+                "[%d/%d] %s: .part modified %.0fs ago — another run is likely "
+                "active; skipping rather than stomping it", i, len(days), d, age,
+            )
+            failed += 1
+            continue
         try:
             client.timeseries.get_range(
                 dataset=DATASET, schema=schema, symbols="ALL_SYMBOLS",

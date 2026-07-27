@@ -86,11 +86,19 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   median $123M** (the one-session ~$65M figure was not representative). An index root missing from
   `INDEX_ROOTS` would read **billions** — index flow is ~$10B/session — so the alarm line is orders
   of magnitude clear of normal variation.
-  **▸ The spikes are corporate actions, and that is a feature.** The $574M session (2025-08-27) is
-  **WBA at $386M** — Walgreens, taken private in 2025, so its equity bars stop while its options keep
-  trading — plus SATS $70.5M (EchoStar) and BRKB $37.3M (ticker format). So this bucket doubles as a
-  **corporate-action detector with premium attached**, which is exactly the input item **1.4** needs:
-  the delisting rule can be written against an observed list rather than a guess.
+  ⚠️ **BOTH SENTENCES ABOVE WERE WRONG AND ARE CORRECTED — 2026-07-27 review.** Measured over 138
+  sessions the bucket runs **$41.3M–$7,196.6M, mean $256.0M**, so the "billions ⇒ missed index root"
+  discriminator is **already saturated and cannot identify a missed root**: the covered roots are
+  VIX $89.8M / XSP $31.9M / RUT $94.9M / NDX $234M per session, all well inside the bucket's own swing,
+  and only SPX ($9,891M) would clear it. The tail is **adjusted contracts** inflated by the hardcoded
+  100 multiplier (roadmap 1.5) — WOLF1 alone is $7,082M on 2025-12-19.
+  ⚠️ **It is also NOT a clean delisting list** — calling it a "corporate-action detector" was an
+  overclaim. It mixes four unrelated causes: adjusted contracts (WOLF1, OPEN1, BABA2), ticker-format
+  breaks (BRKB, $3.8B over 110 sessions), genuine corporate actions (WBA, PARA, SATS), and **plain
+  equity-bar coverage gaps on live, actively traded names** — CMA, PSTG, MMC, CTRA, CFLT, MPW appear in
+  **all 110** of their sessions and AZN has no bars in range at all. **Those live names currently get
+  no moneyness whatsoever in the corpus**, which is a data gap to close, not a corporate action.
+  **Roadmap 1.4 must read the per-root breakdown**, not treat this bucket as its list.
 - **⏳ ONE KNOWN BACKFILL GAP: `2025-09-02`.** Checked 07-27 at 89/260 — every other processed
   session is on disk, and the two 0-byte files (`2025-09-01` Labor Day, `2025-11-27` Thanksgiving)
   are correct recorded holidays. **Remedy: re-run `tools/opra_tcbbo_backfill.py` over the same range
@@ -122,8 +130,33 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   comes from the existing holiday- and half-day-aware `trading.market_hours.is_market_open` (15 tests).
   ⚠️ A closed-market tick **resets** the silence clocks — without that the first tick after the
   opening bell compares against last session's timestamp and reports a dead feed on a healthy one.
+  ⚠️ **Corrected same day by review, and the correction matters more than the feature.** The first
+  version judged silence on `msgs`, which databento increments for **gateway heartbeats too** (every
+  30s), so it could never fire — a watchdog that manufactured confidence. Liveness now runs on
+  `data_msgs` (records carrying a book level). Also: a hard socket kill is already caught at ~41s by
+  databento's own monitor flipping `is_connected()`, so this clock's unique value is narrower —
+  gateway-side data stalls and wedged callback threads.
+  ⚠️ **The ack check raises only during RTH.** Off-hours it logs. `OPTIONS_FLOW_EXTERNAL_COLLECTOR=1`
+  means `hmt-flow-collector` owns the stream and awaits legs `FIRST_COMPLETED`, so **any raise exits
+  the process and systemd restarts it in 3s** — and the premise that symbol mappings arrive off-hours
+  is still UNVERIFIED, so raising then would have been an unbounded weekend restart loop.
   ⏳ Still unproven against a real socket: the arming check remains verifying the provider against a
-  session whose ground truth we already hold.
+  session whose ground truth we already hold. **Verify the off-hours ack behaviour at the same time.**
+- **⚠️ FLAGGED, NOT FIXED — pre-existing `deque mutated during iteration` in the Databento lane.**
+  `_on_record` appends to `_quote_ring[occ]` on databento's dedicated thread while `quote_at` iterates
+  it from the asyncio loop (`runner.py:428`, inside `sweep_loop`). Measured under contention: **48
+  raises in 104,117 iterations (~0.05%)** — and `sweep_loop`'s `except Exception` swallows it *after*
+  the batch was already `popleft`-ed off `collected_prints`, so **that cycle's prints are discarded**.
+  Lane-specific: the Alpaca stream writes its ring from the same asyncio loop and has no thread
+  boundary. `_pending_lock` guards the pending list, not the quote ring. **Must be fixed before the
+  provider is armed.**
+- **⚠️ Two known holes in the new guards, both deliberate and both worth closing later.** (1) The
+  16:00–16:15 ET index-settlement window is **unmonitored** — `is_market_open()` is the equity session
+  and flips False at 16:00, so `idle()` resets the clocks, yet the backfill deliberately captures to
+  16:15 because index options settle there and carry ~31% of corpus premium. (2) Truncation detection
+  is size-only and **has a hard ceiling**: real median 264.8 MB, smallest legitimate session Christmas
+  Eve at 0.469×, so the 0.35 fraction cannot rise past ~0.44 and the 0.35–0.47 band is invisible at any
+  threshold. The durable fix is temporal — assert the file's last record reaches ~16:15 ET.
 - **▶ `tools/flow_corpus_gaps.py` (roadmap 0.2, shipped 07-27) is how you check any of this.**
   Exits 1 on any gap so it can be a cron. Three checks: absent files, files present but not rolled at
   the current `SCHEMA_VERSION`, and **truncated pulls** — a partial download passes the backfill's

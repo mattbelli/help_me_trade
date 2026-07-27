@@ -10,11 +10,7 @@ from __future__ import annotations
 import pytest
 
 from db.flow_corpus import init_db, upsert_bars
-from tools.flow_corpus_gaps import (
-    HOLIDAY_MAX_BYTES,
-    expected_sessions,
-    truncated,
-)
+from tools.flow_corpus_gaps import expected_sessions, truncated
 
 
 @pytest.fixture
@@ -74,22 +70,39 @@ def test_a_half_day_is_not_reported():
     assert truncated(sizes, set(sizes)) == []
 
 
-def test_holiday_markers_are_not_truncation():
+def test_a_zero_byte_file_on_a_REAL_session_is_reported():
+    """The blind spot review caught. The first version excluded sub-holiday-size
+    files from the *report* as well as from the median — but a holiday is never
+    in `expected` (no equity bars), so inside `expected` an 87-byte file is the
+    most complete truncation there is, and it was silently passing. Worse, the
+    rollup records prints=0 for an empty file, which marks the session ingested,
+    so 'not rolled' did not catch it either — all three checks said no gaps."""
     sizes = {f"d{i}": MEDIAN for i in range(9)}
-    sizes["holiday"] = 0
-    assert truncated(sizes, set(sizes)) == []
-    sizes["holiday"] = HOLIDAY_MAX_BYTES - 1
-    assert truncated(sizes, set(sizes)) == []
+    sizes["killed"] = 87
+    assert [d for d, _ in truncated(sizes, set(sizes))] == ["killed"]
+
+
+def test_holiday_markers_outside_expected_are_ignored():
+    """Holidays are excluded by NOT being expected sessions — which is the only
+    correct mechanism, since size alone cannot tell a holiday from a truncation.
+    The previous version of this test passed `expected` containing the holiday,
+    a state the calendar logic makes impossible, and so locked in the bug."""
+    sizes = {f"d{i}": MEDIAN for i in range(9)}
+    sizes["holiday"] = 87
+    expected = {k for k in sizes if k != "holiday"}
+    assert truncated(sizes, expected) == []
 
 
 def test_holidays_cannot_drag_the_median_down():
     """If zero-byte markers counted toward the median, a directory that is half
     holidays would have a near-zero reference and every real truncation would
-    read as normal. The median is taken over non-holiday files only."""
+    read as normal. The median is taken over non-holiday files only. Holidays are
+    passed outside `expected`, which is where the real calendar puts them."""
     sizes = {f"h{i}": 0 for i in range(9)}
     sizes.update({f"d{i}": MEDIAN for i in range(9)})
     sizes["short"] = 10_000_000
-    assert [d for d, _ in truncated(sizes, set(sizes))] == ["short"]
+    expected = {k for k in sizes if not k.startswith("h")}
+    assert [d for d, _ in truncated(sizes, expected)] == ["short"]
 
 
 def test_files_outside_the_expected_window_are_ignored():

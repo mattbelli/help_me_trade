@@ -25,9 +25,9 @@ from db.flow_corpus import (
 )
 
 ROW = ("2025-07-28", "AAPL", "C", "0-7", "atm", "buy", "buy", 3, 2, 30,
-       1000.0, 10.0, 500.0, 25.0, 12.0, 0, SCHEMA_VERSION)
+       1000.0, 10.0, 700.0, 500.0, 25.0, 12.0, 0, SCHEMA_VERSION)
 PREMIUM = 10  # index of premium_usd in ROW
-MULTILEG = 15
+MULTILEG = 16
 
 
 @pytest.fixture
@@ -92,7 +92,8 @@ def test_legacy_table_is_rebuilt(dbp):
 
     with connect(dbp) as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
-    assert {"u_premium_clipped", "multileg", "orders"} <= cols
+    assert {"u_premium_clipped", "multileg", "orders",
+            "premium_sq_orders"} <= cols
     assert upsert_rollup([ROW], db_path=dbp) == 1
 
 

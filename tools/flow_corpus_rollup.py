@@ -24,10 +24,12 @@ It does NOT test the sign itself, which is why `multileg` is a grain (Addendum D
 a spread leg is priced off the package, not its own NBBO, and dropping those
 prints flips the 2025-07-28 session sign of all three measures at once.
 
-Two counting rules ride alongside, both schema_version 4:
+Two counting rules ride alongside, both schema_version 5:
   * `orders` — distinct (ts_event, instrument_id) groups. One sweep is one
-    observation however many venues it crossed; `orders`, never `prints`, is the
-    N for a z-score.
+    observation however many venues it crossed. ⚠️ Use it ONLY with
+    `premium_sq_orders`: the pre-registered `premium_sq` is a print-grain second
+    moment and dividing it by `orders` produces a NEGATIVE variance on 1.55% of
+    rows. Both grains are stored so neither can be picked after the fact.
   * `no_spot_index` vs `no_spot_missing` — a cash-settled index has no spot by
     construction; an ordinary name without one is a fault. Pooling them buried a
     0.07%-of-premium alarm inside a 38.75%-of-premium bucket.
@@ -144,6 +146,8 @@ def _order_groups(ts_event: np.ndarray, iid: np.ndarray) -> tuple[np.ndarray, in
     *different* instrument at the same nanosecond: same key, opposite predicate,
     different meaning. Returns (group_id_per_print, n_groups).
     """
+    if not len(ts_event):
+        return np.empty(0, dtype=np.int64), 0
     order = np.lexsort((iid, ts_event))
     ts_s, iid_s = ts_event[order], iid[order]
     new = np.r_[True, (ts_s[1:] != ts_s[:-1]) | (iid_s[1:] != iid_s[:-1])]
@@ -152,18 +156,31 @@ def _order_groups(ts_event: np.ndarray, iid: np.ndarray) -> tuple[np.ndarray, in
     return gid, int(new.sum())
 
 
-def _orders_per_bucket(inv: np.ndarray, gid: np.ndarray, n_groups: int,
-                       n_buckets: int) -> np.ndarray:
-    """Distinct groups contributing to each rollup bucket.
+def _order_stats(inv: np.ndarray, gid: np.ndarray, premium: np.ndarray,
+                 n_groups: int, n_buckets: int) -> tuple[np.ndarray, np.ndarray]:
+    """Per bucket: distinct order groups, and the order-grain sum of squares.
 
-    Counts unique (bucket, group) pairs rather than assuming a group lands wholly
-    in one bucket. Usually it does — a group is one instrument, so it shares an
-    underlying, right, DTE and moneyness — but `side` is per print, and 1.371% of
-    multi-print groups have legs on both sides. Those straddle two buckets and
-    must be counted in each, or the sell half of every mixed sweep vanishes.
+    The observation unit is the (bucket, group) PAIR — the portion of one order
+    that landed in this bucket — not the group, because `side` is per print and
+    1.371% of multi-print groups have legs on both sides. A group that straddles
+    is counted in each bucket it touches, or the sell half of every mixed sweep
+    would carry premium with no N behind it.
+
+    Both returns come from the same pair decomposition, and that is the point:
+    ``premium_sq_orders`` sums each pair's premium FIRST and squares the total,
+    so it is the second moment of exactly the population ``orders`` counts. The
+    print-grain ``premium_sq`` is NOT interchangeable — dividing it by ``orders``
+    yields a negative variance on 1.55% of live rows, since for one sweep split
+    across two venues p1^2 + p2^2 - (p1+p2)^2 = -2*p1*p2 < 0.
     """
-    pair = np.unique(inv.astype(np.int64) * n_groups + gid)
-    return np.bincount(pair // n_groups, minlength=n_buckets)
+    pair_id = inv.astype(np.int64) * n_groups + gid
+    uniq_pairs, pair_inv = np.unique(pair_id, return_inverse=True)
+    pair_prem = np.bincount(pair_inv, weights=premium, minlength=len(uniq_pairs))
+    bucket_of_pair = uniq_pairs // n_groups
+    orders = np.bincount(bucket_of_pair, minlength=n_buckets)
+    prem_sq = np.bincount(bucket_of_pair, weights=pair_prem * pair_prem,
+                          minlength=n_buckets)
+    return orders, prem_sq
 
 
 def _bucket_dte(dte: np.ndarray) -> np.ndarray:
@@ -237,6 +254,20 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
 
     arr = arr[hit]
     idx = idx[hit]
+    if not len(arr):
+        # Every print failed the contract join — a definitions file from the
+        # wrong day does this. Guarded HERE and not only on the pre-join count
+        # because _multileg indexes iid_s[starts] and raises IndexError on an
+        # empty array, which with no try/except in main() would abandon the rest
+        # of an unattended 260-session run over one bad file.
+        logger.warning("%s: all %s prints failed the definitions join",
+                       session, f"{n_prints:,}")
+        record_session(session.isoformat(), prints=n_prints, rows=0,
+                       underlyings=0, unresolved_prints=unresolved,
+                       no_spot_prints=0,
+                       ingested_at=datetime.now(UTC).isoformat(), **kw)
+        return {"prints": n_prints, "joined": 0, "orders": 0, "rows": 0,
+                "unresolved": unresolved}
     und_code = d_und[idx]
     right = d_right[idx]
     strike = d_strike[idx]
@@ -305,14 +336,20 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     no_spot_premium = float(premium[missing].sum())
 
     # --- aggregate ----------------------------------------------------------
-    key = (((((und_code.astype(np.int64) * 2 + right) * 4 + dte_b) * 6 + mny_b) * 3
-            + side) * 3 + strict) * 2 + ml
+    # Radices derived from the bucket tuples, never literals. This diff had to
+    # change one of them 5 -> 6, and changing pack without unpack is SILENT:
+    # every field shifts but MNY_BUCKETS[s_mny] and DTE_BUCKETS[s_dte] still
+    # index legally, so rows come out attributed to the wrong UNDERLYING with no
+    # exception. One source for both directions removes that failure entirely.
+    n_r, n_d, n_m, n_s, n_ml = 2, len(DTE_BUCKETS), len(MNY_BUCKETS), len(SIDES), 2
+    key = (((((und_code.astype(np.int64) * n_r + right) * n_d + dte_b) * n_m
+             + mny_b) * n_s + side) * n_s + strict) * n_ml + ml
     uniq, inv = np.unique(key, return_inverse=True)
     n = len(uniq)
     prints_ = np.bincount(inv, minlength=n)
     gid, n_groups = _order_groups(arr["ts_event"].astype(np.int64),
                                   arr["instrument_id"].astype(np.int64))
-    orders = _orders_per_bucket(inv, gid, n_groups, n)
+    orders, prem_sq_orders = _order_stats(inv, gid, premium, n_groups, n)
     contracts = np.bincount(inv, weights=size, minlength=n)
     prem = np.bincount(inv, weights=premium, minlength=n)
     prem_sq = np.bincount(inv, weights=premium * premium, minlength=n)
@@ -328,12 +365,12 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     np.maximum.at(prem_max, inv, premium)
 
     k = uniq
-    k, s_ml = np.divmod(k, 2)
-    k, s_strict = np.divmod(k, 3)
-    k, s_side = np.divmod(k, 3)
-    k, s_mny = np.divmod(k, 6)
-    k, s_dte = np.divmod(k, 4)
-    s_und, s_right = np.divmod(k, 2)
+    k, s_ml = np.divmod(k, n_ml)
+    k, s_strict = np.divmod(k, n_s)
+    k, s_side = np.divmod(k, n_s)
+    k, s_mny = np.divmod(k, n_m)
+    k, s_dte = np.divmod(k, n_d)
+    s_und, s_right = np.divmod(k, n_r)
 
     ds = session.isoformat()
     delete_session_rows(ds, **kw)
@@ -341,7 +378,8 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
         (ds, str(uniq_und[s_und[i]]), "P" if s_right[i] else "C",
          DTE_BUCKETS[s_dte[i]], MNY_BUCKETS[s_mny[i]], SIDES[s_side[i]],
          SIDES[s_strict[i]], int(prints_[i]), int(orders[i]), int(contracts[i]),
-         float(prem[i]), float(prem_sq[i]), float(prem_max[i]),
+         float(prem[i]), float(prem_sq[i]), float(prem_sq_orders[i]),
+         float(prem_max[i]),
          float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), SCHEMA_VERSION)
         for i in range(n)
     ]
