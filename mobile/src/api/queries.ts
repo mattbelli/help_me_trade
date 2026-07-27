@@ -3,7 +3,6 @@ import { focusManager, useMutation, useQuery, useQueryClient } from '@tanstack/r
 import { useEffect, useRef } from 'react';
 
 import {
-  addWatchlistSymbol,
   approveProposal,
   createPriceAlert,
   deleteChatSession,
@@ -21,14 +20,13 @@ import {
   getReport,
   getResearch,
   getSnapshot,
-  getWatchlist,
   getWatchlistMarket,
   getWatchlists,
   rejectProposal,
-  removeWatchlistSymbol,
   searchSymbols,
   getSettings,
   getStrategies,
+  getTicker,
   updateSettings,
   updateStrategy,
   updateWatchlistSymbols,
@@ -82,15 +80,24 @@ export function useSnapshot(opts?: { poll?: boolean }) {
   return query;
 }
 
-export function usePortfolioHistory(range: PortfolioRange) {
+export function usePortfolioHistory(
+  range: PortfolioRange,
+  accountId?: string,
+  opts?: { poll?: boolean },
+) {
+  const poll = opts?.poll ?? false;
   const { enabled } = useAuthenticated();
 
-  return useQuery({
-    queryKey: ['portfolio-history', range],
-    queryFn: () => getPortfolioHistory(range),
+  const query = useQuery({
+    queryKey: ['portfolio-history', accountId ?? 'broker', range],
+    queryFn: () => getPortfolioHistory(range, accountId),
     enabled,
-    staleTime: 30_000,
+    staleTime: 10_000,
   });
+  // 15s keeps the headline delta and pills in step with the 6s snapshot poll
+  // without hammering the (cheap, SQL-only) scoped endpoint.
+  usePollWhile(poll && enabled, query.refetch, 15_000);
+  return query;
 }
 
 export function useDayPnl(accountId: string, opts?: { poll?: boolean }) {
@@ -107,46 +114,20 @@ export function useDayPnl(accountId: string, opts?: { poll?: boolean }) {
   return query;
 }
 
-export function useWatchlist() {
-  const { enabled } = useAuthenticated();
-
-  return useQuery({
-    queryKey: ['watchlist'],
-    queryFn: getWatchlist,
-    enabled,
-    staleTime: 60_000,
-  });
-}
-
-export function useAddWatchlistSymbol() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (symbol: string) => addWatchlistSymbol(symbol),
-    onSuccess: (data) => {
-      qc.setQueryData(['watchlist'], data);
-      void qc.invalidateQueries({ queryKey: ['watchlist'] });
-    },
-  });
-}
-
-export function useRemoveWatchlistSymbol() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (symbol: string) => removeWatchlistSymbol(symbol),
-    onSuccess: (data) => {
-      qc.setQueryData(['watchlist'], data);
-      void qc.invalidateQueries({ queryKey: ['watchlist'] });
-    },
-  });
-}
-
+// Saved watchlists (shared with web). Which list the phone SHOWS is
+// device-local (features/watchlist/use-selected-watchlist) — all symbol edits
+// go through the per-list PUT below, never the active-list endpoints.
 export function useWatchlists() {
   const { enabled } = useAuthenticated();
   return useQuery({
     queryKey: ['watchlists'],
     queryFn: getWatchlists,
     enabled,
-    staleTime: 300_000,
+    staleTime: 60_000,
+    // Track list edits made on other devices while the app stays foregrounded
+    // (focus refetch only covers background→foreground) — the WS subscription
+    // is derived from this data, so a stale list means stale streaming symbols.
+    refetchInterval: 30_000,
   });
 }
 
@@ -156,8 +137,6 @@ export function useReorderWatchlist() {
     mutationFn: ({ id, symbols }: { id: string; symbols: string[] }) => updateWatchlistSymbols(id, symbols),
     onSuccess: (data: WatchlistsState) => {
       qc.setQueryData(['watchlists'], data);
-      const active = data.lists.find((l) => l.id === data.active_id);
-      if (active) qc.setQueryData(['watchlist'], { symbols: active.symbols });
     },
   });
 }
@@ -230,6 +209,17 @@ export function useEarningsHistory(symbol: string, n = 6, enabledOverride = true
     queryFn: () => getEarningsHistory(symbol, n),
     enabled: enabled && enabledOverride && Boolean(symbol),
     staleTime: 60 * 60_000, // EPS history is quarterly — cache an hour
+  });
+}
+
+export function useTicker(symbol: string, enabledOverride = true) {
+  const { enabled } = useAuthenticated();
+
+  return useQuery({
+    queryKey: ['ticker', symbol],
+    queryFn: () => getTicker(symbol),
+    enabled: enabled && enabledOverride && Boolean(symbol),
+    staleTime: 10 * 60_000, // profile/metrics are server-cached ~24h, news ~15min
   });
 }
 

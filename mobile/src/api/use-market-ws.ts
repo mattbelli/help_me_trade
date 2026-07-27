@@ -46,6 +46,15 @@ interface WsQuoteMessage {
   market_session?: MarketSession;
 }
 
+/** Bulk snapshot. serv sends one the instant a socket is accepted, and again on
+ * every `subscribe`. Without a branch for it a reconnect showed the pre-drop
+ * prices until each symbol happened to trade again — the whole point of the
+ * snapshot is to close exactly that gap. */
+interface WsQuotesMessage {
+  type: 'quotes';
+  quotes?: Record<string, Omit<WsQuoteMessage, 'type' | 'symbol'>>;
+}
+
 interface WsAlertMessage {
   type: 'alert';
   id?: string;
@@ -86,7 +95,26 @@ interface WsNotificationMessage {
   dismissed_at?: string | null;
 }
 
-type WsMessage = WsQuoteMessage | WsAlertMessage | WsNotificationMessage | Record<string, unknown>;
+type WsMessage =
+  | WsQuoteMessage
+  | WsQuotesMessage
+  | WsAlertMessage
+  | WsNotificationMessage
+  | Record<string, unknown>;
+
+function toQuoteUpdate(symbol: string, p: Omit<WsQuoteMessage, 'type' | 'symbol'>): QuoteUpdate {
+  return {
+    symbol,
+    price: p.price ?? 0,
+    change_pct: p.change_pct ?? 0,
+    sparkline: p.sparkline,
+    bid: p.bid,
+    ask: p.ask,
+    ext_price: p.ext_price,
+    ext_change_pct: p.ext_change_pct,
+    market_session: p.market_session,
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -167,6 +195,9 @@ export function useMarketWs({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(INITIAL_BACKOFF_MS);
+  // Last requested subscription, replayed on every open so a reconnect can
+  // never leave us connected-but-silent.
+  const lastSymbolsRef = useRef<string[]>([]);
 
   useEffect(() => {
     onAlertRef.current = onAlert;
@@ -176,6 +207,11 @@ export function useMarketWs({
   }, [onAlert, onNotification, onQuote, onProposal]);
 
   const subscribe = useCallback((symbols: string[]) => {
+    // Remember it either way. serv sends a client NOTHING until it subscribes —
+    // an unsubscribed socket gets one snapshot and then silence forever, with no
+    // error and no disconnect — so a request that arrives while the socket is
+    // still CONNECTING must not be dropped on the floor. `onopen` replays this.
+    lastSymbolsRef.current = symbols;
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       return;
@@ -254,17 +290,20 @@ export function useMarketWs({
           if (typeof quoteMsg.symbol !== 'string') {
             return;
           }
-          onQuoteRef.current?.({
-            symbol: quoteMsg.symbol,
-            price: quoteMsg.price ?? 0,
-            change_pct: quoteMsg.change_pct ?? 0,
-            sparkline: quoteMsg.sparkline,
-            bid: quoteMsg.bid,
-            ask: quoteMsg.ask,
-            ext_price: quoteMsg.ext_price,
-            ext_change_pct: quoteMsg.ext_change_pct,
-            market_session: quoteMsg.market_session,
-          });
+          onQuoteRef.current?.(toQuoteUpdate(quoteMsg.symbol, quoteMsg));
+          return;
+        }
+
+        if (isRecord(msg) && msg.type === 'quotes') {
+          const bulk = (msg as unknown as WsQuotesMessage).quotes;
+          if (!isRecord(bulk)) {
+            return;
+          }
+          for (const [symbol, payload] of Object.entries(bulk)) {
+            if (isRecord(payload)) {
+              onQuoteRef.current?.(toQuoteUpdate(symbol, payload));
+            }
+          }
         }
       } catch {
         // Ignore malformed frames.
@@ -277,17 +316,39 @@ export function useMarketWs({
       }
 
       clearReconnectTimer();
-      wsRef.current?.close();
+      // Detach the outgoing socket's handlers BEFORE closing it. Closing an open
+      // socket fires its `onclose` asynchronously — often after the replacement
+      // is already open — and that handler both flips `connected` back to false
+      // and schedules ANOTHER reconnect, which then closes the healthy socket a
+      // second later. That is a self-sustaining loop: it leaves `connected`
+      // false most of the time, so the re-subscribe effect never fires, so the
+      // server has us down as a client with an empty symbol set and sends
+      // nothing. Silent frozen prices.
+      const previous = wsRef.current;
+      if (previous) {
+        previous.onopen = null;
+        previous.onmessage = null;
+        previous.onerror = null;
+        previous.onclose = null;
+        previous.close();
+      }
 
       const ws = new WebSocket(wsUrl(authToken));
       wsRef.current = ws;
 
       ws.onopen = () => {
-        if (cancelled) {
+        if (cancelled || wsRef.current !== ws) {
           ws.close();
           return;
         }
         backoffRef.current = INITIAL_BACKOFF_MS;
+        // Re-arm the subscription here rather than waiting for the consumer's
+        // effect to notice `connected` flipped: React can batch a close and the
+        // following open into one render, in which case the boolean never
+        // visibly changes and the effect never runs.
+        if (lastSymbolsRef.current.length > 0) {
+          ws.send(JSON.stringify({ action: 'subscribe', symbols: lastSymbolsRef.current }));
+        }
         setConnected(true);
       };
 
@@ -298,7 +359,10 @@ export function useMarketWs({
       };
 
       ws.onclose = () => {
-        if (cancelled) {
+        // Belt-and-braces with the detach above: only the CURRENT socket may
+        // report the connection down or ask for a retry. A superseded one
+        // speaks for a connection nobody is using any more.
+        if (cancelled || wsRef.current !== ws) {
           return;
         }
         setConnected(false);

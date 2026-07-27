@@ -73,7 +73,12 @@ export default function ReportScreen() {
             ) : report.data ? (
               <DocViewer
                 content={report.data.body}
-                mode={report.data.format === 'html' ? 'html' : 'text'}
+                // Unrecognized formats fall back to plain text rather than mis-rendering.
+                mode={
+                  report.data.format === 'html' || report.data.format === 'markdown'
+                    ? report.data.format
+                    : 'text'
+                }
               />
             ) : null}
           </View>

@@ -27,6 +27,7 @@ import { ChatScreen } from '@/features/chat/chat-screen';
 import { InboxScreen } from '@/features/inbox/inbox-screen';
 import { PortfolioScreen } from '@/features/portfolio/portfolio-screen';
 import { isExtendedSession } from '@/features/watchlist/session';
+import { useSelectedWatchlist } from '@/features/watchlist/use-selected-watchlist';
 import { SettingsScreen } from '@/features/settings/settings-screen';
 import { WatchlistScreen } from '@/features/watchlist/watchlist-screen';
 
@@ -58,7 +59,7 @@ export function CockpitPager() {
   usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
   useLiveActivity({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
-  // Live prices: subscribe the active watchlist's symbols and merge ticks
+  // Live prices: subscribe the SELECTED watchlist's symbols and merge ticks
   // into every watchlist-market cache entry, so rows update in real time
   // instead of waiting on the 6s REST poll. Spread the prior quote and touch
   // ONLY the price-bearing fields — never clobber rvol or the company-info
@@ -70,11 +71,15 @@ export function CockpitPager() {
   // the whole quotes map + re-rendered per message — measured 53% JS-thread
   // CPU + 36× GC at the open). Buffer latest-per-symbol in a ref and flush
   // ONE cache write per 100ms — visually identical at 10Hz.
+  // Subscribe the SAME list the watchlist screen renders — the device-local
+  // selection — not `active_id` (the server-global active list, which any
+  // desktop session can move). The two diverged on the live phone: it showed
+  // the main list while streaming ai-power-energy, freezing every visible row
+  // with no error. useSelectedWatchlist's shared store keeps this instance and
+  // the screen's in lockstep when the user switches lists in the picker.
   const { data: watchlists } = useWatchlists();
-  const activeSymbols = useMemo(() => {
-    const list = watchlists?.lists.find((l) => l.id === watchlists.active_id);
-    return list?.symbols ?? [];
-  }, [watchlists]);
+  const { selected } = useSelectedWatchlist(watchlists);
+  const activeSymbols = useMemo(() => selected?.symbols ?? [], [selected]);
 
   const pendingQuotesRef = useRef<Map<string, QuoteUpdate>>(new Map());
   const quoteFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -164,8 +169,12 @@ export function CockpitPager() {
   });
 
   // (Re)subscribe whenever the socket reconnects or the active list changes.
+  // NOT gated on `connected`: subscribe() records the symbols and the hook
+  // replays them in onopen, so calling while disconnected is how a socket that
+  // opens later learns what to stream. Gating here once left a socket
+  // permanently subscribed to nothing when `connected` never visibly flipped.
   useEffect(() => {
-    if (connected && activeSymbols.length > 0) {
+    if (activeSymbols.length > 0) {
       subscribe(activeSymbols);
     }
   }, [connected, activeSymbols, subscribe]);

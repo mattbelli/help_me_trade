@@ -1,9 +1,11 @@
 /**
- * Portfolio — the main surface. Portfolio value + today's P&L + equity curve +
- * buying power/cash + holdings, all on one page (merged Home + Portfolio per
- * user feedback). A pending-approval card surfaces here and deep-links to Inbox.
+ * Portfolio — the main surface. One scope selector (All · per-account chips)
+ * drives EVERYTHING below it: headline value + range delta, the equity curve
+ * (serv's snapshot-backed per-account history), the range-scoped P&L pills,
+ * and holdings. The range row scopes the delta + pills to the curve's window
+ * (1D = since midnight ET, serv-side).
  *
- * No entering animations on this scroll content — they were replaying on the 15s
+ * No entering animations on this scroll content — they were replaying on the
  * refetch and flicking the scroll. Values use tabular-nums so refreshes don't
  * shift layout. FlashList header holds the glance; positions are the list.
  */
@@ -11,7 +13,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
-import { useDayPnl, usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
+import { usePendingProposals, usePortfolioHistory, useSnapshot } from '@/api/queries';
 import type { BrokerSnapshot, PortfolioRange, Position, Snapshot } from '@/api/types';
 import {
   Card,
@@ -21,14 +23,15 @@ import {
   Eyebrow,
   Money,
   PageHeading,
+  Pct,
   PressableScale,
   Row,
   Screen,
   Skeleton,
-  Sparkline,
   Stack,
   Text,
 } from '@/components/ui';
+import { EquityScrub } from '@/features/portfolio/equity-scrub';
 import { usePullRefresh } from '@/hooks/use-pull-refresh';
 import { useNav } from '@/state/nav';
 import { hairline, radius, spacing, useColors } from '@/theme';
@@ -43,40 +46,52 @@ interface PositionRow {
 export function PortfolioScreen() {
   const colors = useColors();
   const { openInbox, activeTab } = useNav();
-  const [range, setRange] = useState<PortfolioRange>('1W');
+  const [range, setRange] = useState<PortfolioRange>('1D');
   const [accountFilter, setAccountFilter] = useState<AccountFilter>('all');
-  const [chartWidth, setChartWidth] = useState(0);
 
-  // Pager keeps every surface mounted, so gate the 6s polls to the visible tab
+  // Pager keeps every surface mounted, so gate the polls to the visible tab
   // (refetch-on-resume covers freshness when swiping back).
   const focused = activeTab === 'home';
   const snapshot = useSnapshot({ poll: focused });
-  // Realized (net-cash, ET-day) day P&L — matches the web DAY tile and fixes the
-  // after-hours leak the equity-curve MTM carried. `all_paper` = this screen's scope.
-  const dayPnlQ = useDayPnl('all_paper', { poll: focused });
-  const curve = usePortfolioHistory(range);
+
+  const snapshots = snapshot.data?.snapshots ?? [];
+  // The selected account snapshot; undefined = "All" overview (also the
+  // fallback if the filtered account vanishes from the payload).
+  const selected =
+    accountFilter === 'all' ? undefined : snapshots.find((s) => accountKey(s) === accountFilter);
+  const effectiveFilter: AccountFilter = selected ? accountFilter : 'all';
+  const scopeId = selected ? accountKey(selected) : 'all_paper';
+
+  // Snapshot-backed scoped history: the equity curve for this scope + window
+  // P&L (change / realized / unrealized_change; 1D = since midnight ET).
+  const history = usePortfolioHistory(range, scopeId, { poll: focused });
   const pending = usePendingProposals();
   const pendingCount = pending.data?.proposals.length ?? 0;
 
   const { refreshing, onRefresh } = usePullRefresh(() =>
-    Promise.all([snapshot.refetch(), dayPnlQ.refetch(), curve.refetch()]),
+    Promise.all([snapshot.refetch(), history.refetch()]),
   );
 
   const summary = snapshot.data?.all_accounts_summary;
   const account = snapshot.data?.account;
-  const value = summary?.portfolio_value ?? account?.portfolio_value ?? 0;
+  const value = selected
+    ? selected.account.portfolio_value
+    : (summary?.portfolio_value ?? account?.portfolio_value ?? 0);
+  const buyingPower = selected
+    ? selected.account.buying_power
+    : (summary?.buying_power ?? account?.buying_power ?? 0);
+  const cash = selected ? selected.account.cash : (summary?.cash ?? account?.cash ?? 0);
 
-  const dayPnl = dayPnlQ.data?.day_pnl ?? 0;
-  const unrealizedPl = summary?.unrealized_pl ?? 0;
-  const buyingPower = summary?.buying_power ?? account?.buying_power ?? 0;
-  const cash = summary?.cash ?? account?.cash ?? 0;
+  const win = history.data;
+  const change = win?.change ?? 0;
+  const changePct = win?.start_equity ? (change / win.start_equity) * 100 : 0;
+  const points = win?.points ?? [];
+  const rangeLabel = range === '1D' ? 'today' : range.toLowerCase();
 
-  const curvePts = (curve.data?.points ?? []).map((p) => p.equity);
   const positions = useMemo(
-    () => (snapshot.data ? collectPositions(snapshot.data, accountFilter) : []),
-    [snapshot.data, accountFilter],
+    () => (snapshot.data ? collectPositions(snapshot.data, effectiveFilter) : []),
+    [snapshot.data, effectiveFilter],
   );
-  const snapshots = snapshot.data?.snapshots ?? [];
 
   if (snapshot.isError) {
     return (
@@ -110,48 +125,46 @@ export function PortfolioScreen() {
               </Row>
             </Row>
 
-            {/* Value */}
+            {/* Scope switcher — everything below follows the selected account */}
+            {snapshots.length > 1 ? (
+              <Row gap={spacing.xs} style={{ flexWrap: 'wrap' }}>
+                <Chip label="All" active={effectiveFilter === 'all'} onPress={() => setAccountFilter('all')} />
+                {snapshots.map((s) => {
+                  const key = accountKey(s);
+                  return <Chip key={key} label={s.account_label ?? s.broker} active={effectiveFilter === key} onPress={() => setAccountFilter(key)} />;
+                })}
+              </Row>
+            ) : null}
+
+            {/* Value + range delta */}
             <Stack gap={spacing.xs}>
-              <Eyebrow>portfolio value</Eyebrow>
+              <Eyebrow>{selected ? `${selected.account_label ?? selected.broker} · value` : 'portfolio value'}</Eyebrow>
               {snapshot.isLoading ? (
                 <Skeleton height={44} width="65%" />
               ) : (
                 <Text variant="display">{usd0(value)}</Text>
               )}
-            </Stack>
-
-            {/* Stat pills — 2×2 grid above the chart */}
-            <Stack gap={spacing.sm}>
-              <Row gap={spacing.sm}>
-                <StatPill label="realized" loading={dayPnlQ.isLoading}>
-                  <Delta value={dayPnl} size="sm" />
-                </StatPill>
-                <StatPill label="unrealized" loading={snapshot.isLoading}>
-                  <Delta value={unrealizedPl} size="sm" />
-                </StatPill>
-              </Row>
-              <Row gap={spacing.sm}>
-                <StatPill label="buying power" loading={snapshot.isLoading}>
-                  <Money value={buyingPower} size="sm" />
-                </StatPill>
-                <StatPill label="cash" loading={snapshot.isLoading}>
-                  <Money value={cash} size="sm" />
-                </StatPill>
-              </Row>
-            </Stack>
-
-            {/* Equity curve + range */}
-            <View onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}>
-              {curve.isLoading || chartWidth === 0 ? (
-                <Skeleton height={110} />
-              ) : curvePts.length > 1 ? (
-                <Sparkline data={curvePts} width={chartWidth} height={110} color={colors.accent} fill strokeWidth={2} />
+              {history.isLoading && !win ? (
+                <Skeleton height={18} width={160} />
               ) : (
-                <View style={{ height: 110, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text variant="caption" color="textFaint">No history for {range}</Text>
-                </View>
+                <Row gap={spacing.sm} align="baseline">
+                  <Delta value={change} size="sm" />
+                  <Pct value={changePct} signed pnl size="sm" />
+                  <Eyebrow>{rangeLabel}</Eyebrow>
+                </Row>
               )}
-            </View>
+            </Stack>
+
+            {/* Equity curve (long-press to scrub) + range row */}
+            {history.isLoading && !win ? (
+              <Skeleton height={144} />
+            ) : points.length > 1 ? (
+              <EquityScrub points={points} height={144} />
+            ) : (
+              <View style={{ height: 144, alignItems: 'center', justifyContent: 'center' }}>
+                <Text variant="caption" color="textFaint">No history for {range}</Text>
+              </View>
+            )}
             <Row gap={spacing.xs}>
               {RANGES.map((r) => {
                 const active = r === range;
@@ -164,6 +177,26 @@ export function PortfolioScreen() {
                 );
               })}
             </Row>
+
+            {/* Stat pills — P&L row follows the range window; money row is live */}
+            <Stack gap={spacing.sm}>
+              <Row gap={spacing.sm}>
+                <StatPill label={`realized · ${rangeLabel}`} loading={history.isLoading && !win}>
+                  <Delta value={win?.realized ?? 0} size="sm" />
+                </StatPill>
+                <StatPill label={`unrealized · ${rangeLabel}`} loading={history.isLoading && !win}>
+                  <Delta value={win?.unrealized_change ?? 0} size="sm" />
+                </StatPill>
+              </Row>
+              <Row gap={spacing.sm}>
+                <StatPill label="buying power" loading={snapshot.isLoading}>
+                  <Money value={buyingPower} size="sm" />
+                </StatPill>
+                <StatPill label="cash" loading={snapshot.isLoading}>
+                  <Money value={cash} size="sm" />
+                </StatPill>
+              </Row>
+            </Stack>
 
             {/* Pending approvals → Inbox */}
             {pendingCount > 0 ? (
@@ -182,18 +215,7 @@ export function PortfolioScreen() {
               </PressableScale>
             ) : null}
 
-            {/* Account switcher */}
-            {snapshots.length > 1 ? (
-              <Row gap={spacing.xs} style={{ flexWrap: 'wrap' }}>
-                <Chip label="All" active={accountFilter === 'all'} onPress={() => setAccountFilter('all')} />
-                {snapshots.map((s) => {
-                  const key = accountKey(s);
-                  return <Chip key={key} label={s.account_label ?? s.broker} active={accountFilter === key} onPress={() => setAccountFilter(key)} />;
-                })}
-              </Row>
-            ) : null}
-
-            <Eyebrow>holdings</Eyebrow>
+            <Eyebrow>{selected ? `holdings · ${selected.account_label ?? selected.broker}` : 'holdings'}</Eyebrow>
           </Stack>
         }
         renderItem={({ item }) => <PositionRowItem position={item.position} />}

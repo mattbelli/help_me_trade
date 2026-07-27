@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,10 +16,13 @@ from imports.option_symbol import OptionSymbol, to_occ_symbol
 from trading.models import OrderIntent
 from trading.risk_engine import RiskEngine
 
+# RiskEngine's expiry check runs on the UTC date, so build fixture dates from
+# the same clock — date.today() drifts a day ahead of it every local evening.
+_UTC_TODAY = datetime.now(UTC).date()
 _TSLA_CALL = to_occ_symbol(
     OptionSymbol(
         underlying="TSLA",
-        expiration=date.today() + timedelta(days=30),
+        expiration=_UTC_TODAY + timedelta(days=30),
         strike=Decimal("410"),
         right="C",
     )
@@ -27,7 +30,7 @@ _TSLA_CALL = to_occ_symbol(
 _TSLA_CALL_TODAY = to_occ_symbol(
     OptionSymbol(
         underlying="TSLA",
-        expiration=date.today(),
+        expiration=_UTC_TODAY,
         strike=Decimal("410"),
         right="C",
     )

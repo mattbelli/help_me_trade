@@ -71,6 +71,14 @@ export interface PortfolioHistoryPoint {
 export interface PortfolioHistory {
   range: string;
   points: PortfolioHistoryPoint[];
+  // Present on scoped (account_id) responses — snapshot-backed window P&L.
+  // realized = change − unrealized_change (net-cash decomposition, serv-side).
+  account_id?: string;
+  start_equity?: number;
+  end_equity?: number;
+  change?: number;
+  realized?: number;
+  unrealized_change?: number;
 }
 
 /** Realized (ET-day, net-cash) day P&L for a scope — matches the web toolbar DAY tile. */
@@ -143,6 +151,60 @@ export interface EarningsHistory {
   events: EarningsEvent[]; // most-recent first
 }
 
+// --- /api/ticker/{symbol} (api/ticker_routes.py; mirrors frontend/lib/ticker-info-api.ts) ---
+
+/** Company profile (Finnhub /stock/profile2, trimmed server-side). Best-effort:
+ *  every field is optional — a missing Finnhub key returns {}. */
+export interface TickerProfile {
+  name?: string;
+  ticker?: string;
+  exchange?: string;
+  finnhubIndustry?: string;
+  marketCapitalization?: number; // in millions of the reporting currency
+  logo?: string;
+  weburl?: string;
+  ipo?: string;
+  shareOutstanding?: number; // in millions
+  country?: string;
+  currency?: string;
+}
+
+/** Curated fundamentals (Finnhub /stock/metric, flattened server-side). Margins,
+ *  yields and growth arrive as percentages already (45.3 = 45.3%). */
+export interface TickerMetrics {
+  pe_ttm?: number;
+  eps_ttm?: number;
+  week_52_high?: number;
+  week_52_low?: number;
+  beta?: number;
+  div_yield?: number;
+  gross_margin?: number;
+  net_margin?: number;
+  market_cap?: number; // in millions
+  ps_ttm?: number;
+  roe_ttm?: number;
+  revenue_growth_yoy?: number;
+}
+
+export interface TickerNewsItem {
+  headline: string;
+  source: string;
+  url: string;
+  datetime: string | null; // ISO 8601
+  summary: string;
+  image: string;
+}
+
+/** GET /api/ticker/{symbol}. `facts` is the app's own per-symbol context
+ *  (ai.perception.context) — left untyped until a mobile screen needs it. */
+export interface TickerInfo {
+  symbol: string;
+  profile: TickerProfile;
+  metrics: TickerMetrics;
+  news: TickerNewsItem[];
+  facts?: Record<string, unknown>;
+}
+
 export interface WatchlistList {
   id: string;
   name: string;
@@ -186,6 +248,8 @@ export interface PendingProposal {
   expires_at: string | null;
   payload_hash: string;
   account_id?: string | null;
+  /** Human-readable account/book name (e.g. "Fable (LLM book)"); fail-soft nullable. */
+  account_label?: string | null;
   source?: string | null;
   score?: ProposalScore | null;
   proposal?: Record<string, unknown>;
@@ -238,9 +302,10 @@ export interface PriceAlert {
   id: number;
   symbol: string;
   price: number;
-  direction: string; // "above" | "below"
+  direction: string; // "above" | "below" | "cross"
   note?: string;
   triggered?: number; // 0/1
+  repeat?: number; // 0/1 — persistent: re-arms after each crossing instead of one-shot
   created_at?: string;
 }
 
@@ -257,7 +322,7 @@ export interface Report {
   symbol: string;
   title: string;
   body: string;
-  format: 'text' | 'html';
+  format: 'text' | 'html' | 'markdown';
   payload: Record<string, unknown>;
   generated_at: string;
 }

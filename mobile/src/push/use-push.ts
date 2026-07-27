@@ -20,6 +20,7 @@ import { ApiError } from '@/api/client';
 import { queryClient } from '@/api/query-client';
 import { approveProposal, rejectProposal } from '@/api/endpoints';
 import { useAuth } from '@/auth/auth-context';
+import { symbolRoute } from '@/lib/symbol-route';
 
 import {
   APPROVE_ACTION,
@@ -46,7 +47,8 @@ type PushType =
   | 'risk_block'
   | 'research_ready'
   | 'proposal_missed'
-  | 'fill_report';
+  | 'fill_report'
+  | 'report_ready';
 
 interface ProposalPushData {
   type?: PushType | (string & {});
@@ -56,6 +58,8 @@ interface ProposalPushData {
   // Price-alert push (type === 'price_alert') — flat custom keys for tap-routing.
   symbol?: string;
   alert_id?: number;
+  // Nightly book/report push (type === 'report_ready') — MOBILE_AGENT_BRIEF 2026-07-23.
+  report_id?: string;
 }
 
 function refreshProposals(): void {
@@ -158,8 +162,9 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           break;
         default: {
           // Body tap → deep-link. Trade + risk + missed pushes open Approvals (Inbox);
-          // price alerts and fill reports jump to the symbol's detail screen. Unknown /
-          // research_ready kinds have no mobile surface, so the banner just shows.
+          // price alerts and fill reports jump to the symbol's detail screen; nightly
+          // book reports open the report viewer. Unknown / research_ready kinds have
+          // no mobile surface, so the banner just shows.
           const t = data.type;
           if (
             t === 'trade_proposal' ||
@@ -169,7 +174,9 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           ) {
             onOpenRef.current?.();
           } else if ((t === 'price_alert' || t === 'fill_report') && data.symbol) {
-            router.push(`/symbol/${data.symbol}`);
+            router.push(symbolRoute(data.symbol));
+          } else if (t === 'report_ready' && data.report_id?.trim()) {
+            router.push(`/report/${encodeURIComponent(data.report_id.trim())}`);
           }
         }
       }
