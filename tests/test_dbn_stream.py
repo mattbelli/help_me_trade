@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import types
 
+import pytest
+
 from signals.options_flow.dbn_stream import QUOTE_BASIS, DatabentoFlowStream
 
 META = {"occ_symbol": "TSLA260821C00400000", "underlying": "TSLA", "right": "C",
@@ -202,6 +204,29 @@ def test_a_heartbeat_touches_no_counter():
     assert (s.data_msgs, s.prints, s.subscription_acks,
             s.slow_reader_warnings, s.skipped_by_gateway) == (0, 0, 0, 0, 0)
     assert s.msgs == 120  # the raw diagnostic still moves
+
+
+def test_a_reconnect_is_counted_and_its_gap_accumulated():
+    """Self-healing is how a chronically flapping session hides. The gap seconds
+    are prints we never saw, so they accumulate rather than reporting the last
+    one — one 40s outage and eighty 0.5s ones are very different diagnoses."""
+    import datetime as dt
+    s = _stream([])
+    t0 = dt.datetime(2026, 7, 27, 14, 30, tzinfo=dt.UTC)
+    s._on_reconnect(t0, t0 + dt.timedelta(seconds=4.5))
+    s._on_reconnect(t0, t0 + dt.timedelta(seconds=1.5))
+    assert s.reconnects == 2
+    assert s.reconnect_gap_s == pytest.approx(6.0)
+
+
+def test_a_reconnect_with_unusable_timestamps_still_counts():
+    """The count is the alarm; the gap is detail. Never let a bad timestamp from
+    the vendor swallow the fact that the session dropped — and never let it
+    raise, because this runs on databento's thread inside their dispatch."""
+    s = _stream([])
+    s._on_reconnect("not-a-timestamp", None)
+    assert s.reconnects == 1
+    assert s.reconnect_gap_s == 0.0
 
 
 def test_callback_errors_are_counted_not_just_logged():

@@ -257,6 +257,8 @@ class DatabentoFlowStream:
         self.skipped_by_gateway = 0
         self.symbol_resolution_failures = 0
         self.callback_errors = 0
+        self.reconnects = 0
+        self.reconnect_gap_s = 0.0
         # Databento subscribes by parent symbol, so coverage is every contract on
         # every watched name — not a rationed slice. It is not the "*" market-wide
         # subscription the Alpaca lane means by this flag, so it stays False.
@@ -409,6 +411,24 @@ class DatabentoFlowStream:
                     getattr(rec, "err", ""),
                 )
 
+    def _on_reconnect(self, gap_start: Any, gap_end: Any) -> None:
+        """The session dropped and databento rebuilt it, replaying every
+        subscription. Loud anyway — self-healing is exactly how a chronically
+        flapping session hides, and these seconds are prints we never saw.
+        """
+        self.reconnects += 1
+        try:
+            gap = float((gap_end - gap_start).total_seconds())
+        except Exception:
+            gap = 0.0
+        self.reconnect_gap_s += gap
+        logger.error(
+            "dbn stream: RECONNECTED after a %.1fs gap (%s this session, %.1fs "
+            "total). Subscriptions were replayed; the prints inside the gap are "
+            "gone. A sweep cluster straddling it closes with legs missing.",
+            gap, self.reconnects, self.reconnect_gap_s,
+        )
+
     def _on_callback_error(self, exc: BaseException) -> None:
         """Count exceptions out of `_on_record`; databento already logs each one.
 
@@ -446,8 +466,31 @@ class DatabentoFlowStream:
         # Headroom measured 2026-07-27 on real records: _on_record runs at
         # ~90k rec/s through the real meta_for miss path, against a whole-market
         # OPRA tcbbo peak of 6,642 rec/s (1s) — ~13x, so this should stay theory.
-        client = dbn.Live(key=self._key, slow_reader_behavior="warn")
+        #
+        # reconnect_policy defaults to NONE. We set RECONNECT because the
+        # alternative was never "stay down" — it was "exit and let systemd
+        # restart the collector in 3s", which throws away the in-memory
+        # SweepBuffer, RollingFlow and pressure gauges to recover from a blip.
+        # databento's reconnect REPLAYS every subscription (session.py:737-783)
+        # and hands us the exact gap boundaries, so the process keeps its state.
+        # Reconnecting to the SAME source is not the silent downgrade the
+        # no-fallback rule forbids; degrading to Alpaca would be.
+        #
+        # ⚠️ It also makes `is_connected()` useless as a health signal: with a
+        # policy set, `is_disconnected()` returns `_reconnect_task.done()`, so
+        # it reads True right through an outage of any length. The 90s data
+        # silence clock below is therefore the ONLY thing that catches a session
+        # that never comes back — which is safe only because that clock was
+        # fixed on 07-27 (it used to be defeated by heartbeats). The
+        # is_connected() check further down still matters: it fires when the
+        # reconnect task itself gives up, which is the terminal case.
+        client = dbn.Live(
+            key=self._key,
+            slow_reader_behavior="warn",
+            reconnect_policy="reconnect",
+        )
         client.add_callback(self._on_record, self._on_callback_error)
+        client.add_reconnect_callback(self._on_reconnect)
         client.subscribe(
             dataset=DATASET, schema=SCHEMA, stype_in="parent", symbols=symbols
         )
@@ -498,20 +541,27 @@ class DatabentoFlowStream:
                     logger.info(
                         "dbn stream: %.1f prints/min (data_msgs=%s msgs=%s "
                         "prints=%s mapped=%s acks=%s slow=%s dropped=%s "
-                        "unresolved_syms=%s cb_errors=%s)",
+                        "unresolved_syms=%s cb_errors=%s reconnects=%s "
+                        "gap_s=%.1f)",
                         rate, self.data_msgs, self.msgs, self.prints, mapped,
                         self.subscription_acks, self.slow_reader_warnings,
                         self.skipped_by_gateway,
                         self.symbol_resolution_failures, self.callback_errors,
+                        self.reconnects, self.reconnect_gap_s,
                     )
 
                 if not client.is_connected():
-                    # Loud, not silent: the Alpaca lane is one settings flip away
-                    # and a human should make that call, not a fallback branch.
+                    # Terminal only. Under reconnect_policy="reconnect" this is
+                    # False only once the reconnect task itself has finished —
+                    # i.e. databento stopped trying — so a transient drop never
+                    # reaches here, it goes to _on_reconnect. Loud, not silent:
+                    # the Alpaca lane is one settings flip away and a human
+                    # should make that call, not a fallback branch.
                     logger.error(
-                        "dbn stream: session disconnected (msgs=%s prints=%s) — "
-                        "NOT falling back; set options_flow.provider=alpaca to revert",
-                        self.msgs, self.prints,
+                        "dbn stream: session is down and databento stopped "
+                        "reconnecting (msgs=%s prints=%s reconnects=%s) — NOT "
+                        "falling back; set options_flow.provider=alpaca to revert",
+                        self.msgs, self.prints, self.reconnects,
                     )
                     return
         finally:

@@ -145,14 +145,18 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `SystemCode.SUBSCRIPTION_ACK` is now counted as `stream.subscription_acks`, so that run records the
   answer instead of leaving it inferred. If acks do arrive off-hours, the RTH-only hedge can be dropped
   and the ack check can raise whenever it fires.
-- **⏳ DECISION, not a bug — `reconnect_policy`.** It defaults to `NONE` (verified), which is why our
-  disconnect path exits and lets systemd restart the collector in 3s. But `ReconnectPolicy.RECONNECT`
-  **replays every subscription** and hands `add_reconnect_callback` the exact gap boundaries
-  (`session.py:737-783`), and a process restart discards the in-memory `SweepBuffer`, `RollingFlow` and
-  pressure gauges — and trips the gauge's own "never finalize a window this process wasn't alive inside"
-  guard. Reconnecting to the *same* source is **not** the silent downgrade the no-fallback rule forbids,
-  so this is on the table; it changes failure semantics from loud crash to self-heal, so it needs a
-  reconnect counter and a gap alarm rather than a one-line flag flip.
+- **⚠️ `reconnect_policy="reconnect"` is ON, and it changed what `is_connected()` means.** With a policy
+  set, `is_disconnected()` returns `_reconnect_task.done()` (`session.py:452-458`), so **`is_connected()`
+  reads True right through an outage of any length.** Do not treat it as a health signal — the 90s data
+  silence clock is now the *only* detector of a session that never comes back, which is why the
+  heartbeat fix had to land first. The `is_connected()` branch in `run()` is the terminal case only:
+  databento has stopped trying. Reconnects and cumulative gap seconds are counted and logged.
+  ⏳ **Known, bounded, not fixed:** a sweep cluster straddling a reconnect gap closes with legs missing
+  and understates. Strictly smaller than the status quo it replaced (a restart discarded every buffered
+  cluster plus `RollingFlow` and the gauges), so it was not worth speculative cross-module plumbing —
+  but if reconnects turn out to be common in practice, dropping the `SweepBuffer` on `_on_reconnect` is
+  the fix. The pressure gauge is already gap-honest: `window_stats()` counts only minutes that have
+  cells, so a wholly-missed minute never enters `minutes_observed`.
 - **▶ Four gateway conditions are now counted** (`subscription_acks`, `slow_reader_warnings`,
   `skipped_by_gateway`, `symbol_resolution_failures`, plus `callback_errors`) and appear in the periodic
   rate line. They exist because each one **makes the tape wrong without making it stop**, which is the
