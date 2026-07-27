@@ -222,6 +222,37 @@ def bars_for_date(date: str, db_path: Path = DEFAULT_DB_PATH) -> dict[str, float
         }
 
 
+def bars_before_date(
+    date: str, db_path: Path = DEFAULT_DB_PATH
+) -> dict[str, tuple[float, str]]:
+    """Each symbol's most recent split-adjusted close STRICTLY BEFORE ``date``.
+
+    This is the spot reference Addendum B registered, and using the session's own
+    close instead was a live look-ahead: moneyness would be bucketed against the
+    move that had just happened, so every OTM label was conditioned on the day's
+    realized return. Fixed 2026-07-27.
+
+    Strictly-before rather than date-minus-one-day so weekends, holidays and
+    halted names resolve to a real bar instead of a hole. Returns the bar's date
+    alongside the close so the caller can report how stale it is — a delisted name
+    can legitimately return a close from weeks earlier, which is a data-quality
+    fact worth surfacing rather than silently bucketing against.
+    """
+    with connect(db_path) as conn:
+        return {
+            r["symbol"]: (r["c"], r["date"])
+            for r in conn.execute(
+                "SELECT symbol, c, date FROM ("
+                "  SELECT symbol, c, date, ROW_NUMBER() OVER ("
+                "    PARTITION BY symbol ORDER BY date DESC) rn"
+                "  FROM equity_bars"
+                "  WHERE date < ? AND adjustment = 'split' AND c IS NOT NULL"
+                ") WHERE rn = 1",
+                (date,),
+            )
+        }
+
+
 def record_session(
     date: str,
     *,

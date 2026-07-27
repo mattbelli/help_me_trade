@@ -14,11 +14,13 @@ import pytest
 
 from db.flow_corpus import (
     SCHEMA_VERSION,
+    bars_before_date,
     connect,
     delete_session_rows,
     ingested_dates,
     init_db,
     record_session,
+    upsert_bars,
     upsert_rollup,
 )
 
@@ -114,6 +116,44 @@ def test_clipped_value_round_trips(dbp):
     # robustness counterpart must never collapse into one number.
     assert r["u_premium"] == 25.0
     assert r["u_premium_clipped"] == 12.0
+
+
+def _bar(sym, d, close):
+    return (sym, d, close, close, close, close, 1000, "split", "test")
+
+
+def test_spot_ignores_the_session_own_close(dbp):
+    """The Addendum B look-ahead, pinned. Moneyness must be bucketed against the
+    PRIOR session's close, so rewriting the session's own close — the bar that
+    embeds the day's realized move — must not change the spot at all. Before the
+    2026-07-27 fix this test would have failed: the rollup read `date = session`,
+    which conditioned every OTM label on the move that had just happened."""
+    init_db(dbp)
+    upsert_bars([_bar("AAPL", "2025-07-25", 100.0),
+                 _bar("AAPL", "2025-07-28", 130.0)], db_path=dbp)
+
+    assert bars_before_date("2025-07-28", db_path=dbp)["AAPL"] == (100.0, "2025-07-25")
+
+    # the session ripped 30% harder; the spot used for bucketing must not move
+    upsert_bars([_bar("AAPL", "2025-07-28", 169.0)], db_path=dbp)
+    assert bars_before_date("2025-07-28", db_path=dbp)["AAPL"] == (100.0, "2025-07-25")
+
+
+def test_spot_skips_weekends_and_holidays(dbp):
+    """Strictly-before, not date-minus-one-day: a Monday session must resolve to
+    Friday's bar rather than to a hole where Sunday would be."""
+    init_db(dbp)
+    upsert_bars([_bar("MSFT", "2025-07-25", 50.0)], db_path=dbp)  # Friday
+    close, on = bars_before_date("2025-07-28", db_path=dbp)["MSFT"]  # Monday
+    assert (close, on) == (50.0, "2025-07-25")
+
+
+def test_spot_absent_when_no_prior_bar_exists(dbp):
+    """An IPO's first session has no prior close. It must be absent — never
+    silently filled from a later bar, which would be look-ahead by another route."""
+    init_db(dbp)
+    upsert_bars([_bar("NEWCO", "2025-07-28", 20.0)], db_path=dbp)
+    assert "NEWCO" not in bars_before_date("2025-07-28", db_path=dbp)
 
 
 def test_old_vintage_is_not_reported_as_ingested(dbp):

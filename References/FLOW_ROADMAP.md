@@ -57,7 +57,14 @@ being free the moment we grade anything.
 
 ### 1a. The bugs
 
-- [ ] **1.1 Look-ahead: moneyness uses the wrong day's close.** `tools/flow_corpus_rollup.py:215`
+- [x] **1.1 Look-ahead: moneyness uses the wrong day's close. — DONE 2026-07-27.** Fixed via
+      `bars_before_date()` (most recent split-adjusted close STRICTLY BEFORE the session, so
+      weekends/holidays/halts resolve to a real bar). **Measured effect on 2025-07-28: 212,205
+      prints — 3.1% of the session — moved out of ATM**, $490M of premium with them. The bug was
+      hindsight ATM-ness: strikes near where the stock ENDED UP looked at-the-money after the fact.
+      The OTM 2-10% bucket was understated by 8.4%, and OTM is where the academic prior lives.
+      `stale_spot=0`. Three tests pin it, incl. that rewriting a session's own close cannot move
+      its spot. *Original finding below.* `tools/flow_corpus_rollup.py:215`
       passes the session's own date to `bars_for_date`; Addendum B line 22 commits verbatim to the
       **prior** session's close. Every OTM label is conditioned on the move that already happened.
       *Fix:* pass the prior trading day. *Done when:* a test pins that a session's moneyness is
@@ -88,7 +95,15 @@ Each decides something downstream. Run them, do not skip to building.
       anything that fires is a false positive. *Decides:* whether the mid-cap sub-hypothesis is
       testable at all. *Note:* the alarming 12× figure is currently a **simulation** — this replaces
       it with a measurement. Change no threshold before this runs.
-- [ ] **1.8 (b) Is the multi-leg sign flip real, or just SPX?** Redo the Addendum D flip test on
+- [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — ANSWERED 2026-07-27: JUST INDEX/ETF.**
+      `tools/multileg_arm_probe.py`, 2025-07-28. Single names flip **0/3** measures (net -354.3M all
+      vs -89.7M ex-multileg — same sign); index roots + ETFs flip **3/3**; pooled flips 3/3. Multi-leg
+      is 19.5% of single-name premium but **48.4% of index/ETF premium** — SPX condors and ETF
+      collars. **So the Addendum D alarm is real but does not reach the single-name flow the 3-45d
+      swing thesis targets.** Bonus finding: single names were net SHORT (-$354M) while index/ETF was
+      net LONG (+$908M) the same session — pooling conflates two opposite signals, which matters for
+      the Phase 4 aggregate's denominator. ⚠️ One session, in-sample; ETF list is hand-built and
+      incomplete. Re-run across the corpus before leaning on it. *Original framing below.* Redo the Addendum D flip test on
       single stocks only, excluding index roots and ETFs. *Decides:* whether multi-leg contamination
       is a whole-corpus problem or a big-index artifact. **Cheapest item in this phase — do it first.**
 - [ ] **1.9 (c) Validate the nanosecond multi-leg heuristic, free.** Use `ts_recv` (manually-reported

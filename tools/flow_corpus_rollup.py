@@ -45,7 +45,7 @@ from db.flow_corpus import (  # noqa: E402
     MNY_BUCKETS,
     SCHEMA_VERSION,
     SIDES,
-    bars_for_date,
+    bars_before_date,
     delete_session_rows,
     ingested_dates,
     init_db,
@@ -211,13 +211,25 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     ml = _multileg(arr["ts_event"].astype(np.int64),
                    arr["instrument_id"].astype(np.int64)).astype(np.int64)
 
-    # --- moneyness against the session close --------------------------------
-    closes = bars_for_date(session.isoformat(), **kw)
+    # --- moneyness against the PRIOR session's close -------------------------
+    # Addendum B registers the prior close, and using this session's own close was
+    # a look-ahead: it bucketed moneyness against the move that had just happened,
+    # so every OTM label carried the day's realized return. Fixed 2026-07-27.
+    closes = bars_before_date(session.isoformat(), **kw)
     spot_by_code = np.array(
-        [closes.get(str(s), np.nan) for s in uniq_und], dtype=np.float64
+        [closes.get(str(s), (np.nan, ""))[0] for s in uniq_und], dtype=np.float64
+    )
+    # How old each spot is, in calendar days. A live name reads 1-3 (weekends);
+    # a delisted or long-halted one can read weeks, which is a real bucketing
+    # caveat rather than an error -- counted so it can never pass silently.
+    spot_age = np.array(
+        [(session - date.fromisoformat(d)).days if d else -1
+         for _, (_, d) in ((s, closes.get(str(s), (np.nan, ""))) for s in uniq_und)],
+        dtype=np.int32,
     )
     spot = spot_by_code[und_code]
     no_spot = int((~np.isfinite(spot)).sum())
+    stale_spot = int((np.isfinite(spot_by_code) & (spot_age > 5))[und_code].sum())
 
     dte_b = _bucket_dte(dte)
     mny_b = _bucket_mny(strike, spot, right)
@@ -271,6 +283,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
                    unresolved_prints=unresolved, no_spot_prints=no_spot,
                    ingested_at=datetime.now(UTC).isoformat(), **kw)
     return {"prints": n_prints, "rows": len(rows), "unresolved": unresolved,
+            "stale_spot": stale_spot,
             "no_spot": no_spot, "underlyings": int(len(np.unique(und_code)))}
 
 
@@ -291,10 +304,11 @@ def main() -> int:
             res = rollup_session(d)
             if res:
                 logger.info(
-                    "%s prints=%s rows=%s unds=%s unresolved=%s no_spot=%s %.0fs",
+                    "%s prints=%s rows=%s unds=%s unresolved=%s no_spot=%s "
+                    "stale_spot=%s %.0fs",
                     d, f"{res['prints']:,}", f"{res['rows']:,}",
                     res.get("underlyings"), f"{res.get('unresolved', 0):,}",
-                    f"{res.get('no_spot', 0):,}",
+                    f"{res.get('no_spot', 0):,}", f"{res.get('stale_spot', 0):,}",
                     (datetime.now(UTC) - t0).total_seconds(),
                 )
         d += timedelta(days=1)
