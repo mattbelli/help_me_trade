@@ -103,11 +103,14 @@ async def _fetch_symbol_bars(
 
 
 async def run_signal_scan() -> list[dict[str, Any]]:
-    if not _has_enabled_rules():
+    # SQLite reads off the event loop: at market open these contend with busy
+    # writers and a sync call here parks every other coroutine (loop_probe
+    # caught exactly this stack mid-stall on 2026-07-27).
+    if not await asyncio.to_thread(_has_enabled_rules):
         return []
 
     broker_name = primary_broker()
-    symbols = _scan_symbols(broker_name)
+    symbols = await asyncio.to_thread(_scan_symbols, broker_name)
     if not symbols:
         return []
 

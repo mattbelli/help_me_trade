@@ -21,7 +21,19 @@ logger = logging.getLogger(__name__)
 MEMORY_TYPES = frozenset({"directive", "preference", "fact", "lesson", "thesis"})
 
 
+# Paths already initialized this process. Nearly every accessor in this module
+# calls init_ai_tables() first, and the body takes a WRITE transaction (the
+# research_artifacts backfill) — re-running it per call meant every scan tick
+# contended for the write lock at market open and parked the event loop
+# (loop_probe caught it in the act, 2-7s stalls). Init is idempotent, so a
+# concurrent first-call racing the guard is harmless.
+_INIT_DONE: set[str] = set()
+
+
 def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
+    key = str(db_path)
+    if key in _INIT_DONE:
+        return
     with _connect(db_path) as conn:
         conn.executescript(
             """
@@ -190,6 +202,8 @@ def init_ai_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         # malformed"). FTS5's own rebuild is correct and idempotent; the
         # triggers keep it in sync from here on.
         conn.execute("INSERT INTO memories_fts(memories_fts) VALUES('rebuild')")
+    # Only after full success — a failed init must retry on the next call.
+    _INIT_DONE.add(key)
 
 
 def _row_to_memory(row: sqlite3.Row) -> dict[str, Any]:
