@@ -24,8 +24,10 @@ from db.flow_corpus import (
     upsert_rollup,
 )
 
-ROW = ("2025-07-28", "AAPL", "C", "0-7", "atm", "buy", "buy", 3, 30,
+ROW = ("2025-07-28", "AAPL", "C", "0-7", "atm", "buy", "buy", 3, 2, 30,
        1000.0, 10.0, 500.0, 25.0, 12.0, 0, SCHEMA_VERSION)
+PREMIUM = 10  # index of premium_usd in ROW
+MULTILEG = 15
 
 
 @pytest.fixture
@@ -57,8 +59,8 @@ def test_both_multileg_arms_coexist(dbp):
     to compute both arms without a re-roll."""
     init_db(dbp)
     clean, dirty = list(ROW), list(ROW)
-    dirty[14] = 1
-    dirty[9] = 4000.0
+    dirty[MULTILEG] = 1
+    dirty[PREMIUM] = 4000.0
     assert upsert_rollup([tuple(clean), tuple(dirty)], db_path=dbp) == 2
     with connect(dbp) as conn:
         rows = {r["multileg"]: r["premium_usd"] for r in conn.execute(
@@ -90,7 +92,19 @@ def test_legacy_table_is_rebuilt(dbp):
 
     with connect(dbp) as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
-    assert {"u_premium_clipped", "multileg"} <= cols
+    assert {"u_premium_clipped", "multileg", "orders"} <= cols
+    assert upsert_rollup([ROW], db_path=dbp) == 1
+
+
+def test_rebuild_triggers_on_a_non_key_column_too(dbp):
+    """The v3 -> v4 path. `orders` is NOT in the primary key, so a guard keyed on
+    the key columns alone would leave a v3 table in place and every insert would
+    fail on the missing column. The guard is driven off the whole column set for
+    exactly this reason."""
+    init_db(dbp)
+    with connect(dbp) as conn:
+        conn.execute("ALTER TABLE flow_rollup DROP COLUMN orders")
+    init_db(dbp)
     assert upsert_rollup([ROW], db_path=dbp) == 1
 
 
@@ -181,7 +195,7 @@ def test_reroll_across_buckets_does_not_double_count(dbp):
     the session twice. Session-scoped delete is the only idempotent unit."""
     init_db(dbp)
     unknown = list(ROW)
-    unknown[4] = "unknown"
+    unknown[4] = "no_spot_missing"
     upsert_rollup([tuple(unknown)], db_path=dbp)
 
     # spot arrives on the re-roll and the bucket resolves

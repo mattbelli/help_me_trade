@@ -28,11 +28,41 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # Bump when a bucket boundary or a classification rule changes. Rows carry it so
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
-MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "unknown")
+# 'unknown' was two different things wearing one label, and it is 38.75% of a
+# session's premium (measured 2025-07-28), so the conflation is not a rounding
+# error. Cash-settled index roots have no spot BY CONSTRUCTION -- SPX and SPXW
+# alone are $9.67B of the $10.20B in that bucket -- while an ordinary name with
+# no bar is a data fault. Pooled, the structural mass hides the fault; split,
+# `no_spot_missing` is $18.9M (0.07% of session premium) and becomes an ALARM:
+# a missed index root or a symbology break would move it by three orders of
+# magnitude. It already surfaces real ones -- BRKB (BRK.B ticker format), FI
+# (renamed from FISV), PARA (acquired) -- which is the 1.4 delisting question
+# arriving on its own.
+MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "no_spot_index", "no_spot_missing")
 SIDES = ("buy", "sell", "unclassified")
+
+# Cash-settled index roots: no underlying share trades, so no equity bar can ever
+# exist and moneyness is unbucketable rather than missing. Deliberately a short
+# list of the roots that actually print -- OPRA's definition record carries NO
+# usable discriminator (verified 2026-07-27 on 1,592,395 contracts: `cfi` is
+# empty, `security_type` is 'OPT' for everything, `underlying_product` is 255 for
+# everything), so a curated list is the only option. Being incomplete is safe by
+# construction: a root we miss lands in `no_spot_missing`, which is monitored.
+INDEX_ROOTS = frozenset({
+    "SPX", "SPXW", "XSP", "NDX", "NDXP", "XND", "RUT", "RUTW", "MRUT",
+    "VIX", "VIXW", "DJX", "OEX", "XEO", "RVX", "SPESG", "MXEA", "MXEF",
+})
+
+# Columns the current vintage must have. init_db rebuilds when any is absent --
+# see the comment there for why dropping is safe for this table specifically.
+_ROLLUP_COLUMNS = frozenset({
+    "date", "underlying", "right", "dte_bucket", "mny_bucket", "side",
+    "strict_side", "prints", "orders", "contracts", "premium_usd", "premium_sq",
+    "premium_max", "u_premium", "u_premium_clipped", "multileg", "schema_version",
+})
 
 
 def connect(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -54,8 +84,10 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
         # would be re-rolled before any query could read it. The rows are stale,
         # not precious. This runs before CREATE so the recreate is the same
         # statement that builds a fresh database, never a second divergent copy.
+        # Driven off the whole column set rather than one name so a later column
+        # cannot be added to the DDL and silently skip the rebuild.
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_rollup)")}
-        if cols and "multileg" not in cols:
+        if cols and not _ROLLUP_COLUMNS <= cols:
             conn.execute("DROP TABLE flow_rollup")
         conn.execute(
             """
@@ -68,6 +100,30 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 side TEXT NOT NULL,
                 strict_side TEXT NOT NULL,
                 prints INTEGER NOT NULL,
+                -- Distinct (ts_event, instrument_id) groups behind those prints:
+                -- one order that swept several venues arrives as N prints but is
+                -- ONE observation, and counting it N times inflates every
+                -- dispersion statistic computed off this table. **`orders` is the
+                -- N for any z-score or standard error; `prints` is retained
+                -- unchanged because the prereg registered it.**
+                -- Measured 2025-07-28: 6,930,544 prints -> 6,464,608 orders
+                -- (6.72% pooled), but the inflation is CONCENTRATED -- median
+                -- 5.85% / p90 9.44% / max 15.97% across the 480 names with >=1000
+                -- prints, worst in thin, heavily-swept names (TLRY, SNAP, CIFR,
+                -- BITF). At p90 that overstates sqrt(N) by 1.051x, and it does so
+                -- exactly where measurement 1.7 expects false positives.
+                -- Deliberately NOT a re-signing: legs inside a group disagree on
+                -- side in only 1.371% of multi-print groups carrying 0.167% of
+                -- premium, so imposing one sign per group would move almost
+                -- nothing while breaking a registered per-print definition.
+                -- ⚠️ A group whose legs disagree on side straddles two buckets and
+                -- is counted in EACH -- necessary, or the sell half of every mixed
+                -- sweep would have premium with no N behind it. So SUM(orders)
+                -- over buckets slightly exceeds the session's distinct group count
+                -- (6,472,736 vs 6,464,608 on 2025-07-28, +0.13%). Correct per
+                -- bucket, which is the grain every statistic uses; do not sum it
+                -- across buckets and call the result a session N.
+                orders INTEGER NOT NULL,
                 contracts INTEGER NOT NULL,
                 premium_usd REAL NOT NULL,
                 premium_sq REAL NOT NULL,
@@ -160,7 +216,7 @@ def delete_session_rows(date: str, db_path: Path = DEFAULT_DB_PATH) -> int:
 
     Row-scoped INSERT OR REPLACE is NOT enough: the primary key contains
     ``mny_bucket``, and a re-roll can legitimately move a row to a different
-    bucket (e.g. once spot is available, 'unknown' becomes 'otm2_10'). The old
+    bucket (e.g. once spot is available, a no-spot row becomes 'otm2_10'). The old
     row keeps its old key and survives, so the session ends up counted twice.
     Observed 2026-07-26 — premium doubled to $45.6B under a phantom 'unknown'
     bucket. Session-scoped delete is the only idempotent unit here.
@@ -176,10 +232,10 @@ def upsert_rollup(rows: list[tuple], db_path: Path = DEFAULT_DB_PATH) -> int:
     with connect(db_path) as conn:
         conn.executemany(
             "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
-            "dte_bucket, mny_bucket, side, strict_side, prints, contracts, "
-            "premium_usd, premium_sq, premium_max, u_premium, "
+            "dte_bucket, mny_bucket, side, strict_side, prints, orders, "
+            "contracts, premium_usd, premium_sq, premium_max, u_premium, "
             "u_premium_clipped, multileg, schema_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
     return len(rows)
@@ -264,6 +320,15 @@ def record_session(
     ingested_at: str,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
+    """Ledger one processed session.
+
+    ``no_spot_prints`` counts ONLY the ``no_spot_missing`` arm from
+    schema_version 4 onward — prints on a name that should have had an equity bar
+    and did not. Index roots are excluded because they can never have one, and
+    including them made this column read 14% of prints when the actual fault rate
+    was 0.03%. Rows at earlier versions carry the old pooled meaning and are
+    fenced out by ``ingested_dates()``.
+    """
     with connect(db_path) as conn:
         conn.execute(
             "INSERT OR REPLACE INTO corpus_sessions (date, prints, rows, "

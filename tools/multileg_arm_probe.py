@@ -5,10 +5,13 @@ FLIPS the session sign of all three directional measures — a genuine alarm, bu
 measured on the pooled tape. This splits the arm three ways: everything, single
 names only, and index roots + ETFs.
 
-First run (2025-07-28, IN-SAMPLE, one session):
+Re-run 2026-07-27 with roadmap 1.2's curated INDEX_ROOTS in place of the old
+"no equity bar => index" test (2025-07-28, IN-SAMPLE, one session):
     ALL            13.0% of prints / 33.3% of premium multi-leg -> flips 3/3
-    SINGLE NAMES   11.0% / 19.5%                                -> flips 0/3
-    INDEX + ETFs   16.3% / 48.4%                                -> flips 3/3
+    SINGLE NAMES   10.9% / 19.5%                                -> flips 0/3
+    INDEX + ETFs   16.5% / 48.5%                                -> flips 3/3
+The conclusion is unchanged from the first run; only the handful of bar-less
+equities (BRKB, FI, PARA) moved arms, worth ~$35M of $26.31B.
 i.e. the contamination that flips the sign lives in index/ETF spread structures
 (SPX condors, ETF collars), not in the single-name flow the 3-45d swing thesis
 targets. Also: single names were net SHORT while index/ETF was net LONG on the
@@ -33,7 +36,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from db.flow_corpus import bars_before_date  # noqa: E402
+from db.flow_corpus import INDEX_ROOTS  # noqa: E402
 from tools.flow_corpus_rollup import (  # noqa: E402
     TCBBO_DIR,
     _load_definitions,
@@ -69,9 +72,12 @@ def probe(session: date) -> None:
     arr, und = arr[hit], d_und[idx[hit]]
 
     names = np.array([str(x) for x in uniq_und])
-    closes = bars_before_date(session.isoformat())
-    # No equity bar at all => index root. Everything else is an equity or an ETF.
-    single = np.array([n in closes and n not in ETF_SET for n in names])[und]
+    # Was "no equity bar => index root", which is the exact conflation roadmap 1.2
+    # removed: BRKB (ticker format), FI (renamed) and PARA (acquired) have no bar
+    # and are ordinary equities. Classify off the curated root list instead.
+    single = np.array(
+        [n not in INDEX_ROOTS and n not in ETF_SET for n in names]
+    )[und]
 
     ml = _multileg(arr["ts_event"].astype(np.int64),
                    arr["instrument_id"].astype(np.int64))

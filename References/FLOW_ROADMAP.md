@@ -69,22 +69,51 @@ being free the moment we grade anything.
       **prior** session's close. Every OTM label is conditioned on the move that already happened.
       *Fix:* pass the prior trading day. *Done when:* a test pins that a session's moneyness is
       unchanged by editing that session's own close row.
-- [ ] **1.2 `mny_bucket='unknown'` pools two different things.** Index roots (no spot exists) land in
-      the same bucket as ordinary names that merely lack a bar. That silently deletes the thin-name
-      tier the mid-cap sub-hypothesis is about. *Fix:* separate `no_spot_index` from `no_spot_missing`.
-      *Done when:* the two counts are reported separately per session.
-- [ ] **1.3 Sweeps still count as N observations.** 99.4% of multi-print groups share one BBO
-      snapshot, so N prints are one order and one quote. *Fix:* add a `group_prints` column and
-      adopt one sign per ns-group. *Done when:* a known sweep contributes once, not N times.
+- [x] **1.2 `mny_bucket='unknown'` pooled two different things. — DONE 2026-07-27.** Split into
+      `no_spot_index` and `no_spot_missing` at `schema_version=4`. **The pooled bucket was 38.75% of
+      session premium and 99.4% of it was structural**: `no_spot_index` $10,129.6M vs
+      `no_spot_missing` $64.9M on 2025-07-28, a 156× split hiding inside one label.
+      OPRA's definition record carries **no** discriminator — `cfi` is empty, `security_type` is
+      `'OPT'` and `underlying_product` is `255` on all 1,592,395 contracts (verified) — so
+      `INDEX_ROOTS` is a curated list in `db/flow_corpus.py`. Being incomplete is safe *by
+      construction*: a missed root falls into `no_spot_missing`, which the re-roll logs as
+      `no_spot_$` and would jump from ~$65M to billions. The missing arm is already earning its
+      keep — it surfaces **BRKB** (BRK.B ticker format), **FI** (renamed from FISV) and **PARA**
+      (acquired), i.e. item 1.4 arriving on its own. `no_spot_prints` in the session ledger now
+      counts the missing arm only, so it reads 0.6% instead of 14% and is a usable alarm.
+- [x] **1.3 Sweeps counted as N observations. — DONE 2026-07-27.** Added an `orders` column:
+      distinct `(ts_event, instrument_id)` groups. **`orders`, never `prints`, is the N for any
+      z-score or standard error**; `prints` stays as registered. 6,930,544 prints → 6,464,608 orders
+      (6.72% pooled) — but the inflation is *concentrated*: median 5.85%, p90 9.44%, max 15.97%
+      across the 480 names with ≥1000 prints, worst in thin heavily-swept names (TLRY, SNAP, CIFR,
+      BITF, POET). At p90 that overstates √N by 1.051×, **in exactly the tier 1.7 expects false
+      positives in.** ⚠️ Deliberately **not** the "one sign per ns-group" half of the original fix:
+      measured first, and legs disagree on side in only 1.371% of multi-print groups carrying
+      **0.167% of premium** — not worth overriding a registered per-print definition for. A group
+      that does straddle two buckets is counted in each, so `SUM(orders)` across buckets exceeds the
+      session's group count by 0.13%; correct per bucket, wrong as a session total.
 - [ ] **1.4 Declare the delisting/acquisition rule.** Acquired names are the archetypal winners and
       their bars simply stop. *Fix:* write the terminal-value rule into the prereg **before**
       grading. *Done when:* it is registered in Addendum E.
-- [ ] **1.5 Contract multiplier.** `premium = price/PX * size * 100.0` hardcodes 100; adjusted
-      contracts do not always deliver 100 shares. ⚠️ The research round proposed using
-      `unit_of_measure_qty` — **that does not work**, the field is `UNDEF` on all 1,592,395 C/P
-      contracts (verified). Needs a different source or an explicit "known limitation" note.
+      *Now has a surface:* 1.2's `no_spot_missing` bucket enumerates exactly these names per session
+      (PARA on 2025-07-28), so the rule can be written against a real list instead of a guess.
+- [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum E.**
+      `premium = price/PX * size * 100.0` hardcodes 100 and adjusted contracts do not always deliver
+      100 shares. **No field in the OPRA definition record can fix it** — every candidate is UNDEF
+      on all 1,592,395 C/P contracts: `contract_multiplier`, `original_contract_size` and
+      `min_lot_size_round_lot` are all INT32_MAX, `unit_of_measure_qty`, `display_factor` and
+      `price_ratio` are all INT64 UNDEF (exhaustively checked, not just the one field the research
+      round named). **But the exposure is now measured rather than unknown**: adjusted contracts are
+      detectable by the OCC convention of a digit-suffixed root (ENVX1, BABA2, CVX1) and are 225
+      roots / 1,897 prints / **$7.2M = 0.028% of session premium**. That is a bounded known
+      limitation, not a threat to any result. *Remaining:* register the bound + the digit-suffix
+      detector in Addendum E so nobody re-opens it.
 - [ ] **1.6 Re-roll every session** at the new `schema_version`. *Done when:* `ingested_dates()`
       returns the full corpus at the current version.
+      **The schema is now FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three
+      have landed, so this is one pass, not two. Blocked only on the tcbbo backfill (71/260 at
+      2026-07-27 01:00, ~0.8 min/session). One session rolls in 13s, so 260 is ~1 hour.
+      **Do not add a column after this point without accepting a second full re-roll.**
 
 ### 1b. The four measurements
 

@@ -50,6 +50,21 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `ts_event`, different instrument): OPRA `flags` is constant 194 across all 6.95M prints and marks
   nothing (`tools/tcbbo_flags_probe.py`), but `ts_event` is true-ns so ~1 coincidence is expected per
   session.
+  **▸ DE-ESCALATED 07-27 by roadmap 1.8 — it is an index/ETF artifact.** Split three ways
+  (`tools/multileg_arm_probe.py`): **single names flip 0/3** measures (10.9% of prints / 19.5% of
+  premium multi-leg), **index roots + ETFs flip 3/3** (16.5% / 48.5%). Institutional hedging is
+  overwhelmingly spread structures; single-name flow is not. The both-arms presentation rule above
+  **still stands** — but the alarm does not reach the single-name flow the 3–45 day thesis targets.
+  ⚠️ One session, in-sample; re-run across the corpus. Related, and it matters for the Phase 4
+  aggregate's denominator: single names were net **short** (−$354M) while index/ETF was net **long**
+  (+$908M) the same session, so pooling them cancels two opposite signals.
+- **⚠️ `orders`, NEVER `prints`, is the N for any z-score or standard error** (`schema_version=4`).
+  A sweep arrives as N prints of one order; counting it N times inflates √N by up to 1.051× at p90,
+  worst in thin heavily-swept names (TLRY 16.0%, SNAP 15.0%) — the exact tier measurement 1.7 is
+  about. `prints` is retained unchanged because it is pre-registered. Do **not** sum `orders` across
+  buckets for a session total: a sweep whose legs disagree on side is counted in each bucket it
+  touches, so the sum runs 0.13% above the true group count. Correct per bucket, which is the grain
+  every statistic uses.
 - **⏳ CONFIRMATORY, once the backfill lands:** the rule was chosen after seeing 2025-07-28, so that
   session is in-sample. Re-measure abstention across the ~258 unexamined sessions and report where it
   falls against the 20–35% band — **outside the band is a finding, not a reason to retune.** Report the
@@ -60,9 +75,16 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   retroactively.
 - **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
   whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
-- **⏳ Rollup not yet run across the corpus** — verified on 2025-07-28 only (9s/session, 186,768 rows at
-  `schema_version=3`). Run `tools/flow_corpus_rollup.py` once the files land, then re-run
+- **⏳ Rollup not yet run across the corpus** — verified on 2025-07-28 only (13s/session, 186,750 rows
+  at `schema_version=4`). Run `tools/flow_corpus_rollup.py` once the files land, then re-run
   `tools/flow_corpus_bars.py` so the full universe (not just one session's) has spot.
+  **The schema is FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three have
+  landed, so this is one pass (~1 hour for 260 sessions), not two. Adding a column after this point
+  costs a second full re-roll.
+  **Watch `no_spot_$` in the log during the unattended run.** It counts only the `no_spot_missing`
+  arm — ordinary names that should have had an equity bar. Baseline is ~$65M/session; an index root
+  missing from `INDEX_ROOTS` would show up as **billions**, and that is the designed failure signal
+  for the curated list.
 - **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
   are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
   `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —

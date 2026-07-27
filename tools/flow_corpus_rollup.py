@@ -24,6 +24,14 @@ It does NOT test the sign itself, which is why `multileg` is a grain (Addendum D
 a spread leg is priced off the package, not its own NBBO, and dropping those
 prints flips the 2025-07-28 session sign of all three measures at once.
 
+Two counting rules ride alongside, both schema_version 4:
+  * `orders` — distinct (ts_event, instrument_id) groups. One sweep is one
+    observation however many venues it crossed; `orders`, never `prints`, is the
+    N for a z-score.
+  * `no_spot_index` vs `no_spot_missing` — a cash-settled index has no spot by
+    construction; an ordinary name without one is a fault. Pooling them buried a
+    0.07%-of-premium alarm inside a 38.75%-of-premium bucket.
+
   python tools/flow_corpus_rollup.py --start 2026-07-23 --end 2026-07-24
 """
 
@@ -35,13 +43,13 @@ import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-import databento as db
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db.flow_corpus import (  # noqa: E402
     DTE_BUCKETS,
+    INDEX_ROOTS,
     MNY_BUCKETS,
     SCHEMA_VERSION,
     SIDES,
@@ -66,10 +74,15 @@ logger = logging.getLogger("flow_corpus_rollup")
 def _load_definitions(session: date) -> tuple[np.ndarray, ...] | None:
     """instrument_id → (underlying, right, strike, dte), as sorted parallel arrays
     so the print-side join is a vectorized searchsorted rather than 11M dict hits."""
+    # Imported inside the reader, not at module scope: databento is not in
+    # requirements.txt (dbn_stream.py does the same at its use site), and the pure
+    # bucketing/grouping helpers below must stay importable for tests without it.
+    import databento as dbn
+
     path = DEFS_DIR / f"{session.isoformat()}.dbn.zst"
     if not path.exists():
         return None
-    arr = db.DBNStore.from_file(path).to_ndarray()
+    arr = dbn.DBNStore.from_file(path).to_ndarray()
 
     cls = arr["instrument_class"]
     keep = (cls == b"C") | (cls == b"P")
@@ -123,6 +136,36 @@ def _multileg(ts_event: np.ndarray, iid: np.ndarray) -> np.ndarray:
     return out
 
 
+def _order_groups(ts_event: np.ndarray, iid: np.ndarray) -> tuple[np.ndarray, int]:
+    """Group id per print, where a group is one (ts_event, instrument_id).
+
+    Same instrument at the same nanosecond is ONE order crossing several venues,
+    so N prints are one observation. Distinct from `_multileg`, which keys on a
+    *different* instrument at the same nanosecond: same key, opposite predicate,
+    different meaning. Returns (group_id_per_print, n_groups).
+    """
+    order = np.lexsort((iid, ts_event))
+    ts_s, iid_s = ts_event[order], iid[order]
+    new = np.r_[True, (ts_s[1:] != ts_s[:-1]) | (iid_s[1:] != iid_s[:-1])]
+    gid = np.empty(len(ts_event), dtype=np.int64)
+    gid[order] = np.cumsum(new) - 1
+    return gid, int(new.sum())
+
+
+def _orders_per_bucket(inv: np.ndarray, gid: np.ndarray, n_groups: int,
+                       n_buckets: int) -> np.ndarray:
+    """Distinct groups contributing to each rollup bucket.
+
+    Counts unique (bucket, group) pairs rather than assuming a group lands wholly
+    in one bucket. Usually it does — a group is one instrument, so it shares an
+    underlying, right, DTE and moneyness — but `side` is per print, and 1.371% of
+    multi-print groups have legs on both sides. Those straddle two buckets and
+    must be counted in each, or the sell half of every mixed sweep vanishes.
+    """
+    pair = np.unique(inv.astype(np.int64) * n_groups + gid)
+    return np.bincount(pair // n_groups, minlength=n_buckets)
+
+
 def _bucket_dte(dte: np.ndarray) -> np.ndarray:
     b = np.full(dte.shape, 3, dtype=np.int8)          # 90+
     b[dte <= 90] = 2                                   # 31-90
@@ -131,10 +174,24 @@ def _bucket_dte(dte: np.ndarray) -> np.ndarray:
     return b
 
 
-def _bucket_mny(strike: np.ndarray, spot: np.ndarray, right: np.ndarray) -> np.ndarray:
-    """0=itm 1=atm 2=otm2_10 3=otm10p 4=unknown. OTM is direction-aware: a call is
-    OTM above spot, a put below it — |K/S-1| alone would put both on the same side."""
-    out = np.full(strike.shape, 4, dtype=np.int8)
+def _bucket_mny(
+    strike: np.ndarray,
+    spot: np.ndarray,
+    right: np.ndarray,
+    is_index: np.ndarray,
+) -> np.ndarray:
+    """0=itm 1=atm 2=otm2_10 3=otm10p 4=no_spot_index 5=no_spot_missing.
+
+    OTM is direction-aware: a call is OTM above spot, a put below it — |K/S-1|
+    alone would put both on the same side.
+
+    The two no-spot arms split what schema_version 3 pooled under 'unknown'. A
+    cash-settled index has no share to price against, so it is unbucketable; an
+    ordinary name with no bar is a fault. `is_index` only decides which arm a
+    print falls into when the spot is genuinely absent — an index root that DOES
+    have a bar is bucketed normally, so this can never suppress real moneyness.
+    """
+    out = np.where(is_index, 4, 5).astype(np.int8)
     ok = np.isfinite(spot) & (spot > 0)
     m = np.zeros(strike.shape, dtype=np.float64)
     np.divide(strike, spot, out=m, where=ok)
@@ -161,7 +218,9 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
         return None
     d_ids, d_und, uniq_und, d_right, d_strike, d_dte = defs
 
-    arr = db.DBNStore.from_file(tpath).to_ndarray()
+    import databento as dbn
+
+    arr = dbn.DBNStore.from_file(tpath).to_ndarray()
     n_prints = len(arr)
     if not n_prints:
         record_session(session.isoformat(), prints=0, rows=0, underlyings=0,
@@ -228,18 +287,32 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
         dtype=np.int32,
     )
     spot = spot_by_code[und_code]
-    no_spot = int((~np.isfinite(spot)).sum())
     stale_spot = int((np.isfinite(spot_by_code) & (spot_age > 5))[und_code].sum())
 
+    idx_by_code = np.array([str(s) in INDEX_ROOTS for s in uniq_und])
+    is_index = idx_by_code[und_code]
+
     dte_b = _bucket_dte(dte)
-    mny_b = _bucket_mny(strike, spot, right)
+    mny_b = _bucket_mny(strike, spot, right, is_index)
+
+    # Only the *missing* arm is a fault worth alarming on; index roots are
+    # unbucketable by construction. Premium travels with the count because that
+    # is what makes it an alarm: a missed index root moves this from ~$19M to
+    # billions in a single session, while a delisted small cap barely moves it.
+    missing = mny_b == 5
+    no_spot = int(missing.sum())
+    no_spot_index = int((mny_b == 4).sum())
+    no_spot_premium = float(premium[missing].sum())
 
     # --- aggregate ----------------------------------------------------------
-    key = (((((und_code.astype(np.int64) * 2 + right) * 4 + dte_b) * 5 + mny_b) * 3
+    key = (((((und_code.astype(np.int64) * 2 + right) * 4 + dte_b) * 6 + mny_b) * 3
             + side) * 3 + strict) * 2 + ml
     uniq, inv = np.unique(key, return_inverse=True)
     n = len(uniq)
     prints_ = np.bincount(inv, minlength=n)
+    gid, n_groups = _order_groups(arr["ts_event"].astype(np.int64),
+                                  arr["instrument_id"].astype(np.int64))
+    orders = _orders_per_bucket(inv, gid, n_groups, n)
     contracts = np.bincount(inv, weights=size, minlength=n)
     prem = np.bincount(inv, weights=premium, minlength=n)
     prem_sq = np.bincount(inv, weights=premium * premium, minlength=n)
@@ -258,7 +331,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     k, s_ml = np.divmod(k, 2)
     k, s_strict = np.divmod(k, 3)
     k, s_side = np.divmod(k, 3)
-    k, s_mny = np.divmod(k, 5)
+    k, s_mny = np.divmod(k, 6)
     k, s_dte = np.divmod(k, 4)
     s_und, s_right = np.divmod(k, 2)
 
@@ -267,7 +340,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     rows = [
         (ds, str(uniq_und[s_und[i]]), "P" if s_right[i] else "C",
          DTE_BUCKETS[s_dte[i]], MNY_BUCKETS[s_mny[i]], SIDES[s_side[i]],
-         SIDES[s_strict[i]], int(prints_[i]), int(contracts[i]),
+         SIDES[s_strict[i]], int(prints_[i]), int(orders[i]), int(contracts[i]),
          float(prem[i]), float(prem_sq[i]), float(prem_max[i]),
          float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), SCHEMA_VERSION)
         for i in range(n)
@@ -282,9 +355,12 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
                    underlyings=int(len(np.unique(und_code))),
                    unresolved_prints=unresolved, no_spot_prints=no_spot,
                    ingested_at=datetime.now(UTC).isoformat(), **kw)
-    return {"prints": n_prints, "rows": len(rows), "unresolved": unresolved,
-            "stale_spot": stale_spot,
-            "no_spot": no_spot, "underlyings": int(len(np.unique(und_code)))}
+    return {"prints": n_prints, "joined": int(len(arr)), "orders": n_groups,
+            "rows": len(rows),
+            "unresolved": unresolved, "stale_spot": stale_spot,
+            "no_spot": no_spot, "no_spot_index": no_spot_index,
+            "no_spot_premium": no_spot_premium,
+            "underlyings": int(len(np.unique(und_code)))}
 
 
 def main() -> int:
@@ -303,12 +379,23 @@ def main() -> int:
             t0 = datetime.now(UTC)
             res = rollup_session(d)
             if res:
+                # no_spot_$ is the alarm: index roots are excluded from it, so a
+                # root missing from INDEX_ROOTS shows up as billions instead of
+                # the ~$19M/session that ordinary delistings and ticker-format
+                # breaks account for.
+                # prints is what the file held; joined is what survived the
+                # contract join and is the only count `orders` is comparable to.
                 logger.info(
-                    "%s prints=%s rows=%s unds=%s unresolved=%s no_spot=%s "
+                    "%s prints=%s joined=%s orders=%s rows=%s unds=%s "
+                    "unresolved=%s no_spot=%s no_spot_$=%.1fM idx_no_spot=%s "
                     "stale_spot=%s %.0fs",
-                    d, f"{res['prints']:,}", f"{res['rows']:,}",
+                    d, f"{res['prints']:,}", f"{res.get('joined', 0):,}",
+                    f"{res.get('orders', 0):,}", f"{res['rows']:,}",
                     res.get("underlyings"), f"{res.get('unresolved', 0):,}",
-                    f"{res.get('no_spot', 0):,}", f"{res.get('stale_spot', 0):,}",
+                    f"{res.get('no_spot', 0):,}",
+                    res.get("no_spot_premium", 0.0) / 1e6,
+                    f"{res.get('no_spot_index', 0):,}",
+                    f"{res.get('stale_spot', 0):,}",
                     (datetime.now(UTC) - t0).total_seconds(),
                 )
         d += timedelta(days=1)
