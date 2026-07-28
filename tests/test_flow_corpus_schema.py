@@ -24,8 +24,10 @@ from db.flow_corpus import (
     upsert_rollup,
 )
 
+# v6 row shape (2026-07-28 migration): cond sits between multileg and
+# schema_version. "" = unlabeled (heuristic-fallback) grain.
 ROW = ("2025-07-28", "AAPL", "C", "0-7", "atm", "buy", "buy", 3, 2, 30,
-       1000.0, 10.0, 700.0, 500.0, 25.0, 12.0, 0, SCHEMA_VERSION)
+       1000.0, 10.0, 700.0, 500.0, 25.0, 12.0, 0, "", SCHEMA_VERSION)
 PREMIUM = 10  # index of premium_usd in ROW
 MULTILEG = 16
 

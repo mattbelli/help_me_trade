@@ -1,3 +1,5 @@
+> **SUPERSEDED BY `../FLOW_OVERVIEW.md`** (2026-07-28). The limits table is carried forward there; the capacity conclusions are corrected by measurement — the option-quote cap is exactly 1,000 subs at ~0.09 cores, and the research lane moved to Databento `tcbbo`. Kept for the record; do not update.
+
 # Data-layer limits audit — 2026-07-14
 
 *Founder ask: "what are our Alpaca rate limits, what are our system limits, why are they in place, and

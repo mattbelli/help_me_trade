@@ -120,7 +120,16 @@ def main() -> int:
                 dataset=DATASET, schema=schema, symbols="ALL_SYMBOLS",
                 start=start, end=end,
             )
-        except Exception:
+        except Exception as e:
+            if "data_start_after_available_end" in str(e):
+                # Session not published upstream yet (queried before the vendor's
+                # daily rollover). Not a failure: the nightly lookback retries it
+                # on the next run, and alarming on it would page for a vendor
+                # publishing delay.
+                logger.info("[%d/%d] %s not yet available upstream — will retry "
+                            "next run", i, len(days), d)
+                skipped += 1
+                continue
             logger.exception("[%d/%d] %s cost check failed — skipping", i, len(days), d)
             failed += 1
             continue
