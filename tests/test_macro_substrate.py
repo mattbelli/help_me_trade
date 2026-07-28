@@ -72,7 +72,6 @@ def test_backfill_reports_zero_for_empty_series(
         return [] if series_id == "DTWEXBGS" else [("2026-07-17", 2.0)]
 
     monkeypatch.setattr(macro_substrate, "fetch_fred_csv", fake_fetch)
-    monkeypatch.setattr(macro_substrate, "fred_is_configured", lambda: False)
     written = backfill_macro_substrate(db_path=macro_db)
     assert written["DTWEXBGS"] == 0
     assert all(n == 1 for s, n in written.items() if s != "DTWEXBGS")
@@ -81,24 +80,11 @@ def test_backfill_reports_zero_for_empty_series(
     assert snap["VIXCLS"]["axis"] == "vol"
 
 
-def test_backfill_deepens_credit_series_with_free_key(
-    macro_db: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fake_csv(series_id: str, *, limit: int, start: str | None = None) -> list[tuple[str, float]]:
-        return [("2026-07-17", 3.5)]  # the shallow keyless window
-
-    def fake_keyed(series_id: str, *, api_key: str, limit: int) -> list[tuple[str, float]]:
-        assert series_id in macro_substrate._KEYED_DEEP_BACKFILL
-        return [("2008-11-21", 21.82), ("2026-07-17", 3.5)]
-
-    monkeypatch.setattr(macro_substrate, "fetch_fred_csv", fake_csv)
-    monkeypatch.setattr(macro_substrate, "fetch_fred", fake_keyed)
-    monkeypatch.setattr(macro_substrate, "fred_is_configured", lambda: True)
-    monkeypatch.setattr(macro_substrate, "fred_api_key", lambda: "k")
-    written = backfill_macro_substrate(db_path=macro_db)
-    assert written["BAMLH0A0HYM2"] == 3  # 1 keyless + 2 keyed (upsert dedups rows)
-    hist = series_history("BAMLH0A0HYM2", db_path=macro_db)
-    assert hist[0] == ("2008-11-21", 21.82)
+def test_regime_report_discloses_reference_depth(macro_db: Path) -> None:
+    _seed_axis_history(macro_db)
+    report = regime_report(["2026-07-16"], db_path=macro_db)
+    hist = report["axes"]["vol"]["history"]
+    assert hist == {"n": 10, "first": "2026-07-07", "last": "2026-07-16"}
 
 
 def _seed_axis_history(db: Path) -> None:
