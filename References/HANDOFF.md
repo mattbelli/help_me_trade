@@ -46,10 +46,13 @@ Addendum D–F, and memories (multileg fence reaches single names; orders-not-pr
 snapshot per sweep). Open threads only:
 - **⏳ Live package-awareness build** (board notes 28s/28u) — priors now measured at v6;
   1.7/1.10 and the 1.11+ discovery program are unblocked on trustworthy labels.
-- **⏳ Phase 2 OI backfill running** (launched 07-28, `opra-oi-backfill.service`, ~13–17 h): check
+- **⏳ Phase 2 OI backfill running** (launched 07-28, `opra-oi-backfill.service`, ~9.5 h): check
   07-29 that `data/databento/opra_oi/` holds ~251 npz files and the log shows no cost-gate abort;
   then build 2.3 (reconcile prints vs OI deltas — aggregate open-vs-close, never per-print) and
-  2.4 (re-grade the Phase 1 signal on the split). 2.1 facts recorded in ROADMAP §2.1.
+  2.4 (re-grade the Phase 1 signal on the split). 2.1 facts recorded in ROADMAP §2.1. Also 07-29:
+  cross-check `2026-07-17.npz` vs `options_flow_daily.close_oi` date 07-17 (both = 07-16 close
+  positions; broker chain pipe vs statistics pipe — same OCC number, validates both decodes).
+  NOT runnable today: no concurrent ALL_SYMBOLS pulls while the backfill grinds.
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
