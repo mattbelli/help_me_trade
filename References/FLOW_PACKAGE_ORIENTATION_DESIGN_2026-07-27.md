@@ -111,6 +111,21 @@ calibrated confidence. Output is a **probability, labelled as one** — never a 
 fabricated certainty. This turns Addendum D's fenced grain into a *probabilistically labeled* grain,
 which is the honest ceiling. **Sequencing: after Phases 1–3 deliver the features; not before.**
 
+⚠️ **AMENDED 2026-07-28 — the Cboe label source is OUT OF SCOPE by founder rule.** He will not buy
+Cboe Open-Close (or any paid feed) until trading is making good money AND there is measured proof
+the feed increases those profits. The frame above stands, but **§4 must be built label-free**;
+whoever builds it picks from the free substitutes rather than assuming a purchase:
+1. **Aggregate labels, per-print features** — train against roadmap 2.3's contract-day `f_open`
+   (learning-from-label-proportions). Calibrated at the contract-day grain, never per print, and
+   `f_open`'s level is an artifact — cross-sectional use ONLY (see ROADMAP §2.3).
+2. **Skip the intermediate label** — grade features directly against OUTCOMES (the Grading Law).
+   We do not actually need "was this opening"; we need "did this precede a move."
+3. **Phase 3's hedge footprint** — an independent, free counterparty read (dealer vs customer).
+
+Reference for the eventual decision: C1 end-of-day is $500/mo and — because SPX/SPXW/VIX are
+exclusively Cboe-listed — is COMPLETE coverage for index options, not a sample. Revisit only when
+both of the founder's conditions are met.
+
 ## 5. Phase extensions proposed (each slots into the existing order, none reorders it)
 
 - **Phase 2 (+)** — **Roll detector**: one leg's OI down, next expiry's up, same direction — the
