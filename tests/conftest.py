@@ -8,10 +8,18 @@ from __future__ import annotations
 # var can't point tests at production. Tests that pass an explicit tmp db_path are
 # unaffected. (The build's tests twice wrote to the real DB via DEFAULT_DB_PATH —
 # this closes that hole.)
+import atexit  # noqa: E402
 import os  # noqa: E402
 import tempfile  # noqa: E402
 
-_TEST_DEFAULT_DB = os.path.join(tempfile.gettempdir(), "hmt_pytest_default.db")
+# PID-scoped: serv is both the dev box and the self-hosted CI runner, so two
+# pytest processes routinely overlap (a local run + a CI job, or two CI jobs).
+# On a shared fixed path each process's startup delete wiped the other's schema
+# mid-run — surfacing as random `no such table: poll_runs` setup errors that
+# always passed on re-run. Per-process path removes the collision entirely.
+_TEST_DEFAULT_DB = os.path.join(
+    tempfile.gettempdir(), f"hmt_pytest_default.{os.getpid()}.db"
+)
 os.environ["TRADING_DB_PATH"] = _TEST_DEFAULT_DB
 # Deterministic broker baseline: the box's .env sets BROKER=schwab (inert in
 # production, where data/settings.json overrides it — but tests hide the
@@ -37,11 +45,17 @@ os.environ["OLLAMA_BASE_URL"] = "http://127.0.0.1:9"
 # the lexical fallback; the hybrid path is covered by tests that inject fake
 # embedders. Prod leaves this unset (embeddings on).
 os.environ["MEMORY_EMBEDDINGS_ENABLED"] = "0"
-for _suffix in ("", "-wal", "-shm"):
-    try:
-        os.remove(_TEST_DEFAULT_DB + _suffix)
-    except OSError:
-        pass
+def _remove_test_default_db() -> None:
+    for _suffix in ("", "-wal", "-shm"):
+        try:
+            os.remove(_TEST_DEFAULT_DB + _suffix)
+        except OSError:
+            pass
+
+
+# Up front too: a recycled PID could leave a stale file from a dead run.
+_remove_test_default_db()
+atexit.register(_remove_test_default_db)
 
 # Hermetic LLM: point persistent settings at a nonexistent temp file so tests
 # never inherit the box's data/settings.json (whose default_llm may be a live

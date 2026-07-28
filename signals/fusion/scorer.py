@@ -22,7 +22,7 @@ GROUP_COMPONENTS: dict[str, frozenset[str]] = {
     "background_crowd": frozenset({"rvol_ex_prints"}),
     "structure": frozenset({"session_level", "price_alert"}),
     "attention": frozenset({"reddit_buzz", "stocktwits_buzz"}),
-    "catalyst": frozenset({"earnings_proximity"}),
+    "catalyst": frozenset({"earnings_proximity", "news"}),
     "context": frozenset({"regime", "index_pressure", "market_shock"}),
 }
 SIZE_CAP = 4.0
@@ -301,6 +301,7 @@ _THESIS_COMPONENTS = frozenset(
         "equity_block",  # institutional accumulation
         "equity_sweep",  # excluded from v1 scoring, mapped for completeness
         "earnings_proximity",  # catalyst proximity
+        "news",  # headline catalyst (non-directional)
         "reddit_buzz",  # attention builds over hours/days (non-directional)
         "stocktwits_buzz",
         "regime",  # context riders (non-directional)
