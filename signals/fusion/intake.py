@@ -18,6 +18,7 @@ from config.idea_engine import (
     FUSION_REGIME_STALE_DAYS,
     FUSION_REHYDRATE_SESSIONS,
     FUSION_SOCIAL_SPIKE_RATIO,
+    FUSION_SPOT_MAX_AGE_S,
     FUSION_STORM_BATCH_EVENTS,
     FUSION_STORM_KEEP_EVENTS,
 )
@@ -425,10 +426,14 @@ def _attach_attention(episode: dict, ts: str, db_path: Path) -> None:
 def _attach_shock(episode: dict, ts: str, db_path: Path) -> None:
     if not int(episode.get("market_shock") or 0):
         return
+    # Key on (event day, episode): the old key — the EPISODE's opening day
+    # alone — was one global row per day whose episode_id/symbol stuck on the
+    # first episode to claim it (the upsert's SET list never rewrites those),
+    # so every other episode that day got no shock dot at all (07-28 audit).
     _insert_dot(
         episode_id=episode["id"],
         source_store="market_context",
-        source_event_id=f"shock:{episode['market_day']}",
+        source_event_id=f"shock:{_market_day(ts)}:{episode['id']}",
         source_ingest_seq=0,
         symbol=episode["symbol"],
         ts=ts,
@@ -962,11 +967,22 @@ def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
 def _maybe_call_registrar(
     episode_id: str, anchor_dot_id: str, score_state: dict[str, Any], db_path: Path
 ) -> None:
+    """Register the SYMBOL-DAY on its first stampable directional actor dot.
+
+    2026-07-28 restore (founder-blessed): Round-3 long-lived episodes had turned
+    the boolean ``registration_called`` latch into once-per-EPISODE-LIFETIME —
+    a silent estimand drift from the spec's pinned "one registration per
+    symbol-day" (volume fell 605/day → 120/day as episodes saturated). The latch
+    is now ``registered_market_day``, keyed on the DOT's session. The episode's
+    own anchor_* columns still latch exactly once (first-ever anchor): the
+    lifecycle sweep's price-invalidation measures from them, and rolling that
+    reference daily would be a second silent semantics change. Later days'
+    registrations carry their day-anchor via an overlay dict instead."""
     with _connect(db_path) as conn:
         episode_row = conn.execute(
             "SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)
         ).fetchone()
-        if episode_row is None or int(episode_row["registration_called"]):
+        if episode_row is None:
             return
         dot_row = conn.execute(
             "SELECT * FROM evidence_dots WHERE id = ?", (anchor_dot_id,)
@@ -977,7 +993,7 @@ def _maybe_call_registrar(
         # whose persisted stamps predate the caches warming even though THIS
         # pass has live price/ATR. Latching a NULL anchor would burn the whole
         # symbol-day (register_stack refuses it, and the latch blocks every
-        # later stampable dot). Leave the episode unlatched instead.
+        # later stampable dot). Leave the day unlatched instead.
         if (
             not int(dot_row["stamped"] or 0)
             or dot_row["trigger_price"] is None
@@ -985,6 +1001,18 @@ def _maybe_call_registrar(
             or dot_row["direction"] not in ("bull", "bear")
         ):
             return
+        dot_day = _market_day(str(dot_row["ts"]))
+        # MONOTONIC latch (review H1/H2): strictly newer days only. An equal
+        # day is already registered; an OLDER day (lagging store cursor,
+        # multi-session outage catch-up) must never register — the ledger's
+        # dedup wall is a PARTIAL index over open rows, so a resolved
+        # symbol-day would re-enter the cohort at a different price, and a
+        # backward latch write would then let the current day re-register too.
+        # You cannot honestly register a past session's plan at today's price.
+        if dot_day <= str(episode_row["registered_market_day"] or ""):
+            return
+        # First-ever anchor still latches onto the episode row (lifecycle
+        # reference); the registration_called guard keeps it write-once.
         conn.execute(
             """
             UPDATE fusion_episodes SET
@@ -1005,22 +1033,44 @@ def _maybe_call_registrar(
         episode = dict(
             conn.execute("SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)).fetchone()
         )
+    # The day's registration always anchors on TODAY's dot — for the episode's
+    # first day the overlay equals the just-latched episode anchor; for later
+    # days it is the day-anchor the episode columns deliberately do not take.
+    try:
+        dot_detail = json.loads(dot_row["detail_json"] or "{}")
+        dot_price_source = str(dot_detail.get("price_source") or "cache")
+    except (TypeError, ValueError):
+        dot_price_source = "cache"
+    day_anchor = {
+        "anchor_dot_id": anchor_dot_id,
+        "anchor_price": dot_row["trigger_price"],
+        "anchor_atr14": dot_row["prior_close_atr14"],
+        "anchor_direction": dot_row["direction"],
+        # Review S3: the plan's entry may be a spot/print rather than a live
+        # cache read — the ledger row must say so (see registrar source_ref).
+        "anchor_price_source": dot_price_source,
+    }
     registrar.register_stack(
-        episode,
+        {**episode, **day_anchor},
         fusion_db.episode_dots(episode_id, db_path=db_path),
         {**score_state, "signature": episode["signature"]},
         db_path=db_path,
     )
     # Latch ONLY after the ledger call returned. A crash (or an exception from
-    # register_stack) before this point leaves registration_called=0, so the
+    # register_stack) before this point leaves the day unlatched, so the
     # replayed event retries; register_idea's dedup_key wall absorbs the
     # duplicate call (test_same_symbol_day_registers_once proves it). The old
     # order — latch first, register second — turned any crash in that window
     # into a silent, permanent hole in the measurement ledger.
     with _connect(db_path) as conn:
         conn.execute(
-            "UPDATE fusion_episodes SET registration_called = 1 WHERE id = ?",
-            (episode_id,),
+            """
+            UPDATE fusion_episodes SET
+                registration_called = 1,
+                registered_market_day = MAX(COALESCE(registered_market_day, ''), ?)
+            WHERE id = ?
+            """,
+            (dot_day, episode_id),
         )
         conn.commit()
 
@@ -1111,12 +1161,32 @@ def intake_once(
                 # inert). Auditable via close_reason='price_invalidation' on
                 # print-stamped symbols; robustify (median-of-recent-prints)
                 # only if the ledger shows it. Labeled for the honesty trail.
-                # Options events carry no underlying price — no fallback there.
                 fallback = _decimal(event.get("price"))
                 if fallback is not None and fallback > 0:
                     price = fallback
                     shape["detail"]["price_source"] = "print"
-            atr14 = fusion_db.get_atr(shape["symbol"], db_path=db_path)
+            if price is None:
+                # Whole-market fallback (2026-07-28): options events carry no
+                # underlying price and the bars caches are watchlist-scoped, so
+                # the 07-27 whole-market flow lane minted 4,848 unpriced dots
+                # in one day. fusion_spot_cache is the equity collector's
+                # consolidated last trade for every US name — freshness-bounded
+                # so an overnight/collector-down spot reads as missing, never
+                # as a price. Labeled for the honesty trail.
+                spot = fusion_db.get_spot(
+                    shape["symbol"],
+                    max_age_s=FUSION_SPOT_MAX_AGE_S,
+                    as_of=str(event["ts"]),  # fence vs the EVENT, not the wall clock
+                    db_path=db_path,
+                )
+                if spot is not None:
+                    price = spot
+                    shape["detail"]["price_source"] = "tape_spot"
+            atr14 = fusion_db.get_atr(
+                shape["symbol"],
+                as_of=_market_day(str(event["ts"])),
+                db_path=db_path,
+            )
             dot_id = _insert_dot(
                 episode_id=episode["id"],
                 source_store=store,
@@ -1180,7 +1250,13 @@ def intake_once(
             update_stack_card(current_episode, state, db_path=db_path)
             from signals.fusion.investigate import evaluate_investigation
 
-            evaluate_investigation(current_episode, state, db_path=db_path)
+            # The DOT's session, not the episode's opening day: long-lived
+            # episodes keep their birth market_day, and budgeting/metering on
+            # that filed decisions under sessions long past (07-28 audit — the
+            # two 07-27 admissions were booked to 07-22/07-23).
+            evaluate_investigation(
+                current_episode, state, market_day=context_key[1], db_path=db_path
+            )
             counters[disposition] += 1
             fusion_db.set_cursor(store, int(event["ingest_seq"]), db_path=db_path)
 

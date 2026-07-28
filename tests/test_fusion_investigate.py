@@ -234,3 +234,36 @@ def test_shadow_investigate_is_sticky_and_bumps_once(inv_db: Path) -> None:
 
 def test_opening_reserve_never_exceeds_daily_budget() -> None:
     assert math.ceil(REASON_OPENING_RESERVE_FRAC * REASON_DAILY_BUDGET) <= REASON_DAILY_BUDGET
+
+
+def test_decision_day_overrides_stale_episode_market_day(inv_db: Path) -> None:
+    """2026-07-28 fix: Round-3 episodes keep their OPENING market_day for up to
+    15 sessions, and budgeting/metering on it filed decisions under long-past
+    sessions (the 07-27 admissions were booked to 07-22/07-23). The decision's
+    session — the triggering dot's day, passed by intake — is what the row, the
+    budget and the meter must key on."""
+    episode, state = _live("ep-stale", "2026-07-22", 6.0, ARCH)
+    decision = evaluate_investigation(
+        episode, state, market_day=TODAY, db_path=inv_db, now=_after_window()
+    )
+    assert decision == "shadow_investigate"
+    with connect(inv_db) as conn:
+        row = conn.execute(
+            "SELECT market_day FROM fusion_investigations WHERE episode_id = 'ep-stale'"
+        ).fetchone()
+    assert row["market_day"] == TODAY  # not the episode's 2026-07-22 birth day
+    assert _meter(inv_db) == 1.0  # meter keyed on the decision day too
+    # And the budget counts on the decision day: exhaust TODAY, then a fresh
+    # episode from another birth-cohort still drops on TODAY's budget.
+    for i in range(REASON_DAILY_BUDGET - 1):
+        ep, st = _live(f"ep-fill-{i}", "2026-07-21", 6.0, ARCH)
+        evaluate_investigation(
+            ep, st, market_day=TODAY, db_path=inv_db, now=_after_window()
+        )
+    ep, st = _live("ep-over", "2026-07-13", 6.0, ARCH)
+    assert (
+        evaluate_investigation(
+            ep, st, market_day=TODAY, db_path=inv_db, now=_after_window()
+        )
+        == "dropped_budget"
+    )

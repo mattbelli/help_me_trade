@@ -319,12 +319,34 @@ def _process_pending(
                 direction=direction,
             )
             # CONSERVATIVE same-bar rules (win% must never be flattered):
-            # - zone + stop in one bar = most likely a real entry that stopped
-            #   out -> LOST (counting it as invalidated would inflate win%).
+            # - zone + stop in one bar: ask the minute tape which came first
+            #   (2026-07-28, review M3a — the sibling of the both-touch fix).
+            #   Stop before the zone ever traded = price crashed through and
+            #   the planned entry never existed -> invalidated; zone first, or
+            #   the minutes can't order it -> a real entry that stopped out ->
+            #   LOST (counting it as invalidated would inflate win%).
             # - zone + target in one bar = the run to target may have happened
             #   BEFORE the dip into our zone -> only TRIGGERED; a win needs a
-            #   later bar to prove it.
+            #   later bar to prove it (the entry bar can never prove a win —
+            #   deliberately NOT revisited by the minute walk).
             if _stop_hit(bar_low, bar_high, stop, direction):
+                order = _entry_bar_minute_order(
+                    str(row["symbol"]).strip().upper(),
+                    bar_date,
+                    entry_low,
+                    entry_high,
+                    stop,
+                    direction,
+                )
+                if order == "stop_first":
+                    return {
+                        "status": "invalidated",
+                        "resolved_at": bar_date.isoformat(),
+                        "resolution_price": str(
+                            bar_high if direction == "short" else bar_low
+                        ),
+                        "grading_resolution": "minute_tiebreak",
+                    }
                 return {
                     "status": "lost",
                     "triggered_at": bar_date.isoformat(),
@@ -334,6 +356,11 @@ def _process_pending(
                     "fill_status": "filled",
                     "mfe_pct": mfe_pct,
                     "mae_pct": mae_pct,
+                    **(
+                        {"grading_resolution": "minute_tiebreak"}
+                        if order == "zone_first"
+                        else {}
+                    ),
                 }
             return {
                 "status": "triggered",
@@ -429,9 +456,46 @@ def _process_triggered(
             and bar_date > trigger_date
             and _target_hit(bar_low, bar_high, target0, direction)
         )
+        # AMBIGUOUS DAILY BAR (2026-07-28, founder-blessed): both stop and
+        # target inside one daily bar. Ask the minute tape which came first
+        # before falling back to the pessimistic tie-break — on the fusion_mech
+        # geometry (1×ATR stop / 2×ATR target) a daily range ≥ 3×ATR makes this
+        # bar common, and always-LOST biased the whole lane's measurement.
+        if stop_now and target_now:
+            ordered = _both_touch_minute_order(
+                str(row["symbol"]).strip().upper(), bar_date, stop, target0, direction
+            )
+            if ordered is not None and ordered[0] == "target":
+                return {
+                    "status": "won",
+                    "resolved_at": bar_date.isoformat(),
+                    "resolution_price": ordered[1],
+                    "exit_reason": "target",
+                    "fill_status": "filled",
+                    "first_target_hit": 0,
+                    "mfe_pct": mfe_pct,
+                    "mae_pct": mae_pct,
+                    # Distinct from the minute LANE's 'minute' (review M4): this
+                    # row is daily-graded with one minute-ordered ambiguous bar.
+                    "grading_resolution": "minute_tiebreak",
+                }
+            if ordered is not None and ordered[0] == "stop":
+                return {
+                    "status": "lost",
+                    "resolved_at": bar_date.isoformat(),
+                    "resolution_price": ordered[1],
+                    "exit_reason": "stop",
+                    "fill_status": "filled",
+                    "mfe_pct": mfe_pct,
+                    "mae_pct": mae_pct,
+                    "grading_resolution": "minute_tiebreak",
+                }
+            # Minute tape unavailable or itself ambiguous → conservative daily
+            # tie-break below (win% must never be flattered).
         # TIE-BREAK LAW (config.GRADING_TIEBREAK): one bar touching BOTH stop
-        # and target resolves pessimistically — stop wins. Stated once here,
-        # pinned by a test; never left implicit in the branch order.
+        # and target — when the minute tape could not order the touches —
+        # resolves pessimistically: stop wins. Stated once here, pinned by a
+        # test; never left implicit in the branch order.
         if stop_now and (not target_now or GRADING_TIEBREAK == "stop"):
             return {
                 "status": "lost",
@@ -719,6 +783,104 @@ def _session_close_dt(d: date) -> datetime:
     """16:00 ET on ``d`` — the horizon's end instant on the minute path (used only
     to cap the fetch window; the walk itself decides expiry by trading-day date)."""
     return datetime(d.year, d.month, d.day, 16, 0, tzinfo=_ET)
+
+
+# Per-sweep memo for the ambiguous-bar minute fetches: with the symbol-day
+# cadence one symbol holds one open row PER SESSION, so a single 3×ATR day
+# would otherwise fire N identical fetches for the same (symbol, date).
+# Cleared at the top of every sweep_open_ideas pass (single-threaded sweep).
+_MINUTE_BARS_CACHE: dict[tuple[str, str], list[tuple[datetime, Any]] | None] = {}
+
+
+def _minute_bars_for(symbol: str, bar_date: date) -> list[tuple[datetime, Any]] | None:
+    """``bar_date``'s RTH minute bars as a ts-sorted [(dt, bar)] list, memoized
+    per sweep. ``None`` = unavailable (fetch failed/raised or empty) — any
+    exception degrades to the conservative daily fallback, never a crashed
+    sweep. Bars are pinned to ``bar_date``'s ET session (the fetch window is
+    trusted nowhere)."""
+    key = (symbol, bar_date.isoformat())
+    if key in _MINUTE_BARS_CACHE:
+        return _MINUTE_BARS_CACHE[key]
+    start = datetime(bar_date.year, bar_date.month, bar_date.day, 9, 30, tzinfo=_ET)
+    try:
+        bars = fetch_minute_bars(symbol, start, _session_close_dt(bar_date))
+    except Exception:
+        logger.warning("minute fetch raised for %s %s", symbol, bar_date, exc_info=True)
+        bars = None
+    result: list[tuple[datetime, Any]] | None = None
+    if bars:
+        dated = [
+            (dt, bar)
+            for bar in bars
+            if (dt := _bar_datetime(bar)) is not None
+            and dt.astimezone(_ET).date() == bar_date
+            and _is_rth_minute_bar(bar)
+        ]
+        result = sorted(dated, key=lambda pair: pair[0]) or None
+    _MINUTE_BARS_CACHE[key] = result
+    return result
+
+
+def _both_touch_minute_order(
+    symbol: str, bar_date: date, stop: Decimal, target: Decimal, direction: str
+) -> tuple[str, str] | None:
+    """Which of stop/target the minute tape touched FIRST inside ``bar_date``.
+
+    Used only for the daily path's ambiguous both-touch bar. Returns
+    ``("stop"|"target", resolution_price)`` when the RTH minute walk orders the
+    touches — the price follows the minute lane's convention (stop = the
+    deciding minute's worst extreme, target = the target itself). ``None`` when
+    it cannot decide — fetch failed, no minute bars, neither level touched at
+    minute granularity (a data mismatch), or the deciding minute itself spans
+    both. The caller treats ``None`` as the conservative daily tie-break."""
+    dated = _minute_bars_for(symbol, bar_date)
+    if not dated:
+        return None
+    for _, bar in dated:
+        bar_low = _parse_decimal(getattr(bar, "low", None))
+        bar_high = _parse_decimal(getattr(bar, "high", None))
+        if bar_low is None or bar_high is None:
+            continue
+        stop_hit = _stop_hit(bar_low, bar_high, stop, direction)
+        target_hit = _target_hit(bar_low, bar_high, target, direction)
+        if stop_hit and target_hit:
+            return None  # one minute spans both — still ambiguous
+        if stop_hit:
+            return "stop", str(bar_high if direction == "short" else bar_low)
+        if target_hit:
+            return "target", str(target)
+    return None
+
+
+def _entry_bar_minute_order(
+    symbol: str,
+    bar_date: date,
+    entry_low: Decimal,
+    entry_high: Decimal,
+    stop: Decimal,
+    direction: str,
+) -> str | None:
+    """For the pending path's ambiguous entry bar (zone AND stop in one daily
+    bar): did the minute tape touch the ZONE first (a real entry that stopped
+    out → lost) or the STOP first (price crashed through without ever offering
+    the entry → invalidated)? ``None`` = cannot order (conservative lost)."""
+    dated = _minute_bars_for(symbol, bar_date)
+    if not dated:
+        return None
+    for _, bar in dated:
+        bar_low = _parse_decimal(getattr(bar, "low", None))
+        bar_high = _parse_decimal(getattr(bar, "high", None))
+        if bar_low is None or bar_high is None:
+            continue
+        zone_hit = _zone_touched(bar_low, bar_high, entry_low, entry_high)
+        stop_hit = _stop_hit(bar_low, bar_high, stop, direction)
+        if zone_hit and stop_hit:
+            return None  # one minute spans both — still ambiguous
+        if zone_hit:
+            return "zone_first"
+        if stop_hit:
+            return "stop_first"
+    return None
 
 
 def _process_minute_plan(
@@ -1292,6 +1454,9 @@ def sweep_open_ideas(
     now_dt = now or datetime.now(UTC)
     now_date = now_dt.date()
     db_kwargs = {} if db_path is None else {"db_path": db_path}
+    # Fresh minute-fetch memo per sweep — cached failures must not outlive the
+    # pass that saw them (single-threaded sweep; see _MINUTE_BARS_CACHE).
+    _MINUTE_BARS_CACHE.clear()
     counts = {
         "examined": 0,
         "triggered": 0,

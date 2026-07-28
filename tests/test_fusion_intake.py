@@ -350,9 +350,16 @@ def test_rescore_persists_masses_and_last_evidence(fusion_db: Path) -> None:
     from datetime import datetime, timezone
 
     # A fresh-ts bull option print so the thesis mass is materially non-zero at
-    # the wall-clock instant _rescore evaluates score_decayed.
+    # the wall-clock instant _rescore evaluates score_decayed. The ATR stamp
+    # must track the event's day — get_atr refuses rows stale relative to the
+    # event's session (FUSION_ATR_MAX_AGE_DAYS).
+    from zoneinfo import ZoneInfo
+
     ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    put_atr("TSLA", "2026-07-16", Decimal("12.50"), db_path=fusion_db)
+    # ET day, not UTC day: get_atr's staleness/lookahead bounds anchor on the
+    # event's ET session, and the UTC date runs a day ahead each evening.
+    et_day = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    put_atr("TSLA", et_day, Decimal("12.50"), db_path=fusion_db)
     event = _flow("flow-mass")
     event["ts"] = ts
     event["dte"] = 30  # thesis-class routing
@@ -398,3 +405,142 @@ def test_crash_replay_restamps_dot_and_registers(
     assert episode["registration_called"] == 1
     assert episode["anchor_price"] == "320.25"
     assert episode["anchor_atr14"] == "12.50"
+
+
+def test_symbol_day_cadence_registers_each_market_day(fusion_db: Path) -> None:
+    """2026-07-28 restore: Round-3 long-lived episodes had silently turned the
+    pinned one-registration-per-SYMBOL-DAY into once per episode LIFETIME. The
+    per-day latch registers the same open episode again on its next market day
+    — anchored on THAT day's first stampable directional dot — while a second
+    same-day dot still registers nothing."""
+    put_atr("TSLA", "2026-07-17", Decimal("12.50"), db_path=fusion_db)
+    insert_flow(_flow("flow-day1"), fusion_db)
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("320.25"))
+
+    second_same_day = _flow("flow-day1b")
+    second_same_day["ts"] = "2026-07-17T15:30:00+00:00"
+    second_same_day["created_at"] = "2026-07-17T15:30:01+00:00"
+    insert_flow(second_same_day, fusion_db)
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("321.00"))
+
+    def _mech_rows() -> list[dict]:
+        with connect(fusion_db) as conn:
+            return [
+                dict(r)
+                for r in conn.execute(
+                    "SELECT * FROM idea_outcomes WHERE origin='fusion_mech' "
+                    "ORDER BY as_of"
+                ).fetchall()
+            ]
+
+    assert len(_mech_rows()) == 1  # same day = one registration
+
+    # Next trading day (Mon 07-20): the SAME open episode registers again.
+    put_atr("TSLA", "2026-07-20", Decimal("12.50"), db_path=fusion_db)
+    day2 = _flow("flow-day2")
+    day2["ts"] = "2026-07-20T14:30:00+00:00"
+    day2["created_at"] = "2026-07-20T14:30:01+00:00"
+    insert_flow(day2, fusion_db)
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("330.50"))
+
+    rows = _mech_rows()
+    assert len(rows) == 2
+    assert rows[1]["as_of"] == "2026-07-20T14:30:00+00:00"
+    # Day-2's plan anchors on day-2's dot price, not the episode's day-1 anchor.
+    assert rows[1]["entry_low"] == "330.50"
+    with connect(fusion_db) as conn:
+        ep = conn.execute(
+            "SELECT anchor_price, registered_market_day, COUNT(*) OVER () AS n "
+            "FROM fusion_episodes"
+        ).fetchone()
+    assert ep["n"] == 1  # one open episode carried both days
+    assert ep["anchor_price"] == "320.25"  # episode anchor stays first-ever
+    assert ep["registered_market_day"] == "2026-07-20"
+
+
+def test_spot_cache_freshness_bound(fusion_db: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from db.fusion import get_spot, put_spots
+
+    fresh_ts = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
+    stale_ts = (datetime.now(UTC) - timedelta(seconds=2000)).isoformat()
+    put_spots(
+        [("ASTS", "12.34", fresh_ts), ("OLDY", "9.99", stale_ts)], db_path=fusion_db
+    )
+    assert get_spot("ASTS", max_age_s=900, db_path=fusion_db) == Decimal("12.34")
+    assert get_spot("OLDY", max_age_s=900, db_path=fusion_db) is None  # stale
+    assert get_spot("OLDY", max_age_s=3000, db_path=fusion_db) == Decimal("9.99")
+    assert get_spot("MISSING", max_age_s=900, db_path=fusion_db) is None
+
+
+def test_options_event_prices_from_spot_cache_when_bars_cache_misses(
+    fusion_db: Path,
+) -> None:
+    """Whole-market fix (2026-07-28): an options event on a non-watchlist
+    underlying — price_lookup misses — stamps from fusion_spot_cache instead of
+    minting an unstamped dot, labeled for the honesty trail."""
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    from db.fusion import put_spots
+
+    now = datetime.now(UTC)
+    et_day = now.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+    put_atr("ASTS", et_day, Decimal("0.80"), db_path=fusion_db)
+    put_spots([("ASTS", "12.34", now.isoformat())], db_path=fusion_db)
+    event = _flow("flow-spot")
+    event["underlying"] = "ASTS"
+    event["occ_symbol"] = "ASTS260821C00015000"
+    event["ts"] = now.replace(microsecond=0).isoformat()
+    event["created_at"] = now.replace(microsecond=0).isoformat()
+    insert_flow(event, fusion_db)
+    counters = intake_once(db_path=fusion_db)  # no price_lookup at all
+    assert counters["scored"] == 1
+    with connect(fusion_db) as conn:
+        dot = conn.execute(
+            "SELECT stamped, trigger_price, detail_json FROM evidence_dots "
+            "WHERE source_event_id = 'flow-spot'"
+        ).fetchone()
+        idea = conn.execute(
+            "SELECT entry_low FROM idea_outcomes WHERE origin='fusion_mech'"
+        ).fetchone()
+    assert dot["stamped"] == 1
+    assert dot["trigger_price"] == "12.34"
+    assert json.loads(dot["detail_json"])["price_source"] == "tape_spot"
+    assert idea["entry_low"] == "12.34"  # the plan anchors on the spot
+
+
+def test_lagging_older_day_event_never_registers(fusion_db: Path) -> None:
+    """Review H1/H2: the latch is MONOTONIC. A lagging older-day event (store
+    cursor catch-up, multi-session outage) must neither register that past
+    session at a fresh price nor walk the latch backward and unlock the
+    current day for a duplicate."""
+    put_atr("TSLA", "2026-07-17", Decimal("12.50"), db_path=fusion_db)
+    insert_flow(_flow("flow-mon-day1"), fusion_db)  # ts 2026-07-17
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("320.25"))
+    put_atr("TSLA", "2026-07-20", Decimal("12.50"), db_path=fusion_db)
+    day2 = _flow("flow-mon-day2")
+    day2["ts"] = "2026-07-20T14:30:00+00:00"
+    day2["created_at"] = "2026-07-20T14:30:01+00:00"
+    insert_flow(day2, fusion_db)
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("330.50"))
+
+    # The laggard: a NEW event whose ts belongs to the already-registered
+    # 07-17 session arrives after 07-20 registered.
+    put_atr("TSLA", "2026-07-17", Decimal("12.50"), db_path=fusion_db)
+    laggard = _flow("flow-mon-laggard")
+    laggard["ts"] = "2026-07-17T18:00:00+00:00"
+    laggard["created_at"] = "2026-07-20T15:00:01+00:00"
+    insert_flow(laggard, fusion_db)
+    intake_once(db_path=fusion_db, price_lookup=lambda _s: Decimal("999.99"))
+
+    with connect(fusion_db) as conn:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM idea_outcomes WHERE origin='fusion_mech'"
+        ).fetchone()[0]
+        latch = conn.execute(
+            "SELECT registered_market_day FROM fusion_episodes"
+        ).fetchone()[0]
+    assert n == 2  # day1 + day2 only — the laggard registered nothing
+    assert latch == "2026-07-20"  # and the latch never walked backward
