@@ -330,22 +330,27 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
         else:
             cond_j, lstats = res
             join_rate = lstats["join_rate_dbn"]
-            if join_rate >= JOIN_FLOOR:
-                cond = cond_j
-                labeled = cond != ""
-                coverage = float(labeled.mean())
-                ml_source = "codes"
-            else:
+            # Addendum F (2026-07-28): adoption is per-print, always — joined
+            # codes where they exist, the registered heuristic fallback where
+            # they don't. The floor no longer rejects a session's labels; it is
+            # a measurement/reporting gate (below-floor sessions are flagged
+            # here and excluded from the ≥98% robustness subset by ledger).
+            cond = cond_j
+            labeled = cond != ""
+            coverage = float(labeled.mean())
+            ml_source = "codes"
+            if join_rate < JOIN_FLOOR:
                 logger.warning(
-                    "%s: label join rate %.2f%% below the %.0f%% floor — "
-                    "session stays on the heuristic", session,
+                    "%s: label coverage %.2f%% below the %.0f%% reporting "
+                    "floor — labels adopted per Addendum F, session flagged "
+                    "for the robustness subset", session,
                     join_rate * 100, JOIN_FLOOR * 100)
     if ml_source == "codes":
         ml = np.where(cond != "", np.isin(cond, list(PACKAGE_CODES)),
                       ml_heur).astype(np.int64)
     else:
-        # cond was never assigned, so a below-floor session stores no partial
-        # labels — its rows are honestly all-heuristic, cond=''
+        # no completed capture for this session — cond stays all-'', rows are
+        # honestly all-heuristic (the coverage=0 endpoint of the same scale)
         ml = ml_heur.astype(np.int64)
 
     # --- moneyness against the PRIOR session's close -------------------------

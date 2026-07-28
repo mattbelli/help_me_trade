@@ -30,17 +30,18 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # incomparable vintages can never be silently pooled — the same failure mode as
 # retuning a detector threshold and invalidating every historical baseline.
 #
-# ⚠️ Changing the DEFAULT to "6" IS the Addendum E migration switch, and it is
-# deliberately ONE line: at 6, `multileg` comes from joined Alpaca condition
-# codes (heuristic fallback per print / per session below the 98% floor), the
-# raw code becomes a `cond` grain in the rollup key, and init_db rebuilds the
-# table. All-or-nothing per the addendum — flip it ONLY when every corpus
-# session passes the floor in `data/alpaca_conditions/join_ledger.json`
-# (`tools/condition_label_join.py --sweep`), then re-roll all 250 sessions.
-# The env override exists so the v6 machinery can be tested against a SCRATCH
-# db_path before migration day; never set it against the production DB — at 6,
-# init_db drops and rebuilds `flow_rollup`.
-SCHEMA_VERSION = int(os.environ.get("FLOW_CORPUS_SCHEMA_VERSION", "5"))
+# ⚠️ The DEFAULT flipped to "6" on 2026-07-28 — the Addendum E migration,
+# executed under Addendum F (founder-blessed same day): at 6, `multileg` comes
+# from joined Alpaca condition codes with the heuristic fallback PER PRINT
+# (per Addendum F the 98% floor is a measurement/reporting gate, not an
+# adoption gate — a below-floor session still adopts its labels and records
+# its coverage), the raw code is the `cond` grain in the rollup key, and
+# init_db rebuilds the table. One definition corpus-wide; per-session
+# provenance in `multileg_source`/`label_join_rate`/`label_coverage` and the
+# ≥98% robustness subset in `data/alpaca_conditions/join_ledger.json`.
+# The env override exists for SCRATCH testing only; at 6 init_db drops and
+# rebuilds `flow_rollup`.
+SCHEMA_VERSION = int(os.environ.get("FLOW_CORPUS_SCHEMA_VERSION", "6"))
 
 # schema_version 6 = Addendum E (code-based multileg + cond grain).
 LABELED = SCHEMA_VERSION >= 6

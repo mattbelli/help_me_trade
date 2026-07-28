@@ -21,19 +21,17 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
   cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
   schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
-- **⛔ v6 flip BLOCKED on the Addendum F decision (founder lane: `bless-addendum-f`)** — the
-  backfill FINISHED (all 251 data sessions captured incl. the 07-27 straggler) and the first
-  corpus-wide sweep ran overnight 07-28 (~2.0B prints joined): **136/251 sessions below the 98%
-  floor**, which fired Addendum E's own redesign contingency. Root cause MEASURED, not assumed:
-  Alpaca's historical tape has a completeness ceiling (index names at the open — SPXW alone = 57%
-  of one session's misses; 7.8% unmatched in the opening half-hour decaying to <1%; only 0.3% of
-  misses are contracts Alpaca never saw; refetching the worst day returned byte-identical counts,
-  so the holes are vendor-side and deterministic). The join itself is correct. DRAFT
-  `FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_F.md` proposes per-print adoption (E's registered
-  fallback) + repurposing 98% as a measurement gate + the index-open bias caveat. **Morning
-  sequence: founder blesses/amends F → flip `SCHEMA_VERSION = 6` → re-roll all 251 niced (a
-  12M-print session peaks ~4.5GB — quiet box only) → re-run 1.8 on code-labeled arms** (its
-  "single names flip 0/3" verdict stays provisional until then).
+- **⏳ v6 re-roll RUNNING (Addendum F blessed 07-28, migration FIRED)** — F blessed by founder
+  the same morning it was drafted; executed immediately: rollup adoption gate rewritten to
+  per-print (below-floor sessions adopt labels + get flagged for the ≥98% robustness subset),
+  `SCHEMA_VERSION` default flipped to 6, 47 corpus tests green, files synced to the dev tree,
+  and the full 251-session re-roll launched niced+ionice with a 500MB-available memory guard
+  (ntfy on kill; **resumable — relaunch without `--force`**). Log:
+  `data/flow_corpus_reroll_v6.log`; estimate ~10–17h (init spends several silent minutes
+  dropping the 49M-row v5 table before per-session lines appear). **When it lands: verify
+  session count = 251 at v6 + `multileg_source` census, then re-run 1.8 on code-labeled arms —
+  full corpus AND the ≥98% subset (115 sessions) per F's registered robustness arm.** Then the
+  live package-awareness build (board notes 28s/28u) with measured priors.
 - **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
   `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
   deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a

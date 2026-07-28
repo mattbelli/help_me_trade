@@ -1,4 +1,4 @@
-# Addendum F — label adoption is per-print, and the 98% floor becomes a measurement gate (2026-07-28, pre-outcome — DRAFT, awaiting founder blessing)
+# Addendum F — label adoption is per-print, and the 98% floor becomes a measurement gate (2026-07-28, pre-outcome — FOUNDER-BLESSED 2026-07-28)
 
 *Dated addendum to `FLOW_BASELINE_PREREG_2026-07-26.md`, per Addendum E's own contingency clause:
 "sustained failures below the floor on ordinary sessions would send this back for redesign,

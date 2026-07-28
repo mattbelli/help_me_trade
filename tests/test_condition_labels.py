@@ -163,10 +163,10 @@ def test_v6_session_ledger_records_the_label_provenance(v6):
     assert r["schema_version"] == 6
 
 
-def test_default_vintage_is_still_v5():
-    """The migration is armed but NOT fired: until every corpus session passes
-    the floor in join_ledger.json, the default import must stay at 5 with no
-    cond column. This is the line that gets deleted on migration day."""
+def test_default_vintage_is_v6():
+    """Migration FIRED 2026-07-28 (Addendum E executed under Addendum F): the
+    default import is the labeled vintage with the cond grain. Regressing this
+    silently would re-roll new sessions at v5 into a v6 corpus."""
     fc = importlib.reload(db.flow_corpus)
-    assert fc.SCHEMA_VERSION == 5 and not fc.LABELED
-    assert "cond" not in fc._ROLLUP_COLUMNS
+    assert fc.SCHEMA_VERSION == 6 and fc.LABELED
+    assert "cond" in fc._ROLLUP_COLUMNS
