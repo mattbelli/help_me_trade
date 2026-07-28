@@ -33,12 +33,19 @@ lane the code silently *assumed*; this is a deliberately built, spec'd consumer.
   subscription and the matcher live **inside hmt-flow-collector** — not a new daemon fighting
   for the socket. The Databento live client also runs in that process (different vendor, no
   conflict) so prints never cross a process boundary to be paired.
-- **Never block the spine on the sidecar.** Alpaca's open-burst queue lag is measured upstream
-  behavior — its prints can arrive **minutes** late at the open, exactly when the tape matters
-  most. Lifecycle: a Databento print emits immediately (`cond=pending`, direction already
-  signed); when the Alpaca twin lands, the record enriches in place and re-notifies consumers
-  that subscribed to enrichment. A print that never enriches expires to `cond=''` (heuristic
-  fallback, same as the corpus).
+- **Never block the spine on the sidecar — but match-first whenever the twin is in hand**
+  (founder 07-28: don't ship unlabeled flow when labeling costs microseconds). Three cases:
+  (1) twin already arrived → match inline, the print emits fully labeled, never `pending`;
+  (2) twin lands within the pipeline's existing ~1s flush tick → the emit path checks
+  enrichment at drain time, so it ships pre-matched at ZERO added latency vs today's cadence;
+  (3) twin genuinely late (the open burst — Alpaca queue lag is measured in **minutes** there)
+  → emit signed-but-`pending` immediately and enrich in place when the code arrives; holding
+  direction-signed flow minutes at 9:31 to wait for a package flag is the one trade that is
+  never worth it. The rule: never emit unlabeled when the label is available or imminent
+  within the flush tick; never hold longer than the flush tick. A print that never enriches
+  expires to `cond=''` (heuristic fallback, same as the corpus). Inc 2 measures the fraction
+  of twins arriving inside 1s (midday vs open) — the expected steady state is match-first as
+  the norm, enrich-late as the burst exception.
 - **Bounded memory.** Pending-match buffers are rings with a hard entry cap and a time cap
   (10 min — generously above measured open-burst lag). Overflow evicts oldest WITH a counter
   (`dropped_pending`), never silently (the F7 lesson). Budget target: worst case ~6M pending
