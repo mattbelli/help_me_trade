@@ -176,7 +176,7 @@ being free the moment we grade anything.
 
 Each decides something downstream. Run them, do not skip to building.
 
-- [ ] **1.7 (a) Is `|z| ≥ 2` a liquidity detector?** Shuffle print signs randomly, run the exact
+- [~] **1.7 (a) Is `|z| ≥ 2` a liquidity detector?** Shuffle print signs randomly, run the exact
       registered rule on real data, count firing rate per liquidity quintile. Zero signal in, so
       anything that fires is a false positive. *Decides:* whether the mid-cap sub-hypothesis is
       testable at all. *Note:* the alarming 12× figure is currently a **simulation** — this replaces
@@ -205,6 +205,38 @@ Each decides something downstream. Run them, do not skip to building.
         the conservative null), while a **PASS is provisional** and must be confirmed by an exact
         per-order sign shuffle on a ≥20-session subsample before 1.7 is closed. Stating this now
         so a comfortable answer cannot be banked without the follow-up.
+
+      **1.7 RESULT — RAN 2026-07-28** (6,998 names × 251 sessions, 20 null universes, seed
+      20260728). **ALL arm: Q1/Q5 = 0.38× ⇒ PASS (provisional).** Firing rate rises monotonically
+      WITH liquidity — Q1 3.261% (460 tested), Q2 3.648%, Q3 5.638%, Q4 8.302%, Q5 8.522%
+      (4,489,500 tested), pooled 8.445%. The registered `< 2.0×` bar is cleared in the
+      *opposite* direction from the one feared. **Three things the headline number hides —
+      all three matter more than the verdict:**
+      - ⚠️ **The PASS is bought by the $250k floor, not by the z-machinery — so the floor is
+        load-bearing and may not be moved without re-running this.** Measured on the same
+        aggregate: the floor admits **0.105% of Q1 name-days** (84 of 79,974; only 59 of 1,399
+        Q1 names EVER clear it) vs **75.1% of Q5's** (243,576 of 324,261). The rule was
+        therefore never tested on a genuinely illiquid name-day — it was tested on illiquid
+        names having a 500×-normal day, which are not thin at all. Mechanism for the inversion:
+        such a day has huge N_eff (small σ) against a 20-day baseline of tiny-N_eff days (large
+        σ), so today's tilt is small relative to its own baseline std and `|z|` is SUPPRESSED.
+      - ⚠️ **SHORT_OTM produced NO verdict — Q1 tested = 0, so the registered ratio is
+        undefined and this arm is NOT answered.** Not a floor effect alone: 22 Q1 name-days
+        clear the floor with short-OTM premium present, but none carry ≥15 of 20 prior days
+        with short-dated OTM flow, so the baseline requirement voids them. Reported Q2 7.444%
+        (900 tested) / Q3 5.999% / Q4 6.673% / Q5 8.080%, pooled 7.932%; Q2/Q5 = 0.92×, on 45
+        real name-days — too thin to substitute for the registered Q1 comparison. **Closing
+        1.7 requires an arm-specific design that can actually populate the illiquid bucket.**
+      - **The null base rate is 8.4%, not 5%** — the registered `|z| ≥ 2` gate fires on ~8.4%
+        of eligible name-days with ZERO signal present. Expected for this estimator, not a bug
+        (a 20-day sample mean/std with the biased variance divisor makes `z` ≈ t₁₉·1.05, and
+        `k` as low as 15 fattens it further ⇒ ~7-8%). **Consequence for Phase 1: any observed
+        event rate must be scored against 8.4%, and any win-rate claim must net out a false-
+        positive floor of that size.** Not previously accounted for anywhere.
+      - **Inverted follow-up for 2.4/§4, not a failure:** the rule is *under*-sensitive exactly
+        on a name's first big day — the "unusual activity" case the product most wants to catch.
+      **Status: OPEN.** Registered asymmetry stands (PASS is provisional ⇒ exact per-order
+      shuffle on ≥20 sessions), and the SHORT_OTM arm is additionally unanswered.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
