@@ -85,6 +85,17 @@ def _clear_settings_cache_after_test() -> None:
     settings_mod.clear_settings_cache()
 
 
+@pytest.fixture(autouse=True)
+def _clear_fusion_context_memo() -> None:
+    # The fusion intake memoizes market-wide context reads (60s TTL) in module
+    # state, and it negative-caches: a test that runs intake, seeds regime or
+    # gauge rows, then runs intake again would silently read the cached None.
+    yield
+    from signals.fusion import intake as fusion_intake
+
+    fusion_intake._CONTEXT_MEMO.clear()
+
+
 @pytest.fixture
 def mutation_client(monkeypatch: pytest.MonkeyPatch):
     """TestClient with API_TOKEN set and auth header for mutating routes."""

@@ -1,0 +1,284 @@
+"""Context/catalyst minters — the registered-but-unminted components start minting.
+
+Board card fusion-unminted-dots: earnings_proximity (catalyst, SCORED latest/best
+on structure's [0, 1] closeness scale), regime and index_pressure (context,
+ANNOTATE-ONLY — they ride the episode for the card/dossier and never score).
+These tests pin the adjacency windows, the staleness skip, the annotate-only
+invariant (context never enters group_scores), and the state-dot refresh idiom.
+"""
+
+from __future__ import annotations
+
+import json
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from db.base import connect
+from db.chart_features import init_chart_features
+from db.earnings_calendar import upsert_earnings
+from db.fusion import init_fusion_tables, put_atr
+from db.index_pressure import upsert_minutes
+from db.lane_stats import day as lane_day
+from db.lane_stats import et_today
+from db.options_flow import insert_event as insert_flow
+from db.regime import upsert_regime
+from signals.fusion import intake
+from signals.fusion.intake import intake_once
+
+MARKET_DAY = "2026-07-17"  # a Friday
+EVENT_TS = "2026-07-17T14:30:00+00:00"
+
+
+@pytest.fixture
+def fusion_db(tmp_path: Path) -> Path:
+    path = tmp_path / "fusion.db"
+    init_fusion_tables(path)
+    init_chart_features(path)
+    intake._CONTEXT_MEMO.clear()
+    return path
+
+
+def _flow(event_id: str, *, symbol: str = "TSLA", ts: str = EVENT_TS) -> dict:
+    return {
+        "id": event_id,
+        "ts": ts,
+        "underlying": symbol,
+        "occ_symbol": f"{symbol}260821C00300000",
+        "right": "call",
+        "event_type": "sweep",
+        "premium_usd": 1_000_000,
+        "direction": "buy_side",
+        "created_at": ts,
+    }
+
+
+def _run_intake(db: Path) -> dict:
+    return intake_once(db_path=db, price_lookup=lambda _s: Decimal("320.25"))
+
+
+def _episode_id(db: Path, symbol: str) -> str:
+    with connect(db) as conn:
+        row = conn.execute(
+            "SELECT id FROM fusion_episodes WHERE symbol = ?", (symbol,)
+        ).fetchone()
+    assert row is not None, f"no episode for {symbol}"
+    return str(row["id"])
+
+
+def _dots(db: Path, episode_id: str, component: str) -> list[dict]:
+    with connect(db) as conn:
+        rows = conn.execute(
+            "SELECT * FROM evidence_dots WHERE episode_id = ? AND component = ?",
+            (episode_id, component),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _group_scores(db: Path, episode_id: str) -> dict:
+    with connect(db) as conn:
+        row = conn.execute(
+            """
+            SELECT score_json FROM fusion_score_history
+            WHERE episode_id = ? ORDER BY id DESC LIMIT 1
+            """,
+            (episode_id,),
+        ).fetchone()
+    assert row is not None
+    return json.loads(row["score_json"])["group_scores"]
+
+
+def _meter(db: Path, counter: str) -> float:
+    return lane_day("fusion_intake", et_today(), db_path=db).get(counter, 0.0)
+
+
+def _seed_actor(db: Path, *, symbol: str = "TSLA") -> None:
+    put_atr(symbol, "2026-07-16", Decimal("12.50"), db_path=db)
+    insert_flow(_flow(f"flow-{symbol}", symbol=symbol), db)
+
+
+# ---------------------------------------------------------------- earnings ----
+
+
+def test_upcoming_earnings_next_weekday_scores_full_points(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_earnings([{"symbol": "TSLA", "date": "2026-07-20"}], db_path=fusion_db)  # Monday
+
+    _run_intake(fusion_db)
+
+    ep = _episode_id(fusion_db, "TSLA")
+    dots = _dots(fusion_db, ep, "earnings_proximity")
+    assert len(dots) == 1
+    dot = dots[0]
+    assert dot["actor_group"] == "catalyst"
+    assert dot["dot_kind"] == "state"
+    assert dot["direction"] == "none"
+    assert float(dot["points"]) == 1.0
+    detail = json.loads(dot["detail_json"])
+    assert detail["side"] == "upcoming"
+    assert detail["weekdays"] == 1
+
+    groups = _group_scores(fusion_db, ep)
+    assert groups["catalyst"] == 1.0
+    assert _meter(fusion_db, "earnings_dots") == 1.0
+
+
+def test_earnings_at_window_edge_scores_low_and_beyond_mints_nothing(
+    fusion_db: Path,
+) -> None:
+    _seed_actor(fusion_db)
+    # 5 weekdays out (2026-07-24, Friday) = the FUSION_EARNINGS_AHEAD_TD edge.
+    upsert_earnings([{"symbol": "TSLA", "date": "2026-07-24"}], db_path=fusion_db)
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "earnings_proximity")
+    assert float(dot["points"]) == pytest.approx(0.2)
+
+    intake._CONTEXT_MEMO.clear()
+    with connect(fusion_db) as conn:
+        conn.execute("DELETE FROM earnings_calendar")
+        conn.commit()
+    upsert_earnings([{"symbol": "MSFT", "date": "2026-07-27"}], db_path=fusion_db)  # 6 weekdays
+    put_atr("MSFT", "2026-07-16", Decimal("8.00"), db_path=fusion_db)
+    insert_flow(_flow("flow-msft", symbol="MSFT"), fusion_db)
+    _run_intake(fusion_db)
+    ep2 = _episode_id(fusion_db, "MSFT")
+    assert _dots(fusion_db, ep2, "earnings_proximity") == []
+
+
+def test_reported_earnings_today_wins_over_far_upcoming(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_earnings(
+        [
+            {"symbol": "TSLA", "date": MARKET_DAY},  # printed this market day
+            {"symbol": "TSLA", "date": "2026-07-23"},  # also 4 weekdays out
+        ],
+        db_path=fusion_db,
+    )
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "earnings_proximity")
+    detail = json.loads(dot["detail_json"])
+    assert detail["side"] == "today"
+    assert float(dot["points"]) == 1.0
+
+
+def test_earnings_dot_zeroes_when_window_passes(fusion_db: Path) -> None:
+    # Review finding: a frozen last-good dot would lie to the dossier for the
+    # episode's whole TTL once the symbol leaves the adjacency window.
+    _seed_actor(fusion_db)
+    upsert_earnings([{"symbol": "TSLA", "date": "2026-07-20"}], db_path=fusion_db)
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "earnings_proximity")
+    assert float(dot["points"]) == 1.0
+
+    # Same open episode, 4 weekdays after the print — out of the drift window.
+    insert_flow(_flow("flow-later", ts="2026-07-24T14:30:00+00:00"), fusion_db)
+    _run_intake(fusion_db)
+    (dot,) = _dots(fusion_db, ep, "earnings_proximity")
+    assert float(dot["points"]) == 0.0
+    detail = json.loads(dot["detail_json"])
+    assert detail["side"] == "none"
+    assert detail["as_of"] == "2026-07-24"
+    assert "catalyst" not in _group_scores(fusion_db, ep)
+
+
+def test_term_ratio_requires_date_aligned_series(fusion_db: Path) -> None:
+    # Review finding: VIXCLS and vix3m lag independently — a cross-date ratio
+    # inverts the term-structure verdict on exactly the spike days it flags.
+    _seed_actor(fusion_db)
+    upsert_regime(
+        [("VIXCLS", "2026-07-15", 21.0), ("vix3m", "2026-07-16", 24.0)],
+        db_path=fusion_db,
+    )
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "regime")
+    detail = json.loads(dot["detail_json"])
+    assert detail["vix"] == 21.0
+    assert detail["vix3m"] == 24.0
+    assert "vix_term_ratio" not in detail
+
+
+def test_earnings_dot_refreshes_in_place(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_earnings([{"symbol": "TSLA", "date": "2026-07-20"}], db_path=fusion_db)
+    _run_intake(fusion_db)
+    insert_flow(_flow("flow-2"), fusion_db)
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    assert len(_dots(fusion_db, ep, "earnings_proximity")) == 1
+
+
+# ------------------------------------------------------------------ regime ----
+
+
+def test_fresh_regime_mints_annotate_only_dot(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_regime(
+        [
+            ("VIXCLS", "2026-07-16", 18.6),
+            ("vix3m", "2026-07-16", 20.5),
+            ("DGS2", "2026-07-16", 3.9),
+            ("DGS10", "2026-07-16", 4.4),
+        ],
+        db_path=fusion_db,
+    )
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "regime")
+    assert dot["actor_group"] == "context"
+    assert dot["direction"] == "none"
+    assert float(dot["points"]) == 0.0
+    detail = json.loads(dot["detail_json"])
+    assert detail["vix"] == 18.6
+    assert detail["vix_term_ratio"] == pytest.approx(18.6 / 20.5, abs=1e-4)
+    assert detail["curve_2s10s"] == pytest.approx(0.5)
+    # ANNOTATE-ONLY invariant: context never enters group_scores.
+    assert "context" not in _group_scores(fusion_db, ep)
+    assert _meter(fusion_db, "regime_dots") == 1.0
+
+
+def test_stale_regime_mints_nothing(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_regime([("VIXCLS", "2026-07-01", 22.0)], db_path=fusion_db)  # 16 days stale
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    assert _dots(fusion_db, ep, "regime") == []
+    assert _meter(fusion_db, "regime_skipped_stale") >= 1.0
+
+
+# ---------------------------------------------------------- index pressure ----
+
+
+def test_index_pressure_mints_market_wide_context(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    upsert_minutes(
+        [
+            ("SPX", MARKET_DAY, 0, 1_000_000.0, 400_000.0, 100_000.0, 50, "market_wide"),
+            ("NDX", MARKET_DAY, 1, 200_000.0, 500_000.0, 0.0, 20, "market_wide"),
+        ],
+        window="open",
+        db_path=fusion_db,
+    )
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    (dot,) = _dots(fusion_db, ep, "index_pressure")
+    assert dot["actor_group"] == "context"
+    assert float(dot["points"]) == 0.0
+    detail = json.loads(dot["detail_json"])
+    assert detail["window"] == "open"
+    assert detail["net_usd"] == pytest.approx(300_000.0)
+    assert detail["underlyings"] == 2
+    assert detail["top"][0]["underlying"] == "SPX"
+    assert "context" not in _group_scores(fusion_db, ep)
+
+
+def test_no_gauge_day_mints_nothing(fusion_db: Path) -> None:
+    _seed_actor(fusion_db)
+    _run_intake(fusion_db)
+    ep = _episode_id(fusion_db, "TSLA")
+    assert _dots(fusion_db, ep, "index_pressure") == []
+    assert _meter(fusion_db, "index_pressure_skipped_none") >= 1.0
