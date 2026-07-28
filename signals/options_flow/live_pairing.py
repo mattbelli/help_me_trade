@@ -39,10 +39,14 @@ from tools.condition_labels import TOL_NS
 # pass the tolerance check anyway; holding the slot open longer only costs
 # memory.
 HORIZON_NS = 600 * 1_000_000_000
-# Hard entry cap on prints awaiting a twin. Worst case sized from the spec's
-# open-burst budget (~6M); overflow evicts oldest WITH a counter, never
-# silently.
-MAX_PENDING = 8_000_000
+# Hard entry cap on prints awaiting a twin. Sized from MEASURED retention
+# (07-28 review, real class on serv): ~484 B per pending print incl. the key
+# tuple + OCC string it pins, so 2M ≈ 1 GB — the true ceiling, far above the
+# measured stress peak (226k pending under a 300s artificial lag) and small
+# enough that the box survives hitting it. The first cut was 8M "≈ low
+# hundreds of MB", which was ~10x optimistic and would have allowed ~3.8 GB.
+# Overflow evicts oldest WITH a counter, never silently.
+MAX_PENDING = 2_000_000
 
 Resolution = tuple[int, str, str]  # (print_id, cond, reason)
 

@@ -66,6 +66,41 @@ def test_trade_msg_parsing_feeds_matcher():
     assert sp.alp_seen == 1
 
 
+def test_stopped_shadow_ignores_the_tee():
+    # BLOCKER-1 regression pin: the tee stays bound into the runner after a
+    # shadow death; a stopped shadow must not accumulate ANY matcher state.
+    sp = _shadow()
+    sp.stop()
+    for i in range(100):
+        sp.on_dbn(OCC, 5_000_000_000, i + 1, time.time_ns())
+    assert sp.dbn_seen == 0
+    assert sp._m.pending_dbn == 0 and not sp._m._keys
+
+
+def test_matcher_reset_starts_a_clean_epoch():
+    # BLOCKER-2 regression pin: after a sidecar gap has offset the k-ranks,
+    # a reset must restore correct pairing instead of false matches.
+    sp = _shadow()
+    ts = time.time_ns()
+    # Gap simulation: 3 dbn prints fed with no alpaca twins (twins lost).
+    for i in range(3):
+        sp.on_dbn(OCC, 5_000_000_000, 10, ts + i)
+    assert sp._m.pending_dbn == 3
+    sp._reset_matcher()
+    assert sp.matcher_resets == 1 and sp._m.pending_dbn == 0
+    # New epoch pairs rank-0 with rank-0 — the same-ts twin matches cleanly.
+    ts2 = time.time_ns()
+    sp.on_dbn(OCC, 5_000_000_000, 10, ts2)
+    sp.on_alpaca(OCC, ts2, 500, 10, "S")
+    assert sp._m.matched == 1 and sp._m.tolerance_rejects == 0
+
+
+def test_alpaca_guard_swallows_and_counts():
+    sp = _shadow()
+    sp.on_alpaca(OCC, None, 500, 10, "S")  # type: ignore[arg-type]
+    assert sp.alp_errors == 1
+
+
 def test_two_thread_feed_is_consistent():
     sp = _shadow()
     base = time.time_ns()

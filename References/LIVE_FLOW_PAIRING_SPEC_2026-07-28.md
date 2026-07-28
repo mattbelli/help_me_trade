@@ -53,8 +53,12 @@ lane the code silently *assumed*; this is a deliberately built, spec'd consumer.
   the norm, enrich-late as the burst exception.
 - **Bounded memory.** Pending-match buffers are rings with a hard entry cap and a time cap
   (10 min — generously above measured open-burst lag). Overflow evicts oldest WITH a counter
-  (`dropped_pending`), never silently (the F7 lesson). Budget target: worst case ~6M pending
-  entries at open burst ≈ low hundreds of MB; Inc 1 measures the real number.
+  (`dropped_pending`), never silently (the F7 lesson). Budget MEASURED 07-28 (review, real
+  class on serv): ~484 B retained per pending print (the expiry ring pins the key tuple +
+  OCC string for the full horizon even when paired), so the cap is `MAX_PENDING=2M` ≈ 1 GB
+  hard ceiling — vs a measured 226k stress peak. Expected real add on a healthy session:
+  ~125 MB midday, ~250-400 MB across the open burst; the live shadow reports RSS per stats
+  line. (The original "~6M ≈ low hundreds of MB" estimate was ~10x optimistic — corrected.)
 - **The corpus firewall.** Live pairing is INTRADAY-ONLY. The research corpus (`flow_corpus.db`)
   is written exclusively by the nightly REST chain (`tools/nightly_flow_capture.sh` → rollup) —
   complete-by-construction, join-ledger-audited. The live matcher never writes corpus tables.

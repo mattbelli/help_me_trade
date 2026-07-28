@@ -654,12 +654,12 @@ class DatabentoFlowStream:
                         "dbn stream: %.1f prints/min (data_msgs=%s msgs=%s "
                         "prints=%s mapped=%s acks=%s slow=%s dropped=%s "
                         "unresolved_syms=%s no_meta=%s cb_errors=%s "
-                        "reconnects=%s gap_s=%.1f)",
+                        "tee_err=%s reconnects=%s gap_s=%.1f)",
                         rate, self.data_msgs, self.msgs, self.prints, mapped,
                         self.subscription_acks, self.slow_reader_warnings,
                         self.skipped_by_gateway,
                         self.symbol_resolution_failures, self.skipped_no_meta,
-                        self.callback_errors,
+                        self.callback_errors, self.raw_tee_errors,
                         self.reconnects, self.reconnect_gap_s,
                     )
 

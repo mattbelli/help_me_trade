@@ -94,9 +94,20 @@ async def main() -> int:
     shadow = None
     if _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
         try:
-            from config.settings import alpaca_config
+            from config.settings import alpaca_config, load_settings
             from signals.options_flow.shadow_pairing import ShadowPairing
 
+            provider = str(
+                (load_settings().get("options_flow") or {}).get("provider")
+                or "alpaca"
+            ).strip().lower()
+            if provider != "databento":
+                # The spine itself owns the one Alpaca OPRA socket under
+                # provider=alpaca — the shadow's wildcard sub would 406 it
+                # into permanent backoff and blind the whole pipeline.
+                raise RuntimeError(
+                    f"provider={provider!r}: shadow needs the databento spine"
+                )
             cfg = alpaca_config()
             ap_key = str(cfg.get("api_key_id") or "").strip()
             ap_secret = str(cfg.get("api_secret_key") or "").strip()
@@ -158,7 +169,10 @@ async def main() -> int:
     if shadow_task is not None:
         shadow.stop()
         shadow_task.cancel()
-        tasks.append(shadow_task)
+        try:
+            await shadow_task
+        except (asyncio.CancelledError, Exception):
+            pass
     for t in tasks:
         t.cancel()
     for t in tasks:
