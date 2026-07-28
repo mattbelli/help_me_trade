@@ -23,7 +23,11 @@ Flow work runs on two independent lanes. Confusing them is the #1 source of stal
   the WS lane only; NDX is unavailable (QQQ carries it).
 - The **Alpaca condition-code sidecar** (ground truth for multileg labels, Addendum E) rides this
   same entitlement via REST backfill — wildcard historical trades carry the full post-2019 code
-  family that Databento's `tcbbo` lacks.
+  family that Databento's `tcbbo` lacks. Forward capture is automated:
+  `tools/nightly_flow_capture.sh` (cron 02:30 UTC Tue–Sat) chains tcbbo+defs download
+  (spend-guarded at $0 — the free 12-month window rolls daily) → condition capture → join-ledger
+  sweep. The §6b wildcard-WS live daemon is deliberately NOT built (decision 07-28): REST after
+  close is complete-by-construction, and no intraday condition-code consumer exists yet.
 
 **2. Research lane — Databento `tcbbo` whole-market corpus** (historical, ~250 sessions)
 - Every OPRA trade with the pre-trade BBO attached (⚠️ quote = book BEFORE the trade; ONE snapshot

@@ -29,6 +29,21 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `db/flow_corpus.py` and re-roll all 250 — **niced, AFTER the backfill, never alongside** (a
   12M-print session peaks ~4.5GB and thrashed serv once already). Then re-run 1.8 on the
   code-labeled arms — its "single names flip 0/3" verdict is provisional until then.
+  ⚠️ **One straggler before the sweep:** 2026-07-27's tcbbo landed AFTER the running backfill
+  enumerated its session list, so its condition capture is missing — run
+  `tools/alpaca_condition_backfill.py` once more (resumable, grabs only stragglers) before the
+  sweep, or let the nightly cron's next pass catch it.
+- **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
+  `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
+  deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a
+  purchase) → condition capture → `--sweep` into the join ledger. Idempotent, 7-day lookback
+  self-heals missed nights; pgrep guard defers to any running manual backfill; failures page the
+  ntfy dead-man topic; log = `data/alpaca_conditions/nightly.log`. Decision recorded 07-28: the
+  §6b wildcard-WS live daemon is NOT built — REST-after-close is complete-by-construction (no gap
+  accounting) and no intraday condition-code consumer exists (all gated behind roadmap 1.9).
+  Holiday sessions print FAILED forever in the capture log — expected, harmless. ⚠️ A below-floor
+  NEW session does not page — it shows in nightly.log + the ledger and blocks that session's v6
+  labels (heuristic fallback with reason logged at rollup).
 - **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
   pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
   quote. Right reference for signing direction, but **N legs are not N independent quote observations**
