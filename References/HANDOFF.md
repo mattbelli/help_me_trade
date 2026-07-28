@@ -37,6 +37,15 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   verdict OVERTURNED, see the RE-ESCALATED note below + ROADMAP 1.8**. Open: the live
   package-awareness build (board notes 28s/28u) now has its measured priors; 1.7/1.10 and the
   1.11+ discovery program are unblocked on trustworthy labels.
+- **⏳ Package orientation (o band) — pairing rule REGISTERED 07-28, o probe UNBLOCKED.** 1.9
+  closed: codes are corpus-wide via v6, and the missing piece (legs must be *paired*, not just
+  flagged — ns-collision leaves 44.8% of package premium solo) was measured by
+  `tools/package_leg_gap_probe.py` on 5 sessions → design doc **§3a**: same-underlying
+  single-linkage clusters at **W=100µs**, leg = distinct instrument, first-pass o universe =
+  2-leg equal-size clusters (~53% of package premium ≈ ~30% of ALL premium). **Open:** build
+  `tools/package_orientation_probe.py` (§3 as specced: o distribution vs shuffled-pairing null,
+  band-edge concentration = the registered pass/fail, per-session bucket shares in the output);
+  runs in the dev tree on already-rolled raw DBN.
 - **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
   `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
   replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:

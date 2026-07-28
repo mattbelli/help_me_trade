@@ -227,3 +227,45 @@ replacement Addendum D pre-authorizes — **via a new addendum, never an edit.**
   → Addendum E) still gates everything; the §3 probe is gated behind 1.9 specifically.
 - No grading, no backtest, no win% — §3's probe output is a distribution and a coverage number,
   nothing more.
+
+---
+
+## §3a — the registered leg-pairing rule (measured 2026-07-28, added per the addendum law)
+
+**Why this exists:** the condition codes say WHICH prints are package legs, but OPRA publishes no
+package id — grouping legs is ours to define. 1.9's ground truth killed the assumed rule
+(ns-collision: legs frequently do NOT share one nanosecond, recall ~51%), so the window was
+**measured before being chosen**: `tools/package_leg_gap_probe.py`, 5 code-labeled sessions spread
+across the corpus year (2025-07-29, 2025-09-16, 2025-12-26, 2026-07-17, 2026-07-24; joins
+98.2–99.2%), log `data/package_leg_gap_probe.log`.
+
+**Measured (pooled, premium-weighted):**
+- Adjacent different-instrument multileg gaps concentrate at **≤10µs (75.7%**: =0 40.7%, ≤1µs
+  5.8%, ≤10µs 29.2%), then a valley to ~10ms, then background. The unflagged tape shows no such
+  spike (26.7% ≤10µs) — the concentration is package structure, not tape density.
+- The cluster curve has a **plateau at W=100µs–10ms**: unpaired ("solo") premium collapses from
+  44.8% at W=0 to 5.0% at 100µs; clean 2-leg equal-size share peaks at **53.3%** at 100µs and
+  decays past 10ms as chaining merges separate packages into 3+-instrument clusters.
+- At W=0 (the old assumption), **44.8% of package premium is solo** — the recall failure,
+  re-measured in premium terms. Among clean pairs at 100µs, only ~47–69% (by session) have both
+  legs opening on the same nanosecond.
+
+**The registered rule (changing any part = a new dated entry here, never an edit):**
+1. Universe: prints with a multileg condition code (`MULTILEG_CODES` in `tools/condition_labels.py`).
+   Tied-to-stock codes are EXCLUDED — the stock leg is off this tape (1.2–2.7% of premium,
+   reported separately).
+2. Grouping: single-linkage time clusters on `ts_event` within one underlying, window
+   **W = 100µs** (pooled argmax of the clean-pair share; smallest window on the plateau, which
+   minimizes false chaining).
+3. A **leg = a distinct instrument** within the cluster (a leg venue-splits into several prints —
+   the tcbbo one-snapshot-per-sweep doctrine); leg size = per-instrument size sum.
+4. The §3 o probe's first pass consumes **exactly-2-leg, equal-size clusters** — measured
+   **~53% of package premium ≈ ~30% of ALL premium**. Everything else abstains by bucket, reported
+   by premium share: solo ~5% (sibling unmatched/off-window), 2-leg unequal ~5% (ratio scope-out),
+   3+ legs ~37–43% (genuine complex structures + chained pairs, undistinguished at this stage).
+5. Honest variation, stated: 2025-09-16's clean-pair share peaks at 1µs (53.8% vs 45.3% at 100µs)
+   — chaining costs more on that session. The registered W is the pooled argmax; any o output must
+   report its per-session bucket shares alongside.
+
+**Consequence: the §3 probe's 1.9 gate is CLEARED** — membership is code-truth corpus-wide (v6),
+and pairing is now a measured, registered rule rather than an assumption.
