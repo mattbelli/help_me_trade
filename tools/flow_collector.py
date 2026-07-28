@@ -87,7 +87,31 @@ async def main() -> int:
         )
         return 2
 
-    runner = OptionsFlowRunner(watchlist_symbols=watchlist_symbols)
+    # Inc 2 pairing shadow (LIVE_FLOW_PAIRING_SPEC_2026-07-28): matcher +
+    # Alpaca wildcard codes sidecar, metrics only. Opt-in by flag, and its
+    # task is EXCLUDED from the exit wait below — a dead shadow logs and
+    # stays dead; it never takes the spine down with it.
+    shadow = None
+    if _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
+        try:
+            from config.settings import alpaca_config
+            from signals.options_flow.shadow_pairing import ShadowPairing
+
+            cfg = alpaca_config()
+            ap_key = str(cfg.get("api_key_id") or "").strip()
+            ap_secret = str(cfg.get("api_secret_key") or "").strip()
+            if not ap_key or not ap_secret:
+                raise RuntimeError("Alpaca credentials missing")
+            shadow = ShadowPairing(alpaca_key=ap_key, alpaca_secret=ap_secret)
+        except Exception:
+            logger.exception(
+                "pairing shadow requested but failed to init — running without"
+            )
+
+    runner = OptionsFlowRunner(
+        watchlist_symbols=watchlist_symbols,
+        raw_print_tee=shadow.on_dbn if shadow is not None else None,
+    )
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -103,6 +127,16 @@ async def main() -> int:
         asyncio.create_task(runner.sweep_loop(), name="flow-sweeps"),
         asyncio.create_task(_poll_loop(runner), name="flow-poll"),
     ]
+    shadow_task = None
+    if shadow is not None:
+        shadow_task = asyncio.create_task(shadow.run(), name="flow-pairing-shadow")
+        shadow_task.add_done_callback(
+            lambda t: logger.error(
+                "pairing shadow exited (%r) — collector unaffected", t.exception()
+            )
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
     stopper = asyncio.create_task(stop.wait(), name="flow-stop")
 
     # First exit wins: a stop signal, or any leg dying unexpectedly (systemd
@@ -121,6 +155,10 @@ async def main() -> int:
 
     runner.stop()
     stopper.cancel()
+    if shadow_task is not None:
+        shadow.stop()
+        shadow_task.cancel()
+        tasks.append(shadow_task)
     for t in tasks:
         t.cancel()
     for t in tasks:

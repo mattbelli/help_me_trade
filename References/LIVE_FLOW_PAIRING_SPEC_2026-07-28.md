@@ -104,7 +104,11 @@ Original prerequisites, verified not assumed:
   resets the k-rank cascades that vendor-missing copies inflict on a whole-session rank),
   48,509 extra labels recovered, 273 code-clashes (0.007%). Under a 300s artificial Alpaca
   lag: pending peak 226k entries, zero evictions, still stream-miss = 0.
-- **Inc 2 — live shadow + consumers in parallel (1–2 sessions).** Databento live client +
+- **Inc 2 — live shadow + consumers in parallel (1–2 sessions). Shadow BUILT 2026-07-28,
+  ships OFF behind `OPTIONS_FLOW_PAIRING_SHADOW`** (`signals/options_flow/shadow_pairing.py`;
+  fed by dbn_stream's guarded pre-meta-gate `on_raw_print` tee; shadow task excluded from the
+  collector's exit wait — deploy = kill the standalone recorder, flip the flag, restart the
+  collector after the close). Databento live client +
   wildcard trades sub + the validated matcher inside hmt-flow-collector, metrics + sampled
   paired-print log only. Measures ONLY what replay cannot: real wire-arrival lag distributions
   (open vs midday, both sides), live-WS per-root coverage (⚠️ index roots: SPXW rides SPX on

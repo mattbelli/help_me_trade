@@ -279,11 +279,18 @@ class DatabentoFlowStream:
         meta_for: Callable[[str], dict | None],
         flush_interval_s: float = 1.0,
         replay_from: Any = None,
+        on_raw_print: Callable[[str, int, int, int], None] | None = None,
     ) -> None:
         self._key = key
         self._on_prints = on_prints
         self._meta_for = meta_for
         self._flush_interval_s = flush_interval_s
+        # Pairing-shadow tee: (occ, price_raw, size, ts_event) per print, after
+        # symbology resolution and BEFORE the meta gate — the shadow measures
+        # the same whole-market population the batch join labels, not just the
+        # slice with meta. Runs on the databento client thread.
+        self._on_raw_print = on_raw_print
+        self.raw_tee_errors = 0
         # Intraday replay: the live gateway will resend the last ≤24h from a
         # given start time. None in production. It exists so the arming check
         # can push a REAL session through this exact code path on a weeknight
@@ -314,10 +321,13 @@ class DatabentoFlowStream:
         self.callback_errors = 0
         self.reconnects = 0
         self.reconnect_gap_s = 0.0
-        # Databento subscribes by parent symbol, so coverage is every contract on
-        # every watched name — not a rationed slice. It is not the "*" market-wide
-        # subscription the Alpaca lane means by this flag, so it stays False.
-        self.acked_market_wide = False
+        # This lane's ONLY mode is ALL_SYMBOLS (see module docstring) — the whole
+        # OPRA tape, which is exactly what the Alpaca lane means by this flag. The
+        # original parent-symbol comment ("stays False") predated the 07-26
+        # widening and left every whole-market event mis-stamped watchlist_capped.
+        # If the subscribe fails the stream is dead (liveness catches it), not
+        # silently degraded, so a constant True cannot lie about a live stream.
+        self.acked_market_wide = True
 
         self._pending: list[dict] = []
         self._pending_lock = threading.Lock()
@@ -375,6 +385,19 @@ class DatabentoFlowStream:
             self.unresolved_symbols += 1
             return
         occ = occ_from_osi(str(occ))
+
+        if self._on_raw_print is not None:
+            # Guarded because a raise here would also abort THIS record's spine
+            # processing below — the tee must never cost the lane a print.
+            try:
+                self._on_raw_print(occ, rec.price, rec.size, rec.ts_event)
+            except Exception:
+                self.raw_tee_errors += 1
+                if self.raw_tee_errors == 1:
+                    logger.exception(
+                        "dbn stream: raw-print tee raised — pairing shadow is "
+                        "degraded; the spine is unaffected"
+                    )
 
         meta = self._meta_for(occ)
         if meta is None:

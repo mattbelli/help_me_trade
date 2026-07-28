@@ -32,11 +32,15 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `signals/options_flow/live_pairing.py` (streaming frozen join) + `tools/live_pairing_replay.py`
   + tests. Measured on 2025-12-24: 315k events/s, **stream-miss=0 vs batch** (strict superset,
   +48.5k labels recovered from k-rank cascades, 273 code-clashes of 4M), 300s-lag stress clean.
-  **Open:** (1) full-day session replay after the re-roll frees the box (RSS at open burst is
-  the number to capture); (2) Inc 2 = wildcard-trades sub + Databento live client + matcher
-  wired into hmt-flow-collector as a 1–2 session metrics-only shadow (real arrival lag +
-  per-root live coverage — replay can't see either); (3) Inc 3 cutover needs the standing-NBBO
-  consumer audit. No code-family scoring before 1.8-on-truth.
+  Inc 2 shadow BUILT 07-28 (see BUILD_LOG row): `ShadowPairing` inside hmt-flow-collector
+  behind `OPTIONS_FLOW_PAIRING_SHADOW` (default OFF), metrics only, shadow task excluded from
+  the collector's exit wait. **Open:** (1) deploy = flip the flag in the dev-tree `.env` +
+  restart hmt-flow-collector after the close — ⚠️ kill the standalone recorder FIRST (it holds
+  the OPRA socket until 21:00 UTC self-stop; one ws per account); (2) read 1–2 sessions of
+  shadow stats (wire lag both sides, enrich ≤1s fraction, per-root d-vs-a coverage, RSS);
+  (3) full-day session replay after the re-roll frees the box (open-burst RSS);
+  (4) Inc 3 cutover needs the standing-NBBO consumer audit. No code-family scoring before
+  1.8-on-truth.
 - **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
   `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
   deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a
