@@ -38,10 +38,12 @@ lane the code silently *assumed*; this is a deliberately built, spec'd consumer.
   (1) twin already arrived → match inline, the print emits fully labeled, never `pending`;
   (2) twin lands within the pipeline's existing ~1s flush tick → the emit path checks
   enrichment at drain time, so it ships pre-matched at ZERO added latency vs today's cadence;
-  (3) twin genuinely late (the open burst — Alpaca queue lag is measured in **minutes** there)
-  → emit signed-but-`pending` immediately and enrich in place when the code arrives; holding
-  direction-signed flow minutes at 9:31 to wait for a package flag is the one trade that is
-  never worth it. The rule: never emit unlabeled when the label is available or imminent
+  (3) twin genuinely late (the open burst — measured on the 07-14 wildcard probe and the 07-16
+  bell verify: per-print lag peaks at **6–10s** with the backlog episode lasting ~2–3 minutes
+  after the bell, Alpaca-fanout-side with our client at ~150x headroom) → emit
+  signed-but-`pending` immediately and enrich in place when the code arrives; holding
+  direction-signed flow even seconds at 9:31 to wait for a package flag is the one trade that
+  is never worth it. The rule: never emit unlabeled when the label is available or imminent
   within the flush tick; never hold longer than the flush tick. A print that never enriches
   expires to `cond=''` (heuristic fallback, same as the corpus). Inc 2 measures the fraction
   of twins arriving inside 1s (midday vs open) — the expected steady state is match-first as
