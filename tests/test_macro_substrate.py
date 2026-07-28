@@ -53,7 +53,7 @@ def test_store_round_trip_and_coverage(macro_db: Path) -> None:
 def test_refresh_is_fail_soft_per_series(
     macro_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fake_fetch(series_id: str, *, limit: int) -> list[tuple[str, float]]:
+    def fake_fetch(series_id: str, *, limit: int, start: str | None = None) -> list[tuple[str, float]]:
         if series_id == "DGS10":
             raise RuntimeError("boom")
         return [("2026-07-17", 1.0)]
@@ -68,7 +68,7 @@ def test_refresh_is_fail_soft_per_series(
 def test_backfill_reports_zero_for_empty_series(
     macro_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fake_fetch(series_id: str, *, limit: int) -> list[tuple[str, float]]:
+    def fake_fetch(series_id: str, *, limit: int, start: str | None = None) -> list[tuple[str, float]]:
         return [] if series_id == "DTWEXBGS" else [("2026-07-17", 2.0)]
 
     monkeypatch.setattr(macro_substrate, "fetch_fred_csv", fake_fetch)
