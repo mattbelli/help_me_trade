@@ -30,7 +30,7 @@
     {
       "id": "fusion-mech-measurement-integrity",
       "title": "Fusion mechanical lane measurement-integrity round \u2014 ATR floor + symbol-day cadence + z into the ledger + decision-day budgets + minute tie-break + whole-market spot cache",
-      "lane": "in_progress",
+      "lane": "done",
       "type": "feature",
       "priority": "high",
       "owner": "agent",
