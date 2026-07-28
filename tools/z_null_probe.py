@@ -117,11 +117,12 @@ def _fire_rate(tilt: np.ndarray, present: np.ndarray, eligible: np.ndarray
 
 
 def _run_arm(name: str, p: np.ndarray, q: np.ndarray, p_all: np.ndarray,
-             quint: np.ndarray, rng: np.random.Generator) -> None:
+             quint: np.ndarray, rng: np.random.Generator,
+             day_floor: float = PREMIUM_FLOOR) -> None:
     present = p > 0
     with np.errstate(invalid="ignore", divide="ignore"):
         n_eff = np.where(q > 0, p ** 2 / q, np.nan)
-    eligible = p_all >= PREMIUM_FLOOR
+    eligible = p_all >= day_floor if day_floor else p_all > 0
     sigma = np.where(np.isfinite(n_eff) & (n_eff > 0), 1.0 / np.sqrt(n_eff), np.nan)
 
     fired_q = np.zeros(5, dtype=np.int64)
@@ -154,6 +155,14 @@ def _run_arm(name: str, p: np.ndarray, q: np.ndarray, p_all: np.ndarray,
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rebuild", action="store_true")
+    # 1.7 Addendum A1: the TEST's eligibility gate, not the rule. The per-day floor
+    # left the illiquid quintile unpopulated (0.105% of Q1 name-days admitted), so
+    # the question could not be asked; a per-NAME floor also guarantees the 20-day
+    # baseline is built from days the name actually traded.
+    ap.add_argument("--day-floor", type=float, default=PREMIUM_FLOOR,
+                    help="per-day total premium floor; 0 disables")
+    ap.add_argument("--name-floor", type=float, default=0.0,
+                    help="keep only names whose MEDIAN daily total premium clears this")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -184,10 +193,13 @@ def main() -> None:
 
     # quintiles by each name's MEDIAN daily total premium (fixed per name)
     med = np.array([np.median(row[row > 0]) if (row > 0).any() else 0.0 for row in P_ALL])
-    live = med > 0
+    live = (med > 0) & (med >= args.name_floor)
     quint = np.full(len(names), -1, dtype=np.int64)
     edges = np.quantile(med[live], [0.2, 0.4, 0.6, 0.8])
     quint[live] = np.digitize(med[live], edges)
+    logger.info("universe: %d of %d names (name floor $%s, day floor $%s)",
+                int(live.sum()), len(names), f"{args.name_floor:,.0f}",
+                f"{args.day_floor:,.0f}")
     for i in range(5):
         sel = med[quint == i]
         if len(sel):
@@ -195,8 +207,8 @@ def main() -> None:
                         i + 1, len(sel), f"{sel.min():,.0f}", f"{sel.max():,.0f}")
 
     rng = np.random.default_rng(SEED)
-    _run_arm("ALL", P_ALL, Q_ALL, P_ALL, quint, rng)
-    _run_arm("SHORT_OTM", P_SO, Q_SO, P_ALL, quint, rng)
+    _run_arm("ALL", P_ALL, Q_ALL, P_ALL, quint, rng, args.day_floor)
+    _run_arm("SHORT_OTM", P_SO, Q_SO, P_ALL, quint, rng, args.day_floor)
 
 
 if __name__ == "__main__":

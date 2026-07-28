@@ -237,6 +237,60 @@ Each decides something downstream. Run them, do not skip to building.
         on a name's first big day — the "unusual activity" case the product most wants to catch.
       **Status: OPEN.** Registered asymmetry stands (PASS is provisional ⇒ exact per-order
       shuffle on ≥20 sessions), and the SHORT_OTM arm is additionally unanswered.
+
+      **1.7 ADDENDUM A — REGISTERED 2026-07-28, BEFORE THE CLOSING RUN.** The 07-28 result
+      above stands unedited; this adds the two runs that close it. **Nothing about the rule
+      changes — `|z| ≥ 2.0`, the 20-day baseline and the ≥15-present requirement are all held
+      fixed.** The only change is to the TEST's eligibility gate, because the per-day $250k
+      floor made the illiquid bucket unpopulated and therefore made the question unaskable.
+      Threshold recalibration is **explicitly out of scope**: tuning `z` against alert volume
+      before the signal is graded would tune a parameter against an outcome we have not
+      measured. The 8.4% null rate's role in this study is **subtraction at grading time**,
+      not a dial (founder call 2026-07-28; the flow z is also unrelated to
+      `FUSION_Z_GATE_T = 3.5` in `signals/fusion/scorer.py`, which is a score-normalization
+      dial and not a sigma count — the shared digits are coincidence).
+      - **A1 — universe variants.** Re-run the registered rule under a cross of eligibility
+        gates: day floor ∈ {$250k, none} × name floor ∈ {none, median daily total premium
+        ≥ $100k}. Quintiles are recomputed WITHIN each surviving universe. Both arms.
+        Reported for each: eligible name-days/session, firing rate per quintile, Q1/Q5.
+        ⚠️ **Honesty note — the ALL-arm answer is already known** from an exploratory sweep
+        run 2026-07-28 *before* this registration (no floor: **1.04×**; $50k/$100k name
+        floors: 0.98×/0.99×; with the day floor retained: 0.32×/1.07×). A1 is therefore a
+        **confirmation under the full registered machinery, not a blind test**, and is
+        recorded as such. The genuinely unknown part of A1 is SHORT_OTM, whose Q1 was empty.
+      - **A2 — the exact per-order shuffle** (the follow-up the original registration
+        demanded; this is blind). Rebuild per-ORDER premiums from the raw tcbbo DBN for the
+        **40 most recent corpus sessions** (all 261 are on disk), giving 20 tested days after
+        the 20-day baseline burn-in. Assign each order an independent ε = ±1 with p = 0.5 —
+        no normal approximation — recompute tilt = Σεᵢpᵢ / Σpᵢ, and apply the registered rule.
+        Orders are the rollup's own grain: distinct `(ts_event, instrument_id)` groups.
+      - **PASS/FAIL for the close (both must hold):** (1) A1's Q1/Q5 **< 2.0×** in the
+        no-day-floor universe for BOTH arms, with Q1 non-empty in each; (2) A2's pooled
+        firing rate and Q1/Q5 agree with the normal-draw null to within **±2 percentage
+        points** and **±0.5×** respectively. A2 disagreeing beyond that means the normal
+        approximation was hiding tail behaviour and **1.7 fails** regardless of A1.
+
+      **A1 RESULT — RAN 2026-07-28.** Criterion (1) **MET, both arms, with Q1 populated.**
+      | day floor | name floor | universe | ALL Q1/Q5 | SHORT_OTM Q1/Q5 |
+      |---|---|---|---|---|
+      | $250k | none | 6,998 | 0.38× | Q1 EMPTY |
+      | none | none | 6,998 | **1.07×** | **1.11×** |
+      | $250k | $100k | 1,437 | 1.07× | 0.91× |
+      | none | $100k | 1,437 | 1.00× | 1.04× |
+      With the day floor removed, ALL's Q1 goes from 460 tested name-days to **407,120** and
+      SHORT_OTM's from **0 to 13,000** — the buckets the original run could not populate.
+      Every populated variant sits at 0.91–1.11×, i.e. **the rule is liquidity-neutral on its
+      own merits, not because a filter was shielding it**; the 0.38× was the day floor
+      distorting the sample. Pooled null rate is 8.3–8.6% throughout, unchanged by any gate,
+      which re-confirms it as a property of the 20-day estimator (see the base-rate note above).
+      - **Floor choice is a PRODUCT decision, not a correctness fix** (measured, so it stops
+        being re-litigated): median daily premium and median N_eff rank names near-identically
+        (Spearman **0.93**), and the 1,437 names a $100k premium floor keeps have median
+        N_eff 36.5 — the premium floor was selecting on order count indirectly. Since the
+        no-floor variant already passes, no floor is load-bearing for the TEST. Candidate
+        operating universes if one is ever wanted: N_eff ≥ 5 → 2,788 names; ≥ 10 → 1,919;
+        ≥ 25 → 996. Contract volume was NOT measured (absent from the cached aggregate;
+        an 8-min rescan if it is ever wanted as a third ranking).
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
