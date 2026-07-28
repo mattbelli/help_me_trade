@@ -226,8 +226,14 @@ class OptionsFlowRunner:
     without a restart).
     """
 
-    def __init__(self, *, watchlist_symbols: Callable[[], list[str]]) -> None:
+    def __init__(self, *, watchlist_symbols: Callable[[], list[str]],
+                 raw_print_tee: Callable[[str, int, int, int], None] | None = None,
+                 ) -> None:
         self._watchlist_symbols = watchlist_symbols
+        # Pairing-shadow tee (databento lane only): every symbology-resolved
+        # print, pre-meta-gate. Metrics only — never alters what this runner
+        # emits. See signals/options_flow/shadow_pairing.py.
+        self._raw_print_tee = raw_print_tee
         self.stream = None  # OptionsFlowStream | None — set while stream_run is live
         self._intraday_warned = False
 
@@ -704,6 +710,7 @@ class OptionsFlowRunner:
             key=key,
             on_prints=self.on_prints,
             meta_for=self.meta_for,
+            on_raw_print=self._raw_print_tee,
         )
         self.stream = stream
         logger.info("options_flow stream: starting Databento OPRA live (DARK collector)")

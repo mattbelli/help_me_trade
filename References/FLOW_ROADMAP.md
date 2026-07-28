@@ -120,7 +120,7 @@ being free the moment we grade anything.
       session's group count by 0.13%; correct per bucket, wrong as a session total.
 - [ ] **1.4 Declare the delisting/acquisition rule.** Acquired names are the archetypal winners and
       their bars simply stop. *Fix:* write the terminal-value rule into the prereg **before**
-      grading. *Done when:* it is registered in Addendum E.
+      grading. *Done when:* it is registered in Addendum F (the amendment; E = the 07-27 multileg redefinition).
       *Now has a surface, and it is better than expected:* 1.2's `no_spot_missing` bucket enumerates
       exactly these names per session **with premium attached**, so the rule can be written against an
       observed list instead of a guess. Measured across 37 sessions the bucket runs $54M–$574M (median
@@ -129,7 +129,7 @@ being free the moment we grade anything.
       $70.5M (EchoStar) and BRKB $37.3M (ticker format, not a corporate action — worth fixing
       separately). This is the "acquired names are the archetypal winners" case arriving with a
       dollar figure on it.
-- [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum E.**
+- [~] **1.5 Contract multiplier — BOUNDED 2026-07-27, register in Addendum F (the amendment).**
       `premium = price/PX * size * 100.0` hardcodes 100 and adjusted contracts do not always deliver
       100 shares. **No field in the OPRA definition record can fix it** — every candidate is UNDEF
       on all 1,592,395 C/P contracts: `contract_multiplier`, `original_contract_size` and
@@ -139,13 +139,29 @@ being free the moment we grade anything.
       detectable by the OCC convention of a digit-suffixed root (ENVX1, BABA2, CVX1) and are 225
       roots / 1,897 prints / **$7.2M = 0.028% of session premium**. That is a bounded known
       limitation, not a threat to any result. *Remaining:* register the bound + the digit-suffix
-      detector in Addendum E so nobody re-opens it.
+      detector in Addendum F so nobody re-opens it.
 - [ ] **1.6 Re-roll every session** at the new `schema_version`. *Done when:* `ingested_dates()`
       returns the full corpus at the current version.
       **The schema is now FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three
       have landed, so this is one pass, not two. Blocked only on the tcbbo backfill (71/260 at
       2026-07-27 01:00, ~0.8 min/session). One session rolls in 13s, so 260 is ~1 hour.
       **Do not add a column after this point without accepting a second full re-roll.**
+- [~] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
+      every corpus session's Alpaca OPRA trades (with `c`) to raw per-session files, join per the
+      frozen method, then re-roll the corpus at `schema_version=6` with code-based `multileg`.
+      **All-or-nothing:** v6 only when every session's label file clears the ≥98% join floor — a
+      mid-window definition seam is the Addendum B failure. 1.8 re-runs at v6. Until then v5
+      readings carry the floor-not-fence caveat.
+      **Machinery BUILT + verified 07-27 (backfill still running):** the frozen join lives in ONE
+      place (`tools/condition_labels.py`), consumed by both the floor-check
+      (`tools/condition_label_join.py --sweep` → `data/alpaca_conditions/join_ledger.json`, THE
+      migration gate) and the rollup. The v6 switch is one line — `SCHEMA_VERSION = 6` in
+      `db/flow_corpus.py` — which atomically activates code-based multileg, the raw-code `cond`
+      grain (row key), per-session `multileg_source`/`label_join_rate` audit columns, and the
+      table rebuild. End-to-end verified on scratch DBs: premium totals match v5 exactly (drift 0);
+      2025-07-28 join 98.40% PASS, true package premium **58.13% vs heuristic 33.33%** — the
+      in-sample session Addendum D's "33%" was measured on; cond-grain row expansion 1.66×.
+      Remaining: backfill completes → sweep all 250 → flip the constant → re-roll → 1.8 at v6.
 
 ### 1b. The four measurements
 
@@ -167,9 +183,16 @@ Each decides something downstream. Run them, do not skip to building.
       incomplete. Re-run across the corpus before leaning on it. *Original framing below.* Redo the Addendum D flip test on
       single stocks only, excluding index roots and ETFs. *Decides:* whether multi-leg contamination
       is a whole-corpus problem or a big-index artifact. **Cheapest item in this phase — do it first.**
-- [ ] **1.9 (c) Validate the nanosecond multi-leg heuristic, free.** Use `ts_recv` (manually-reported
-      complex trades lag auto-executed ones), quote sizes and price granularity as an independent
-      check. *Decides:* whether we ever need to buy condition-code days. Data is already on disk.
+- [~] **1.9 (c) Validate the nanosecond multi-leg heuristic — GROUND TRUTH FOUND, partial run
+      2026-07-27.** The planned `ts_recv`/quote-size proxy is superseded: the founder's Alpaca
+      condition-code sidecar (design doc §6b) delivers the actual OPRA multi-leg codes, and
+      `tools/alpaca_condition_join_probe.py` joins them print-for-print onto the tcbbo tape
+      (offset exactly 0ns; join 99.5%). **Measured on 2026-07-24, 8 single names: heuristic
+      precision 94.7%, recall 50.9%** — package legs frequently do NOT share one nanosecond, so
+      the `multileg=0` arm still contains ~half the true package legs. The heuristic is a floor,
+      not a fence. *Remaining:* scale to more names/sessions; any change to the registered
+      multileg definition = new addendum (per Addendum D). *Decides (answered):* we do NOT need
+      to buy condition-code days — the codes come free from the Alpaca entitlement.
 - [ ] **1.10 (d) The drift × sweep 2×2 — the founder's original question.** Per name-day: did drift
       fire, did a sweep fire. Grade all four cells separately, split by liquidity. Rebuild the sweep
       lane to **production's real parameters** (`MIN_PREMIUM_USD=25_000`, `SWEEP_WINDOW_MS=500`,
@@ -189,7 +212,7 @@ was the flow before it." That is a different and more data-efficient question. T
 problem bites **significance testing**; it bites far less when describing a conditional
 distribution, because conditioning on large moves selects the informative subset instead of diluting
 across every name-day. Sits before the amendment deliberately — what this finds should shape what
-Addendum E registers, so the amendment absorbs it in one pass.
+Addendum F registers, so the amendment absorbs it in one pass.
 
 ⚠️ **The trap that would make this worthless, and the rule that prevents it.**
 `P(flow | big move)` is NOT `P(big move | flow)`. If 80% of big rises had heavy bullish flow, that is
@@ -253,6 +276,11 @@ it is a description of the market. No exceptions.
       reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
       entire retail industry sells**, which would be the most valuable single finding available to us.
       *Note:* partially absorbs measurement 1.10's cross-tab — run 1.10 inside this frame.
+- [ ] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
+      at catalyst moments — earnings, guidance, M&A, FDA). "Someone knew about the event" and
+      "someone moved the stock" are different stories with plausibly different preceding-flow
+      profiles; pooling them repeats the index/single-name mistake one level down. Earnings/opex
+      flags already exist as covariates — this makes the split a registered look in the ledger.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
@@ -277,9 +305,9 @@ win/loss tally throws that away.
 
 **Output is a PROFILE, not a score.** Ships as perception, labelled unvalidated. Discovery runs on
 the **training window only**; the test split (2026-06-01 → 2026-07-25) stays untouched, and anything
-found here becomes a registered hypothesis in Addendum E before it may be tested there.
+found here becomes a registered hypothesis in Addendum F before it may be tested there.
 
-### 1d. The prereg amendment (Addendum E)
+### 1d. The prereg amendment (Addendum F — E was taken 07-27 by the multileg redefinition)
 
 - [ ] **1.15 Correct baseline #4** to production's real parameters. It currently says "$500k
       premium, DTE≤30", which describes nothing we run. "We beat production" would be a false claim.
@@ -294,8 +322,21 @@ found here becomes a registered hypothesis in Addendum E before it may be tested
       **6.4** (verified). Use time-block-clustered standard errors and require ≥20 independent event
       dates per cell.
 - [ ] **1.19 State universe size on every table.** The top ~1,000 names carry 99.6% of premium.
+- [ ] **1.20 Split the abstention band's reporting into single-name vs index/ETF arms** (founder,
+      07-27). The registered 20–35% band (Addenda C/D) is measured on POOLED premium, which is
+      index-dominated (~31% of premium is index roots alone; `t`-coded SPX floor packages were
+      10.35% of one session) — so the pooled band largely reports SPX's behavior with single names
+      along for the ride. Reporting both arms alongside the pooled number is legal now; making the
+      band BINDING per-arm is a rule change and lands here.
+- [ ] **1.21 Standing rule: every pooled premium-weighted statistic reports its single-name arm
+      alongside** (founder, 07-27). Measured justification: single names net −$354M while
+      index/ETF net +$908M on the same session — pooled statistics cancel opposing signals and
+      read as mush. This generalizes 1.8's lesson from multi-leg to everything.
+- [ ] **1.22 Harden the ETF classification before 1.20/1.21 lean on it.** `ETF_SET` in
+      `tools/multileg_arm_probe.py` is hand-built and incomplete (its own header says so). Derive
+      or curate a proper equity-vs-ETF-vs-index classification once, register it, reuse everywhere.
 
-**Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum E is
+**Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
 
 ---
