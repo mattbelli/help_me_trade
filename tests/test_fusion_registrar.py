@@ -121,3 +121,54 @@ def test_fusion_mech_grades_from_next_session() -> None:
     assert _first_evaluable_date(
         "2026-07-17T14:00:00+00:00", origin="fusion_mech"
     ) == date(2026, 7, 20)
+
+
+# ── 2026-07-28 measurement-integrity round ──────────────────────────────────
+
+
+def test_atr_pct_and_decayed_thesis_stamped(tmp_path: Path) -> None:
+    """Every registration stamps atr_pct + the z-gate's ranking statistic —
+    before this the ledger only carried the legacy undecayed score, so 'does z
+    rank outcomes?' was unanswerable from source_ref."""
+    import json
+
+    db = tmp_path / "ideas.db"
+    state = {
+        **_STATE,
+        "decayed_thesis": {
+            "z": 3.94,
+            "conviction": 0.61,
+            "bull_mass": 9.1,
+            "bear_mass": 1.2,
+            "gross": 10.3,
+            "contested": False,
+        },
+    }
+    register_stack(_episode(), _DOTS, state, db_path=db)
+    ref = json.loads(_rows(db)[0]["source_ref"])
+    assert ref["atr_pct"] == 2.5  # 2.50 ATR on a 100.00 price
+    assert ref["decayed"]["z"] == 3.94
+    assert ref["decayed"]["conviction"] == 0.61
+    # Legacy keys keep their exact meaning beside the new ones.
+    assert ref["score_at_registration"] == 3.2
+
+
+def test_atr_floor_refuses_noise_width_plan(tmp_path: Path) -> None:
+    """ATR under FUSION_MIN_ATR_PCT of price = quote noise, not a plan
+    (measured 07-28: every sub-1% row is a bond/cash ETF; zero wins ever under
+    0.5%). Refused before geometry, counted on its own counter."""
+    db = tmp_path / "ideas.db"
+    # SGOV-class: price 100.60, ATR 0.03 → atr_pct 0.0298
+    register_stack(
+        _episode(anchor_price="100.60", anchor_atr14="0.03"), _DOTS, _STATE, db_path=db
+    )
+    assert _rows(db) == []
+    # 0.99% sits under the floor; 1.0% exactly clears it.
+    register_stack(
+        _episode(anchor_price="100.00", anchor_atr14="0.99"), _DOTS, _STATE, db_path=db
+    )
+    assert _rows(db) == []
+    register_stack(
+        _episode(anchor_price="100.00", anchor_atr14="1.00"), _DOTS, _STATE, db_path=db
+    )
+    assert len(_rows(db)) == 1

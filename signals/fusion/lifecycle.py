@@ -489,7 +489,13 @@ def _evaluate_idea(
         symbol = str(idea["symbol"])
         with _connect(db_path) as conn:
             latest = _latest_price(symbol, price_lookup, conn)
-        atr = fusion_db.get_atr(symbol, db_path=db_path)
+        # Explicit as_of: get_atr's staleness cutoff is relative to the
+        # caller's session (07-28); the sweep's own clock is that session.
+        atr = fusion_db.get_atr(
+            symbol,
+            as_of=now_dt.astimezone(_ET).date().isoformat(),
+            db_path=db_path,
+        )
         dots = (
             fusion_db.episode_dots(str(episode_id), db_path=db_path) if episode_id else []
         )

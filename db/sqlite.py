@@ -12,8 +12,18 @@ from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.schema_helpers import _add_column_if_missing
 
+# Paths already initialized this process — same guard as db/ai_tables.py and
+# db/options_flow.py: init runs from 8 accessors including the 6s account poll,
+# and every call opens a write transaction (DDL). Under the market-open write
+# convoy those acquisitions were a measurable share of the lock queue
+# (write-lock waits p90 6.4s, probed 2026-07-27).
+_INIT_DONE: set[str] = set()
+
 
 def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
+    key = str(db_path)
+    if key in _INIT_DONE:
+        return
     with _connect(db_path) as conn:
         conn.executescript(
             """
@@ -112,6 +122,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON order_snapshots(poll_run_id)
             """
         )
+    # Only after full success — a failed init must retry on the next call.
+    _INIT_DONE.add(key)
 
 
 def save_snapshot(

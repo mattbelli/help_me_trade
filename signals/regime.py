@@ -103,12 +103,19 @@ def fetch_fred_csv(
     series_id: str,
     *,
     limit: int = _VIX3M_UPSERT_LIMIT,
+    start: str | None = None,
 ) -> list[tuple[str, float]]:
-    """Fetch recent observations via the KEYLESS fredgraph CSV endpoint. Fail-soft → []."""
+    """Fetch recent observations via the KEYLESS fredgraph CSV endpoint. Fail-soft → [].
+
+    ``start`` (cosd) widens the window: some series (the ICE BofA OAS family)
+    default to a 3-year graph window, not full history — measured 2026-07-28."""
+    params: dict[str, str] = {"id": series_id}
+    if start:
+        params["cosd"] = start
     try:
         resp = httpx.get(
             FRED_CSV_URL,
-            params={"id": series_id},
+            params=params,
             timeout=_FRED_TIMEOUT,
             follow_redirects=True,
         )

@@ -10,6 +10,21 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 
 ---
 
+## ▶ 2026-07-27 Postgres migration — design BANKED, execution PAUSED on trigger
+
+Founder decided migrate 07-27, then same day returned it to a **trigger-based wait** with the design
+banked: hold a few days, and if **another multi-writer incident** appears, execute the doc as
+written — no re-litigating. Trigger (crisp, all instrumented today): dropped sweep cycles attributed
+`db_error`, `database is locked` in logs, or slow-txn logger showing sustained multi-second write
+queuing. **The governing design stays `References/POSTGRES_MIGRATION_2026-07-27.md`** (adversarially
+hardened, merged PR #122 — §5 danger register + §9 gates are the checklist when triggered; start at
+§12 Round 0). Card: `postgres-migration-decision` (backlog, trigger-armed). Open items:
+- **Pull forward regardless of Postgres**: backup watchdog fails OPEN on unreadable backup age
+  (`api/jobs.py:189-190` — guards today's SQLite backups; must fail closed) + `.env` chmod 600.
+- Slow-txn logger + SQLite health instrumentation stay live — they ARE the trigger sensor.
+- When triggered, open the two pre-cutover fix cards: `daily_bars` schema leak
+  (`trading/proposals.py:704`) and the `rule_events` 10,831-FK-orphan decision.
+
 ## ▶ 2026-07-26 whole-market flow corpus — backfill IN FLIGHT, deadline is real
 
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls

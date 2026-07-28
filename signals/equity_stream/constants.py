@@ -50,3 +50,7 @@ SPREAD_BASELINE_SAMPLES = 64
 
 STATS_INTERVAL_SECONDS = 60
 FLUSH_INTERVAL_SECONDS = 2.0
+# Spot flush: batch-upsert the changed consolidated last prices into
+# fusion_spot_cache (whole-market price source for the fusion intake). 30s
+# keeps one keyed upsert per active symbol per interval — never per print.
+SPOT_FLUSH_INTERVAL_SECONDS = 30.0

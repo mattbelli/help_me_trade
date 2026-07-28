@@ -26,6 +26,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 
 | Doc | Status |
 |---|---|
+| `POSTGRES_MIGRATION_2026-07-27.md` | ★ GOVERNING design for the SQLite→Postgres migration (founder-decided 07-27): scope (trading.db only), dialect danger register, atomic rehearsed cutover, frozen-SQLite rollback |
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |
 | `MULTI_ANGLE_REASONING_AB_2026-07-19.md` | Design: bull/bear/judge panel A/B vs the single veto-grade voice — paired shadow, alternating control, alpha-adjudicated prereg metrics. Opus-reviewed (fixes folded); AWAITING FOUNDER GO |
 | `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` | ★ BUILD spec for the 4 LLM/human paper books (Deep Seek/Fable/Claude Panel/Matt + LLM): nightly pack→session→propose→approve pipeline, `book:*` ledger lanes, panel seat design, shorts-unlock round, 6 increments. Settled 07-23 |

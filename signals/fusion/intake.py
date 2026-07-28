@@ -5,14 +5,20 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from datetime import datetime, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable
 
 from config.idea_engine import (
+    FUSION_CONTEXT_REFRESH_S,
+    FUSION_EARNINGS_AHEAD_TD,
+    FUSION_EARNINGS_BEHIND_TD,
+    FUSION_REGIME_STALE_DAYS,
     FUSION_REHYDRATE_SESSIONS,
     FUSION_SOCIAL_SPIKE_RATIO,
+    FUSION_SPOT_MAX_AGE_S,
     FUSION_STORM_BATCH_EVENTS,
     FUSION_STORM_KEEP_EVENTS,
 )
@@ -420,10 +426,14 @@ def _attach_attention(episode: dict, ts: str, db_path: Path) -> None:
 def _attach_shock(episode: dict, ts: str, db_path: Path) -> None:
     if not int(episode.get("market_shock") or 0):
         return
+    # Key on (event day, episode): the old key — the EPISODE's opening day
+    # alone — was one global row per day whose episode_id/symbol stuck on the
+    # first episode to claim it (the upsert's SET list never rewrites those),
+    # so every other episode that day got no shock dot at all (07-28 audit).
     _insert_dot(
         episode_id=episode["id"],
         source_store="market_context",
-        source_event_id=f"shock:{episode['market_day']}",
+        source_event_id=f"shock:{_market_day(ts)}:{episode['id']}",
         source_ingest_seq=0,
         symbol=episode["symbol"],
         ts=ts,
@@ -579,6 +589,288 @@ def _attach_structure(
         )
 
 
+def _weekdays_after(start: date, end: date) -> int:
+    """Weekdays in (start, end] — the cheap trading-day distance.
+
+    Holidays count as trading days here (over-counts by one across a holiday),
+    the same accepted trade-off as SESSION_SECONDS ignoring half-days. Spans
+    beyond a month return a large sentinel instead of walking the calendar."""
+    if end <= start:
+        return 0
+    if (end - start).days > 31:
+        return 99
+    days = 0
+    cursor = start
+    while cursor < end:
+        cursor += timedelta(days=1)
+        if cursor.weekday() < 5:
+            days += 1
+    return days
+
+
+def _attach_earnings(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
+    """Catalyst state dot: an earnings print inside the adjacency window.
+
+    Scored latest/best like structure, on the same [0, 1] closeness scale —
+    1.0 at tomorrow's print (or today's/just-reported), falling linearly to the
+    window edge. Sides: ``upcoming`` (strictly future), ``today`` (calendar says
+    this market day — the biased bmo/amc hour is deliberately unused), and
+    ``reported`` (drift window). ``market_day`` is the EVENT's day, not the
+    episode's opening day — proximity must move with time, and a symbol that
+    LEAVES the window has its dot zeroed (a frozen last-good reading would lie
+    to the dossier for the episode's whole TTL). Store read only, no network."""
+    from db.earnings_calendar import last_earnings_date, next_earnings_date
+
+    symbol = str(episode["symbol"])
+    anchor = date.fromisoformat(market_day)
+    candidates: list[dict[str, Any]] = []
+    upcoming = next_earnings_date(symbol, market_day, db_path=db_path)
+    if upcoming:
+        try:
+            distance = _weekdays_after(anchor, date.fromisoformat(upcoming))
+        except ValueError:
+            distance = 0
+        if 1 <= distance <= FUSION_EARNINGS_AHEAD_TD:
+            candidates.append(
+                {
+                    "side": "upcoming",
+                    "earnings_date": upcoming,
+                    "weekdays": distance,
+                    "points": round(
+                        (FUSION_EARNINGS_AHEAD_TD + 1 - distance) / FUSION_EARNINGS_AHEAD_TD, 4
+                    ),
+                }
+            )
+    reported = last_earnings_date(symbol, market_day, db_path=db_path)
+    if reported:
+        try:
+            distance = _weekdays_after(date.fromisoformat(reported), anchor)
+        except ValueError:
+            distance = 99
+        if distance <= FUSION_EARNINGS_BEHIND_TD:
+            candidates.append(
+                {
+                    "side": "today" if reported == market_day else "reported",
+                    "earnings_date": reported,
+                    "weekdays": distance,
+                    "points": round(
+                        (FUSION_EARNINGS_BEHIND_TD + 1 - distance)
+                        / (FUSION_EARNINGS_BEHIND_TD + 1),
+                        4,
+                    ),
+                }
+            )
+    if not candidates:
+        # Out of window: zero an existing dot instead of freezing it — read
+        # first so the common no-earnings case costs no write transaction.
+        stale_detail = fusion_db.serialize_detail(
+            {
+                "side": "none",
+                "as_of": market_day,
+                "window_ahead_td": FUSION_EARNINGS_AHEAD_TD,
+                "window_behind_td": FUSION_EARNINGS_BEHIND_TD,
+            }
+        )
+        with _connect(db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT id, points FROM evidence_dots
+                WHERE episode_id = ? AND component = 'earnings_proximity'
+                """,
+                (episode["id"],),
+            ).fetchone()
+            if row is not None and float(row["points"] or 0.0) != 0.0:
+                conn.execute(
+                    "UPDATE evidence_dots SET points = 0.0, detail_json = ? WHERE id = ?",
+                    (stale_detail, row["id"]),
+                )
+                conn.commit()
+        return
+    best = max(candidates, key=lambda c: float(c["points"]))
+    detail = {
+        **best,
+        "as_of": market_day,
+        "window_ahead_td": FUSION_EARNINGS_AHEAD_TD,
+        "window_behind_td": FUSION_EARNINGS_BEHIND_TD,
+    }
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="earnings_calendar",
+        source_event_id=f"{episode['id']}:earnings_proximity",
+        source_ingest_seq=0,
+        symbol=symbol,
+        ts=ts,
+        component="earnings_proximity",
+        actor_group="catalyst",
+        dot_kind="state",
+        direction="none",
+        raw_value=_decimal(best["weekdays"]),
+        points=float(best["points"]),
+        detail=detail,
+        price=None,
+        atr14=None,
+        db_path=db_path,
+    )
+    bump("fusion_intake", "earnings_dots", db_path=db_path)
+
+
+# Market-wide context reads are identical for every episode on a market day —
+# memoized so a busy intake pass costs one query burst per TTL, not per event.
+_CONTEXT_MEMO: dict[tuple[str, str, str], tuple[float, Any]] = {}
+
+
+def _context_memo(kind: str, market_day: str, db_path: Path, build: Callable[[], Any]) -> Any:
+    key = (kind, market_day, str(db_path))
+    hit = _CONTEXT_MEMO.get(key)
+    now = time.monotonic()
+    if hit is not None and now - hit[0] < FUSION_CONTEXT_REFRESH_S:
+        return hit[1]
+    value = build()
+    if len(_CONTEXT_MEMO) > 64:
+        _CONTEXT_MEMO.clear()  # tiny working set; clears itself across day/db rollover
+    _CONTEXT_MEMO[key] = (now, value)
+    return value
+
+
+_REGIME_SERIES = ("VIXCLS", "vix3m", "DGS2", "DGS10")
+
+
+def _regime_payload(market_day: str, db_path: Path) -> dict[str, Any] | None:
+    from db.regime import latest_observation
+
+    anchor = date.fromisoformat(market_day)
+    readings: dict[str, tuple[str, float]] = {}
+    for series in _REGIME_SERIES:
+        obs = latest_observation(series, as_of=market_day, db_path=db_path)
+        if obs is None:
+            continue
+        try:
+            age = (anchor - date.fromisoformat(obs[0])).days
+        except ValueError:
+            continue
+        if age > FUSION_REGIME_STALE_DAYS:
+            continue
+        readings[series] = obs
+    if not readings:
+        return None
+    detail: dict[str, Any] = {"stale_days_max": FUSION_REGIME_STALE_DAYS}
+    vix = readings.get("VIXCLS")
+    vix3m = readings.get("vix3m")
+    dgs2 = readings.get("DGS2")
+    dgs10 = readings.get("DGS10")
+    if vix is not None:
+        detail["vix"] = vix[1]
+        detail["vix_date"] = vix[0]
+    if vix3m is not None:
+        detail["vix3m"] = vix3m[1]
+        detail["vix3m_date"] = vix3m[0]
+    # Derived measures require DATE-ALIGNED observations — the two series come
+    # from different feeds with different lags, and a cross-date ratio inverts
+    # the term-structure verdict on exactly the spike days it exists to flag
+    # (regime_sleeves joins on date for the same reason; never a second
+    # definition). Levels above still surface individually when misaligned.
+    if vix is not None and vix3m is not None and vix[0] == vix3m[0] and vix3m[1] > 0:
+        # > 1 = term-structure backwardation (near-term stress priced above far).
+        detail["vix_term_ratio"] = round(vix[1] / vix3m[1], 4)
+    if dgs2 is not None and dgs10 is not None and dgs2[0] == dgs10[0]:
+        detail["curve_2s10s"] = round(dgs10[1] - dgs2[1], 4)
+        detail["curve_dates"] = [dgs2[0], dgs10[0]]
+    return detail
+
+
+def _attach_regime(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
+    """Context state dot (ANNOTATE-ONLY — the scorer never scores this group):
+    the macro regime read (VIX level + term ratio, 2s10s curve) riding on the
+    episode so the card/dossier can show the tape's weather. Series staler than
+    FUSION_REGIME_STALE_DAYS mint nothing — counted, never raised."""
+    detail = _context_memo(
+        "regime", market_day, db_path, lambda: _regime_payload(market_day, db_path)
+    )
+    if not detail:
+        bump("fusion_intake", "regime_skipped_stale", db_path=db_path)
+        return
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="market_context",
+        source_event_id=f"{episode['id']}:regime",
+        source_ingest_seq=0,
+        symbol=episode["symbol"],
+        ts=ts,
+        component="regime",
+        actor_group="context",
+        dot_kind="state",
+        direction="none",
+        raw_value=_decimal(detail.get("vix")),
+        points=0.0,
+        detail=detail,
+        price=None,
+        atr14=None,
+        db_path=db_path,
+    )
+    bump("fusion_intake", "regime_dots", db_path=db_path)
+
+
+def _index_pressure_payload(market_day: str, db_path: Path) -> dict[str, Any] | None:
+    from db.index_pressure import day_summary
+
+    for window in ("close", "open"):
+        rows = day_summary(market_day, window=window, db_path=db_path)
+        if not rows:
+            continue
+        bull = sum(r["bull_usd"] for r in rows)
+        bear = sum(r["bear_usd"] for r in rows)
+        gross = bull + bear + sum(r["unclassified_usd"] for r in rows)
+        return {
+            "date": market_day,
+            "window": window,
+            "bull_usd": round(bull, 2),
+            "bear_usd": round(bear, 2),
+            "net_usd": round(bull - bear, 2),
+            "classified_frac": round((bull + bear) / gross, 4) if gross > 0 else 0.0,
+            "underlyings": len(rows),
+            "top": [
+                {"underlying": r["underlying"], "net_usd": round(r["net_usd"], 2)}
+                for r in rows[:3]
+            ],
+        }
+    return None
+
+
+def _attach_index_pressure(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
+    """Context state dot (ANNOTATE-ONLY): today's index-options pressure gauge
+    read, market-wide by construction (#93 — the gauge lane, never a wildcard
+    trades sub). Prefers the close window once it has data, else the open; a day
+    with no gauge minutes mints nothing — counted, never raised."""
+    payload = _context_memo(
+        "index_pressure",
+        market_day,
+        db_path,
+        lambda: _index_pressure_payload(market_day, db_path),
+    )
+    if not payload:
+        bump("fusion_intake", "index_pressure_skipped_none", db_path=db_path)
+        return
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="index_pressure",
+        source_event_id=f"{episode['id']}:index_pressure",
+        source_ingest_seq=0,
+        symbol=episode["symbol"],
+        ts=ts,
+        component="index_pressure",
+        actor_group="context",
+        dot_kind="state",
+        direction="none",
+        raw_value=_decimal(payload.get("net_usd")),
+        points=0.0,
+        detail=payload,
+        price=None,
+        atr14=None,
+        db_path=db_path,
+    )
+    bump("fusion_intake", "index_pressure_dots", db_path=db_path)
+
+
 def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
     dots = fusion_db.episode_dots(episode_id, db_path=db_path)
     state = score_dots(dots)
@@ -675,11 +967,22 @@ def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
 def _maybe_call_registrar(
     episode_id: str, anchor_dot_id: str, score_state: dict[str, Any], db_path: Path
 ) -> None:
+    """Register the SYMBOL-DAY on its first stampable directional actor dot.
+
+    2026-07-28 restore (founder-blessed): Round-3 long-lived episodes had turned
+    the boolean ``registration_called`` latch into once-per-EPISODE-LIFETIME —
+    a silent estimand drift from the spec's pinned "one registration per
+    symbol-day" (volume fell 605/day → 120/day as episodes saturated). The latch
+    is now ``registered_market_day``, keyed on the DOT's session. The episode's
+    own anchor_* columns still latch exactly once (first-ever anchor): the
+    lifecycle sweep's price-invalidation measures from them, and rolling that
+    reference daily would be a second silent semantics change. Later days'
+    registrations carry their day-anchor via an overlay dict instead."""
     with _connect(db_path) as conn:
         episode_row = conn.execute(
             "SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)
         ).fetchone()
-        if episode_row is None or int(episode_row["registration_called"]):
+        if episode_row is None:
             return
         dot_row = conn.execute(
             "SELECT * FROM evidence_dots WHERE id = ?", (anchor_dot_id,)
@@ -690,7 +993,7 @@ def _maybe_call_registrar(
         # whose persisted stamps predate the caches warming even though THIS
         # pass has live price/ATR. Latching a NULL anchor would burn the whole
         # symbol-day (register_stack refuses it, and the latch blocks every
-        # later stampable dot). Leave the episode unlatched instead.
+        # later stampable dot). Leave the day unlatched instead.
         if (
             not int(dot_row["stamped"] or 0)
             or dot_row["trigger_price"] is None
@@ -698,6 +1001,18 @@ def _maybe_call_registrar(
             or dot_row["direction"] not in ("bull", "bear")
         ):
             return
+        dot_day = _market_day(str(dot_row["ts"]))
+        # MONOTONIC latch (review H1/H2): strictly newer days only. An equal
+        # day is already registered; an OLDER day (lagging store cursor,
+        # multi-session outage catch-up) must never register — the ledger's
+        # dedup wall is a PARTIAL index over open rows, so a resolved
+        # symbol-day would re-enter the cohort at a different price, and a
+        # backward latch write would then let the current day re-register too.
+        # You cannot honestly register a past session's plan at today's price.
+        if dot_day <= str(episode_row["registered_market_day"] or ""):
+            return
+        # First-ever anchor still latches onto the episode row (lifecycle
+        # reference); the registration_called guard keeps it write-once.
         conn.execute(
             """
             UPDATE fusion_episodes SET
@@ -718,22 +1033,44 @@ def _maybe_call_registrar(
         episode = dict(
             conn.execute("SELECT * FROM fusion_episodes WHERE id = ?", (episode_id,)).fetchone()
         )
+    # The day's registration always anchors on TODAY's dot — for the episode's
+    # first day the overlay equals the just-latched episode anchor; for later
+    # days it is the day-anchor the episode columns deliberately do not take.
+    try:
+        dot_detail = json.loads(dot_row["detail_json"] or "{}")
+        dot_price_source = str(dot_detail.get("price_source") or "cache")
+    except (TypeError, ValueError):
+        dot_price_source = "cache"
+    day_anchor = {
+        "anchor_dot_id": anchor_dot_id,
+        "anchor_price": dot_row["trigger_price"],
+        "anchor_atr14": dot_row["prior_close_atr14"],
+        "anchor_direction": dot_row["direction"],
+        # Review S3: the plan's entry may be a spot/print rather than a live
+        # cache read — the ledger row must say so (see registrar source_ref).
+        "anchor_price_source": dot_price_source,
+    }
     registrar.register_stack(
-        episode,
+        {**episode, **day_anchor},
         fusion_db.episode_dots(episode_id, db_path=db_path),
         {**score_state, "signature": episode["signature"]},
         db_path=db_path,
     )
     # Latch ONLY after the ledger call returned. A crash (or an exception from
-    # register_stack) before this point leaves registration_called=0, so the
+    # register_stack) before this point leaves the day unlatched, so the
     # replayed event retries; register_idea's dedup_key wall absorbs the
     # duplicate call (test_same_symbol_day_registers_once proves it). The old
     # order — latch first, register second — turned any crash in that window
     # into a silent, permanent hole in the measurement ledger.
     with _connect(db_path) as conn:
         conn.execute(
-            "UPDATE fusion_episodes SET registration_called = 1 WHERE id = ?",
-            (episode_id,),
+            """
+            UPDATE fusion_episodes SET
+                registration_called = 1,
+                registered_market_day = MAX(COALESCE(registered_market_day, ''), ?)
+            WHERE id = ?
+            """,
+            (dot_day, episode_id),
         )
         conn.commit()
 
@@ -758,6 +1095,7 @@ def intake_once(
     counters = {key: 0 for key in fusion_db.DISPOSITIONS}
     lookup = price_lookup or (lambda _symbol: None)
     shock = bool(shock_lookup()) if shock_lookup is not None else False
+    context_done: set[tuple[str, str]] = set()  # (episode_id, market_day) this pass
 
     for store in fusion_db.STORES:
         cursor = fusion_db.get_cursor(store, db_path=db_path)
@@ -823,12 +1161,32 @@ def intake_once(
                 # inert). Auditable via close_reason='price_invalidation' on
                 # print-stamped symbols; robustify (median-of-recent-prints)
                 # only if the ledger shows it. Labeled for the honesty trail.
-                # Options events carry no underlying price — no fallback there.
                 fallback = _decimal(event.get("price"))
                 if fallback is not None and fallback > 0:
                     price = fallback
                     shape["detail"]["price_source"] = "print"
-            atr14 = fusion_db.get_atr(shape["symbol"], db_path=db_path)
+            if price is None:
+                # Whole-market fallback (2026-07-28): options events carry no
+                # underlying price and the bars caches are watchlist-scoped, so
+                # the 07-27 whole-market flow lane minted 4,848 unpriced dots
+                # in one day. fusion_spot_cache is the equity collector's
+                # consolidated last trade for every US name — freshness-bounded
+                # so an overnight/collector-down spot reads as missing, never
+                # as a price. Labeled for the honesty trail.
+                spot = fusion_db.get_spot(
+                    shape["symbol"],
+                    max_age_s=FUSION_SPOT_MAX_AGE_S,
+                    as_of=str(event["ts"]),  # fence vs the EVENT, not the wall clock
+                    db_path=db_path,
+                )
+                if spot is not None:
+                    price = spot
+                    shape["detail"]["price_source"] = "tape_spot"
+            atr14 = fusion_db.get_atr(
+                shape["symbol"],
+                as_of=_market_day(str(event["ts"])),
+                db_path=db_path,
+            )
             dot_id = _insert_dot(
                 episode_id=episode["id"],
                 source_store=store,
@@ -868,6 +1226,16 @@ def intake_once(
             _attach_attention(episode, str(event["ts"]), db_path)
             _attach_shock(episode, str(event["ts"]), db_path)
             _attach_structure(episode, str(event["ts"]), price, atr14, db_path)
+            # Context/catalyst facts are per-(episode, market-day), not
+            # per-event: run once per pass so a storm burst can't multiply
+            # write commits on the single-writer WAL (the 07-27 lock-starve
+            # class). The 60s poll cadence is the refresh clock.
+            context_key = (str(episode["id"]), _market_day(str(event["ts"])))
+            if context_key not in context_done:
+                context_done.add(context_key)
+                _attach_earnings(episode, str(event["ts"]), context_key[1], db_path)
+                _attach_regime(episode, str(event["ts"]), context_key[1], db_path)
+                _attach_index_pressure(episode, str(event["ts"]), context_key[1], db_path)
             state = _rescore(episode["id"], db_path)
             if disposition == "scored":
                 _maybe_call_registrar(episode["id"], dot_id, state, db_path)
@@ -882,7 +1250,13 @@ def intake_once(
             update_stack_card(current_episode, state, db_path=db_path)
             from signals.fusion.investigate import evaluate_investigation
 
-            evaluate_investigation(current_episode, state, db_path=db_path)
+            # The DOT's session, not the episode's opening day: long-lived
+            # episodes keep their birth market_day, and budgeting/metering on
+            # that filed decisions under sessions long past (07-28 audit — the
+            # two 07-27 admissions were booked to 07-22/07-23).
+            evaluate_investigation(
+                current_episode, state, market_day=context_key[1], db_path=db_path
+            )
             counters[disposition] += 1
             fusion_db.set_cursor(store, int(event["ingest_seq"]), db_path=db_path)
 

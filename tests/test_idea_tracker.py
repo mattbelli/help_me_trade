@@ -151,31 +151,164 @@ def test_same_bar_stop_and_target_after_trigger_is_lost(idea_db) -> None:
         _bar(trigger_day + timedelta(days=1), low=97, high=112),
     ]
 
-    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+    # Minute tape unavailable → the pessimistic daily tie-break stands.
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=None),
+    ):
         sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
         counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
 
     assert counts["lost"] == 1
     summary = get_summary(db_path=idea_db)
     assert summary["counts"].get("lost") == 1
+    with connect(idea_db) as conn:
+        row = conn.execute(
+            "SELECT grading_resolution FROM idea_outcomes WHERE status='lost'"
+        ).fetchone()
+    assert row["grading_resolution"] == "daily"
+
+
+def _minute(iso: str, *, low: float, high: float) -> SimpleNamespace:
+    return SimpleNamespace(
+        time=iso, open=(low + high) / 2, low=low, high=high,
+        close=(low + high) / 2, volume=1_000,
+    )
+
+
+def test_both_touch_bar_won_when_minute_walk_orders_target_first(idea_db) -> None:
+    """2026-07-28: a daily bar touching BOTH stop and target asks the minute
+    tape which came first — always-LOST biased the whole mechanical lane on
+    the 1×ATR/2×ATR geometry (losers −1.27R, winners capped +2.00R)."""
+    as_of = "2026-01-06T15:00:00+00:00"
+    _register(idea_db, as_of=as_of, stop="98", targets=["110"])
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),  # trigger (01-07)
+        _bar(start + timedelta(days=2), low=97, high=112),  # both-touch (01-08)
+    ]
+    minutes = [
+        _minute("2026-01-08T15:31:00+00:00", low=109, high=111),  # target first
+        _minute("2026-01-08T19:00:00+00:00", low=97, high=99),  # stop later
+    ]
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=minutes),
+    ):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["won"] == 1
+    with connect(idea_db) as conn:
+        row = conn.execute(
+            "SELECT status, exit_reason, grading_resolution, resolution_price "
+            "FROM idea_outcomes"
+        ).fetchone()
+    assert row["status"] == "won"
+    assert row["exit_reason"] == "target"
+    assert row["grading_resolution"] == "minute_tiebreak"
+    assert row["resolution_price"] == "110"
+
+
+def test_both_touch_bar_lost_when_minute_walk_orders_stop_first(idea_db) -> None:
+    as_of = "2026-01-06T15:00:00+00:00"
+    _register(idea_db, as_of=as_of, stop="98", targets=["110"])
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),
+        _bar(start + timedelta(days=2), low=97, high=112),
+    ]
+    minutes = [
+        # Pre-market print at the target must NOT decide (RTH filter): 13:00Z
+        # = 08:00 ET.
+        _minute("2026-01-08T13:00:00+00:00", low=111, high=112),
+        _minute("2026-01-08T15:31:00+00:00", low=97, high=99),  # stop first (RTH)
+        _minute("2026-01-08T19:00:00+00:00", low=109, high=111),
+    ]
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=minutes),
+    ):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1
+    with connect(idea_db) as conn:
+        row = conn.execute(
+            "SELECT status, grading_resolution, resolution_price FROM idea_outcomes"
+        ).fetchone()
+    assert row["status"] == "lost"
+    assert row["grading_resolution"] == "minute_tiebreak"
+    assert row["resolution_price"] == "97"  # deciding minute bar's worst extreme (minute-lane convention)
+
+
+def test_both_touch_single_minute_spanning_both_stays_conservative(idea_db) -> None:
+    as_of = "2026-01-06T15:00:00+00:00"
+    _register(idea_db, as_of=as_of, stop="98", targets=["110"])
+    start = date(2026, 1, 6)
+    bars = [
+        _bar(start + timedelta(days=1), low=102, high=103),
+        _bar(start + timedelta(days=2), low=97, high=112),
+    ]
+    minutes = [_minute("2026-01-08T15:31:00+00:00", low=97, high=112)]  # spans both
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=minutes),
+    ):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["lost"] == 1  # still ambiguous → win% never flattered
 
 
 def test_same_bar_zone_and_stop_is_lost_not_invalidated(idea_db) -> None:
-    # Conservative rule: a bar that touches the entry zone AND the stop is a
-    # real entry that stopped out (lost) — discarding it as invalidated would
-    # inflate win%. Zone 100-105, stop 95: bar 94-101 touches both.
+    # Conservative rule: a bar that touches the entry zone AND the stop, when
+    # the minute tape cannot order the touches, is a real entry that stopped
+    # out (lost) — discarding it as invalidated would inflate win%.
+    # Zone 100-105, stop 95: bar 94-101 touches both.
     as_of = "2026-01-06T15:00:00+00:00"
     _register(idea_db, as_of=as_of)
     start = date(2026, 1, 6)
     bars = [_bar(start + timedelta(days=1), low=94, high=101)]
 
-    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=None),
+    ):
         counts = sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
 
     assert counts["lost"] == 1
     assert counts.get("invalidated", 0) == 0
     summary = get_summary(db_path=idea_db)
     assert summary["counts"].get("lost") == 1
+
+
+def test_entry_bar_stop_first_on_minutes_is_invalidated(idea_db) -> None:
+    """Review M3a sibling fix: zone+stop in one daily bar, but the minute tape
+    shows the STOP traded before the zone ever did — price crashed through and
+    the planned entry never existed → invalidated, not lost."""
+    as_of = "2026-01-06T15:00:00+00:00"
+    _register(idea_db, as_of=as_of)  # zone 100-105, stop 95
+    start = date(2026, 1, 6)
+    bars = [_bar(start + timedelta(days=1), low=94, high=101)]
+    minutes = [
+        _minute("2026-01-07T15:31:00+00:00", low=94, high=96),  # stop first
+        _minute("2026-01-07T19:00:00+00:00", low=100, high=101),  # zone later
+    ]
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars),
+        patch("research.idea_tracker.fetch_minute_bars", return_value=minutes),
+    ):
+        counts = sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+
+    assert counts.get("invalidated", 0) == 1
+    assert counts.get("lost", 0) == 0
+    with connect(idea_db) as conn:
+        row = conn.execute(
+            "SELECT status, grading_resolution FROM idea_outcomes"
+        ).fetchone()
+    assert row["status"] == "invalidated"
+    assert row["grading_resolution"] == "minute_tiebreak"
 
 
 def test_same_bar_trigger_and_target_is_only_triggered(idea_db) -> None:

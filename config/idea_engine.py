@@ -15,8 +15,9 @@ from collections import defaultdict
 IDEA_COOLDOWN_MIN_DEFAULT = 30
 IDEA_COOLDOWN_MIN: dict[str, int] = defaultdict(lambda: IDEA_COOLDOWN_MIN_DEFAULT)
 # fusion_mech is one row per symbol-day BY CONSTRUCTION (the episode's
-# registration_called guard is the primary wall); the day-wide cooldown is the
-# dedup_key backstop for replay/restart races.
+# MONOTONIC registered_market_day latch is the primary wall, 07-28 — strictly
+# newer days only, so lagging/replayed older days never register); the
+# day-wide cooldown is the dedup_key backstop for replay/restart races.
 IDEA_COOLDOWN_MIN["fusion_mech"] = 1440
 # LLM paper-book lanes (References/LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md §4):
 # one nightly cycle per book, so the day-wide cooldown is the same replay/restart
@@ -98,6 +99,35 @@ FUSION_TRIGGER_TTL_IMPULSE_HOURS = 4  # FOUNDER DIAL — impulse-class trigger T
 FUSION_TRIGGER_TTL_THESIS_SESSIONS = 3  # FOUNDER DIAL — thesis-confirmation-class trigger TTL (trading days)
 FUSION_HOT_LANE_DEMOTE_SESSIONS = 3  # FOUNDER DIAL — quiet trading days before a hot-lane symbol demotes (Round 4)
 
+# Fusion context/catalyst minters (board fusion-unminted-dots, 2026-07-28) — the
+# registered components start minting. regime/index_pressure are ANNOTATE-ONLY
+# (never score); earnings_proximity is a scored catalyst state dot on the same
+# [0, 1] closeness scale as structure. Every value is a FOUNDER DIAL.
+FUSION_EARNINGS_AHEAD_TD = 5  # FOUNDER DIAL — upcoming earnings within N weekdays = catalyst-adjacent
+FUSION_EARNINGS_BEHIND_TD = 2  # FOUNDER DIAL — reported earnings within N weekdays = drift window
+FUSION_REGIME_STALE_DAYS = 5  # FOUNDER DIAL — macro series older than this mint nothing (stale context is worse than none)
+FUSION_CONTEXT_REFRESH_S = 60.0  # FOUNDER DIAL — memo TTL for the market-wide context reads
+
+# Fusion mechanical registration (2026-07-28 measurement-integrity round).
+# FUSION_MIN_ATR_PCT: refuse fusion_mech registration when ATR(14) is under this
+# % of price — measured 07-28: the 253 sub-2% rows won 3.2% and every sub-1% row
+# is a bond/cash ETF whose 1×ATR stop sits inside the bid/ask (86 rows under
+# 0.5%, zero wins ever). 1.0 keeps SPY/QQQ/XLE (1–2% band) registering. Every
+# registration stamps atr_pct into source_ref regardless, so the floor's effect
+# stays measurable. COHORT NOTE: the floor gates from 2026-07-28 — pre/post
+# comparisons must split on that date.
+FUSION_MIN_ATR_PCT = 1.0  # FOUNDER DIAL
+# fusion_atr_cache rows older than this many calendar days are refused by
+# get_atr (5 = weekend + holiday headroom over the daily refresh). A plan built
+# on a weeks-old ATR measures nothing; the dot stays unstamped and is counted
+# by the existing unstampable dispositions instead.
+FUSION_ATR_MAX_AGE_DAYS = 5
+# Whole-market price fallback (fusion_spot_cache, fed by the equity collector's
+# wildcard tape): a spot older than this is refused — overnight/halted/collector-
+# down must read as missing, never as a price. 15 min is generous for any
+# optionable name during RTH at the 30s flush cadence.
+FUSION_SPOT_MAX_AGE_S = 900.0
+
 # Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
 # The deterministic "this evidence stack would be investigated by the LLM lane
 # right now" decision — counted, never acted on. Zero LLM calls. REASON_SHADOW_ONLY
@@ -105,14 +135,12 @@ FUSION_HOT_LANE_DEMOTE_SESSIONS = 3  # FOUNDER DIAL — quiet trading days befor
 # it (C3 shipped the lane dark); the future ARM commit flips it — see the ARMING
 # CHECKLIST beside REASON_EMIT_ENABLED below. B=5/day total with a 25% opening reserve
 # (ceil(0.25×5)=2 investigations during the first 30 min, so the open can't drain
-# the day). The threshold is the (B×S)-th highest day-final score over the trailing
-# S≤7 sessions, so ~B stacks clear on an average day; below INVESTIGATE_MIN_POOL the
-# archetype pool widens, then reads no_baseline until sessions accrue.
+# the day). The cut-line is the z dual gate (FUSION_Z_GATE_T + CONVICTION_BAR in
+# signals/fusion/scorer.py) — the pre-z trailing-percentile baseline machinery
+# and its INVESTIGATE_* dials were removed with the founder's T pick (07-22).
 REASON_DAILY_BUDGET = 5
 REASON_OPENING_RESERVE_FRAC = 0.25
 REASON_OPENING_WINDOW_MIN = 30
-INVESTIGATE_TRAILING_SESSIONS = 7
-INVESTIGATE_MIN_POOL = 20
 REASON_SHADOW_ONLY = True
 
 # Fusion Phase C2 — DOSSIER BUILDER (deterministic claim matrix; zero LLM/network).
@@ -198,14 +226,21 @@ def validate_config() -> None:
     assert FUSION_TRIGGER_TTL_IMPULSE_HOURS > 0
     assert FUSION_TRIGGER_TTL_THESIS_SESSIONS >= 1
     assert FUSION_HOT_LANE_DEMOTE_SESSIONS >= 1
+    # Context/catalyst minter dials.
+    assert FUSION_EARNINGS_AHEAD_TD >= 1
+    assert FUSION_EARNINGS_BEHIND_TD >= 0
+    assert FUSION_REGIME_STALE_DAYS >= 1
+    assert FUSION_CONTEXT_REFRESH_S >= 0
     # Fusion C1 shadow-investigation invariants.
     assert REASON_SHADOW_ONLY is True
     assert REASON_DAILY_BUDGET >= 1
     assert 0.0 < REASON_OPENING_RESERVE_FRAC <= 1.0
     assert math.ceil(REASON_OPENING_RESERVE_FRAC * REASON_DAILY_BUDGET) <= REASON_DAILY_BUDGET
     assert REASON_OPENING_WINDOW_MIN > 0
-    assert INVESTIGATE_TRAILING_SESSIONS >= 1
-    assert INVESTIGATE_MIN_POOL >= 1
+    # Mechanical-registration dials (2026-07-28 round).
+    assert FUSION_MIN_ATR_PCT >= 0
+    assert FUSION_ATR_MAX_AGE_DAYS >= 1
+    assert FUSION_SPOT_MAX_AGE_S > 0
     # Fusion C2 dossier invariant.
     assert DOSSIER_SUMMARY_MAX_CHARS > 0
     # Fusion C3 LLM-lane invariants. REASON_EMIT_ENABLED is deliberately NOT asserted

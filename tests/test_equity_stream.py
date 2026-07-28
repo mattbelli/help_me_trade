@@ -479,3 +479,37 @@ def test_stream_connect_requests_msgpack_frames(monkeypatch):
     assert captured.get("additional_headers", {}).get("Content-Type") == (
         "application/msgpack"
     )
+
+
+def test_trade_updates_spot_dirty_and_flush_writes_batch(monkeypatch):
+    """Whole-market spot lane (2026-07-28): non-excluded trades feed the dirty
+    map beside _last_price; excluded conditions never do; the flush swaps the
+    map and batch-writes it."""
+    from signals.equity_stream.runner import EquityTapeRunner
+
+    r = EquityTapeRunner(key="k", secret="s")
+    r._on_trade(
+        {"S": "ASTS", "p": 12.34, "s": 100, "c": [], "t": "2026-07-28T14:30:00Z"},
+        1000.0,
+    )
+    assert r._spot_dirty["ASTS"][0] == 12.34
+    # Excluded condition (odd-lot/average-price class) must not price the spot.
+    from brokers.market_stream import TRADE_EXCLUDE_CONDITIONS
+
+    excluded = next(iter(TRADE_EXCLUDE_CONDITIONS))
+    r._on_trade(
+        {"S": "XYZ", "p": 9.99, "s": 100, "c": [excluded], "t": "2026-07-28T14:30:01Z"},
+        1000.0,
+    )
+    assert "XYZ" not in r._spot_dirty
+
+    written: list = []
+    monkeypatch.setattr("db.fusion.put_spots", lambda rows, **kw: written.extend(rows) or len(rows))
+    # The swap (_take_spot_dirty) is loop-thread work; the write is the
+    # to_thread half — split exactly as spot_flush_loop composes them (S1).
+    dirty = r._take_spot_dirty()
+    assert r._spot_dirty == {}  # swapped out
+    n = r._write_spots(dirty)
+    assert n == 1
+    assert written == [("ASTS", "12.34", "2026-07-28T14:30:00Z")]
+    assert r._write_spots(r._take_spot_dirty()) == 0  # nothing new → no write
