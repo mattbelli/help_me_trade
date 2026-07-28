@@ -140,18 +140,27 @@ being free the moment we grade anything.
       roots / 1,897 prints / **$7.2M = 0.028% of session premium**. That is a bounded known
       limitation, not a threat to any result. *Remaining:* register the bound + the digit-suffix
       detector in Addendum F so nobody re-opens it.
-- [ ] **1.6 Re-roll every session** at the new `schema_version`. *Done when:* `ingested_dates()`
-      returns the full corpus at the current version.
+- [x] **1.6 Re-roll every session** at the new `schema_version`. *Done when:* `ingested_dates()`
+      returns the full corpus at the current version. **DONE — verified 2026-07-28: 251/251
+      sessions at `schema_version=6`** (the freeze note below was written at v4; v5 and the v6
+      label migration each carried their own re-roll).
       **The schema is now FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three
       have landed, so this is one pass, not two. Blocked only on the tcbbo backfill (71/260 at
       2026-07-27 01:00, ~0.8 min/session). One session rolls in 13s, so 260 is ~1 hour.
       **Do not add a column after this point without accepting a second full re-roll.**
-- [~] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
+- [x] **1.6b Condition-label backfill → v6 re-roll (Addendum E, founder-blessed 07-27).** Capture
       every corpus session's Alpaca OPRA trades (with `c`) to raw per-session files, join per the
       frozen method, then re-roll the corpus at `schema_version=6` with code-based `multileg`.
       **All-or-nothing:** v6 only when every session's label file clears the ≥98% join floor — a
       mid-window definition seam is the Addendum B failure. 1.8 re-runs at v6. Until then v5
       readings carry the floor-not-fence caveat.
+      ✅ **CLOSED 2026-07-28 — but the all-or-nothing floor above was SUPERSEDED, not met.** v6
+      landed on all 251 sessions (`multileg_source=codes` everywhere), with join coverage min
+      77.0% / avg 97.4% / max 99.6% — **exactly 115 sessions clear ≥98%**. Rather than block the
+      migration, **Addendum F** registered that 115-session set as the coverage-gated robustness
+      subset and requires the coverage distribution to be reported alongside every v6 reading.
+      1.8 re-ran at v6 and overturned its own earlier verdict (see below). Read this item as: the
+      floor became a *reported gate*, never a silent pass.
       **Machinery BUILT + verified 07-27 (backfill still running):** the frozen join lives in ONE
       place (`tools/condition_labels.py`), consumed by both the floor-check
       (`tools/condition_label_join.py --sweep` → `data/alpaca_conditions/join_ledger.json`, THE
@@ -172,6 +181,30 @@ Each decides something downstream. Run them, do not skip to building.
       anything that fires is a false positive. *Decides:* whether the mid-cap sub-hypothesis is
       testable at all. *Note:* the alarming 12× figure is currently a **simulation** — this replaces
       it with a measurement. Change no threshold before this runs.
+
+      **1.7 METHOD + CRITERIA — REGISTERED 2026-07-28, BEFORE THE RUN** (`tools/z_null_probe.py`):
+      - **Null:** randomize each **ORDER's** buy/sell classification, not each print — a sweep is
+        ONE decision, and shuffling per print would fake independence the tape does not have
+        (the corpus carries `orders` and `premium_sq_orders` for exactly this reason).
+      - **Construction:** for a name-day, null tilt numerator = Σ εᵢpᵢ (εᵢ = ±1 per order),
+        denominator = Σpᵢ ⇒ E[tilt] = 0 and Var(tilt) = Σp²/(Σp)² = 1/N_eff, where
+        **N_eff = (Σp)²/Σp²** is the effective number of independent orders (inverse
+        participation ratio). N_eff is computed EXACTLY from the rollup; the null tilt is drawn
+        as Normal(0, 1/√N_eff).
+      - **Rule applied exactly as registered** (no re-derivation): trailing 20 days of the name's
+        own null tilt excluding today, `z = (tilt − mean₂₀)/std₂₀`, ≥15 of 20 days present,
+        **liquidity floor ≥ $250k** option premium on the day, event `|z| ≥ 2.0`. Both registered
+        arms reported (ALL and SHORT_OTM).
+      - **Liquidity quintiles:** by each name's MEDIAN daily total option premium across the
+        corpus, so a name holds one quintile rather than migrating day to day.
+      - **PASS (the rule is not a liquidity detector):** least-liquid quintile firing rate
+        **< 2.0×** the most-liquid quintile's.  **FAIL:** ≥ 2.0×.
+      - ⚠️ **Registered asymmetry in how the result may be read.** The normal draw matches the
+        null's variance exactly but UNDERSTATES its tails on days when one order dominates —
+        precisely the illiquid case. So a **FAIL is decisive** (the artifact shows up even under
+        the conservative null), while a **PASS is provisional** and must be confirmed by an exact
+        per-order sign shuffle on a ≥20-session subsample before 1.7 is closed. Stating this now
+        so a comfortable answer cannot be banked without the follow-up.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
