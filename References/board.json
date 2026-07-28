@@ -2300,6 +2300,15 @@
       "priority": "high",
       "owner": "founder",
       "notes": "2026-07-28: the first corpus-wide sweep fired Addendum E's own redesign contingency \u2014 136/251 sessions below the 98% join floor. MEASURED root cause (not a join defect): Alpaca's historical OPRA tape has a completeness ceiling \u2014 typically 96-98.5% of Databento per session, worst in index names at the open (SPXW = 57% of one session's misses at 14.3%; 7.8% unmatched in the opening half hour decaying to <1%), only 0.3% of misses involve contracts Alpaca never saw, and a refetch of the worst day (2025-09-10) returned byte-identical counts \u2014 vendor-side, deterministic, unfixable by recapture. DRAFT References/FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_F.md proposes: adoption per-print always (E already registered the per-print fallback + per-session coverage audit), v6 all-or-nothing unchanged, 98% repurposed as a measurement/robustness gate (>=98% subset re-run registered), mandatory index-open bias caveat. The absurdity it fixes: a 97.5% session would discard 97.5% correct labels for the 51%-recall heuristic, manufacturing the exact Addendum-B seam the floor was meant to prevent. DECISION NEEDED: bless / amend / reject. Until decided, SCHEMA_VERSION stays 5 and the re-roll waits. NOTE: the previously-reserved 'Addendum F' slot (the prereg amendment from E) renumbers to G.\n2026-07-28: BLESSED by founder. Executed same morning: Addendum F stamped founder-blessed; rollup adoption gate rewritten to per-print (below-floor sessions adopt labels + log a robustness-subset flag); SCHEMA_VERSION default flipped 5->6; schema tests updated to the 19-column cond row (47 corpus tests green); v6 files synced to the dev tree; full 251-session re-roll launched niced+ionice with a 500MB-available memory guard (ntfy on kill; resumable without --force). Log: data/flow_corpus_reroll_v6.log."
+    },
+    {
+      "id": "live-flow-pairing",
+      "title": "Live flow pairing \u2014 Databento whole-market spine + Alpaca wildcard condition codes, matched per print",
+      "lane": "in_progress",
+      "type": "build",
+      "priority": "high",
+      "owner": "orchestrator",
+      "notes": "2026-07-28: founder-directed build; SPEC WRITTEN (References/LIVE_FLOW_PAIRING_SPEC_2026-07-28.md) \u2014 read it first. End state: Databento live tcbbo = trade+quote spine for EVERY contract (no 1,000-sub cap); Alpaca wildcard trades = condition codes only; streaming matcher inside hmt-flow-collector (ONE OPRA socket per account \u2014 never a second process on it) pairs per print with the frozen Addendum E join semantics; enrich-late lifecycle (open-burst lag measured in minutes \u2014 never block the spine); corpus firewall (nightly REST chain stays the research truth; live never writes corpus). Quote lane + capped trades lane turn OFF at Inc 3 only, after the standing-NBBO consumer audit + >=5-session parallel run. Formally supersedes decision #93 (it forbade an ASSUMED wildcard lane, this is a built one). Inc 1 = shadow matcher, metrics only. No code-family scoring until 1.8-on-truth priors land."
     }
   ]
 }
