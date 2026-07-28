@@ -371,12 +371,19 @@ academic predictability actually lives. No retail platform has it.
 **Cost: $0.00, and no deadline** — OPRA `statistics` is L0-tier, so unlike `tcbbo` it does not age
 out of a rolling window. There is no rush; do it after Phase 1.
 
-- [ ] **2.1 Confirm OI is in the payload.** One free pull of `statistics` for one day; check the
-      stat-type codes actually include open interest. *Verified so far:* the pull prices at $0.00
-      (96,468,746 records for 2025-07-28; 72,044,113 for 2024-01-02) — the **contents** are not yet
-      confirmed. Do this before planning anything on top of it.
-- [ ] **2.2 Backfill** `statistics` across the corpus window. Sequential, `nice`+`ionice`, same
-      pattern as the tcbbo backfill. Never concurrent with another ALL_SYMBOLS pull.
+- [x] **2.1 Confirm OI is in the payload.** DONE 2026-07-28 (whole-market pull of 2026-07-24,
+      $0.00 quoted for one day AND the full corpus window): `stat_type=9` = OI, 34.3M records /
+      1,976,143 instruments, 100% matched to that day's definitions, **6,277 of 6,294 underliers
+      (99.7%)**. Zero OI is published explicitly (40.7% of records) so deltas see zero crossings.
+      OI `ts_event` lands 06:30–08:44 ET **pre-open** ⇒ day-D's value = D−1's close positions —
+      confirms the §5 T+1 leakage rule. Cross-publisher check (~17 publishers/contract):
+      **0 disagreements** — OI is one OCC number republished per exchange; last-write-wins is safe.
+- [x] **2.2 Backfill** `statistics` across the corpus window — `tools/opra_oi_backfill.py`,
+      RUNNING since 2026-07-28 (~13–17 h, niced + IO-idle, `opra-oi-backfill.service`, log
+      `data/opra_oi_backfill.log`). Condense-on-arrival: raw day (678 MB) → OI-only npz
+      (`data/databento/opra_oi/YYYY-MM-DD.npz`, iid+oi, ~4 GB total) and raw DELETED — safe
+      because statistics is L0 with no rolling window, every re-pull is $0. Per-day cost gate
+      aborts the run on any nonzero quote. Never concurrent with another ALL_SYMBOLS pull.
 - [ ] **2.3 Reconcile prints against daily OI change** per contract to estimate opening vs closing
       interest. *Known limit:* OI is a daily net, so this is an aggregate estimate, never a per-print
       label. Say so wherever it is surfaced.
