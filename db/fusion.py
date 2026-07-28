@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC as _UTC
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
 from db.schema_helpers import _table_columns
+
+_ET = ZoneInfo("America/New_York")
+
+# init_fusion_tables is NOT a read — it ends in an upsert + commit, i.e. a
+# write-lock acquisition. The hot-path READ helpers (get_atr/get_spot, called
+# per unpriced dot by the intake — ~10k/day at whole-market rate) memoize it
+# per db_path so they contend with the collector's writers zero times after
+# the first call (review S2; the 07-27 lock-starve class).
+_READ_INIT_DONE: set[str] = set()
+
+
+def _ensure_tables_once(db_path: Path) -> None:
+    key = str(db_path)
+    if key not in _READ_INIT_DONE:
+        init_fusion_tables(db_path)
+        _READ_INIT_DONE.add(key)
 
 STORES = ("options_flow", "equity_tape")
 
@@ -40,7 +59,8 @@ _FUSION_EPISODES_COLUMNS = """
     direction_state TEXT NOT NULL DEFAULT 'mixed',
     contested INTEGER NOT NULL DEFAULT 0,
     signature TEXT NOT NULL DEFAULT '',
-    market_shock INTEGER NOT NULL DEFAULT 0
+    market_shock INTEGER NOT NULL DEFAULT 0,
+    registered_market_day TEXT              -- per-day registrar latch (07-28 symbol-day restore)
 """
 
 
@@ -121,7 +141,8 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 direction_state TEXT NOT NULL DEFAULT 'mixed',
                 contested INTEGER NOT NULL DEFAULT 0,
                 signature TEXT NOT NULL DEFAULT '',
-                market_shock INTEGER NOT NULL DEFAULT 0
+                market_shock INTEGER NOT NULL DEFAULT 0,
+                registered_market_day TEXT
             );
 
             CREATE TABLE IF NOT EXISTS evidence_dots (
@@ -176,6 +197,20 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 symbol TEXT PRIMARY KEY,
                 as_of_date TEXT NOT NULL,
                 atr14 TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            -- Whole-market consolidated last-trade cache (2026-07-28): the
+            -- equity collector's wildcard tape already sees every US print;
+            -- its spot flush loop batch-upserts here so the fusion intake can
+            -- price options-flow underlyings BEYOND the watchlist-scoped bars
+            -- caches (the 07-27 whole-market flow lane pushed unpriced-dot
+            -- skips 406 -> 4,848/day). Producer writes, intake only READS —
+            -- the fusion_atr_cache doctrine.
+            CREATE TABLE IF NOT EXISTS fusion_spot_cache (
+                symbol TEXT PRIMARY KEY,
+                price TEXT NOT NULL,
+                ts TEXT NOT NULL,            -- the print's UTC ISO timestamp
                 updated_at TEXT NOT NULL
             );
 
@@ -307,6 +342,17 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         # UNIQUE(symbol, market_day)) BEFORE the partial index below — the index
         # references the `state` column the migration adds.
         _migrate_fusion_episodes(conn)
+        # 2026-07-28 symbol-day registration restore: the per-day latch. NULL on
+        # pre-existing rows means "no day registered yet under the restored
+        # cadence" — the next stampable directional dot registers that day.
+        if "registered_market_day" not in _table_columns(conn, "fusion_episodes"):
+            try:
+                conn.execute(
+                    "ALTER TABLE fusion_episodes ADD COLUMN registered_market_day TEXT"
+                )
+            except Exception as exc:  # three processes race init on deploy
+                if "duplicate column" not in str(exc).lower():
+                    raise
         conn.executescript(
             """
             -- One OPEN episode per symbol = the new dedup key (replaces the
@@ -418,14 +464,118 @@ def put_atr(
         conn.commit()
 
 
-def get_atr(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> Decimal | None:
-    init_fusion_tables(db_path)
+def get_atr(
+    symbol: str, *, as_of: str | None = None, db_path: Path = DEFAULT_DB_PATH
+) -> Decimal | None:
+    """Cached ATR(14), or None when absent OR stale (> FUSION_ATR_MAX_AGE_DAYS
+    behind ``as_of`` — an ISO date, defaulting to today ET).
+
+    The daily producer treats an old ``as_of_date`` as still-pending; serving it
+    here anyway meant a symbol whose refresh keeps failing was silently planned
+    on a weeks-old ATR (2026-07-28 audit). Stale now reads as missing — the dot
+    stays unstamped and the existing unstampable dispositions count it. The
+    cutoff is relative to the caller's session, not the wall clock, so a replay
+    of old events judges freshness as of THEIR day."""
+    from config.idea_engine import FUSION_ATR_MAX_AGE_DAYS
+
+    _ensure_tables_once(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
-            "SELECT atr14 FROM fusion_atr_cache WHERE symbol = ?",
+            "SELECT atr14, as_of_date FROM fusion_atr_cache WHERE symbol = ?",
             (symbol.strip().upper(),),
         ).fetchone()
-    return Decimal(str(row["atr14"])) if row else None
+    if row is None:
+        return None
+    try:
+        anchor = (
+            date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(_ET).date()
+        )
+    except ValueError:
+        anchor = datetime.now(_ET).date()
+    as_of_date = str(row["as_of_date"])
+    # Both bounds matter (review M1): a row NEWER than the caller's session is
+    # lookahead — a replay of old events must never be priced with an ATR that
+    # did not exist yet — and a row older than the cutoff is the stale-refresh
+    # case this guard was built for.
+    if as_of_date > anchor.isoformat():
+        return None
+    cutoff = anchor - timedelta(days=FUSION_ATR_MAX_AGE_DAYS)
+    if as_of_date < cutoff.isoformat():
+        return None
+    return Decimal(str(row["atr14"]))
+
+
+def put_spots(
+    rows: list[tuple[str, str, str]], *, db_path: Path = DEFAULT_DB_PATH
+) -> int:
+    """Batch-upsert ``(symbol, price, ts)`` last-trade rows — ONE transaction.
+
+    The equity collector's spot flush loop is the only writer; it flushes the
+    changed set every SPOT_FLUSH_INTERVAL_SECONDS, so a burst never costs more
+    than one keyed upsert per active symbol per interval."""
+    if not rows:
+        return 0
+    init_fusion_tables(db_path)
+    now = now_iso()
+    with _connect(db_path) as conn:
+        conn.executemany(
+            """
+            INSERT INTO fusion_spot_cache(symbol, price, ts, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                price = excluded.price,
+                ts = excluded.ts,
+                updated_at = excluded.updated_at
+            """,
+            [(s.strip().upper(), p, t, now) for s, p, t in rows],
+        )
+        conn.commit()
+    return len(rows)
+
+
+def get_spot(
+    symbol: str,
+    *,
+    max_age_s: float,
+    as_of: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Decimal | None:
+    """Freshness-bounded consolidated last trade from the wildcard tape.
+
+    ``None`` when absent or when the spot's print ts sits more than
+    ``max_age_s`` from ``as_of`` (the EVENT being priced — an ISO timestamp;
+    wall clock when omitted) in EITHER direction (review S4): a stale spot
+    (overnight, halted, collector down) must read as missing rather than price
+    a dot on old tape, and a spot far NEWER than the event is lookahead — a
+    same-day replay must not stamp an old event with the current price."""
+    _ensure_tables_once(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT price, ts FROM fusion_spot_cache WHERE symbol = ?",
+            (symbol.strip().upper(),),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=_UTC)
+    ref = datetime.now(_UTC)
+    if as_of:
+        try:
+            parsed = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+            ref = parsed if parsed.tzinfo else parsed.replace(tzinfo=_UTC)
+        except ValueError:
+            pass  # unparseable event ts → wall-clock fence, never a crash
+    if abs((ref - ts).total_seconds()) > max_age_s:
+        return None
+    try:
+        price = Decimal(str(row["price"]))
+    except (ArithmeticError, ValueError):
+        return None
+    return price if price.is_finite() and price > 0 else None
 
 
 def put_session_levels(

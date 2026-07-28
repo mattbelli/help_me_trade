@@ -18,6 +18,7 @@ from typing import Any
 from brokers.market_stream import TRADE_EXCLUDE_CONDITIONS
 from signals.equity_stream.constants import (
     FLUSH_INTERVAL_SECONDS,
+    SPOT_FLUSH_INTERVAL_SECONDS,
     STATS_INTERVAL_SECONDS,
 )
 from signals.equity_stream.detectors import (
@@ -58,9 +59,14 @@ class EquityTapeRunner:
         self.spreads = SpreadStats()
         self._nbbo: dict[str, Nbbo] = {}
         self._last_price: dict[str, float] = {}
+        # Changed-since-last-flush consolidated prices → fusion_spot_cache
+        # (symbol → (price, print UTC ISO ts)). Fed beside _last_price, so the
+        # exclude-condition sanity the tick test relies on guards spots too.
+        self._spot_dirty: dict[str, tuple[float, str]] = {}
         self._pending: list[dict[str, Any]] = []
         self._running = True
         self._persisted = 0
+        self._spots_flushed = 0
 
     def stop(self) -> None:
         self._running = False
@@ -142,6 +148,9 @@ class EquityTapeRunner:
             if spike is not None:
                 self._pending.append(spike)
             self._last_price[symbol] = price_f
+            iso = ts_to_iso(m.get("t"))
+            if iso:
+                self._spot_dirty[symbol] = (price_f, iso)
 
         if self.proxy.wants("trades", symbol):
             self.proxy.publish("trades", symbol, to_json_msg(m))
@@ -202,6 +211,46 @@ class EquityTapeRunner:
             except Exception:
                 logger.exception("equity tape: flush failed")
 
+    def _take_spot_dirty(self) -> dict[str, tuple[float, str]]:
+        """Swap out the dirty map. MUST run on the event loop thread — the
+        same pattern as flush_loop's `self._pending = []` swap. Swapping on a
+        worker thread races _on_trade's inserts and a close-burst batch dies
+        to 'dictionary changed size during iteration' (review S1)."""
+        dirty, self._spot_dirty = self._spot_dirty, {}
+        return dirty
+
+    def _write_spots(
+        self, dirty: dict[str, tuple[float, str]], *, db_path: Any = None
+    ) -> int:
+        """Batch-upsert a swapped-out dirty map (sync; runs via to_thread).
+        A failed write drops the batch on the floor deliberately: the next
+        prints re-dirty the active names, and freshness beats completeness
+        for a spot cache. ``db_path`` is for tests (review S8) — production
+        writes the shared default DB like every other collector write."""
+        from db.fusion import put_spots
+
+        if not dirty:
+            return 0
+        rows = [(s, str(p), ts) for s, (p, ts) in dirty.items()]
+        n = put_spots(rows, **({} if db_path is None else {"db_path": db_path}))
+        self._spots_flushed += n
+        return n
+
+    async def spot_flush_loop(self) -> None:
+        """Whole-market price source for the fusion intake (fusion_spot_cache):
+        the wildcard tape sees every US print anyway — this just persists the
+        consolidated last price per active symbol on a 30s cadence so the
+        backend can price options-flow underlyings beyond the watchlist."""
+        while self._running:
+            await asyncio.sleep(SPOT_FLUSH_INTERVAL_SECONDS)
+            dirty = self._take_spot_dirty()  # loop thread — never in to_thread
+            if not dirty:
+                continue
+            try:
+                await asyncio.to_thread(self._write_spots, dirty)
+            except Exception:
+                logger.exception("equity tape: spot flush failed")
+
     async def stats_loop(self) -> None:
         last_msgs = 0
         while self._running:
@@ -218,7 +267,7 @@ class EquityTapeRunner:
                 logger.info(
                     "equity stream stats: msgs=%d (%.0f/s) t=%d q=%d "
                     "reconnects=%d vendor_errors=%d lag_p50_ms=%.0f lag_p95_ms=%.0f "
-                    "| events persisted=%d sweeps=%d velocity=%d "
+                    "| events persisted=%d sweeps=%d velocity=%d spots=%d "
                     "| proxy clients=%d subs t/q/db=%d/%d/%d drops=%d "
                     "| wideners: %s",
                     total,
@@ -232,6 +281,7 @@ class EquityTapeRunner:
                     self._persisted,
                     self.sweeps.emitted,
                     self.velocity.emitted,
+                    self._spots_flushed,
                     self.proxy.client_count,
                     self.proxy.union_size("trades"),
                     self.proxy.union_size("quotes"),

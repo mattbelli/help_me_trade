@@ -114,10 +114,19 @@ def evaluate_investigation(
     episode: dict[str, Any],
     score_state: dict[str, Any],
     *,
+    market_day: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
     now: datetime | None = None,
 ) -> str | None:
     """Would the LLM lane investigate this stack right now? (shadow only).
+
+    ``market_day`` is the DECISION's session (the triggering dot's ET day, which
+    intake passes in). Round-3 episodes live up to 15 sessions but keep their
+    OPENING market_day, and budgeting/metering on that filed decisions under
+    long-past sessions — the 07-27 admissions were booked to 07-22/07-23 and the
+    "daily" budget was really per-episode-birth-cohort (07-28 audit). ``None``
+    falls back to the episode's day ONLY for same-day episodes' legacy callers;
+    production always passes it.
 
     Returns the recorded decision, or None when the stack is not an investigation
     candidate — wrong archetype, or below either leg of the day's dual gate. Those
@@ -145,7 +154,7 @@ def evaluate_investigation(
     # ZERO cleared both, so this lane admitted nothing for three sessions.
 
     episode_id = str(episode["id"])
-    market_day = str(episode["market_day"])
+    market_day = str(market_day or episode["market_day"])
     symbol = str(episode.get("symbol") or "")
     when = (now or datetime.now(_ET)).astimezone(_ET)
 
