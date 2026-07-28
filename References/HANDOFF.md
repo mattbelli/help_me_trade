@@ -53,6 +53,16 @@ snapshot per sweep). Open threads only:
   cross-check `2026-07-17.npz` vs `options_flow_daily.close_oi` date 07-17 (both = 07-16 close
   positions; broker chain pipe vs statistics pipe — same OCC number, validates both decodes).
   NOT runnable today: no concurrent ALL_SYMBOLS pulls while the backfill grinds.
+- **⏳ 2.3 reconciler built but its first smoke is INVALID — do not cite those numbers.**
+  `tools/oi_reconcile.py` (uncommitted, worktree + dev tree) ran 2 pairs 07-28 and printed
+  vol-weighted `f_open` 0.66/0.63 — **both meaningless**: tcbbo `size` is uint32 and carries
+  **UNDEF sentinel 4,294,967,295** (~3,159 rows per 2M-row chunk), which inflated session volume
+  to 1.04e14. FIX before any rerun: mask `size == UINT32_MAX` in `_tape_volume` (abstain, count as
+  a reported flag). ⚠️ THEN VERIFY whether `flow_rollup.contracts` has the same poison — premium
+  figures look sane so the rollup probably filters, but that is an assumption, not a check.
+  Same run measured iid-stability across sessions at ~0.000–0.001 (would vindicate the spec's
+  OCC-symbol join over raw `instrument_id`) — treat as UNVERIFIED until re-measured on fixed code,
+  since it shares the run with a known bug.
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
