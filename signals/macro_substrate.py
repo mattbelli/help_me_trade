@@ -29,14 +29,13 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
-from config.settings import fred_api_key, fred_is_configured
 from db.macro import (
     DEFAULT_MACRO_DB_PATH,
     latest_value,
     series_history,
     upsert_macro,
 )
-from signals.regime import fetch_fred, fetch_fred_csv
+from signals.regime import fetch_fred_csv
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,13 @@ REPORT_AXES: dict[str, str] = {
 
 
 _BACKFILL_START = "1960-01-01"  # cosd — before every series' first observation
-_KEYED_DEEP_BACKFILL = ("BAMLH0A0HYM2", "BAMLC0A0CM")  # keyless CSV hard-caps at 3y
+# ⚠️ ICE BofA OAS (BAML*) history is TRUNCATED AT THE VENDOR to a rolling ~3-year
+# window — measured 2026-07-28 on BOTH the keyless CSV (cosd/coed ignored) and
+# the free keyed observations API (identical 2023-07-28 start). This is ICE's
+# licensing restriction at FRED, not an endpoint quirk; no fetch parameter
+# recovers 2008/2020. The credit axis's percentile reference is therefore a
+# rolling 3-year window, and regime_report DISCLOSES per-axis reference depth
+# so no reader mistakes a 3-year percentile for a 30-year one.
 
 
 def _fetch_rows(
@@ -120,20 +125,6 @@ def backfill_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[s
     for series_id in MACRO_SERIES:
         rows = _fetch_rows(series_id, _BACKFILL_LIMIT, start=_BACKFILL_START)
         out[series_id] = upsert_macro(rows, db_path=db_path) if rows else 0
-    # ICE BofA OAS: the keyless CSV serves a rolling 3-year window no matter
-    # what cosd asks (measured 2026-07-28, with and without explicit dates).
-    # The FREE keyed API serves full history (1996+), and depth matters here —
-    # a percentile reference without 2008/2020 in it calls ordinary spreads
-    # "high". Free key is sanctioned by the card; keyless-only still works,
-    # just shallow, and the coverage log makes the difference visible.
-    if fred_is_configured():
-        api_key = fred_api_key()
-        for series_id in _KEYED_DEEP_BACKFILL:
-            observations = fetch_fred(series_id, api_key=api_key, limit=100_000)
-            if observations:
-                out[series_id] = out.get(series_id, 0) + upsert_macro(
-                    [(series_id, d, v) for d, v in observations], db_path=db_path
-                )
     return out
 
 
@@ -198,6 +189,13 @@ def regime_report(
             }
         report["axes"][axis] = {
             "series": axis_series,
+            # Reference-depth disclosure: percentiles are only as honest as the
+            # history behind them (credit is vendor-truncated to ~3 years).
+            "history": {
+                "n": len(values),
+                "first": ordered_dates[0] if ordered_dates else None,
+                "last": ordered_dates[-1] if ordered_dates else None,
+            },
             "composition": composition,
             "per_date": per_date,
         }
