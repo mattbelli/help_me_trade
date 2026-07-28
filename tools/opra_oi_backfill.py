@@ -41,6 +41,9 @@ DATASET = "OPRA.PILLAR"
 SCHEMA = "statistics"
 STAT_OPEN_INTEREST = 9
 CHUNK = 5_000_000  # full-day to_ndarray() is ~16 GB; chunked stays under ~2 GB
+# A .part untouched this long is abandoned, not in flight (same rule as the tcbbo
+# backfill): sessions take 1-6 min and the client writes continuously.
+PART_STALE_S = 900.0
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "databento"
 OUT_DIR = DATA_DIR / "opra_oi"
 SMOKE_FILE = DATA_DIR / "stats_probe_20260724.dbn.zst"
@@ -97,7 +100,18 @@ def _process_day(client: db.Historical, d: date, max_cost: float) -> None:
         dataset=DATASET, schema=SCHEMA, symbols="ALL_SYMBOLS", start=day, end=nxt)
     if cost > max_cost:
         raise RuntimeError(f"{day}: quoted ${cost:.2f} > --max-cost {max_cost:.2f}; aborting run")
+    # Concurrent shards share this dir: a FRESH .part means another worker owns
+    # this date (skip it); a stale one is a crashed/killed run (take it over).
+    # Without this, `get_range` raises FileExistsError and kills the whole shard —
+    # measured 2026-07-28 when the sequential run was stopped mid-download.
     raw = OUT_DIR / f"{d.isoformat()}.dbn.zst.part"
+    if raw.exists():
+        if time.time() - raw.stat().st_mtime < PART_STALE_S:
+            logger.info("%s: .part is fresh — another worker owns it, skipping", day)
+            return
+        logger.warning("%s: stale .part (%.0f min) — taking over", day,
+                       (time.time() - raw.stat().st_mtime) / 60)
+        raw.unlink()
     t0 = time.time()
     client.timeseries.get_range(
         dataset=DATASET, schema=SCHEMA, symbols="ALL_SYMBOLS",

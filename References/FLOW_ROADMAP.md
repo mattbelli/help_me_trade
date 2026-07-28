@@ -410,6 +410,24 @@ out of a rolling window. There is no rush; do it after Phase 1.
       - **Output:** per (occ_symbol, session): V, ΔOI, f_open, flags; plus per-underlying/dte-bucket
         session rollups shaped for 2.4. Construction/measurement lane — 2.4's re-grade gets its own
         pre-registered pass/fail criteria before it runs.
+
+      **2.3 BUILT + first measurements 2026-07-28** (`tools/oi_reconcile.py`): clean coverage
+      **98.6%** of traded contracts (271,073/274,799 on 2025-07-28); flags per session ≈ 0.3–0.6%
+      `|ΔOI|>V`, ~1,000–1,250 expired, 1,800–3,700 absent-from-one-day's-OI. Vol-weighted
+      `f_open` = **0.659 / 0.634 / 0.630** on 2025-07-28/29/30.
+      - ⚠️ **`instrument_id` is NOT stable across sessions — measured 0.000–0.001 overlap.** The
+        spec's OCC-symbol join was load-bearing, not caution; any cross-session work on this data
+        that joins on raw `instrument_id` is wrong.
+      - ⚠️ **`f_open` > 0.5 is EXPECTED, not a finding.** OI also decays through exercise,
+        assignment and expiry — none of which is a closing *trade* — so opens must exceed closes
+        just to hold OI flat. The absolute level is therefore uninterpretable as "63% of trades
+        open"; the feature is meaningful only CROSS-SECTIONALLY (which contracts/underliers run
+        more opening than the population), and 2.4 must use it that way.
+      - ⚠️ **tcbbo `size` carries the uint32 UNDEF sentinel** (4,294,967,295) on ~0.35% of prints
+        (~24k/session). Unmasked it computes a session premium of $2.4e16 instead of $26.3B. The
+        v6 corpus is UNAFFECTED — **verified**: 0 of 24,298 sentinel prints resolve to that day's
+        definitions, so `flow_corpus_rollup.py`'s instrument join drops them all before premium is
+        computed. Note the protection is incidental (an unresolvable id), not an explicit guard.
 - [ ] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
       recovers the predictability the literature reports.
 
