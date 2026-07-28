@@ -17,6 +17,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `STARTUP.md` | serv access, tailnet addresses, service basics |
 | `SERVER_SETUP.md` | The always-on Linux box: units, env, collectors |
 | `AGENT_LOOP_RESEARCH.md` | The PERCEIVE→…→LEARN loop architecture + tech research |
+| `FLOW_OVERVIEW.md` | ★ START HERE for options flow — the two lanes (live Alpaca collector / Databento research corpus), the measured dead-beliefs table (quote cap = 1,000 @ 0.09 cores; no wildcard lane; flags=194; 33%→58% multileg premium), still-true Alpaca limits, flow doc map, corpus state. LIVING doc — if an older flow doc contradicts it, this wins |
 | `IDEA_BANK.md` | Founder's product vision + the why — committed direction, not a wishlist |
 | `PLATFORM_PARITY.md` | Web vs phone feature tracker (living) |
 | `CODE_AUDIT.md` / `REFACTOR_BACKLOG_2026-07-08.md` | Cleanup backlogs (audit 06-20; maintainability pass 07-08, chokepoint excluded) |
@@ -73,9 +74,8 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `MULTI_ACCOUNT_PLAN.md` | Durable multi-account architecture spec |
 | `MEMORY_OVERHAUL_DESIGN.md` | Copilot memory overhaul — Phase 0+1 SHIPPED 07-06/07 (judge + authority model live in `ai/memories/`); Phase 2 retrieval pending (board: `memory-overhaul`) |
 | `ALPHA_PREP_SPEC.md` | Single-founder → alpha-testable/cloud plan (directional, parked) |
-| `DATA_LAYER_LIMITS_AUDIT_2026-07-14.md` | Alpaca/system rate limits audit |
 | `SHORT_TRADING_FINDINGS.md` | Decision record: no agent-traded shorts (measurement stays short-aware) |
-| `FLOW_INTELLIGENCE_DESIGN_2026-07-11.md` | Flow capture/schema/display design (mostly built; still the reference) |
+| `FLOW_INTELLIGENCE_DESIGN_2026-07-11.md` | Flow detector/schema/display design — built, still governs `signals/options_flow/rolling.py` + event stamping. ⚠️ Its §2 capacity architecture (150-sub CPU constant, quotes-follow-heat rationing) is DEAD by measurement — see `FLOW_OVERVIEW.md` dead-beliefs table |
 
 ## Historical (kept for the record — do not treat as current)
 

@@ -23,7 +23,10 @@ and update this README + `../INDEX.md` in the same commit.
   `RN_SKIA_CHART_RELAY.md`, still live in root), `PC_TO_SERV_2026-07-09_options-flow.md`,
   `PC_DECISION_ENGINE_QUESTIONNAIRE.md`
 - **Research saves**: `RVOL_VOLUME_PROFILE_RESEARCH.md`, `SCHWAB_MARKETDATA_RESEARCH.md`,
-  `FLOW_CAPACITY_RESEARCH_2026-07-11.md`
+  `FLOW_CAPACITY_RESEARCH_2026-07-11.md`,
+  `DATA_LAYER_LIMITS_AUDIT_2026-07-14.md` (moved 2026-07-28 — Alpaca/system rate-limits audit from
+  the quote-cap era; limits table carried into `../FLOW_OVERVIEW.md`, capacity conclusions
+  corrected by measurement: quote cap = exactly 1,000 subs at ~0.09 cores)
 - **Mockups / dumps**: `hermes-ui-v2.html`, `hermes-console-draft.html`, `index.html`, `index(1).html`,
   `flow_notif_mockup.html`, `flow_viz_design.html`, `current orchestrator convo.md`
 - **Pre-06-20 planning docs (merged into `../BUILD.md` on 2026-06-16)**:
