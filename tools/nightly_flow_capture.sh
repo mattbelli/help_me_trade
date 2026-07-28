@@ -14,8 +14,13 @@
 #      not captured before it ages out becomes a purchase. --max-cost 0.0 keeps
 #      this unattended run deny-by-default on spend: any nonzero quote aborts.
 #   2. Databento definition download — same window, resolves instrument→contract.
-#   3. Alpaca condition-code capture — the labels (Addendum E ground truth).
-#   4. Label-join sweep — appends the new session to join_ledger.json (the v6
+#   3. Databento statistics → OI condense (roadmap 2.2 forward arm) — L0-tier, $0
+#      with NO rolling window, so unlike tcbbo a missed night never costs money;
+#      captured nightly anyway so the OI corpus advances with the flow corpus.
+#      Day-D's OI publishes pre-open D (= D-1's close positions), so END=today
+#      (exclusive) is always fully published by this hour.
+#   4. Alpaca condition-code capture — the labels (Addendum E ground truth).
+#   5. Label-join sweep — appends the new session to join_ledger.json (the v6
 #      migration gate) and prints its floor verdict into the log.
 #
 # Failure is LOUD: any step's nonzero exit posts to the ntfy dead-man topic,
@@ -51,7 +56,7 @@ exec 9>"$LOCK"
 flock -n 9 || { log "another nightly capture holds the lock; exiting"; exit 0; }
 
 # The long historical backfills write the same output dirs — never two writers.
-if pgrep -f "alpaca_condition_backfill.py|opra_tcbbo_backfill.py" >/dev/null; then
+if pgrep -f "alpaca_condition_backfill.py|opra_tcbbo_backfill.py|opra_oi_backfill.py" >/dev/null; then
   log "a backfill process is already running; deferring to it and exiting"
   exit 0
 fi
@@ -73,6 +78,10 @@ nice -n 10 "$PY" tools/opra_tcbbo_backfill.py --start "$START" --end "$END" \
 log "definition download $START..$END"
 nice -n 10 "$PY" tools/opra_tcbbo_backfill.py --start "$START" --end "$END" \
   --schema definition --max-cost 0.0 || alarm "definition download failed"
+
+log "OI (statistics) download+condense $START..$END"
+nice -n 10 "$PY" tools/opra_oi_backfill.py --start "$START" --end "$END" \
+  --max-cost 0.0 || alarm "OI capture failed"
 
 log "alpaca condition capture"
 nice -n 10 "$PY" tools/alpaca_condition_backfill.py \
