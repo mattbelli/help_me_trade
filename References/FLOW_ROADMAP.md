@@ -387,6 +387,29 @@ out of a rolling window. There is no rush; do it after Phase 1.
 - [ ] **2.3 Reconcile prints against daily OI change** per contract to estimate opening vs closing
       interest. *Known limit:* OI is a daily net, so this is an aggregate estimate, never a per-print
       label. Say so wherever it is surfaced.
+
+      **2.3 spec (registered 2026-07-28, before build):**
+      - **Alignment (measured 2026-07-28):** the statistics file for day D publishes 06:30–08:44 ET
+        pre-open ⇒ it is the position count after **D−1's** close. The OI change attributable to
+        session D's trading is `ΔOI_D = oi[file D+1] − oi[file D]`, taken over consecutive *session*
+        files (holiday markers skipped). Sessions missing either side abstain.
+      - **Contract identity:** join across days on the **OCC symbol via each day's definitions**,
+        never on raw `instrument_id` — id stability across sessions is unverified; the build
+        MEASURES it (report the mismatch rate) but the symbol join is the rule either way.
+      - **Estimator, per contract-session with tape volume V > 0:** opening-volume fraction
+        `f_open = (V + ΔOI) / (2V)`, clipped to [0,1]. Derivation: all-opening trading gives
+        ΔOI=+V, all-closing gives −V, so ΔOI = V·(2·f_open − 1). Zero OI is published explicitly
+        (40.7% of records), so zero crossings are real data, not gaps.
+      - **Flags, not silent drops:** `|ΔOI| > V` (exercise/assignment/adjustment/off-tape activity —
+        OI can move without prints), expiration-day and post-expiry removals (OI dies without
+        closing trades — excluded from f_open), contracts absent from either day's defs,
+        V=0-with-ΔOI≠0. Every flag count is reported in the output; nothing is silently discarded.
+      - **Honest ceiling (registered):** ΔOI is a daily NET — a day with 500 opens and 500 closes
+        shows ΔOI=0 and f_open=0.5. f_open is an aggregate estimate consistent with the bounds,
+        never a per-print label; every surface that carries it says so.
+      - **Output:** per (occ_symbol, session): V, ΔOI, f_open, flags; plus per-underlying/dte-bucket
+        session rollups shaped for 2.4. Construction/measurement lane — 2.4's re-grade gets its own
+        pre-registered pass/fail criteria before it runs.
 - [ ] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
       recovers the predictability the literature reports.
 
