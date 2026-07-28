@@ -83,9 +83,13 @@ _BACKFILL_START = "1960-01-01"  # cosd — before every series' first observatio
 # window — measured 2026-07-28 on BOTH the keyless CSV (cosd/coed ignored) and
 # the free keyed observations API (identical 2023-07-28 start). This is ICE's
 # licensing restriction at FRED, not an endpoint quirk; no fetch parameter
-# recovers 2008/2020. The credit axis's percentile reference is therefore a
-# rolling 3-year window, and regime_report DISCLOSES per-axis reference depth
-# so no reader mistakes a 3-year percentile for a 30-year one.
+# recovers 2008/2020. regime_report DISCLOSES per-axis reference depth so no
+# reader mistakes a shallow percentile for a 30-year one.
+# PATCHED 2026-07-28: the live store carries HY OAS back to 2021-07-29 (the
+# 2022 hiking-cycle widening, peak 5.99) via a one-time verified import of
+# References/convex-bamlh0a0hym2-1825d.csv (Convex Trade, CC BY 4.0; 785/785
+# overlap dates matched FRED exactly) — see tools/macro_import_csv.py. FRED
+# refreshes still truncate, but upserts never delete the imported history.
 
 
 def _fetch_rows(
