@@ -21,18 +21,19 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
   cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
   schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
-- **⏳ Condition-label backfill running + v6 re-roll ARMED (Addendum E)** — Alpaca per-session
-  captures land in `data/alpaca_conditions/` (stats JSON = completion marker; resumable; never run
-  two copies). The v6 machinery is BUILT and verified (07-27 BUILD_LOG row): when the backfill
-  finishes, run `tools/condition_label_join.py --sweep` (fills `join_ledger.json`, the migration
-  gate), and only when **every** session reads `floor_pass: true` flip `SCHEMA_VERSION = 6` in
-  `db/flow_corpus.py` and re-roll all 250 — **niced, AFTER the backfill, never alongside** (a
-  12M-print session peaks ~4.5GB and thrashed serv once already). Then re-run 1.8 on the
-  code-labeled arms — its "single names flip 0/3" verdict is provisional until then.
-  ⚠️ **One straggler before the sweep:** 2026-07-27's tcbbo landed AFTER the running backfill
-  enumerated its session list, so its condition capture is missing — run
-  `tools/alpaca_condition_backfill.py` once more (resumable, grabs only stragglers) before the
-  sweep, or let the nightly cron's next pass catch it.
+- **⛔ v6 flip BLOCKED on the Addendum F decision (founder lane: `bless-addendum-f`)** — the
+  backfill FINISHED (all 251 data sessions captured incl. the 07-27 straggler) and the first
+  corpus-wide sweep ran overnight 07-28 (~2.0B prints joined): **136/251 sessions below the 98%
+  floor**, which fired Addendum E's own redesign contingency. Root cause MEASURED, not assumed:
+  Alpaca's historical tape has a completeness ceiling (index names at the open — SPXW alone = 57%
+  of one session's misses; 7.8% unmatched in the opening half-hour decaying to <1%; only 0.3% of
+  misses are contracts Alpaca never saw; refetching the worst day returned byte-identical counts,
+  so the holes are vendor-side and deterministic). The join itself is correct. DRAFT
+  `FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_F.md` proposes per-print adoption (E's registered
+  fallback) + repurposing 98% as a measurement gate + the index-open bias caveat. **Morning
+  sequence: founder blesses/amends F → flip `SCHEMA_VERSION = 6` → re-roll all 251 niced (a
+  12M-print session peaks ~4.5GB — quiet box only) → re-run 1.8 on code-labeled arms** (its
+  "single names flip 0/3" verdict stays provisional until then).
 - **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
   `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
   deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a
