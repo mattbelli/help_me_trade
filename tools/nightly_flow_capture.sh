@@ -59,10 +59,12 @@ fi
 cd "$ROOT" || alarm "cannot cd $ROOT"
 
 # 7-day lookback: covers holidays, missed nights, and vendor-availability lag;
-# skip-existing makes the overlap free. End is exclusive, so tomorrow covers
-# today's session across the UTC/ET date seam.
+# skip-existing makes the overlap free. End is exclusive = today (UTC): at
+# 02:30 UTC the just-closed ET session is yesterday's UTC date, so "today"
+# already covers it — "tomorrow" would request a session that hasn't traded
+# yet (422 data_start_after_available_end; first firing 2026-07-28 proved it).
 START=$(date -u -d '7 days ago' +%F)
-END=$(date -u -d 'tomorrow' +%F)
+END=$(date -u +%F)
 
 log "tcbbo download $START..$END"
 nice -n 10 "$PY" tools/opra_tcbbo_backfill.py --start "$START" --end "$END" \
