@@ -21,6 +21,7 @@ RESEARCH_JOB_NAMES = {
     "options_flow",
     "momentum_bars_refresh",
     "volume_profile_refresh",
+    "fusion_day_volume_refresh",
     "reflection",
 }
 
@@ -35,7 +36,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(rj, "_options_flow_ran_dates", set())
 
 
-def test_register_research_jobs_registers_exactly_five() -> None:
+def test_register_research_jobs_registers_the_expected_set() -> None:
     rj.register_research_jobs()
     names = [j.name for j in jobs.JOBS]
     assert sorted(names) == sorted(RESEARCH_JOB_NAMES)
@@ -49,6 +50,9 @@ def test_register_research_jobs_registers_exactly_five() -> None:
     assert by_name["reflection"].run_on_start is False
     assert by_name["setup_scan_nightly"].run_on_start is False
     assert by_name["setup_scan_nightly"].interval_s == 900.0
+    # The day-volume producer is the only INTRADAY member: its cache feeds a
+    # live intraday reading, so it gates on market hours and never runs at night.
+    assert by_name["fusion_day_volume_refresh"].market_hours_only is True
 
 
 def test_flow_eod_dedup_survives_restart() -> None:

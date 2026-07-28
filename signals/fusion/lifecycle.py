@@ -230,8 +230,15 @@ def compute_trigger_expiry(armed_at: Any, trigger: dict[str, Any]) -> str:
     ).isoformat()
 
 
-def _latest_rvol(dots: list[dict]) -> float | None:
-    """The most recent RVOL reading from the episode's rvol_ex_prints dots."""
+def _latest_rvol(dots: list[dict], now_dt: datetime) -> float | None:
+    """The most recent RVOL reading from the episode's rvol_ex_prints dots.
+
+    TODAY's only. The dot is rolling — one row per episode whose ts advances
+    each refresh — but it only refreshes on a pass that touches the episode, so
+    a quiet episode carries its LAST session's multiple. RVOL is a
+    today-vs-baseline statement: firing a confirm trigger on a stale one is a
+    fabricated confirmation, and there is no reading to fall back to."""
+    today = now_dt.astimezone(_ET).date().isoformat()
     best_ts = ""
     best: float | None = None
     for dot in dots:
@@ -239,9 +246,18 @@ def _latest_rvol(dots: list[dict]) -> float | None:
             continue
         value = _dec(dot.get("raw_value"))
         ts = str(dot.get("ts") or "")
-        if value is not None and ts >= best_ts:
-            best_ts = ts
-            best = float(value)
+        if value is None or ts < best_ts:
+            continue
+        try:
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if parsed.astimezone(_ET).date().isoformat() != today:
+            continue
+        best_ts = ts
+        best = float(value)
     return best
 
 
@@ -293,7 +309,7 @@ def _trigger_fires(
 
     if ctype == "rvol_confirm":
         threshold = float(condition.get("threshold") or 0.0)
-        rvol = _latest_rvol(dots)
+        rvol = _latest_rvol(dots, now_dt)
         if rvol is None or rvol < threshold:
             return False
         thesis = score_decayed(dots, now_dt)["thesis"]
