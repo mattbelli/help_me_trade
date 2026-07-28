@@ -269,3 +269,88 @@ across the corpus year (2025-07-29, 2025-09-16, 2025-12-26, 2026-07-17, 2026-07-
 
 **Consequence: the §3 probe's 1.9 gate is CLEARED** — membership is code-truth corpus-wide (v6),
 and pairing is now a measured, registered rule rather than an assumption.
+
+## §3b — the §3 probe's registered result + the two-band refinement (2026-07-28, per the addendum law)
+
+**The §3 probe ran as registered** (`tools/package_orientation_probe.py`, same 5 sessions as §3a,
+log `data/package_orientation_probe.log`) — and **FAILED its registered pass/fail on the 1D band**:
+o does NOT concentrate at the band edges more than the shuffled-pairing null. Pooled,
+premium-weighted: edge share c=0.05 real 9.8% / null 8.9%; c=0.10 real 10.6% / null 10.1%;
+c=0.15 real 11.9% / null 11.9%. 72.9% of clean-pair premium sits at o .35–.65 in BOTH real and
+null. Coverage confirmed §3a's arithmetic: $58.8B = 30.2% of ALL premium is o-readable
+(valid band on 98.9% of clean-pair premium). That 1D fail stands as recorded — it is not edited
+away by what follows.
+
+**Why the 1D band was structurally incomplete (found in the post-run check, derivation not
+outcome-fitting):** exchange allocation rules keep each leg's allocated price ~within its own
+NBBO, and any such allocation places d = pA−pB inside [bidA−askB, askA−bidB] *by construction* —
+the diff-band position only carries information when the package's negotiated net IS the
+difference, i.e. a buy-one-sell-other **spread**. For a same-direction **combo** (straddle,
+strangle: buy both / sell both) the negotiated net is the SUM pA+pB, and the diff coordinate is
+pure allocation noise pinned mid-band. A 2-leg package has exactly these two net conventions, so
+the 1D distribution is a mixture in which combos (plus mid-fill spreads) bury the spread signal.
+The complement coordinate:
+
+```
+o_sum = (pA + pB − (bidA + bidB)) / ((askA + askB) − (bidA + bidB))
+```
+
+o_sum near 1 ⇒ bought both legs; near 0 ⇒ sold both. Both bands have IDENTICAL width
+(spreadA + spreadB), so validity/coverage carry over unchanged. A spread should edge in o_diff
+and sit mid in o_sum; a combo the reverse; the four edges of the (o_diff, o_sum) plane are the
+four orientations.
+
+**Registered refinement + its pass/fail (set before the 2D run):** compute (o_diff, o_sum) per
+clean pair; edge distance per coordinate = min(o, 1−o) (out-of-band counts as edge); the 2D edge
+share at cut c = premium share with min over both coordinates ≤ c. **Pass = real 2D edge share at
+c=0.10 ≥ 1.5× the shuffled null's.** Below that, the o mechanism joins the 1D result as failed
+and orientation work falls back to §4's other features (hedge prints, OI deltas). Descriptive
+corner decomposition (spread-edge / combo-edge / both / neither, real vs null) is reported
+alongside; no grading, no win%.
+
+**Recorded observation (hypothesis, NOT a finding):** the mixed call+put split — where
+risk-reversals/collars live — showed real 1D edge concentration well above null (pooled 21.4% at
+c=0.10; 50.8% on opex 2026-07-17) while call-call (3.7%) and put-put (7.0%) did not. If the 2D
+run confirms structure-dependent readability, per-structure coverage gets reported, never
+averaged away.
+
+## §3c — §3b's registered result + the corner criterion, out-of-sample (2026-07-28, per the addendum law)
+
+**The §3b 2D run's registered result: FAIL as registered** — pooled real/null 2D edge share at
+c=0.10 = **1.14x** (pass bar 1.5x); log `data/package_orientation_probe.log` (same 5 §3a
+sessions). That stands.
+
+**What the registered-descriptive corner decomposition showed (same run, spec'd in §3b before
+it ran):** the aggregate criterion was diluted by a null artifact. The null's edge mass sits in
+the **both-coordinates-at-edge** corner (8.4% vs real 1.7%) — the signature of mispaired legs
+blowing out of band on BOTH coordinates simultaneously (a price-scale mismatch, not
+edge-sitting). Real edge mass sits where signal should: **spread-edge-only 8.9% vs null 1.7%
+(5.2x)**; combo-edge-only 3.0% vs 1.7% (1.8x). Per split, mixed call+put pairs (risk-reversal
+territory) reach spread-edge 18.1% vs combo-edge 1.0%.
+
+**Registered corner criterion + out-of-sample evaluation (set before the confirming run):**
+- statistic = premium share in **exactly-one-coordinate-at-edge** corners at c=0.10
+  (spread-edge-only + combo-edge-only; the both-edge corner is EXCLUDED as the measured shuffle
+  blowout artifact).
+- **Pass = real ≥ 1.5× null**, evaluated POOLED on **5 FRESH sessions never used in §3a/§3b:
+  2025-08-22, 2025-10-31, 2026-01-07, 2026-04-16, 2026-06-29** (coverage 0.981–0.996). The
+  criterion was chosen after seeing the first 5 sessions, so those sessions can no longer test
+  it — only fresh ones can.
+- If it passes: o enters §4 as a calibrated-classifier FEATURE with measured per-corner coverage
+  (~12% of clean-pair premium ≈ ~3–4% of ALL premium confidently oriented at edges; the mid-band
+  majority stays abstain-at-this-feature). If it fails, the o mechanism is recorded dead alongside
+  the 1D and 2D aggregates and orientation falls back to §4's other features.
+
+**§3c RESULT (2026-07-28, recorded after the registered out-of-sample run): PASS — 3.33×**
+(bar 1.5×), log `data/package_orientation_probe_oos.log`, fresh sessions 2025-08-22 /
+2025-10-31 / 2026-01-07 / 2026-04-16 / 2026-06-29. Every session clears the bar individually
+(1.9×–5.5×). The corner structure replicates out-of-sample: spread-edge-only 8.0% vs null 1.7%,
+combo-edge-only 3.7% vs 1.8%, and the null's mass again piles in the excluded both-edge blowout
+corner (9.5% vs real 4.0%). Mixed call+put pairs replicate as the most readable structure
+(spread-edge 15.1% vs combo-edge 1.1% — risk-reversal signature). Coverage on the fresh five:
+clean pairs = 26.1% of ALL premium, valid band 99.7% of that.
+**Consequence:** `o` is a REAL orientation feature and enters §4 as a calibrated-classifier
+input. Honest scope: at c=0.10 roughly ~12% of clean-pair premium (~3% of ALL premium) sits at
+an informative edge; the mid-band majority abstains at this feature — o narrows §4's problem, it
+does not solve it alone. No grading, no win% — that spec still enters Addendum E (or its own
+prereg) first.

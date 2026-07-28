@@ -37,15 +37,17 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   verdict OVERTURNED, see the RE-ESCALATED note below + ROADMAP 1.8**. Open: the live
   package-awareness build (board notes 28s/28u) now has its measured priors; 1.7/1.10 and the
   1.11+ discovery program are unblocked on trustworthy labels.
-- **⏳ Package orientation (o band) — pairing rule REGISTERED 07-28, o probe UNBLOCKED.** 1.9
-  closed: codes are corpus-wide via v6, and the missing piece (legs must be *paired*, not just
-  flagged — ns-collision leaves 44.8% of package premium solo) was measured by
-  `tools/package_leg_gap_probe.py` on 5 sessions → design doc **§3a**: same-underlying
-  single-linkage clusters at **W=100µs**, leg = distinct instrument, first-pass o universe =
-  2-leg equal-size clusters (~53% of package premium ≈ ~30% of ALL premium). **Open:** build
-  `tools/package_orientation_probe.py` (§3 as specced: o distribution vs shuffled-pairing null,
-  band-edge concentration = the registered pass/fail, per-session bucket shares in the output);
-  runs in the dev tree on already-rolled raw DBN.
+- **⏳ Package orientation (o band) — o VALIDATED 07-28 (§3c PASS 3.33× out-of-sample); next =
+  §4 classifier sequencing.** The probe ran three registered tests (design doc §3b/§3c, logs
+  `data/package_orientation_probe{,_oos}.log`): 1D diff-band edge concentration FAILED (real ≈
+  null — same-direction combos mathematically pin mid-band), 2D aggregate FAILED (1.14×, diluted
+  by the null's both-edge blowout artifact), and the corner criterion (exactly-one-coordinate at
+  edge, both-edge excluded) **PASSED on 5 fresh never-seen sessions: 3.33× pooled, every session
+  1.9–5.5×**. Honest scope: ~12% of clean-pair premium (~3% of ALL) edge-oriented; mid-band
+  majority abstains; mixed call+put (risk-reversals) most readable (spread-edge 15.1%). **Open:**
+  o is now a §4 classifier FEATURE awaiting its siblings (Phase 2 OI deltas, Phase 3 hedge
+  prints) — no standalone product surface, no grading without an Addendum-E-style prereg;
+  later generalization = 3+leg clusters (~37–43% of package premium still unread).
 - **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
   `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
   replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:
