@@ -30,12 +30,43 @@ hardened, merged PR #122 — §5 danger register + §9 gates are the checklist w
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
 daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
 
-- **⏳ Backfill running** — restarted 07-26 19:47 via `tools/opra_backfill_run.sh` (setsid-detached so it
-  outlives the session, `nice`+`ionice`, **defs THEN tcbbo sequentially**). Progress: `tail
-  data/databento/run.log`. **If it dies, restart it** — it is resumable and every day left unarchived
-  ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
-  cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
-  schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
+- **⏳ v6 re-roll RUNNING (Addendum F blessed 07-28, migration FIRED)** — F blessed by founder
+  the same morning it was drafted; executed immediately: rollup adoption gate rewritten to
+  per-print (below-floor sessions adopt labels + get flagged for the ≥98% robustness subset),
+  `SCHEMA_VERSION` default flipped to 6, 47 corpus tests green, files synced to the dev tree,
+  and the full 251-session re-roll launched niced+ionice with a 500MB-available memory guard
+  (ntfy on kill; **resumable — relaunch without `--force`**). Log:
+  `data/flow_corpus_reroll_v6.log`; estimate ~10–17h (init spends several silent minutes
+  dropping the 49M-row v5 table before per-session lines appear). **When it lands: verify
+  session count = 251 at v6 + `multileg_source` census, then re-run 1.8 on code-labeled arms —
+  full corpus AND the ≥98% subset (115 sessions) per F's registered robustness arm.** Then the
+  live package-awareness build (board notes 28s/28u) with measured priors.
+- **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
+  `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
+  replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:
+  `signals/options_flow/live_pairing.py` (streaming frozen join) + `tools/live_pairing_replay.py`
+  + tests. Measured on 2025-12-24: 315k events/s, **stream-miss=0 vs batch** (strict superset,
+  +48.5k labels recovered from k-rank cascades, 273 code-clashes of 4M), 300s-lag stress clean.
+  Inc 2 shadow BUILT 07-28 (see BUILD_LOG row): `ShadowPairing` inside hmt-flow-collector
+  behind `OPTIONS_FLOW_PAIRING_SHADOW` (default OFF), metrics only, shadow task excluded from
+  the collector's exit wait. **Open:** (1) deploy = flip the flag in the dev-tree `.env` +
+  restart hmt-flow-collector after the close — ⚠️ kill the standalone recorder FIRST (it holds
+  the OPRA socket until 21:00 UTC self-stop; one ws per account); (2) read 1–2 sessions of
+  shadow stats (wire lag both sides, enrich ≤1s fraction, per-root d-vs-a coverage, RSS);
+  (3) full-day session replay after the re-roll frees the box (open-burst RSS);
+  (4) Inc 3 cutover needs the standing-NBBO consumer audit. No code-family scoring before
+  1.8-on-truth.
+- **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
+  `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
+  deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a
+  purchase) → condition capture → `--sweep` into the join ledger. Idempotent, 7-day lookback
+  self-heals missed nights; pgrep guard defers to any running manual backfill; failures page the
+  ntfy dead-man topic; log = `data/alpaca_conditions/nightly.log`. Decision recorded 07-28: the
+  §6b wildcard-WS live daemon is NOT built — REST-after-close is complete-by-construction (no gap
+  accounting) and no intraday condition-code consumer exists (all gated behind roadmap 1.9).
+  Holiday sessions print FAILED forever in the capture log — expected, harmless. ⚠️ A below-floor
+  NEW session does not page — it shows in nightly.log + the ledger and blocks that session's v6
+  labels (heuristic fallback with reason logged at rollup).
 - **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
   pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
   quote. Right reference for signing direction, but **N legs are not N independent quote observations**
