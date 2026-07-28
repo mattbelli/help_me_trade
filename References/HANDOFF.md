@@ -62,12 +62,17 @@ snapshot per sweep). Open threads only:
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
-- **⏳ Live flow pairing Inc 2 deploy** (after a close): kill the standalone recorder FIRST (one
-  OPRA ws per account; self-stops 21:00 UTC), flip `OPTIONS_FLOW_PAIRING_SHADOW=1` in the
-  dev-tree `.env`, restart `hmt-flow-collector`; then read 1–2 sessions of shadow stats (wire lag
-  both sides, enrich ≤1s fraction, per-root d-vs-a coverage, RSS) + a full-day session replay for
-  open-burst RSS. Inc 3 cutover still needs the standing-NBBO consumer audit. No code-family
-  scoring before 1.8-on-truth conclusions are folded in.
+- **⏳ Live flow pairing Inc 2 — SHADOW IS LIVE since 2026-07-28 21:02 UTC** (dev tree pulled to
+  `8cf8008`; the code was already on main via PR #133. `OPTIONS_FLOW_PAIRING_SHADOW=1` in dev-tree
+  `.env`; collector PID 1186654; wildcard ack `wide=True`, no warnings, RSS 406 MB at start).
+  ⏳ NEXT (07-29, after a full session): read shadow stats — wire lag both sides, enrich ≤1s
+  fraction, per-root d-vs-a coverage, RSS across the open burst (measured ceiling ~1 GB at
+  MAX_PENDING 2M) — plus a full-day session replay for open-burst RSS. Watch for the matcher-reset
+  epoch lines on any Alpaca re-subscribe (keepalive flaps are 40–48/day on this account).
+  Inc 3 cutover still needs the standing-NBBO consumer audit. No code-family scoring before
+  1.8-on-truth conclusions are folded in.
+  ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
+  is a clean restart (interactive sudo is unavailable to agents on serv).
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.
