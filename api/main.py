@@ -654,6 +654,15 @@ async def _regime_refresh_loop() -> None:
             logger.exception("Regime refresh loop iteration failed")
         else:
             mark_alive("regime_refresh")
+        # The macro substrate (own store, data/macro.db) rides the same daily
+        # cadence but fails independently — a substrate outage must not unmark
+        # regime_refresh and page the sleeves' freshness gate.
+        try:
+            from signals.macro_substrate import refresh_macro_substrate
+
+            await refresh_macro_substrate()
+        except Exception:
+            logger.exception("Macro substrate refresh failed")
         await asyncio.sleep(REGIME_REFRESH_INTERVAL_SECONDS)
 
 
