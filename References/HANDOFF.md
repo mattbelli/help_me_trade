@@ -15,12 +15,6 @@ closes, **delete its entry** — there is no archive. In-flight build work lives
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
 daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
 
-- **⏳ Backfill running** — restarted 07-26 19:47 via `tools/opra_backfill_run.sh` (setsid-detached so it
-  outlives the session, `nice`+`ionice`, **defs THEN tcbbo sequentially**). Progress: `tail
-  data/databento/run.log`. **If it dies, restart it** — it is resumable and every day left unarchived
-  ages out of the free window into a purchase. Watch for `ABORTING RUN` in the log: that is the per-day
-  cost guard refusing to spend, and it means a day fell outside the window. Do **not** run the two
-  schemas concurrently; two ALL_SYMBOLS pulls plus numpy-heavy agents is what swapped serv flat.
 - **⏳ v6 re-roll RUNNING (Addendum F blessed 07-28, migration FIRED)** — F blessed by founder
   the same morning it was drafted; executed immediately: rollup adoption gate rewritten to
   per-print (below-floor sessions adopt labels + get flagged for the ≥98% robustness subset),
@@ -32,6 +26,17 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   session count = 251 at v6 + `multileg_source` census, then re-run 1.8 on code-labeled arms —
   full corpus AND the ≥98% subset (115 sessions) per F's registered robustness arm.** Then the
   live package-awareness build (board notes 28s/28u) with measured priors.
+- **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
+  `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
+  replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:
+  `signals/options_flow/live_pairing.py` (streaming frozen join) + `tools/live_pairing_replay.py`
+  + tests. Measured on 2025-12-24: 315k events/s, **stream-miss=0 vs batch** (strict superset,
+  +48.5k labels recovered from k-rank cascades, 273 code-clashes of 4M), 300s-lag stress clean.
+  **Open:** (1) full-day session replay after the re-roll frees the box (RSS at open burst is
+  the number to capture); (2) Inc 2 = wildcard-trades sub + Databento live client + matcher
+  wired into hmt-flow-collector as a 1–2 session metrics-only shadow (real arrival lag +
+  per-root live coverage — replay can't see either); (3) Inc 3 cutover needs the standing-NBBO
+  consumer audit. No code-family scoring before 1.8-on-truth.
 - **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
   `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
   deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a

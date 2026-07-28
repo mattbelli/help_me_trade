@@ -3,8 +3,8 @@
 *The whole-market live lane end-state the founder set 07-28 (board `whole-market-flow-corpus`
 notes 28s/28t/28u): Databento live carries the market-wide trade+quote spine; Alpaca contributes
 ONLY condition codes via wildcard trades; a live matcher pairs them per print. The 1,000-contract
-Alpaca quote lane turns OFF at the end of the rollout. This doc is the build spec; no code exists
-yet. **Formally supersedes decision #93** ("no production wildcard trades lane") — #93 forbade a
+Alpaca quote lane turns OFF at the end of the rollout. This doc is the build spec; Inc 1 (the
+matcher + replay rig) shipped 2026-07-28. **Formally supersedes decision #93** ("no production wildcard trades lane") — #93 forbade a
 lane the code silently *assumed*; this is a deliberately built, spec'd consumer.*
 
 ## What it is (three pieces, one process)
@@ -61,37 +61,51 @@ verified not assumed:
   continuous option NBBO (position marks, UI quote displays, spread-width checks at arbitrary
   times) moves to REST snapshots (10k req/min budget, ~30 used) BEFORE the quote lane dies.
   The audit lists every consumer of the current quote stream and its disposition.
-- **Parallel-run validation.** Inc 2 runs both lanes ≥ 5 sessions: per-print direction from the
-  Databento spine vs our own live-quote DIR-1 on the overlapping (subscribed) names. Divergence
-  is measured and explained before the reference lane is removed.
+- **Replay validation, then a short live shadow** (founder 07-28: replay replaces the original
+  ≥5-session parallel run — both live inputs already exist on disk for all 251 corpus sessions,
+  so the matcher is validated deterministically against the batch join's known answers instead
+  of against a live overlap with no ground truth). Direction parity needs no live run either:
+  the quote lane's stored `options_flow_events` diff retroactively against the corpus. Live
+  time is spent ONLY on what replay cannot see — real wire-arrival lag and live-WS per-root
+  coverage — which takes 1–2 shadow sessions, not 5.
 - **Fallback path.** The capped-lane code stays in the tree (dead, flagged) for one release
   after cutover; the collector can be reverted by config, not by git archaeology.
 
 ## Increments
 
-- **Inc 1 — shadow matcher (no consumers).** Databento live client + wildcard trades sub +
-  streaming matcher inside hmt-flow-collector, emitting only metrics + a sampled paired-print
-  log: match rate (per root — ⚠️ index roots specifically: SPXW rides SPX on the Alpaca WS lane
-  and NDX is absent there; per-root coverage tells us which index codes we actually get live),
-  enrichment-lag distribution (open vs midday), pending-buffer peaks, CPU/RSS, dropped counters.
-  Runs ≥ 3 sessions. Gate: live match rate within a measured, explained distance of that day's
-  batch join; process overhead acceptable on serv.
-- **Inc 2 — consumers in parallel.** Detectors/gauge read the enriched spine alongside the
-  existing capped lane; outputs compared (burst/cluster counts, gauge values), provenance
-  stamped per event (`coverage`/source discipline as today). Package/clean segregation allowed;
-  no new scoring. Gate: consumer parity understood; divergences trace to coverage, not bugs.
+- **Inc 1 — matcher + replay validation. ✅ DONE 2026-07-28.** `signals/options_flow/
+  live_pairing.py` (StreamingCondMatcher — the frozen join streaming, k-slots tombstoned on
+  expiry, idle-key GC, capped rings) + `tools/live_pairing_replay.py` (replays a session's
+  tcbbo DBN + Alpaca condition npz in simulated arrival order, diffs against `match_prints`).
+  Pinned by `tests/test_live_pairing.py` incl. a randomized streaming≡batch equivalence test.
+  Measured on 2025-12-24 (half-day, 8.07M events): **315k events/s** in pure Python (~24x the
+  13k/s both-sides whole-market peak), per-print agreement with batch 98.79% decomposing to
+  **stream-miss = 0** (streaming is a strict SUPERSET of the batch join — its idle-key GC
+  resets the k-rank cascades that vendor-missing copies inflict on a whole-session rank),
+  48,509 extra labels recovered, 273 code-clashes (0.007%). Under a 300s artificial Alpaca
+  lag: pending peak 226k entries, zero evictions, still stream-miss = 0.
+- **Inc 2 — live shadow + consumers in parallel (1–2 sessions).** Databento live client +
+  wildcard trades sub + the validated matcher inside hmt-flow-collector, metrics + sampled
+  paired-print log only. Measures ONLY what replay cannot: real wire-arrival lag distributions
+  (open vs midday, both sides), live-WS per-root coverage (⚠️ index roots: SPXW rides SPX on
+  the Alpaca WS lane and NDX is absent there), and CPU/RSS on serv. Same window: detectors/
+  gauge read the enriched spine alongside the capped lane, outputs compared, provenance
+  stamped. Package/clean segregation allowed; no new scoring. Gate: live match rate within a
+  measured, explained distance of that day's batch join; consumer divergences trace to
+  coverage, not bugs.
 - **Inc 3 — cutover.** Quote subs off, capped lane off, spine is primary; REST snapshots serve
   standing-NBBO consumers; nightly audit alarm armed (live-vs-batch gap). The Alpaca socket
   carries exactly one subscription: `trades: ["*"]`.
 
-## Open items Inc 1 must measure (recorded here so they don't become assumptions)
+## Open items the live shadow (Inc 2) must measure (recorded so they don't become assumptions)
 
 1. Databento live tcbbo end-to-end lag vs Alpaca trade arrival (both sides' lag, not just one).
 2. Per-root Alpaca wildcard coverage — especially SPX/SPXW/XSP/VIX index roots (the corpus
    census says index-open prints are where Alpaca's history thins; is the LIVE stream better or
    worse there?).
-3. Throughput/CPU at the open burst and close burst in Python; Rust only if measured need
-   (equity close burst precedent: 117k msgs/s = 20.3% of a core — 5x margin, Rust declined).
+3. Matcher RSS on a full-day open burst (replay says throughput is a non-issue: 315k events/s
+   measured vs a 13k/s whole-market peak — the equity-close-burst precedent holds, Rust stays
+   declined; memory at a multi-minute open lag is the one resource replay can't price in situ).
 4. First-invoice confirmation that live OPRA message volume bills flat on Standard.
 
 ## Not in scope
