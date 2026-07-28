@@ -98,6 +98,15 @@ FUSION_TRIGGER_TTL_IMPULSE_HOURS = 4  # FOUNDER DIAL — impulse-class trigger T
 FUSION_TRIGGER_TTL_THESIS_SESSIONS = 3  # FOUNDER DIAL — thesis-confirmation-class trigger TTL (trading days)
 FUSION_HOT_LANE_DEMOTE_SESSIONS = 3  # FOUNDER DIAL — quiet trading days before a hot-lane symbol demotes (Round 4)
 
+# Fusion context/catalyst minters (board fusion-unminted-dots, 2026-07-28) — the
+# registered components start minting. regime/index_pressure are ANNOTATE-ONLY
+# (never score); earnings_proximity is a scored catalyst state dot on the same
+# [0, 1] closeness scale as structure. Every value is a FOUNDER DIAL.
+FUSION_EARNINGS_AHEAD_TD = 5  # FOUNDER DIAL — upcoming earnings within N weekdays = catalyst-adjacent
+FUSION_EARNINGS_BEHIND_TD = 2  # FOUNDER DIAL — reported earnings within N weekdays = drift window
+FUSION_REGIME_STALE_DAYS = 5  # FOUNDER DIAL — macro series older than this mint nothing (stale context is worse than none)
+FUSION_CONTEXT_REFRESH_S = 60.0  # FOUNDER DIAL — memo TTL for the market-wide context reads
+
 # Fusion Phase C1 — SHADOW-MODE investigation gate (spec §2.6 LLM tier, §3 C).
 # The deterministic "this evidence stack would be investigated by the LLM lane
 # right now" decision — counted, never acted on. Zero LLM calls. REASON_SHADOW_ONLY
@@ -198,6 +207,11 @@ def validate_config() -> None:
     assert FUSION_TRIGGER_TTL_IMPULSE_HOURS > 0
     assert FUSION_TRIGGER_TTL_THESIS_SESSIONS >= 1
     assert FUSION_HOT_LANE_DEMOTE_SESSIONS >= 1
+    # Context/catalyst minter dials.
+    assert FUSION_EARNINGS_AHEAD_TD >= 1
+    assert FUSION_EARNINGS_BEHIND_TD >= 0
+    assert FUSION_REGIME_STALE_DAYS >= 1
+    assert FUSION_CONTEXT_REFRESH_S >= 0
     # Fusion C1 shadow-investigation invariants.
     assert REASON_SHADOW_ONLY is True
     assert REASON_DAILY_BUDGET >= 1
