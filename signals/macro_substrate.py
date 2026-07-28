@@ -78,8 +78,13 @@ REPORT_AXES: dict[str, str] = {
 }
 
 
-def _fetch_rows(series_id: str, limit: int) -> list[tuple[str, str, float]]:
-    observations = fetch_fred_csv(series_id, limit=limit)
+_BACKFILL_START = "1960-01-01"  # cosd — before every series' first observation
+
+
+def _fetch_rows(
+    series_id: str, limit: int, *, start: str | None = None
+) -> list[tuple[str, str, float]]:
+    observations = fetch_fred_csv(series_id, limit=limit, start=start)
     return [(series_id, obs_date, value) for obs_date, value in observations]
 
 
@@ -111,7 +116,7 @@ def backfill_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[s
     """Full-history backfill, sequential. Returns per-series rows written (0 = failed)."""
     out: dict[str, int] = {}
     for series_id in MACRO_SERIES:
-        rows = _fetch_rows(series_id, _BACKFILL_LIMIT)
+        rows = _fetch_rows(series_id, _BACKFILL_LIMIT, start=_BACKFILL_START)
         out[series_id] = upsert_macro(rows, db_path=db_path) if rows else 0
     return out
 
