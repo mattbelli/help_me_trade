@@ -108,6 +108,14 @@ FUSION_EARNINGS_BEHIND_TD = 2  # FOUNDER DIAL — reported earnings within N wee
 FUSION_REGIME_STALE_DAYS = 5  # FOUNDER DIAL — macro series older than this mint nothing (stale context is worse than none)
 FUSION_CONTEXT_REFRESH_S = 60.0  # FOUNDER DIAL — memo TTL for the market-wide context reads
 
+# News → catalyst EVENT dots (board news-catalyst-dots, 2026-07-28). Headlines are
+# FACTS, never sentiment: direction is always 'none', so news adds catalyst-group
+# points (and breadth) without ever entering a directional mass. Every value is a
+# FOUNDER DIAL.
+FUSION_NEWS_WINDOW_MIN = 120  # FOUNDER DIAL — session-minutes a headline stays fresh (measured on the SESSION clock via scorer.session_seconds_between, so a pre-market headline is fresh at the open)
+FUSION_NEWS_MAX_SYMBOLS = 12  # FOUNDER DIAL — a headline tagging more symbols than this is a roundup: the dot still mints (annotate-only) but at points 0.0
+FUSION_NEWS_BURST_POINTS = ((4, 1.0), (2, 0.75), (1, 0.5))  # FOUNDER DIAL — headline-count-in-window → points; first threshold ≤ n wins
+
 # Fusion mechanical registration (2026-07-28 measurement-integrity round).
 # FUSION_MIN_ATR_PCT: refuse fusion_mech registration when ATR(14) is under this
 # % of price — measured 07-28: the 253 sub-2% rows won 3.2% and every sub-1% row
@@ -231,6 +239,17 @@ def validate_config() -> None:
     assert FUSION_EARNINGS_BEHIND_TD >= 0
     assert FUSION_REGIME_STALE_DAYS >= 1
     assert FUSION_CONTEXT_REFRESH_S >= 0
+    # News catalyst dials.
+    assert FUSION_NEWS_WINDOW_MIN > 0
+    assert FUSION_NEWS_MAX_SYMBOLS >= 1
+    assert FUSION_NEWS_BURST_POINTS
+    assert all(n >= 1 and 0.0 <= p <= 1.0 for n, p in FUSION_NEWS_BURST_POINTS)
+    assert [n for n, _ in FUSION_NEWS_BURST_POINTS] == sorted(
+        (n for n, _ in FUSION_NEWS_BURST_POINTS), reverse=True
+    )
+    assert [p for _, p in FUSION_NEWS_BURST_POINTS] == sorted(
+        (p for _, p in FUSION_NEWS_BURST_POINTS), reverse=True
+    )
     # Fusion C1 shadow-investigation invariants.
     assert REASON_SHADOW_ONLY is True
     assert REASON_DAILY_BUDGET >= 1
