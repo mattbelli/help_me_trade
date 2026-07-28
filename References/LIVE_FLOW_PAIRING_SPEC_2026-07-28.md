@@ -29,10 +29,13 @@ lane the code silently *assumed*; this is a deliberately built, spec'd consumer.
 ## Hard constraints (violate any of these and the build is wrong)
 
 - **One OPRA socket per account.** Alpaca allows exactly one options websocket; a second
-  connection gets `406`. `hmt-flow-collector` owns it today. Therefore the wildcard-trades
-  subscription and the matcher live **inside hmt-flow-collector** — not a new daemon fighting
-  for the socket. The Databento live client also runs in that process (different vendor, no
-  conflict) so prints never cross a process boundary to be paired.
+  connection gets `406`. ⚠️ Ownership updated 07-28: since `options_flow.provider=databento`
+  went live (07-27, whole-market spine in production all session) the collector does NOT open
+  the Alpaca socket at all — it is free, and the standalone recorder probe
+  (`tools/alpaca_cond_recorder.py`) holds it during the 07-28 measurement session. End-state
+  unchanged: the wildcard-trades subscription and the matcher live **inside
+  hmt-flow-collector** beside the Databento client, so prints never cross a process boundary
+  to be paired — whichever process runs the sidecar is the socket's one owner, never two.
 - **Never block the spine on the sidecar — but match-first whenever the twin is in hand**
   (founder 07-28: don't ship unlabeled flow when labeling costs microseconds). Three cases:
   (1) twin already arrived → match inline, the print emits fully labeled, never `pending`;
@@ -63,9 +66,17 @@ lane the code silently *assumed*; this is a deliberately built, spec'd consumer.
 
 ## What turns OFF, and when
 
-At Inc 3 (not before): the 1,000-contract quote subscriptions and the capped/watchlist trades
-lane both retire — direction comes from the Databento spine for every name. Prerequisites,
-verified not assumed:
+⚠️ Ground truth moved under this section on 07-28: the provider flip to Databento (live in
+production since 07-27) already stopped the capped quote/trades lanes — under
+`provider=databento` the runner never starts `OptionsFlowStream`, so nothing subscribes the
+1,000 quotes today. The Alpaca lane is retired *de facto*; what Inc 3 owns now is making that
+**deliberate and verified** rather than a side effect:
+- **Standing-NBBO consumer audit** (below) — now an audit of what may have silently regressed
+  since 07-27, not a pre-cutover gate: enumerate every consumer of `latest_quote`/`quote_at`
+  and confirm each works off nbbo-on-print or REST snapshots.
+- The capped-lane code stays revertable by config (`provider=alpaca`) exactly as before.
+
+Original prerequisites, verified not assumed:
 - **Standing-NBBO consumer audit.** `tcbbo` quotes only exist at trade time. Anything needing a
   continuous option NBBO (position marks, UI quote displays, spread-width checks at arbitrary
   times) moves to REST snapshots (10k req/min budget, ~30 used) BEFORE the quote lane dies.
