@@ -30,17 +30,13 @@ hardened, merged PR #122 — §5 danger register + §9 gates are the checklist w
 Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
 daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
 
-- **⏳ v6 re-roll RUNNING (Addendum F blessed 07-28, migration FIRED)** — F blessed by founder
-  the same morning it was drafted; executed immediately: rollup adoption gate rewritten to
-  per-print (below-floor sessions adopt labels + get flagged for the ≥98% robustness subset),
-  `SCHEMA_VERSION` default flipped to 6, 47 corpus tests green, files synced to the dev tree,
-  and the full 251-session re-roll launched niced+ionice with a 500MB-available memory guard
-  (ntfy on kill; **resumable — relaunch without `--force`**). Log:
-  `data/flow_corpus_reroll_v6.log`; estimate ~10–17h (init spends several silent minutes
-  dropping the 49M-row v5 table before per-session lines appear). **When it lands: verify
-  session count = 251 at v6 + `multileg_source` census, then re-run 1.8 on code-labeled arms —
-  full corpus AND the ≥98% subset (115 sessions) per F's registered robustness arm.** Then the
-  live package-awareness build (board notes 28s/28u) with measured priors.
+- **⏳ v6 LANDED 07-28 + 1.8-at-v6 RUN — next: the live package-awareness build.** Re-roll
+  completed 14:11 UTC (251/251 at v6, all `multileg_source=codes`, coverage avg 97.4%, 115
+  sessions ≥98% — exactly Addendum F's registered subset; one mid-run cgroup-throttle unwedged
+  by raising the rescue scope's `memory.high` to 6.4G). 1.8 re-run same day — **single-name
+  verdict OVERTURNED, see the RE-ESCALATED note below + ROADMAP 1.8**. Open: the live
+  package-awareness build (board notes 28s/28u) now has its measured priors; 1.7/1.10 and the
+  1.11+ discovery program are unblocked on trustworthy labels.
 - **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
   `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
   replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:
@@ -96,14 +92,14 @@ daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row 
   `ts_event`, different instrument): OPRA `flags` is constant 194 across all 6.95M prints and marks
   nothing (`tools/tcbbo_flags_probe.py`), but `ts_event` is true-ns so ~1 coincidence is expected per
   session.
-  **▸ DE-ESCALATED 07-27 by roadmap 1.8 — it is an index/ETF artifact.** Split three ways
-  (`tools/multileg_arm_probe.py`): **single names flip 0/3** measures (10.9% of prints / 19.5% of
-  premium multi-leg), **index roots + ETFs flip 3/3** (16.5% / 48.5%). Institutional hedging is
-  overwhelmingly spread structures; single-name flow is not. The both-arms presentation rule above
-  **still stands** — but the alarm does not reach the single-name flow the 3–45 day thesis targets.
-  ⚠️ One session, in-sample; re-run across the corpus. Related, and it matters for the Phase 4
-  aggregate's denominator: single names were net **short** (−$354M) while index/ETF was net **long**
-  (+$908M) the same session, so pooling them cancels two opposite signals.
+  **▸ RE-ESCALATED 07-28 by 1.8-at-v6 — the flip REACHES single names.** The corpus-wide re-run
+  on code labels (`tools/multileg_arm_probe_v6.py`, 251 sessions) overturned the 07-27
+  heuristic-era de-escalation: true package share of single-name premium is **40.9%** (heuristic
+  19.5%; recall ~51% hid half the legs in the "clean" arm) and single-name **net** flips pooled
+  (all −$13.7B vs ex-multileg +$48.3B; 79/251 sessions; clip/raw same-sign). Same verdict on the
+  ≥98%-coverage robustness arm. **Addendum D's fence now applies to single names**: no pooled
+  single-name net reading without the package split. Full result in the ROADMAP 1.8 entry +
+  BUILD_LOG row. Phase 4 denominator note survives: single names net short, index/ETF net long.
 - **⚠️ `orders`, NEVER `prints`, is the N for any z-score or standard error** (`schema_version=4`).
   A sweep arrives as N prints of one order; counting it N times inflates √N by up to 1.051× at p90,
   worst in thin heavily-swept names (TLRY 16.0%, SNAP 15.0%) — the exact tier measurement 1.7 is

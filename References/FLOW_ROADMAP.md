@@ -172,7 +172,22 @@ Each decides something downstream. Run them, do not skip to building.
       anything that fires is a false positive. *Decides:* whether the mid-cap sub-hypothesis is
       testable at all. *Note:* the alarming 12× figure is currently a **simulation** — this replaces
       it with a measurement. Change no threshold before this runs.
-- [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — ANSWERED 2026-07-27: JUST INDEX/ETF.**
+- [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
+      IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
+      (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
+      heuristic-era verdict below.** True package share of single-name premium is **40.9%**
+      (heuristic said 19.5% — recall ~51% hid half the legs in the "clean" arm), and the
+      single-name **net** measure FLIPS pooled: all −$13.7B vs ex-multileg **+$48.3B** (79/251
+      sessions flip; clip and raw stay same-sign, 1/3 flips). Same verdict on the registered
+      ≥98%-coverage robustness arm (115 sessions: −$7.5B vs +$19.8B) — not coverage-driven.
+      Demonstration on the original in-sample session: heuristic clean arm −$89.7M (same sign),
+      code clean arm **+$217.4M** (flip) — the exact print-for-print reversal the missing recall
+      predicted. Consequence: **Addendum D's package fence applies to single names too**; pooled
+      single-name net flow is unreadable without splitting the package grain. Index/ETF stays
+      worst (69.6% package premium, flips 2/3). Coverage gate per Addendum F honored in the
+      tool's output (12 sessions <95% flagged; bias caveat applies). *Heuristic-era result kept
+      below for the record — do not cite it.*
+      ~~ANSWERED 2026-07-27: JUST INDEX/ETF.~~
       `tools/multileg_arm_probe.py`, 2025-07-28. Single names flip **0/3** measures (net -354.3M all
       vs -89.7M ex-multileg — same sign); index roots + ETFs flip **3/3**; pooled flips 3/3. Multi-leg
       is 19.5% of single-name premium but **48.4% of index/ETF premium** — SPX condors and ETF
