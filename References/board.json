@@ -2348,11 +2348,11 @@
   {
    "id": "flow-next-lens",
    "title": "Pick the next flow-research lens: day grain is settled (describes, doesn't select)",
-   "lane": "founder",
+   "lane": "done",
    "type": "decision",
    "priority": "normal",
    "owner": "founder",
-   "notes": "1.11-1.14d complete: backwards fingerprint real (short-DTE / burst / abnormal print / vol-spike, 1.4-1.7x vs matched controls, two regimes by earnings-adjacency) but forward screens NULL in both global-bar and peer-rank form \u2014 day-grain market-wide alerting is dead at these features. Options on the table: (a) event-gated earnings branch \u2014 needs an UPCOMING-earnings date source (EDGAR 8-K is retrospective; own-cadence estimate is free/keyless, needs its own registered design); (b) finer-than-daily grain \u2014 the corpus has nanosecond prints, the event set would need intraday redefinition, biggest build + biggest remaining upside; (c) park forward screening, ship the backwards profile as labelled perception context (fusion angle incl. the recurring 5d short-DTE 1.2-1.3x) and return post-Decision-Engine. Not mutually exclusive; orchestrator default if unblocked = (c) now + (b) as the next research arc.",
+   "notes": "1.11-1.14d complete: backwards fingerprint real (short-DTE / burst / abnormal print / vol-spike, 1.4-1.7x vs matched controls, two regimes by earnings-adjacency) but forward screens NULL in both global-bar and peer-rank form \u2014 day-grain market-wide alerting is dead at these features. Options on the table: (a) event-gated earnings branch \u2014 needs an UPCOMING-earnings date source (EDGAR 8-K is retrospective; own-cadence estimate is free/keyless, needs its own registered design); (b) finer-than-daily grain \u2014 the corpus has nanosecond prints, the event set would need intraday redefinition, biggest build + biggest remaining upside; (c) park forward screening, ship the backwards profile as labelled perception context (fusion angle incl. the recurring 5d short-DTE 1.2-1.3x) and return post-Decision-Engine. Not mutually exclusive; orchestrator default if unblocked = (c) now + (b) as the next research arc. | DECIDED 2026-07-29 (founder): ship the backwards profile as labelled perception NOW (toggleable, honest framing \u2014 'unusual, worth a look', never a probability claim), earnings-gated angle rides the EXISTING earnings_calendar/next_earnings_date infra (already feeds earnings_drift td=10); then intraday grain as the next research arc; dealer-footprint (Phase 3) after \u2014 same nanosecond corpus, 3.1 clock-skew first.",
    "created_at": "2026-07-29",
    "updated_at": "2026-07-29",
    "updated": "2026-07-29"
