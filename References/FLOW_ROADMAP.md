@@ -453,6 +453,30 @@ Each decides something downstream. Run them, do not skip to building.
       worst (69.6% package premium, flips 2/3). Coverage gate per Addendum F honored in the
       tool's output (12 sessions <95% flagged; bias caveat applies). *Heuristic-era result kept
       below for the record — do not cite it.*
+
+      ⚠️ **RE-ASKED ON THE REGISTERED AXIS 2026-07-29 — THE SIGN-FLIP CONSEQUENCE IS WITHDRAWN
+      FOR SINGLE NAMES.** Everything above was measured on aggressor `buy − sell`
+      (`multileg_arm_probe_v6.py:11` has no `right` in its query), not the prereg's call/put
+      tilt. `tools/flow_tilt.py --mode netflip` re-runs the identical cells — same arm split
+      (`INDEX_ROOTS | ETF_SET`), same 251 sessions, same rollup grain — on both axes:
+      | arm | axis | pooled ALL | pooled CLEAN | flip | per-session |
+      |---|---|---|---|---|---|
+      | single-name | **dir (registered)** | +$27.9B | +$11.4B | **no** | 48/251 (19.1%) |
+      | single-name | side (aggressor) | −$13.7B | +$48.3B | FLIPS | 79/251 (31.5%) |
+      | index/ETF | **dir (registered)** | −$93.4B | +$9.5B | FLIPS | 118/251 (47.0%) |
+      | index/ETF | side (aggressor) | −$95.0B | +$20.3B | FLIPS | 112/251 (44.6%) |
+      The `side` row reproduces this card's committed figures **to the decimal** (−13.7B →
+      +48.3B, 79/251) from an independent code path, which is what makes the `dir` row
+      trustworthy rather than a rival implementation's opinion.
+      - **Withdrawn:** "pooled single-name net flow is unreadable without splitting the package
+        grain," insofar as it is read as a claim about *direction*. On the registered axis the
+        single-name pooled sign **does not flip**.
+      - **Stands, and is not softened:** packages are ~56% of premium and remove **59%** of the
+        single-name directional net (+$27.9B → +$11.4B). The package fence remains mandatory for
+        MAGNITUDE and for every side-weighted measure. What died is the sign argument, not the fence.
+      - **Stands unchanged:** index/ETF flips on BOTH axes (47.0% / 44.6% of sessions), so the
+        fence is unambiguous there. The 40.9% package-share and ~51%-recall findings are
+        axis-independent and survive intact.
       ~~ANSWERED 2026-07-27: JUST INDEX/ETF.~~
       `tools/multileg_arm_probe.py`, 2025-07-28. Single names flip **0/3** measures (net -354.3M all
       vs -89.7M ex-multileg — same sign); index roots + ETFs flip **3/3**; pooled flips 3/3. Multi-leg
