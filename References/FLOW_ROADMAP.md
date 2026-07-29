@@ -609,6 +609,42 @@ it is a description of the market. No exceptions.
       does not care about residuals, it is hit by the actual price. Two arms, two different
       questions. Rises and falls stay **separate** throughout; pooling them is exactly what would
       hide a reversal effect.
+
+      **1.11 + 1.12 PRE-REGISTRATION — REGISTERED 2026-07-29 (run at founder direction, "ok
+      lets continue", same day). Event set and matched controls registered TOGETHER: the
+      control rule needs the event definition, and splitting the registration would let the
+      second half be written after the first half's numbers were seen.**
+
+      - **Universe.** Every underlying appearing at least once in `flow_rollup` during
+        training, minus the index/ETF fence (`INDEX_ROOTS ∪ ETF_SET`), with split-adjusted
+        corpus bars: 6,931 names. Deliberately WIDER than 1.11b's $250k-floored panel — a
+        big mover with little or no preceding option flow is exactly the kind of name-day
+        the backwards question needs in the denominator ("no flow preceded it" is data,
+        not missingness).
+      - **Event day, residual arm (PRIMARY).** One-day excess-vs-SPY close-to-close return
+        (split-adjusted, SPY session calendar) in units of the name's OWN trailing ATR:
+        ATR14 = simple mean of true range ÷ prev close over sessions t−14 … t−1 (≥10
+        valid required, else the name-day is ineligible, counted). Event: |z| > 3.0.
+        Rises (z > +3) and falls (z < −3) stay separate everywhere downstream. Market
+        beta is handled by the excess return; SECTOR beta is deliberately NOT residualized
+        (no reliable per-name beta estimates at this breadth) — instead sector membership
+        is a MATCHING variable in 1.12, which absorbs the same confound at the control
+        level. Plain words: z counts "how many of this name's own typical daily ranges did
+        it move, over and above the market" — 3 means a move three times its normal day.
+      - **Raw arm (graded alongside, per the founder's stop-loss point).** Same rule on
+        the raw return. Both arms recorded; the residual arm is primary for profiling.
+      - **Episode collapse (anti-pseudo-replication).** An event day within 5 sessions of
+        the previous event day of the same name, sign and arm joins that episode; the
+        episode's event date = its FIRST day. A 3-day crash is one episode, not three
+        events with near-identical "preceding" windows. Profiling (1.13) uses episode
+        dates only.
+      - **Threshold calibration disclosure.** 3.0 was chosen after counting candidate
+        events on EQUITY BARS ONLY — no flow data was read (script in scratchpad,
+        table in BUILD_LOG 2026-07-29). At 3.0, residual arm: 4,278 rise / 3,684 fall
+        episodes over 213 training sessions (2,255 / 1,922 distinct names); raw arm:
+        2,952 / 3,209 episodes. Enough events to profile, rare enough to mean "big move."
+      - **Window.** Training only (events ≤ 2026-05-31); event date needs ≥21 prior bar
+        sessions (ATR + tier windows). Early sessions therefore carry no events; counted.
 - [ ] **1.11a THE HORIZON IS A FINDING, NOT AN INPUT.** Founder, 07-27: *"we don't know if that's 5
       minutes after a big sweep, or the stock went up 10% over the next 30 days."* Right — so do not
       inherit the prereg's 3/10/21/45 grid here; that grid belongs to the registered study, not to
@@ -730,6 +766,48 @@ it is a description of the market. No exceptions.
 - [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
       sector and date. *Done when:* the control set's own base rates are computed and written down
       BEFORE any mover statistic is looked at.
+
+      **1.12 registration (continues the joint 1.11+1.12 block above, same date).**
+
+      - **Matching variables.** (1) DATE: controls share the episode's event session.
+        (2) LIQUIDITY: cross-sectional quintile, that session, of trailing-20-session
+        median dollar volume (close × volume, ≥15 valid sessions required). (3) SECTOR:
+        EDGAR SIC division via `research/fundamentals.py::sic_to_sector` — the same
+        source/bucketing the S&P fixture used, fetched 2026-07-29 for the full 6,931-name
+        universe into `data/research/fundamentals.db` (coverage disclosed at run time;
+        names without a resolvable SIC match on date + quintile only, counted).
+      - **"Did not move."** A control candidate must have |z_residual| < 1.0 on the event
+        session AND no event day of either sign, either arm, in sessions t−20 … t (an
+        event inside the profile window would contaminate the base rate).
+      - **Draw.** 5 controls per episode, without replacement within an episode, reuse
+        across episodes allowed; deterministic RNG, SEED=20260729. Relaxation ladder when
+        a cell has <5 candidates: full match (sector + quintile + date) → quintile + date
+        → sector + date → date only; every rung's usage is counted and reported. Episodes
+        with zero candidates even at date-only are dropped and counted.
+      - **Control base rates (the done-when), computed on CONTROL name-days ONLY — mover
+        flow stays unread until 1.13 registers its exact comparisons.** Windows: 5 / 10 /
+        20 sessions ending at t−1 (the event day itself is excluded — its flow is the
+        mechanical lag-0 term 1.11b measured, not "preceding" anything). Flow basis: the
+        registered fenced tilt (classified premium, multileg excluded), except the
+        multileg-share feature which by definition uses the blended total. The battery —
+        the day-grain forms of every 1.13 hypothesis:
+        1. **active days**: count of window days with classified premium ≥ $250k;
+        2. **max same-sign run**: longest streak of same-sign daily tilt among active days
+           (the "multiple days of bull flow" hypothesis's yardstick);
+        3. **window tilt**: Σ(bull−bear)/Σ(bull+bear) over the window;
+        4. **largest-print ratio**: max `premium_max` in the window ÷ the name's own
+           trailing-60-session median daily `premium_max` (≥20 valid days, else NA,
+           counted) — the "abnormally large sweep vs own normal" yardstick, day grain;
+        5. **concentration**: top day's share of window classified premium (active
+           windows only);
+        6. **mix shares**: call share, short-DTE share (0-7 ∪ 8-30), OTM share
+           (otm2_10 ∪ otm10p) of classified premium; multileg share of TOTAL premium.
+        Reported as p10/p25/p50/p75/p90/p99 over control windows per window length,
+        pooled across signs (controls didn't move; the episode-sign mapping is stored for
+        1.13). Recorded in this file + BUILD_LOG before any mover statistic exists.
+      - **Output.** `tools/mover_controls.py` → `data/research/mover_controls.json`
+        (episodes, matched controls, base rates) — the frozen input 1.13 profiles
+        against; regenerates deterministically from the corpus.
 - [ ] **1.13 Profile the preceding flow**, 5 / 10 / 20 days before each event, movers vs controls:
       consecutive same-sign tilt days (*the "multiple days of bull flow" hypothesis*); largest single
       print relative to that name's own normal, split by liquidity tier (*the "abnormally large
