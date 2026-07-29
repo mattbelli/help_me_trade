@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Phone tier stays: proposals, executions/fills, risk/kill-switch, price
 # alerts, idea triggers, and budget-gated flow convergence.
 INBOX_ONLY_KINDS = {
+    "flow_perception",
     "rvol",
     "earnings",
     "report_ready",

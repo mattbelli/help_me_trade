@@ -73,6 +73,14 @@ snapshot per sweep). Open threads only:
   1.8-on-truth conclusions are folded in.
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).
+- **⏳ Flow perception surface — code landed, NOT scheduled** (BUILD_LOG 07-29 row; card
+  `flow-perception-ship`). Two things stand between the scan and a daily surface: (1) `flow_rollup`
+  only advances on a manual `tools/flow_corpus_rollup.py` roll — the nightly capture chain
+  downloads but never rolls, so a cron'd scan would re-publish the same session (rows stamp
+  `session_age_days`, so this shows up as staleness rather than silence); (2) nobody has run
+  `tools/flow_perception_scan.py --dry-run` against the real corpus yet — first live run + cron
+  wiring is a founder/orchestrator step on the dev tree. Alert cards stay OFF
+  (`alerts.flow_perception_alerts_enabled`) until the founder arms them, and there is no UI widget.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.

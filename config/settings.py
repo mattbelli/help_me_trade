@@ -108,6 +108,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # Daily ceiling on flow/confluence phone pushes (in-app notifications
         # are never capped — this only throttles what reaches the phone).
         "max_push_per_day": 5,
+        # Unusual-vs-peers flow perception cards (signals/flow_perception.py).
+        # OFF until the founder arms it: the scan's forward screening value was
+        # pre-registered NULL twice (FLOW_ROADMAP 1.14c/1.14d), so it ships as
+        # context to read, not as a source that files cards on its own.
+        "flow_perception_alerts_enabled": False,
     },
     "trading": {
         "execution_mode": "dry_run",
@@ -984,7 +989,15 @@ def alerts_config() -> dict[str, Any]:
         max_push = int(cfg.get("max_push_per_day", defaults["max_push_per_day"]))
     except (TypeError, ValueError):
         max_push = int(defaults["max_push_per_day"])
-    return {"max_push_per_day": max(0, max_push)}
+    return {
+        "max_push_per_day": max(0, max_push),
+        "flow_perception_alerts_enabled": bool(
+            cfg.get(
+                "flow_perception_alerts_enabled",
+                defaults["flow_perception_alerts_enabled"],
+            )
+        ),
+    }
 
 
 def trading_config() -> dict[str, Any]:

@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-28T13:40:00.000000000+00:00",
+ "updated_at": "2026-07-29T22:20:00.000000000+00:00",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,18 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "flow-perception-ship",
+   "title": "Ship the flow fingerprint as labelled perception \u2014 daily unusual-vs-peers scan, earnings regime, card toggle OFF",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "normal",
+   "owner": "orchestrator",
+   "notes": "Implements the flow-next-lens decision (founder 07-29: ship option (c) now). Post-close scan `signals/flow_perception.py` + CLI `tools/flow_perception_scan.py`: the four registered fingerprint components (short_dte_share / concentration / largest_print_ratio / vol_max_ratio) at W=5/10/20, ranked p90 inside the (session x trailing-20d $-volume quintile) peer cell exactly as 1.14d, joined to days-to-earnings from the live earnings_calendar, tagged earnings_adjacent (<=10 sessions, the earnings_drift td=10 constant) vs no_known_catalyst per 1.14b's two regimes. Math IMPORTED from tools/mover_controls.py + tools/mover_volume.py, never re-derived. Rows land in `flow_perception_daily` (db/flow_perception.py), fired-only, each carrying a fixed disclaimer + session_age_days; readable via the new `flow_perception` perception resource. Alert cards (>=2 components) are gated on alerts.flow_perception_alerts_enabled = FALSE by default and are inbox-only (never the phone). HONESTY: perception, never a probability \u2014 forward day-grain screening was pre-registered NULL twice (1.14c global bar, 1.14d peer rank). SOURCE CONSTRAINT: reads data/flow_corpus.db because the registered fence (side IN buy/sell AND multileg=0 + premium_max) exists only there; prod options_flow_events has no tick-test side or multileg grain. FOLLOW-UPS (not done here): scheduling is NOT wired \u2014 the nightly capture chain does not run tools/flow_corpus_rollup.py, so flow_rollup only advances on a manual roll; cron wiring + a first live smoke run are the coordinator/founder step, and no UI widget exists yet.",
+   "created_at": "2026-07-29",
+   "updated_at": "2026-07-29",
+   "updated": "2026-07-29"
+  },
   {
    "id": "live-flow-pairing",
    "title": "Live flow pairing \u2014 Databento whole-market spine + Alpaca wildcard condition codes, matched per print",
