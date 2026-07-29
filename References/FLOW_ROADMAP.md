@@ -438,6 +438,50 @@ Each decides something downstream. Run them, do not skip to building.
         as applying to directional tilt — **withdrawn pending re-run on the registered axis**.
         (iii) "1.7's per-quintile rates are floors only for aggressor-imbalance z" — **rejected**,
         per the axis-invariance argument above.
+
+      **ADDENDUM B RESULT — RAN 2026-07-29.** `tools/base_rate_table.py`, all **251** sessions
+      (2025-07-28 … 2026-07-27), 20 draws, quintiles on the prereg's trailing-60-day median cut
+      cross-sectionally per day. ⚠️ `tested` is summed over draws — divide by 20 for real
+      name-days. **1.7 remains FAILED; this closes its open sub-questions, it does not reopen the
+      verdict.**
+      | tier | tested | fired | **ALL rate** | SE | SHORT_OTM rate | SE |
+      |---|---|---|---|---|---|---|
+      | Q1 least liquid | 394,280 | 7,731 | **1.961%** | 0.11pt | 2.353% | **2.73pt** |
+      | Q2 | 1,878,060 | 51,356 | **2.735%** | 0.05pt | 3.143% | **0.51pt** |
+      | Q3 | 4,153,260 | 198,463 | **4.778%** | 0.03pt | 3.389% | 0.11pt |
+      | Q4 | 5,137,180 | 398,744 | **7.762%** | 0.03pt | 5.450% | 0.04pt |
+      | Q5 most liquid | 5,365,960 | 463,032 | **8.629%** | 0.03pt | 8.207% | 0.03pt |
+      | pooled | 16,928,740 | 1,119,326 | **6.612%** | — | 6.958% | — |
+      - **(B1) ALL: MET.** Q1 = 394,280 tested (19,714 real name-days), Q1/Q5 = **0.23×** against
+        a 2.0× bar. A1's substantive finding is confirmed at full length on the registered
+        quintile rule: the detector **under**-fires on thin names, it does not over-fire.
+      - ⛔ **(B1) SHORT_OTM: NOT MET, and per the registration it is now CLOSED, not retried.**
+        Q1 = 680 tested = **34 real name-days**, below the registered 1,000 floor. The nominal
+        0.29× is not banked: Q1's across-draw SE is **2.73pt on a 2.35% rate**, i.e. the estimate
+        is noise. Registered disposition applies verbatim — **unevaluable at any window we
+        possess**; a full year is all there is, so this is not deferred to a longer one.
+        *Implementation ambiguity disclosed rather than quietly fixed:* the 1,000 bar is checked
+        against the draw-summed count, which is more lenient than the registered wording; at 680
+        vs 34 the verdict is NOT MET under either reading, so it did not change the outcome.
+      - ✅ **(B2) STATIONARY, both arms** — max half-vs-half quintile gap **0.29pt** (ALL) and
+        **0.63pt** (SHORT_OTM) against a 2.0pt bar. ⚠️ **This contradicts the prediction made
+        when the run was launched.** The tape roughly doubled across the year (Aug-2025 ~7.4M
+        prints/session → Jul-2026 ~12.3M), and the expectation on the record was that the floor
+        would drift up with it. It did not, and the reason is the audit's own Finding 5: making
+        quintiles **relative** (cross-sectional, per day, trailing-60) means growth moves all
+        names together and tier membership renormalizes daily. **The noise floor is a property of
+        a name's liquidity RANK, not its absolute order count.** Under the old whole-corpus-median
+        rule, growth would have dragged names across fixed cut-points and manufactured exactly the
+        drift that was predicted — so fixing F5 is what bought the stationarity.
+      - **(B3)** ALL: no quintile exceeds 0.5pt across-draw SE. SHORT_OTM: **Q1 and Q2 flagged**
+        and carry their SE in the table above; they are not to be quoted as point estimates.
+      - **⇒ 1.23(c) is SATISFIED for the ALL arm** — the table above is the base rate grading
+        subtracts against, on the grading window, under the registered quintile rule. For
+        **SHORT_OTM Q1/Q2 there is no usable base rate**, so per 1.23(d) those cells are declared
+        **unevaluable in advance** rather than graded against a noisy floor.
+      - Consistency with A2's 40-session run (pooled 7.362%, Q1 2.129%, Q5 8.927%): same shape,
+        modestly lower at full length — **~2.0% thinnest → ~8.6% most liquid, a 4.4× spread.**
+        The curve is confirmed, not overturned.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
