@@ -106,15 +106,27 @@ def _session(session: date) -> dict | None:
     t_all, den_all = _tilt(classified)
     t_clean, _ = _tilt(classified & ~wide)
 
-    # Clause 2's denominator is the name-day's own prints; "dropped" is everything
-    # the prereg says to discard -- bad quotes AND wide spreads.
+    # Clause 2 AS REGISTERED: denominator is the name-day's own prints, and
+    # "dropped" is everything the prereg discards -- bad quotes AND wide spreads.
     tot_p = np.bincount(und, minlength=n_names).astype(float)
     drop_p = np.bincount(und[~good_q | wide], minlength=n_names).astype(float)
     with np.errstate(invalid="ignore", divide="ignore"):
         drop_share = np.where(tot_p > 0, drop_p / np.maximum(tot_p, 1), np.nan)
 
+    # Clause 2 AS AMENDED 2026-07-29: denominator is usable-quote prints only.
+    # `good_q` here is quote-VALIDITY and already contains `wide` (wide is defined
+    # as a subset of it), so the base is q_p alone. Adding w_p double-counted the
+    # wide prints and understated the exclusion rate -- caught 2026-07-29 because
+    # this disagreed with the rollup's own count on the same session (2,297 vs
+    # 2,583). The rollup was right; this was wrong.
+    q_p = np.bincount(und[good_q], minlength=n_names).astype(float)
+    w_p = np.bincount(und[wide], minlength=n_names).astype(float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        amend_share = np.where(q_p > 0, w_p / np.maximum(q_p, 1), np.nan)
+
     return {"session": session, "names": uniq_und, "t_all": t_all, "t_clean": t_clean,
-            "den": den_all, "drop_share": drop_share, "tot_p": tot_p,
+            "den": den_all, "drop_share": drop_share, "amend_share": amend_share,
+            "tot_p": tot_p,
             "prem_wide": float(premium[classified & wide].sum()),
             "prem_cls": float(premium[classified].sum()),
             "n_wide": int(wide.sum()), "n_cls": int(classified.sum()),
@@ -152,14 +164,20 @@ def main() -> None:
         print(f"  {r['session']}  {k.sum():>10,}   {np.median(dt):>9.5f}  "
               f"{np.percentile(dt,95):>9.5f}  {(dt>0.05).mean():>6.2%}  {flip.mean():>10.2%}")
 
-    print(f"\n=== clause 2: name-days dropping > {NAMEDAY_DROP_MAX:.0%} of prints ===")
-    print("  session      name-days   would drop    share   of those, premium share")
+    print(f"\n=== clause 2: name-days excluded at the {NAMEDAY_DROP_MAX:.0%} threshold ===")
+    print("  session      name-days   REGISTERED (all prints)     AMENDED (quoted only)")
+    print("                            excluded   share  prem%     excluded   share  prem%")
     for r in rows:
         k = r["tot_p"] > 0
-        over = k & (r["drop_share"] > NAMEDAY_DROP_MAX)
-        prem = r["den"][over].sum() / max(r["den"][k].sum(), 1e-30) * 100
-        print(f"  {r['session']}  {int(k.sum()):>10,}  {int(over.sum()):>11,}  "
-              f"{over.sum()/max(k.sum(),1):>7.2%}  {prem:>21.3f}%")
+        tot_prem = max(r["den"][k].sum(), 1e-30)
+        cells = []
+        for share in (r["drop_share"], r["amend_share"]):
+            over = k & (share > NAMEDAY_DROP_MAX)
+            cells.append((int(over.sum()), over.sum() / max(k.sum(), 1),
+                          r["den"][over].sum() / tot_prem * 100))
+        (e1, s1, p1), (e2, s2, p2) = cells
+        print(f"  {r['session']}  {int(k.sum()):>10,}   {e1:>8,} {s1:>7.2%} {p1:>6.2f}%   "
+              f"  {e2:>8,} {s2:>7.2%} {p2:>6.2f}%")
 
 
 if __name__ == "__main__":

@@ -813,6 +813,34 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
         own measured justification. Clause 3 (whole-market demeaning) is untouched by this run and
         remains separable — no re-roll either way.
 
+      **1.25 DISPOSITION — REGISTERED 2026-07-29, BEFORE THE CODE CHANGE. Founder: "let's do it."**
+      - **Clause 1 — IMPLEMENTED AS REGISTERED.** `spread > 50% of mid` now fails the quote gate,
+        so those prints become `side = unclassified` and never enter `bull`/`bear`.
+        *Implementation choice, declared because "dropped" literally means removed:* the rows are
+        **kept and marked unclassified rather than deleted.** The tilt is identical either way
+        (its denominator is `bull + bear`), and keeping them means the discarded volume stays
+        auditable and clause 2 is computable from the same pass. Nothing that feeds the tilt or
+        the nulls sees them.
+      - **Clause 2 — AMENDED, not implemented and not retired. The BASE changes; the registered
+        20% threshold does NOT.** New rule: a name-day is excluded when **> 20% of its
+        usable-quote prints were wide-spread** — where the old rule counted *all* dropped prints,
+        including those with no quote at all.
+        *Why the base was the defect:* the original conflates two populations. A print with no
+        quote **cannot be labelled**, so it is already outside `bull + bear` and corrupts nothing;
+        a **wide-spread** print gets a label that is close to a coin flip, and that is what
+        justifies discarding the day. Missing quotes are a structural property of illiquid
+        contracts, not evidence a day is unreliable — which is exactly why the registered version
+        deleted 65–80% of name-days while touching 2.6–12.3% of premium.
+        ⚠️ **The 20% number is deliberately held fixed.** Only the base is corrected, so this is
+        not threshold-tuning; had the number been re-picked after seeing the drop rates, it would
+        have been fishing. Whatever this excludes, it excludes.
+      - **Clause 3 — untouched, still open.** Statistic-level, no re-roll, decided separately.
+      - **Consequences accepted up front:** `SCHEMA_VERSION` 6 → 7, a full 251-session re-roll,
+        and re-running everything downstream that reads the rollup or the tape — the base-rate
+        table (Addendum B), the axis measurement, and 1.8's `netflip`. Their current numbers are
+        superseded on landing, and any that move materially must be re-recorded, not quietly
+        replaced.
+
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
 

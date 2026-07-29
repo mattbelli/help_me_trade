@@ -41,7 +41,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus
 # ≥98% robustness subset in `data/alpaca_conditions/join_ledger.json`.
 # The env override exists for SCRATCH testing only; at 6 init_db drops and
 # rebuilds `flow_rollup`.
-SCHEMA_VERSION = int(os.environ.get("FLOW_CORPUS_SCHEMA_VERSION", "6"))
+SCHEMA_VERSION = int(os.environ.get("FLOW_CORPUS_SCHEMA_VERSION", "7"))
 
 # schema_version 6 = Addendum E (code-based multileg + cond grain).
 LABELED = SCHEMA_VERSION >= 6
