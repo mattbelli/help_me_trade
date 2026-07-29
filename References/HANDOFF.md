@@ -1,4 +1,4 @@
-# Handoff — open threads (2026-07-26)
+# Handoff — open threads (2026-07-29)
 
 *Bootstrap for a fresh session: read this, then `CLAUDE.md` (auto-loaded), `AGENTS.md` (module map),
 `References/INDEX.md` (which doc is current).*
@@ -7,6 +7,60 @@
 verifies, armed experiments, decisions in flight. PAST tense lives in `BUILD_LOG.md` (one dense row per
 round — grep it) and git; don't re-narrate shipped work here beyond one line + a pointer. When a thread
 closes, **delete its entry** — there is no archive. In-flight build work lives on `board.json`, not here.*
+
+---
+
+## ▶ 2026-07-29 Fusion mechanical lane — TWO DEPLOYS DUE, and they must NOT share a cohort boundary
+
+Both rounds are BUILT, adversarially reviewed, and green (rows in `BUILD_LOG.md` 07-28: news dots; rvol
+dots; CI flake). Cards: `news-catalyst-dots`, `fusion-unminted-dots`. What is OPEN is the *deploy
+sequencing* and the verifies.
+
+- **⚠️⚠️ THE COHORT RULE — the reason this is two deploys, not one.** News moves catalyst *reach* UP
+  (~215–381 open-episode symbols/day gain a headline dot); the attention frozen-peak fix moves legacy
+  scores **DOWN by up to −3.5**. Ship them together and a score step is uninterpretable — you cannot tell
+  correction from signal. So: **news deploys 07-29 pre-open (own cohort), rvol+attention 07-30 pre-open
+  (own cohort).** Any trailing-percentile baseline must not straddle either date.
+- **▶ 07-29 pre-open: deploy news.** Already on main (`8cf8008`, PR #134 merged 07-28). `bash
+  tools/serv-deploy.sh backend` from the dev tree after pulling main; VERIFY `newMainPID` changed.
+- **⚠️ BLOCKER on that deploy, known and trivial — clear it BEFORE pulling.** The dev tree
+  (`/home/mbelli/dev/help_me_trade`, where deploys pull from) sits on main at `205346a`, *behind* main,
+  with 3 files locally modified: `db/flow_corpus.py`, `tools/flow_corpus_rollup.py`,
+  `tools/opra_tcbbo_backfill.py`. All three were diffed 07-28 and are **byte-identical to what main now
+  carries** (they are leftover copies of already-merged FLOW work — nothing is lost by discarding them),
+  but `git pull` still refuses with "local changes would be overwritten". Fix = `git checkout --` those
+  three paths, then pull. Founder was asked and had not greenlit it as of 07-28 EOD. Do NOT touch the
+  many untracked files in that tree (PDFs, mockups, research logs).
+- **⏳ PR #135 (rvol + attention fix) is OPEN and green — HOLD until the news deploy is out.** Head
+  `54ca197`, `MERGEABLE/CLEAN`, carries the CI-flake fix. Merge it AFTER 07-29's deploy, deploy 07-30.
+- **⏳ News verify, after the 07-29 deploy (RTH):** counters `news_dot_minted`, `news_backfill_minted`,
+  `news_roundup_zeroed`, `news_no_open_episode`; catalyst-group share should rise materially. Nothing
+  should touch direction/agreement/decayed-z — those are arithmetically pinned by test.
+- **⏳ rvol verify, day-2 after 07-30:** the `rvol_dots` counter; a per-pass write-cost measurement (the
+  review asked for the spot-flush-style benchmark, still not done); and attention scores stepping DOWN —
+  **that step is the correction, never signal.** Watch the one-time attention migration: it full-scans
+  ~591k `evidence_dots` rows, so avoid the 07-27 lock-starve path.
+- **⏳ Day-1 brand-new-symbol rvol gap (founder decision, recorded not blocking):** a symbol with no
+  profile and no premarket offset is honestly unavailable until day 2 — i.e. quiet for exactly the
+  fresh-burst population. Accepted for now.
+- **⏳ Next in this lane (not started): filings → fusion dots.** `db/filings.py` is feed-only today (no
+  `ingest_seq` ⇒ not bus-capable). Needs that column, plus a founder call on insider-buy direction
+  (`direction='none'` like news, or a deliberate exception). Congress-trades rows are stale since 07-02
+  (STOCK Act allows 45d, but worth a source check).
+
+**⚠️ Two CI traps learned 07-28 the hard way — both cost hours:**
+1. **A conflicting PR dispatches NO workflow at all.** GitHub can't build `refs/pull/N/merge`, so
+   `pull_request` runs never fire — no queued run, no red X, just silence. That silence reads exactly
+   like an Actions outage and was misdiagnosed as one. **Check `gh pr view N --json mergeable` FIRST.**
+   Also: the CI is `paths-ignore`-filtered, so an empty "retrigger" commit can never trigger it.
+2. **A re-run that greens is evidence of a RACE, not permission to stop looking** — see the CI-flake
+   BUILD_LOG row (07-28) and memory `ci-flake-shared-test-db-path`.
+
+**Housekeeping:** `board.json` canon is `indent=2` + `ensure_ascii=True` (restored 07-28) — a
+`json.dump(indent=1)` round-trip renormalizes all ~4,700 lines and makes every future merge a whole-file
+conflict. Resolve board conflicts **card-by-card** (three-way by `id`), never as text. Also: leaked
+watcher PID 4165097 (from the FLOW session) waits on `pgrep -f "flow_corpus_rollup.py --start"` but its
+own command line contains that string, so it self-matches and will never exit — harmless 60s sleeps.
 
 ---
 
