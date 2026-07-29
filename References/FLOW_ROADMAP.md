@@ -339,7 +339,8 @@ Each decides something downstream. Run them, do not skip to building.
       - **To close 1.7 now needs:** (a) a SHORT_OTM window long enough to populate Q1 — the
         exact shuffle over ≥120 sessions, since 40 provably cannot; and (b) a decision on
         whether the per-quintile exact base rate replaces the flat one in the grading spec
-        (it should — but that is a registered change, not an edit).
+        (it should — but that is a registered change, not an edit). **(b) is now drafted as
+        1.23**, founder-asked 07-29; (a) and 1.23(c) are the SAME long run, so one job closes both.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
@@ -505,6 +506,8 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
       luck. *Fix:* declare **one primary cell** (recommend: midpoint sign, multileg-excluded,
       pooled quintiles, terminal alpha vs SPY in ATR units). Alive only if that passes. Everything
       else is exploratory, labelled, with no survival authority.
+      ⚠️ **The "pooled quintiles" half of that recommendation is superseded by 1.23** (A2, 07-29):
+      pooling mixes tiers whose noise floors differ 4×. The primary cell must name a quintile.
 - [ ] **1.17 Horizon of record = 10 trading days.** 12 months gives 2–4 independent observations at
       21/45 days. Report them; state in advance they cannot confirm or kill anything.
 - [ ] **1.18 Fix the significance bar.** Naive √N assumes 5,554 independent names; the real figure is
@@ -524,6 +527,39 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
 - [ ] **1.22 Harden the ETF classification before 1.20/1.21 lean on it.** `ETF_SET` in
       `tools/multileg_arm_probe.py` is hand-built and incomplete (its own header says so). Derive
       or curate a proper equity-vs-ETF-vs-index classification once, register it, reuse everywhere.
+- [ ] **1.23 The noise floor is a CURVE — grade per liquidity tier, and divide rather than
+      subtract.** Consequence of 1.7's A2 (07-29): the exact null fires at **2.129% / 3.386% /
+      6.282% / 8.810% / 8.927%** across Q1→Q5, pooled 7.362%. Every earlier "≈8.4% regardless of
+      liquidity" was the normal approximation and is dead. Four changes, all of which land in
+      Addendum F together:
+      - **(a) No pooled grading with kill authority.** A pooled hit rate averages tiers whose
+        firings are contaminated at 2% and at 9% — different populations. Pooled numbers may be
+        *reported*; they cannot confirm or kill. Amends 1.16's primary cell (above).
+        ⚠️ **Direction of the old bias, stated so it is not repeated:** a flat 7.4% floor
+        over-penalizes thin names by ~3.5× and under-penalizes liquid ones, so it tilts the study
+        toward concluding "the signal lives in liquid names" — the error the product can least
+        afford, since unusual activity on a thin name is the case it exists to catch.
+      - **(b) Dilution correction, per tier, not subtraction.** With observed firing rate `f` and
+        that tier's null rate `f₀`, the noise share of firings is `q = f₀/f`, and observed lift is
+        diluted by exactly `(1 − q)`: `lift_real = lift_observed / (1 − f₀/f)`. Registered
+        assumption, stated because it is load-bearing and unverified: **noise-fired name-days are
+        assumed to behave like the 1.12 matched controls.** Where `f ≤ f₀`, the tier reports **"no
+        measurable signal"** — never a small positive number, never a pooled rescue.
+      - **(c) The base-rate table must be measured on the GRADING window, under the SAME quintile
+        definition.** A2's 40-session numbers are a proof of method, not the table: they cannot be
+        applied to a 251-session grade, and quintile cut-points computed in one universe do not
+        transfer to another. Needs the exact shuffle over the full grading window — **the same
+        ≥120-session run 1.7 needs to close**, so one run serves both. Ties to 1.19: the table
+        states its universe size per tier or it is not usable.
+      - **(d) 1.18's power bar applies PER TIER.** ≥20 independent event dates is now a per-quintile
+        requirement. Q1/Q2 will fail it on short windows (A2: SHORT_OTM Q1 = 60 name-days over 40
+        sessions). A tier that fails it is declared **unevaluable in advance** and reported as such
+        — it is not merged upward into a tier that passes.
+      **Deliberately NOT doing this now:** re-thresholding per tier so the null rate is flat (e.g. a
+      per-quintile `z` cut targeting 5%). It would make firings comparable across tiers, but it
+      changes the registered rule, invalidates everything measured to date, and tunes a parameter
+      against an outcome we have not graded — the same call the founder made on 07-28. Revisit
+      **after** the first grade, not before.
 
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
