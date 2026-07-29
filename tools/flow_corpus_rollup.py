@@ -318,10 +318,15 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     side = np.full(len(arr), 2, dtype=np.int8)              # unclassified
     side[good_q & (price > mid)] = 0                        # buy
     side[good_q & (price < mid)] = 1                        # sell
+    # v7: clause-1 casualties get their own label rather than being pooled into
+    # `unclassified` with no-quote prints, so the wide-spread volume per name-day
+    # stays recoverable as a covariate. They are excluded from bull/bear either way.
+    side[wide_q] = 3                                        # wide_spread
 
     strict = np.full(len(arr), 2, dtype=np.int8)
     strict[good_q & (price >= ask)] = 0
     strict[good_q & (price <= bid)] = 1
+    strict[wide_q] = 3
 
     premium = price / PX * size * 100.0
 

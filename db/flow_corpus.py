@@ -71,7 +71,15 @@ DTE_BUCKETS = ("0-7", "8-30", "31-90", "90+")
 # -- a real data gap to close, not a corporate action. Read the per-root breakdown
 # before drawing any conclusion from this bucket.
 MNY_BUCKETS = ("itm", "atm", "otm2_10", "otm10p", "no_spot_index", "no_spot_missing")
-SIDES = ("buy", "sell", "unclassified")
+# `wide_spread` joins the vocabulary at v7 (2026-07-29). Prereg clause 1 leaves
+# those prints unlabelled, but pooling them into `unclassified` with no-quote
+# prints would make the wide-spread VOLUME per name-day unrecoverable — and that
+# volume is a covariate grading needs, since a name-day whose tilt survives on
+# 40% of its quoted prints is not compositionally the same object as one that
+# keeps 95%. Recording it beats gating on it: a gate deleted 45-61% of name-days
+# (see FLOW_ROADMAP §1.25), a covariate lets the question be asked instead.
+# Consumers filtering `side IN ('buy','sell')` are unaffected.
+SIDES = ("buy", "sell", "unclassified", "wide_spread")
 
 # Cash-settled index roots: no underlying share trades, so no equity bar can ever
 # exist and moneyness is unbucketable rather than missing. Deliberately a short

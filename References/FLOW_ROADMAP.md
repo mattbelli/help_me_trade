@@ -858,6 +858,38 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
         flattering my own amendment on both count and premium. **Caught only because two
         independent implementations of one rule disagreed;** a single implementation would have
         shipped the wrong number. The rollup was correct. Both now agree exactly.
+      - ★ **AUDITOR PUSH-BACK 2026-07-29, PARTLY SUSTAINED — and it produced a better answer than
+        either side proposed.** The auditor's objection to the retirement: *"N_eff prices
+        concentration, not quote validity. Variance ≠ validity."*
+        - ✅ **Sustained: my stated argument overclaimed.** `N_eff` prices the *sample size* of the
+          surviving labelled orders. It does not certify that the labels are sound. Conflating
+          those was a real error in the reasoning, independent of whether the conclusion holds.
+        - ❌ **Not sustained as applied, because clause 1 was RETAINED.** The push-back's remedy
+          — "keep some spread/quality gate" — is exactly what clause 1 is, and it ships. Only the
+          **name-day exclusion** was retired. After clause 1 a wide print carries **no label at
+          all**, so the "garbage quotes set the sign" failure mode it describes cannot occur:
+          nothing garbage sets any sign.
+        - ★ **The real residual gap is neither variance nor validity — it is REPRESENTATIVENESS,
+          and nobody had named it.** A name-day whose tilt survives on 40% of its quoted prints
+          is not compositionally the same object as one keeping 95%, even when every surviving
+          label is sound. `N_eff` does not price that, and clause 1 does not fix it.
+        - **⇒ Resolution: record it, do not gate on it.** `wide_spread` joins the `SIDES`
+          vocabulary at v7, so clause-1 casualties are no longer pooled with no-quote prints and
+          the wide-spread volume per name-day is recoverable per bucket. Grading can then
+          **condition on** wide-share and test whether it matters — strictly more informative
+          than either dropping those name-days (the gate deleted 45–61% of them) or ignoring the
+          issue. Verified on 2026-07-23: `wide_spread` = 595,928 prints / $0.149B against ~$46B
+          session premium. Consumers filtering `side IN ('buy','sell')` are unaffected.
+        - ❌ **Not sustained: "don't lean on the null curve until it is re-run on the same tilt
+          definition."** The null never reads `side` or `right` — it is unsigned per-order premium
+          times a symmetric coin flip, and `ε × right_sign` is distributed identically to `ε`
+          while `bull + bear` partitions the same classified set as `buy + sell`. The curve is
+          **exactly** axis-invariant; this was argued above with the mechanism and the push-back
+          re-asserts rather than engages it. It IS being re-run on v7 — because clause 1 changes
+          which prints are classified, not because the axis matters.
+        - ✅ **Adopted as standing practice:** report **name-day survival AND premium share
+          together, always.** They told opposite stories here (half the name-days, 1–7% of the
+          money) and either alone is misleading.
       - **Clause 3 — untouched, still open.** Statistic-level, no re-roll, decided separately.
       - **Consequences accepted up front:** `SCHEMA_VERSION` 6 → 7, a full 251-session re-roll,
         and re-running everything downstream that reads the rollup or the tape — the base-rate
