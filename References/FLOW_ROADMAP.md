@@ -1153,6 +1153,26 @@ out of a rolling window. There is no rush; do it after Phase 1.
         artifacts (`oi_reconcile.db`, `f_open`) remain valid perception inputs —
         what failed is this SPLIT as a grading axis, not the data.
 
+      **2.4 ADDENDUM A — registered 2026-07-29 BEFORE running (founder question: does
+      the 10-day horizon apply here?).** It does, and it is the one registered choice
+      that could hide something: the cited literature's effect is strongest at d+1 and
+      REVERSES through d+10 — a pop-then-fade shape nets to ≈0 at exactly the horizon
+      we graded. So: an **exploratory horizon curve at 1, 2 and 5 trading days** on the
+      primary cell (same events, same split, same statistic, only the horizon moves).
+      **Report-only, declared in advance: this look has NO authority over the 2.4
+      verdict**, because the 10-day FAIL has been seen and picking new horizons after a
+      fail is the exact fishing the law forbids. If short-horizon structure appears, it
+      becomes a REGISTERED hypothesis to confirm on fresh data (test split or forward
+      paper) — it never retro-passes 2.4.
+      **ADDENDUM A RESULT (2026-07-29, same day):** 1d +0.000 [−0.029, +0.026] ·
+      2d +0.009 [−0.027, +0.049] · 5d +0.008 [−0.063, +0.063] · 10d −0.043 (the
+      verdict). **Flat zero at every horizon — there is no day-1 pop for a reversal
+      to hide.** The pop-then-fade escape hatch is closed by measurement, and the
+      1-day interval is the TIGHTEST of the four (±0.03 ATR), so this is a precise
+      zero, not an uninformative one. The 2.4 FAIL is now robust across the
+      time-frame dimension; no short-horizon hypothesis is registered because
+      nothing was found to register.
+
 ⚠️ **What OI will NOT do:** disambiguate a spread's direction. A bull call spread and a bear call
 spread produce identical OI changes on both legs. That problem is Phase 3's.
 

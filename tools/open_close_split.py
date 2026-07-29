@@ -203,7 +203,7 @@ def _bars(symbols: set[str]):
     return out
 
 
-def _signed_alpha(ev, bars) -> tuple[list, int]:
+def _signed_alpha(ev, bars, horizon: int = HORIZON) -> tuple[list, int]:
     """Per event: (und, session, quint, pct, signed alpha in ATR units).
 
     Skips (and counts) events missing bars at either endpoint or with an
@@ -215,12 +215,12 @@ def _signed_alpha(ev, bars) -> tuple[list, int]:
     for und, s, q, tilt, p in ev:
         b = bars.get(und)
         k = spy_i.get(s)
-        if b is None or k is None or k + HORIZON >= len(spy_d):
+        if b is None or k is None or k + horizon >= len(spy_d):
             skipped += 1
             continue
         dts, h, low, c = b
         di = {d: m for m, d in enumerate(dts)}
-        m0, m1 = di.get(s), di.get(spy_d[k + HORIZON])
+        m0, m1 = di.get(s), di.get(spy_d[k + horizon])
         if m0 is None or m1 is None or m0 < ATR_N:
             skipped += 1
             continue
@@ -231,7 +231,7 @@ def _signed_alpha(ev, bars) -> tuple[list, int]:
         if atr <= 0:
             skipped += 1
             continue
-        alpha = (c[m1] / c[m0] - 1.0) - (spy_c[k + HORIZON] / spy_c[k] - 1.0)
+        alpha = (c[m1] / c[m0] - 1.0) - (spy_c[k + horizon] / spy_c[k] - 1.0)
         graded.append((und, s, q, p, np.sign(tilt) * alpha * c[m0] / atr))
     return graded, skipped
 
@@ -297,6 +297,25 @@ def _third_fridays(sessions: list[str]) -> set[str]:
         if dt.weekday() == 4 and 15 <= d <= 21:
             out.add(s)
     return out
+
+
+def stage_horizons() -> None:
+    """2.4 Addendum A: exploratory horizon curve on the primary cell.
+
+    Registered 2026-07-29 BEFORE running, AFTER the 10d verdict was seen —
+    therefore report-only with NO authority over 2.4's FAIL. Anything found
+    here is a hypothesis for fresh data, never a retro-pass.
+    """
+    _names, _sessions, ev, _nq = _events()
+    bars = _bars({u for u, *_ in ev} | {"SPY"})
+    print("=== 2.4 ADDENDUM A — exploratory horizon curve, primary cell (Q5) ===")
+    print("=== NO AUTHORITY over the registered 10d verdict ===")
+    for hz in (1, 2, 5, HORIZON):
+        graded, _sk = _signed_alpha(ev, bars, horizon=hz)
+        cell = [(s, p, a) for _u, s, q, p, a in graded
+                if q == PRIMARY_CELL and p is not None]
+        tag = " (the registered verdict)" if hz == HORIZON else ""
+        _fmt_cell(f"{hz:>2}d{tag}", _diff_ci(cell))
 
 
 def stage_grade() -> None:
@@ -369,9 +388,11 @@ def _dominant_right() -> dict[tuple[str, str], str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", choices=("count", "grade"), default="count")
+    ap.add_argument("--stage", choices=("count", "grade", "horizons"),
+                    default="count")
     args = ap.parse_args()
-    (stage_count if args.stage == "count" else stage_grade)()
+    {"count": stage_count, "grade": stage_grade,
+     "horizons": stage_horizons}[args.stage]()
 
 
 if __name__ == "__main__":
