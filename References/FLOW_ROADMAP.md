@@ -1038,6 +1038,60 @@ out of a rolling window. There is no rush; do it after Phase 1.
         robustness subset (clean coverage dips to 80–87% there per 2.3); vol floor
         stated up front. Pass/fail criteria still to be registered before any graded run.
 
+      **2.4 PRE-REGISTRATION — DRAFT 2026-07-29 (drafted at founder direction; becomes
+      BINDING on founder approval; NO graded run before that approval).**
+
+      *The question in one sentence:* when the Phase-1 flow alarm fires on a name, does the
+      alarm work better on days when that name's options volume was mostly NEW positions
+      being opened, versus days when it was mostly old positions being closed out?
+
+      *Why this split could matter:* opening a position is placing a fresh bet; closing one
+      is walking away from an old bet. The academic result this phase chases (Pan &
+      Poteshman) found the information lives in **opening** volume. If our alarm fires on a
+      day that was mostly closing traffic, the "conviction" it saw may just be people
+      leaving.
+
+      - **Event set.** Every Phase-1 event (registered tilt, `|z| ≥ 2.0`, 20-day baseline,
+        ≥15-of-20 presence, $250k floor — prereg 2026-07-26, unchanged) in the **training
+        window only** (2025-07-28 → 2026-05-31). The test split (2026-06-01 → 2026-07-25)
+        is not touched.
+      - **The split.** For each event name-day, take `f_open`'s **percentile within that
+        session's cross-section** (all names with ≥1,000 contracts that day — the
+        pre-check population). Top third = **open-heavy**; bottom third = **close-heavy**;
+        middle third set aside (reported, no pass/fail authority). Ranks, never levels,
+        per the 2.3 registration.
+      - **Outcome.** Signed terminal alpha at the 10-trading-day horizon of record (1.17):
+        `sign(event tilt) × (name return − SPY return)`, in ATR units. Bullish events want
+        up, bearish events want down — shorts are first-class per ADR-6.
+      - **Primary statistic.** Median signed alpha, open-heavy minus close-heavy, in the
+        **primary cell**. The primary cell is ONE liquidity quintile (1.23 forbids pooled
+        kill authority), chosen by a registered outcome-blind rule: after events are
+        counted but **before any outcome is computed**, the quintile with the most
+        independent event dates on BOTH sides of the split is declared primary in a dated
+        addendum. Every other cell is exploratory and labelled so.
+      - **PASS** = open-heavy median exceeds close-heavy in the primary cell AND the
+        difference's 95% interval (bootstrap resampling whole event DATES, per 1.18's
+        clustering logic) excludes zero. **FAIL** = interval includes zero or points the
+        wrong way. **UNEVALUABLE** = either side has <20 independent event dates in the
+        primary cell (1.18's bar, per side) — declared, not massaged into a verdict.
+      - **Noise correction per 1.23:** both sides of the split grade against the SAME
+        per-quintile base-rate table (Addendum B) — the split cannot manufacture lift by
+        moving events between tiers, and `lift_real = lift_obs / (1 − f₀/f)` applies
+        within tier as everywhere else.
+      - **Robustness legs (report-only, no authority):** (i) recompute f_open on DTE 5–89
+        cells only; (ii) drop events on monthly-expiry sessions (2.3: clean coverage dips
+        to 80–87% there); (iii) tercile edges ±5 percentile points, to show the verdict
+        is not an artifact of the 33/67 cut.
+      - **Registered limitation, stated up front:** `f_open` is a **name-day, unsigned**
+        estimate — it says "today's volume in this name skewed toward opening," not
+        "the bullish side was opening." The literature's instrument was signed
+        open-buy volume; ours is blunter. A FAIL here is therefore evidence about the
+        proxy as much as the phenomenon, and is recorded as "not recoverable with free
+        ΔOI data" — NOT as "open/close carries nothing." A Cboe-style true label could
+        reopen it; per the founder's standing rule that purchase needs profits first,
+        and per the coverage note it would only label Cboe's slice of single-name flow
+        anyway.
+
 ⚠️ **What OI will NOT do:** disambiguate a spread's direction. A bull call spread and a bear call
 spread produce identical OI changes on both legs. That problem is Phase 3's.
 
