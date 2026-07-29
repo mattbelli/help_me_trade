@@ -1410,6 +1410,58 @@ it is a description of the market. No exceptions.
         flat-to-inverted). The one thread worth carrying: 5d short-DTE, as one angle
         in fusion — never a standalone alert.
 
+- [ ] **1.14e The event-gated screen — earnings-adjacent days only** (the first of 1.14d's two
+      pre-registered open paths; founder direction 07-29: ship the perception surface, keep the
+      earnings angle, then finer grains). 1.14b showed the fingerprint's flow regime (short-DTE
+      tilt, concentration) lives on catalyst-adjacent windows; 1.14c/d showed no day-grain
+      screen works unconditionally. The event gate is the conditioning day grain CAN see:
+      restricted to name-days with a known upcoming earnings date, does peer-unusual flow
+      select which earnings-adjacent names move?
+
+      **1.14e PRE-REGISTRATION — REGISTERED 2026-07-29, before any gated forward rate was
+      computed.**
+
+      - **The gate (the one new ingredient):** name-day t is EARNINGS-ADJACENT iff the name
+        has an EDGAR 8-K Item-2.02 filing date in t+1…t+10 SPY sessions. K=10 is the
+        pre-existing earnings_drift product constant (the td=10 entry) — cited, not tuned.
+        Gate data = `data/research/earnings.db` extended to the FULL equity_bars universe
+        (the 1.14b fetch covered mover names only — gating on that coverage would condition
+        universe membership on having had an episode; the extension fetch was launched before
+        this registration and the run waits for its completion; covariate prep only, no
+        outcomes touched). Names with no resolved EDGAR history are EXCLUDED from the gated
+        analysis (unflaggable — neither arm), count disclosed in the result.
+      - **PIT disclosure:** actual filing dates proxy the ex-ante scheduled date. Real
+        traders know most dates weeks in advance, but a moved or surprise filing is invisible
+        to them and visible to us — the gate carries mild lookahead in its favor, and any
+        positive finding owes this caveat. Filing-date precision is ±1 session (the bmo/amc
+        hour field is biased upstream and unused).
+      - **Everything else inherited from 1.14d unchanged:** eligibility, outcome (frozen 1.11
+        episode starts, either sign, in t+1…t+W), FRESH primary arm / all-days reported,
+        residual primary / raw replication, W ∈ {5,10,20}, triggers = peer-relative p90 rank
+        fires within (session × trailing-20d dollar-volume quintile) computed over the FULL
+        eligible population (fires are NOT re-ranked inside the gate — production would rank
+        a name against all its peers, then apply the gate), 5 triggers, primary stat =
+        fired−unfired forward-episode share difference (pp) WITHIN the gated subset,
+        circular moving-block bootstrap block=W, 10,000 draws, one shared resampling.
+        SEED=20260807.
+      - **Battery: 5 triggers × 3 windows = 15 primary intervals ⇒ ~1 expected false.**
+        Reading rule as 1.14c/d: (a) CI clear of zero, (b) ≥2 same-direction windows, (c)
+        raw-arm replication. Regime expectations recorded IN ADVANCE: short_dte_share and
+        concentration are the motivated positives (1.14b's catalyst regime); vol_max_ratio
+        is expected null-or-negative in-gate (1.14b: the vol spike is a no-catalyst
+        phenomenon) — its cells are a consistency check, not a finding target.
+      - **Descriptive color (no authority):** gated vs ungated base rates (the gate alone
+        should raise episode odds mechanically — the screen's job is enrichment BEYOND the
+        gate); the earnings-far complement's fired−unfired differences as contrast;
+        rise/fall composition of followed moves; alerts/session in the gated lane (the
+        operational load if this shipped).
+      - **Disclosure.** Third forward read of the training corpus (three forward batteries
+        now run — reported, not hidden). Gate geometry implies roughly 16% of name-days
+        gated (~quarterly filings ⇒ ≈10 of 63 sessions), computed from the calendar, not
+        from outcomes. Test split untouched (all windows end ≤ training boundary). Output:
+        full tables + `data/research/mover_earnings_114e.json`
+        (`tools/mover_earnings_gate.py`).
+
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
 no slippage, no position sizing, no P&L** appears anywhere in 1c. The only output is of the form
