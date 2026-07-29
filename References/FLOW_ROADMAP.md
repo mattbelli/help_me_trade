@@ -750,6 +750,68 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
       changes the registered rule, invalidates everything measured to date, and tunes a parameter
       against an outcome we have not graded — the same call the founder made on 07-28. Revisit
       **after** the first grade, not before.
+- [ ] **1.24 Disambiguate the SHORT_OTM arm — FOUNDER CALL 2026-07-29: out-of-the-money only.**
+      The prereg defines the arm as "DTE ≤ 30 and **|K/S − 1| ≥ 2%**"
+      (`FLOW_BASELINE_PREREG_2026-07-26.md:76-79`). That is a *distance-from-spot* test with no
+      direction, so read literally it admits contracts **2% or more IN the money** — close to the
+      opposite bet from the one the arm exists to isolate, and in conflict with both the arm's own
+      name (SHORT_**OTM**) and the academic prior the same paragraph cites. **Resolution: OTM
+      only** (`mny_bucket ∈ {otm2_10, otm10p}`), which is what A1/A2/Addendum B already measured,
+      so nothing needs re-running. Registered here as an amendment rather than edited into the
+      prereg text; `tools/flow_tilt.py` carries the same note at the implementation. *The ambiguity
+      was found while building the tilt, not by the audit.*
+- [ ] **1.25 The three registered-but-unbuilt clauses (audit F4) — FOUNDER CALL 2026-07-29:
+      MEASURE FIRST, then decide.** Registered and absent from `tools/flow_corpus_rollup.py`:
+      (1) drop prints with `spread > 50% of mid` (prereg:60); (2) drop a name-day dropping `>20%`
+      of its prints (prereg:61); (3) report every tilt net of the whole-market daily mean
+      (Addendum A). **(1) and (2) live at the INGEST layer** — building them re-rolls the full
+      year and discards Addendum B's base-rate table, which is too expensive to spend on a guess.
+      **(3) is a statistic-level transform needing no re-roll**, so it is not what the decision is
+      gated on and can be applied or retired independently.
+      - *Decision rule, registered before the measurement:* the question is **not** how many
+        prints get dropped but **how far the registered tilt MOVES** when they are. A clause
+        removing 3% of prints that never changes a name-day's sign is cosmetic; one removing 0.5%
+        that flips signs is load-bearing. `tools/prereg_clause_impact.py` measures |Δtilt| and the
+        sign-flip rate on 6 sessions spanning the year and both sides of the 2026-06-26 sentinel
+        break. Until it reports, **prereg compliance may not be claimed for these three clauses.**
+
+      **1.25 RESULT — RAN 2026-07-29.** 6 sessions, ~60M prints, 50s. The two ingest clauses split
+      in **opposite** directions, so they need separate dispositions.
+      | session | wide prints | of classified | wide **premium** | median \|Δtilt\| | p95 \|Δtilt\| | >0.05 | **sign flips** |
+      |---|---|---|---|---|---|---|---|
+      | 2025-08-15 | 444,735 | 5.74% | 0.317% | 0.0035 | 0.079 | 7.09% | **2.21%** |
+      | 2025-11-14 | 489,666 | 5.78% | 0.416% | 0.0063 | 0.133 | 12.59% | **3.96%** |
+      | 2026-02-13 | 582,930 | 7.11% | 0.352% | 0.0052 | 0.101 | 10.94% | **2.64%** |
+      | 2026-05-15 | 764,939 | 7.61% | 0.429% | 0.0069 | 0.114 | 10.65% | **3.37%** |
+      | 2026-06-30 | 522,417 | 5.86% | 0.335% | 0.0043 | 0.088 | 9.21% | **2.89%** |
+      | 2026-07-23 | 595,928 | 6.15% | 0.328% | 0.0047 | 0.130 | 9.25% | **3.05%** |
+      - ⛔ **Clause 1 (spread > 50% of mid) is NOT cosmetic — the registered decision rule says
+        implement it.** Wide prints are ~6–8% of classified prints but only **0.32–0.43% of
+        premium**, i.e. tiny trades — which is exactly why a premium-share test would have
+        wrongly cleared it. The median name-day barely moves (|Δtilt| ≈ 0.005), but the TAIL does:
+        **p95 |Δtilt| = 0.08–0.13**, 7–13% of name-days move more than 0.05, and the sign of the
+        bull/bear call **flips on 2.2–4.0% of name-days**. A 2–4% flip rate is the same order of
+        magnitude as the detector's own firing rate, so these prints are corrupting the statistic
+        at a rate comparable to the signal being measured. Pre-registered rule was "does the tilt
+        MOVE", not "how many prints" — and it moves.
+      - ⛔ **Clause 2 (drop name-days >20% dropped) is NOT a data-quality filter as written — it
+        is a 65–80% universe cut, and it lands on exactly the names the study is about.**
+        Measured: **2,973–3,862 of ~4,600 name-days per session would be discarded (64.8–80.4%)**,
+        yet they carry only **2.6–12.3% of premium** — i.e. it deletes the thin end wholesale.
+        Mechanism: illiquid contracts frequently have absent or zero quotes, so thin names fail
+        the dropped-share test almost by construction. **This is the same pathology A1 already
+        diagnosed in the $250k day floor** — a filter that renders the illiquid bucket unaskable —
+        and implementing it literally would destroy the Q1/Q5 analysis that is currently the
+        study's strongest result. It cannot be implemented as registered.
+      - **Correction to the cost estimate I gave the founder:** I said a re-roll was "days of
+        compute". The 251-session tape decode took **46 minutes**, so a re-roll is hours, not
+        days. The decision should be made against hours.
+      - **Recommended dispositions (founder's call, both registered changes):** implement clause 1
+        and re-roll; **amend** clause 2 rather than implement or retire it — the intent (drop
+        name-days whose picture is unreliable) is sound, the 20%-of-all-prints threshold is not,
+        and a threshold on the *classified* base or a much higher cut needs registering with its
+        own measured justification. Clause 3 (whole-market demeaning) is untouched by this run and
+        remains separable — no re-roll either way.
 
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
