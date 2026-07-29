@@ -1011,8 +1011,10 @@ out of a rolling window. There is no rush; do it after Phase 1.
         sessions carry flow that earlier sessions dropped, a systematic composition change across
         the corpus — or simply stopped being published. Session print totals are flat across the
         break (11.56M → 11.59M), which does not settle it either way.
-- [ ] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
-      recovers the predictability the literature reports.
+- [x] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
+      recovers the predictability the literature reports. **RAN 2026-07-29: FAIL — recorded per
+      the registered limitation as "not recoverable with free ΔOI data," not "open/close carries
+      nothing." See the RESULT block below the registration.**
 
       **PRE-CHECK RUN 2026-07-29** (`tools/f_open_dispersion.py` on `data/oi_reconcile.db`,
       vol floor 1,000 contracts/name-day, ~1,195 qualifying names/session) — asked BEFORE
@@ -1095,6 +1097,22 @@ out of a rolling window. There is no rush; do it after Phase 1.
         raises OI exactly like an aggressive call buyer; the leg stacks evidence
         (aggressor side from quotes + newness from ΔOI + location from right), it does
         not recover the true label.
+      **2.4 STAGE-1 COUNT + PRIMARY-CELL DECLARATION (2026-07-29, outcome-blind —
+      no forward return computed or read).** `tools/open_close_split.py`: training
+      window 2025-07-28 → 2026-05-29 (212 sessions, 6,491 names), **16,598 events on
+      192 distinct sessions**; f_open ranks 87.9% of events (unmatched = below the
+      1,000-contract floor or absent from the OI join — reported, not dropped).
+      Independent event dates open/close per quintile: Q1 0/1, Q2 4/3, Q3 41/34,
+      Q4 189/179, **Q5 192/192**. ⇒ **PRIMARY CELL = Q5** by the registered rule
+      (max per-quintile min of the two sides), and it clears 1.18's ≥20-per-side bar
+      with room. Q4 and Q3 also clear and grade as labelled exploratory cells; Q1/Q2
+      are UNEVALUABLE (declared in advance, consistent with every earlier thin-tier
+      finding). Noted for honesty: Q5 is also the tier with the HIGHEST noise floor
+      (8.63% base rate), so the 1.23 dilution correction does the most work exactly
+      where the verdict lives — both sides grade against the same table, so this
+      cannot favor either side. Stage-2 implementation choice disclosed in advance:
+      ATR = 14-day daily-bar ATR, applied identically to both sides of every
+      comparison, chosen before any outcome was seen.
       - **Registered limitation, stated up front:** `f_open` is a **name-day, unsigned**
         estimate — it says "today's volume in this name skewed toward opening," not
         "the bullish side was opening." The literature's instrument was signed
@@ -1104,6 +1122,36 @@ out of a rolling window. There is no rush; do it after Phase 1.
         reopen it; per the founder's standing rule that purchase needs profits first,
         and per the coverage note it would only label Cboe's slice of single-name flow
         anyway.
+
+      **2.4 RESULT (2026-07-29) — FAIL, single graded run, verdict per the registration.**
+      `tools/open_close_split.py --stage grade`: 16,102 of 16,598 events graded (496
+      skipped for missing bars/ATR window, reported). **Primary cell (Q5):
+      open − close = −0.043 ATR, bootstrap 95% CI [−0.133, +0.046] — includes zero ⇒
+      FAIL.** The point estimate even leans the WRONG way (close-heavy marginally
+      better), opposite the literature's direction.
+      - **Every robustness leg agrees; nothing hints the verdict is fragile:** tercile
+        edges ±5pt (−0.052 / −0.012, both zero-straddling), ex-expiry (−0.048),
+        DTE 5–89 (−0.059), exploratory Q4 (+0.078, CI [−0.24, +0.35]) and Q3 (n too
+        small to mean anything). **The dose gradient — the founder's leg — is the most
+        conclusive negative:** +0.026 / +0.000 / +0.046 / −0.058 / +0.041 across the
+        rank quintiles. No climb, no shape; a real dose-response does not look like
+        that.
+      - **The same-side sharpening (leg v) did NOT rescue it** (−0.073,
+        CI [−0.189, +0.007]) — if anything the sharper instrument leaned further
+        negative. The blunt-proxy explanation predicts the sharpened leg should look
+        BETTER if a real effect were being blurred away; it looked worse, which
+        shifts weight from "proxy too blunt" toward "no recoverable effect at this
+        grain," though the unsigned limitation still caps what the run can say.
+      - **Recorded conclusion, exactly as pre-registered:** the open/close split of
+        Phase-1 events is **not recoverable with free ΔOI data** at the name-day
+        grain. NOT recorded: "open/close carries nothing" — the instrument cannot
+        support that claim. Reopen conditions: a true per-trade label (Cboe, subject
+        to the standing no-purchase rule + the single-exchange coverage caveat) or a
+        materially sharper free proxy (e.g. Phase-3 hedge-footprint signing, which is
+        direction-signed by construction).
+      - Fail stays on the record; no re-run, no re-tune. Phase 2's construction
+        artifacts (`oi_reconcile.db`, `f_open`) remain valid perception inputs —
+        what failed is this SPLIT as a grading axis, not the data.
 
 ⚠️ **What OI will NOT do:** disambiguate a spread's direction. A bull call spread and a bear call
 spread produce identical OI changes on both legs. That problem is Phase 3's.
