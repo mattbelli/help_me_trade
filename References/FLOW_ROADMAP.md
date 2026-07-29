@@ -637,6 +637,55 @@ it is a description of the market. No exceptions.
       something to trade; a peak at lag 0 or positive means flow is reacting and there is not. Most
       published flow work never separates the three, which is one reason it does not work. *Decides
       where every later step should look.*
+
+      **1.11b PRE-REGISTRATION — REGISTERED 2026-07-29, run at founder direction ("ok start
+      1.11b", same day). Discovery look (1c): the whole curve is recorded whatever it shows;
+      no pass/fail, no kill authority — but the reading rule is fixed here, in advance.**
+
+      *The question in one sentence:* flow and price definitely move together — the open
+      question is who moves FIRST. If today's flow lines up with TOMORROW's price moves, flow
+      leads and there is something to chase. If it only lines up with today's or yesterday's,
+      flow is following the price, and trading it means buying yesterday's news.
+
+      - **Panel.** Every name-day in the training window (2025-07-28 → 2026-05-31) with
+        classified premium ≥ $250k (the registered floor). NO event conditioning — the arrow
+        of time is a property of the flow measure itself, not only of alarm days. Primary
+        arm = registered tilt with **multileg excluded** (the package fence: v6 measured that
+        package legs flip pooled signs, so the blended series would smuggle the fence back
+        in). Index/ETF names excluded (`INDEX_ROOTS ∪ ETF_SET`; per 1.22 that fence is a
+        floor — the hand-built ETF set is incomplete).
+      - **Return series.** Daily excess return vs SPY, close-to-close, split-adjusted corpus
+        bars, on SPY's session calendar. For lag k, tilt on session t is paired with the
+        ONE-day excess return of session t+k (close of t+k−1 → close of t+k). So k=0 is the
+        same-day return, k=+1 the first fully-future day, k=−1 the day before.
+      - **Statistic.** Per session, the Spearman rank correlation across names between tilt
+        and the lag-k daily excess return (plain words: "do the names with the most bullish
+        flow tend to be the names with the best market-relative day k sessions later?" —
+        measured on rankings, so one huge mover cannot dominate). Sessions with <30
+        qualifying names at a lag are skipped and counted. The reported number per lag is
+        the average over sessions, with a 95% interval from resampling whole sessions
+        (10,000 draws, one shared resampling across all lags so the curve stays coherent,
+        SEED=20260730). Names missing bars at a needed date are skipped per (session, lag)
+        and counted, never silently dropped.
+      - **Reading rule, fixed in advance.** Report ALL 21 lags −10 … +10 (1.11a's
+        whole-curve law; never the peak alone). Lag 0 is expected positive and is
+        MECHANICAL — options are derivatives; it is the yardstick, not a finding. "Flow
+        leads" may be claimed only if positive lags (k ≥ +1) show correlations that are
+        (a) nonzero by the interval AND (b) coherent — same sign at adjacent lags. 21 looks
+        at 95% expect ~1 lone false positive, so an isolated one-lag spike is registered
+        in advance as noise, not signal. Negative lags nonzero with dead positive lags =
+        flow chases price; that too is a finding and gets recorded plainly.
+      - **Report-only legs:** (i) ALL arm (multileg included) — shows what the fence
+        changes; (ii) SHORT_OTM fenced arm — the academic prior's home (short-dated OTM);
+        (iii) $1M floor — the tilt audit measured the axes disagreeing MORE on high-premium
+        name-days, so the curve may differ where the money is; (iv) **magnitude lane**
+        (founder's direction-free question, 07-29, in its cheapest form): |tilt| vs
+        |excess return| at the same lags — does unusual flow foreshadow MOVEMENT, either
+        way, even if it cannot call the side?
+      - **Disclosure:** positive lags from late-May sessions read June equity CLOSES —
+        outcome bars only; test-split flow stays unmined (2.4 precedent). Early sessions
+        lack full trailing lags (bars begin 2025-07-25); skipped and counted.
+
 - [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
       sector and date. *Done when:* the control set's own base rates are computed and written down
       BEFORE any mover statistic is looked at.
@@ -1172,6 +1221,17 @@ out of a rolling window. There is no rush; do it after Phase 1.
       zero, not an uninformative one. The 2.4 FAIL is now robust across the
       time-frame dimension; no short-horizon hypothesis is registered because
       nothing was found to register.
+
+- [ ] **2.5 (PARKED — founder idea 2026-07-29, not registered, not scheduled).** Where OI sits
+      HEAVIEST — which strikes, which expiries — and whether price behaves differently near those
+      concentrations: pinning to big-OI strikes into expiry, "gamma walls" that dampen or repel
+      price, max-pain drift. Attractive precisely because it is **direction-free** — it asks where
+      the walls are, not who is bullish — so it dodges the unsigned-proxy wall that killed 2.4.
+      The academic pinning literature (delta-hedge pinning at high-OI strikes on expiry days) is
+      real. ⚠️ If opened: any GEX-style computation requires ASSUMING who is short the gamma
+      (dealer vs customer) — OI cannot sign that any more than it could sign 2.4 — so the
+      dealer-positioning assumption must be registered explicitly, not inherited from retail
+      GEX lore. Parked until Phase 1c lands.
 
 ⚠️ **What OI will NOT do:** disambiguate a spread's direction. A bull call spread and a bear call
 spread produce identical OI changes on both legs. That problem is Phase 3's.
