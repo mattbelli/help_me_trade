@@ -1143,7 +1143,7 @@ it is a description of the market. No exceptions.
         must come from other angles (trend, news, catalyst context). Direction may still
         live at finer grains or inside catalyst subsets (1.14b), but the day-grain sign
         question is answered and closed.
-- [ ] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
+- [x] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
       at catalyst moments — earnings, guidance, M&A, FDA). "Someone knew about the event" and
       "someone moved the stock" are different stories with plausibly different preceding-flow
       profiles; pooling them repeats the index/single-name mistake one level down. Earnings/opex
@@ -1193,6 +1193,55 @@ it is a description of the market. No exceptions.
       - **Disclosure.** Fourth read of mover windows; features and thresholds all
         pre-existing. Training only, test split untouched. Output: full tables +
         `data/research/mover_catalyst_114b.json` (`tools/mover_catalyst.py`).
+
+      **1.14b RESULT — RUN 2026-07-29 (single registered run, SEED=20260804).
+      VERDICT: the fingerprint SPLITS INTO TWO REGIMES — the equity vol-spike is a
+      no-catalyst phenomenon (12/12 starred, the strongest split in the study), the
+      short-DTE flow tilt is catalyst-concentrated at 5d. Both branches of the
+      registered interpretation map light up, on different components.**
+      Inputs: earnings.db = 120,850 8-K Item-2.02 dates for 2,078/3,724 mover names;
+      1,647 names unflaggable (no CIK — ETF/adjusted-root/delisting tail) ⇒ forced
+      no-catalyst per registration. Catalyst share of episodes: residual rise 23.7%
+      (998/4,204), fall 26.5% (935/3,534); raw 35.8%/29.4%. Residual battery: 10 of
+      24 primary X intervals starred vs ~1 expected false.
+      - **(1) vol_max_ratio → NO-CATALYST, clears the reading rule maximally.**
+        Residual X negative and CI-clear at ALL 3 windows in BOTH signs (rise
+        −5.4/−7.9/−8.4pp; fall −9.7/−11.9/−12.5pp), raw replicates all six. The
+        1.13b vol-spike enrichment lives almost entirely in no-catalyst episodes
+        (D_nocat +6.4…+9.5pp starred everywhere) while catalyst episodes show NO
+        pre-window vol-spike excess at all — D_cat ≈ 0, turning NEGATIVE starred at
+        20d in both signs (raw-replicated): before scheduled earnings the tape is
+        quiet-to-suppressed ("wait for the news"), and immune to the presence
+        confound below since it's equity volume, not options flow.
+      - **(2) short_dte_share → CATALYST at the 5d window, both signs.** Residual X
+        +4.7pp* (rise) / +6.9pp* (fall) at 5d, raw replicates both (+6.1*/+6.5*;
+        raw rise also stars 10d +4.7*). Window-localized: 10d/20d X ns — so this
+        clears (a)+(c) fully but the ≥2-windows criterion only via the raw arm.
+        Reading: short-dated positioning intensifies in the last week BEFORE
+        earnings; note D_nocat stays positive-starred at all residual windows —
+        the component works in both subsets, it is simply STRONGER near earnings.
+      - **(3) concentration → catalyst, RISE side only, 5d.** Residual rise 5d
+        X=+7.8pp* (raw +10.3pp* and 10d +7.0pp*); fall side nothing. Color: rise
+        D_nocat is NEGATIVE (starred 10d residual) — away from earnings, rise
+        movers show LESS single-day-burst flow than controls; near earnings, more.
+        Partially clears (one residual window); recorded as supported-with-caveat.
+      - **(4) largest_print_ratio → NO split finding.** Lone star (residual fall
+        20d X=−3.3pp*) is single-window and fails raw replication — consistent
+        with the ~1 expected false. The large-print component is
+        catalyst-indifferent.
+      - **Presence confound, disclosed:** no-catalyst movers run ~−25pp flow
+        presence vs controls (the unflaggable tail skews small/optionless). This
+        deflates no-catalyst flow-feature shares, meaning the catalyst-side flow
+        findings (2)(3) could partly reflect composition — but it CANNOT produce
+        finding (1), which runs on equity volume and points the OTHER way.
+      - **Interpretation (per the pre-registered map):** near earnings =
+        positioning before scheduled news (short-dated options, quiet tape) ⇒
+        event-gated perception window; away from earnings = the vol-spike day
+        carries the signal ⇒ the non-public-information-flavored alert, the more
+        valuable one. Contamination bias (earnings-only detection) pushed subsets
+        TOGETHER, so these surviving differences are strong evidence. The
+        fingerprint is not one mechanism — alerting should branch on
+        earnings-adjacency (free, keyless, already built).
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
