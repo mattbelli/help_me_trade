@@ -5,7 +5,7 @@
  * axis-aligned strokes so 1px lines land on physical pixel rows.
  */
 
-import type { CircleStyle, Painter, StrokeStyle, TextStyle } from "./painter";
+import type { BarColumn, CircleStyle, Painter, StrokeStyle, TextStyle } from "./painter";
 
 export class Canvas2DPainter implements Painter {
   private width = 0;
@@ -32,6 +32,40 @@ export class Canvas2DPainter implements Painter {
     return deviceWidth % 2 === 1
       ? (Math.floor(d) + 0.5) / this.dpr
       : Math.round(d) / this.dpr;
+  }
+
+  /**
+   * Snapped body/wick rects for a bar slot. The centre is exactly where a
+   * 1-logical-px vertical stroke snaps (same rule as `line`), and the body
+   * always shares the wick's PARITY — an even body has no middle column, so an
+   * odd wick has to pick a side, and which side it picks flips with the
+   * fractional part of x. That flip is the "wick out of the corner" artifact.
+   *
+   * Width policy lives here rather than in the core because parity and the
+   * gap cap have to be decided together: snapping a ~70% target to parity
+   * afterwards can land on the wick width itself and silently erase the body.
+   */
+  barColumn(x: number, barSpacing: number): BarColumn {
+    const { dpr } = this;
+    const wickDev = Math.max(1, Math.round(dpr)); // 1 logical px in whole device px
+    const cDev = this.snap(x, wickDev) * dpr;
+    const slotDev = barSpacing * dpr;
+    // Nearest wick-parity width to ~70% of the slot, then trimmed 2 at a time
+    // until at least a wick-wide gap survives. Below that there is no room for
+    // a body at all and the bar is drawn as a bare wick.
+    //
+    // The cap measures against FLOOR(slot): snapped centres sit floor(slot) or
+    // ceil(slot) apart, so budgeting for the average lets the tight pairs touch
+    // — and at even parity, overlap by a pixel.
+    const tightestSlot = Math.floor(slotDev);
+    let bodyDev = wickDev + 2 * Math.max(0, Math.round((slotDev * 0.7 - wickDev) / 2));
+    while (bodyDev > wickDev && bodyDev > tightestSlot - wickDev) bodyDev -= 2;
+    return {
+      bodyX: (cDev - bodyDev / 2) / dpr,
+      bodyW: bodyDev / dpr,
+      wickX: (cDev - wickDev / 2) / dpr,
+      wickW: wickDev / dpr,
+    };
   }
 
   private setFont(font: string): void {
@@ -185,9 +219,19 @@ export class CanvasLayers {
 
   /** Size both bitmaps at `dpr` and scale their contexts to logical px. */
   resize(width: number, height: number, dpr: number): void {
+    const bw = Math.max(1, Math.round(width * dpr));
+    const bh = Math.max(1, Math.round(height * dpr));
     for (const canvas of this.canvases) {
-      canvas.width = Math.max(1, Math.round(width * dpr));
-      canvas.height = Math.max(1, Math.round(height * dpr));
+      canvas.width = bw;
+      canvas.height = bh;
+      // Pin the CSS box to the bitmap instead of leaving it at the stylesheet's
+      // 100%. A box that isn't a whole number of device pixels makes the browser
+      // rescale the bitmap to fit, blurring every snapped stroke by a
+      // position-dependent fraction of a pixel — which silently undoes all of
+      // the snapping above. The engine feeds us an already-device-aligned size,
+      // so this is normally a no-op; it is the backstop that keeps it true.
+      canvas.style.width = `${bw / dpr}px`;
+      canvas.style.height = `${bh / dpr}px`;
       const ctx = canvas.getContext("2d")!;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }

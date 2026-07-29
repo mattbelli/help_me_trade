@@ -131,11 +131,6 @@ function drawAxisChip(
   });
 }
 
-function candleBodyWidth(barSpacing: number): number {
-  // ~70% of the slot, at least 1px, capped so huge zoom keeps a gap.
-  return Math.max(1, Math.min(Math.round(barSpacing * 0.7), barSpacing - 2));
-}
-
 export type SceneInput = {
   width: number;
   height: number;
@@ -231,16 +226,16 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
       if (bars[i].volume > vmax) vmax = bars[i].volume;
     }
     if (vmax > 0) {
-      const bodyW = candleBodyWidth(vp.barSpacing);
       p.withClip(volume.x, volume.y, volume.w, volume.h, () => {
         for (let i = range.from; i <= range.to; i++) {
           const b = bars[i];
           if (b.volume <= 0) continue;
-          const x = xOf(i, vp, pane.w);
+          // Same snapped column as the candle above it — they must share edges.
+          const col = p.barColumn(xOf(i, vp, pane.w), vp.barSpacing);
           const h = Math.max(1, (b.volume / vmax) * volume.h);
           const prevClose = i > 0 ? bars[i - 1].close : b.open;
           const color = b.close >= prevClose ? colors.volumeUp : colors.volumeDown;
-          p.fillRect(x - bodyW / 2, volume.y + volume.h - h, bodyW, h, color);
+          p.fillRect(col.bodyX, volume.y + volume.h - h, col.bodyW, h, color);
         }
       });
     }
@@ -259,19 +254,25 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
         }
         p.polyline(points, { color: colors.accent, width: 2 });
       } else {
-        const bodyW = candleBodyWidth(vp.barSpacing);
         for (let i = range.from; i <= range.to; i++) {
           const b = bars[i];
-          const x = xOf(i, vp, pane.w);
+          const col = p.barColumn(xOf(i, vp, pane.w), vp.barSpacing);
           const color = b.close >= b.open ? colors.up : colors.down;
           const yHigh = yOf(b.high, priceRange, price.y, price.h);
           const yLow = yOf(b.low, priceRange, price.y, price.h);
-          p.line(x, yHigh, x, yLow, { color, width: 1 });
-          if (bodyW > 1) {
+          // Wick as a rect, not a stroke: `line` only snaps its CONSTANT axis,
+          // so the tips stayed fractional and a sub-pixel wick rendered as a
+          // faint smear the body's snapped edge then half-ate. fillRect snaps
+          // both ends and floors the span to a whole device pixel.
+          p.fillRect(col.wickX, yHigh, col.wickW, yLow - yHigh, color);
+          // A body no wider than the wick has nothing to add (tightest zooms).
+          if (col.bodyW > col.wickW) {
             const yO = yOf(b.open, priceRange, price.y, price.h);
             const yC = yOf(b.close, priceRange, price.y, price.h);
             const top = Math.min(yO, yC);
-            p.fillRect(x - bodyW / 2, top, bodyW, Math.max(1, Math.abs(yC - yO)), color);
+            // Doji floor is the wick thickness — 1 device px at dpr 1, 2 at
+            // dpr 2 — so a flat bar reads at the same weight as its own wick.
+            p.fillRect(col.bodyX, top, col.bodyW, Math.max(col.wickW, Math.abs(yC - yO)), color);
           }
         }
       }
@@ -478,17 +479,16 @@ export function drawScene(p: Painter, input: SceneInput): Scene {
           hairline: true,
         });
         if (range) {
-          const bodyW = candleBodyWidth(vp.barSpacing);
           p.withClip(r.x, r.y, r.w, r.h, () => {
             for (let i = range.from; i <= Math.min(range.to, def.histogram.length - 1); i++) {
               const v = def.histogram[i];
               if (v == null) continue;
-              const x = xOf(i, vp, pane.w);
+              const col = p.barColumn(xOf(i, vp, pane.w), vp.barSpacing);
               const vy = yOfV(v);
               p.fillRect(
-                x - bodyW / 2,
+                col.bodyX,
                 Math.min(zeroY, vy),
-                bodyW,
+                col.bodyW,
                 Math.max(1, Math.abs(vy - zeroY)),
                 v >= 0 ? def.histUp : def.histDown,
               );

@@ -15,6 +15,9 @@ from config.idea_engine import (
     FUSION_CONTEXT_REFRESH_S,
     FUSION_EARNINGS_AHEAD_TD,
     FUSION_EARNINGS_BEHIND_TD,
+    FUSION_NEWS_BURST_POINTS,
+    FUSION_NEWS_MAX_SYMBOLS,
+    FUSION_NEWS_WINDOW_MIN,
     FUSION_REGIME_STALE_DAYS,
     FUSION_REHYDRATE_SESSIONS,
     FUSION_SOCIAL_SPIKE_RATIO,
@@ -279,7 +282,8 @@ def _ensure_episode(
     return dict(row)
 
 
-def _insert_dot(
+def _insert_dot_on(
+    conn: Any,
     *,
     episode_id: str,
     source_store: str,
@@ -296,12 +300,15 @@ def _insert_dot(
     detail: dict[str, Any],
     price: Decimal | None,
     atr14: Decimal | None,
-    db_path: Path,
 ) -> str:
+    """Write one dot on an EXISTING connection — the caller owns the commit.
+
+    Split out of ``_insert_dot`` so a lane that mints many dots in one pass (the
+    news attach lane) does it in a single transaction instead of one
+    connect+commit per dot."""
     dot_id = _stable_id("dot", source_store, source_event_id, component)
-    with _connect(db_path) as conn:
-        conn.execute(
-            """
+    conn.execute(
+        """
             INSERT INTO evidence_dots(
                 id, episode_id, source_store, source_event_id, source_ingest_seq,
                 symbol, ts, component, actor_group, dot_kind, direction,
@@ -326,28 +333,35 @@ def _insert_dot(
                     AND COALESCE(evidence_dots.prior_close_atr14,
                                  excluded.prior_close_atr14) IS NOT NULL
                     THEN 1 ELSE 0 END
-            """,
-            (
-                dot_id,
-                episode_id,
-                source_store,
-                source_event_id,
-                int(source_ingest_seq),
-                symbol,
-                ts,
-                component,
-                actor_group,
-                dot_kind,
-                direction,
-                str(raw_value) if raw_value is not None else None,
-                float(points),
-                fusion_db.serialize_detail(detail),
-                str(price) if price is not None else None,
-                str(atr14) if atr14 is not None else None,
-                int(price is not None and atr14 is not None),
-                now_iso(),
-            ),
-        )
+        """,
+        (
+            dot_id,
+            episode_id,
+            source_store,
+            source_event_id,
+            int(source_ingest_seq),
+            symbol,
+            ts,
+            component,
+            actor_group,
+            dot_kind,
+            direction,
+            str(raw_value) if raw_value is not None else None,
+            float(points),
+            fusion_db.serialize_detail(detail),
+            str(price) if price is not None else None,
+            str(atr14) if atr14 is not None else None,
+            int(price is not None and atr14 is not None),
+            now_iso(),
+        ),
+    )
+    return dot_id
+
+
+def _insert_dot(*, db_path: Path, **fields: Any) -> str:
+    """One dot in its own transaction — the per-event path's insert."""
+    with _connect(db_path) as conn:
+        dot_id = _insert_dot_on(conn, **fields)
         conn.commit()
     return dot_id
 
@@ -871,6 +885,338 @@ def _attach_index_pressure(episode: dict, ts: str, market_day: str, db_path: Pat
     bump("fusion_intake", "index_pressure_dots", db_path=db_path)
 
 
+# ------------------------------------------------------------------- news lane
+
+
+def _news_points(n: int) -> float:
+    """Headline-count-in-window → catalyst points; first threshold ≤ n wins."""
+    for threshold, points in FUSION_NEWS_BURST_POINTS:
+        if n >= threshold:
+            return float(points)
+    return 0.0
+
+
+# A publisher's clock can run slightly ahead of ours; beyond this the stamp is
+# unusable, not skewed. It matters because session_seconds_between FLOORS at 0
+# for a future instant, so a corrupt far-future published_at would read fresh
+# forever — and score_dots takes max(points) with no decay, pinning the catalyst
+# group for the episode's whole 15-session life (the freeze the design forbids).
+_NEWS_MAX_FUTURE_SKEW_S = 300
+
+
+def _news_fresh(published_at: str, now: datetime) -> bool:
+    """Is this headline inside the freshness window on the SESSION clock?
+
+    Session-seconds, never wall clock (scorer.session_seconds_between): a 07:00
+    ET headline must still be fresh at the 09:31 pass, and a headline does not
+    age while the market is shut. Unparseable or implausibly future-dated stamps
+    are STALE — the safe direction: a headline that scores nothing."""
+    try:
+        published = _parse_iso(published_at)
+    except (TypeError, ValueError):
+        return False
+    if (published - now).total_seconds() > _NEWS_MAX_FUTURE_SKEW_S:
+        return False
+    return session_seconds_between(published, now) <= FUSION_NEWS_WINDOW_MIN * 60
+
+
+def _fresh_news_keys(conn: Any, episode_id: str, now: datetime) -> set[str]:
+    """``source_event_id``s of this episode's SCORING news dots still in window.
+
+    KEYS, not timestamps, so the burst count can exclude the dot being minted: a
+    crash between the batch commit and ``set_cursor('news')`` re-polls rows whose
+    dots already exist, and a headline counting its OWN dot inflates its bucket
+    by one on every replay.
+
+    points > 0 is the count basis on purpose: it excludes both roundup dots and
+    dots the expiry pass has already zeroed, so the burst count only ever counts
+    headlines that actually scored."""
+    rows = conn.execute(
+        """
+        SELECT source_event_id, ts FROM evidence_dots
+        WHERE episode_id = ? AND component = 'news' AND points > 0
+        """,
+        (episode_id,),
+    ).fetchall()
+    return {str(row["source_event_id"]) for row in rows if _news_fresh(str(row["ts"]), now)}
+
+
+def _news_keys(conn: Any, episode_id: str) -> set[str]:
+    """EVERY news ``source_event_id`` already dotted on this episode.
+
+    The backfill's "already attached?" test — unfiltered by points or freshness,
+    unlike ``_fresh_news_keys``: a zeroed or roundup dot still means the pair has
+    been attached and must not be re-minted. Re-minting would be harmless (the
+    upsert is idempotent) but would cost a write per pass forever and inflate
+    news_backfill_minted, so the lane_stats number would stop meaning anything.
+    Indexed by idx_evidence_episode(episode_id, ts)."""
+    rows = conn.execute(
+        """
+        SELECT source_event_id FROM evidence_dots
+        WHERE episode_id = ? AND component = 'news'
+        """,
+        (episode_id,),
+    ).fetchall()
+    return {str(row["source_event_id"]) for row in rows}
+
+
+# SQL-side prefilter for the backfill read — _news_fresh still does the exact
+# test. The bound must be GENEROUS because FUSION_NEWS_WINDOW_MIN counts SESSION
+# minutes: a headline published just before the close on the Wednesday of a
+# Thu/Fri-holiday week is still inside a 120-session-minute window the following
+# Monday. 7 calendar days covers any such closure at no measured cost: news_items
+# carries idx_news_published(published_at DESC), so this is an indexed range
+# SEARCH, not a scan. MEASURED on a 4,300-row store (today's ~4.3k): the plan is
+# "SEARCH news_items USING INDEX idx_news_published (published_at>?)", 1,009 rows
+# in the window, 0.85 ms mean over 20 runs — once per 60s poll.
+_NEWS_BACKFILL_LOOKBACK_DAYS = 7
+
+
+def _intake_news(
+    now: datetime, db_path: Path, *, batch_limit: int = 2000
+) -> tuple[set[str], int]:
+    """Mint catalyst EVENT dots from ``news_items`` onto OPEN episodes.
+
+    ATTACH-ONLY (fusion_db.ATTACH_STORES): a headline never opens an episode —
+    news on a symbol nobody is watching is not a stack — and this lane writes NO
+    fusion_dispositions, so the conservation law stays exact for the actor
+    stores. Direction is always ``none``: headlines are FACTS, never sentiment.
+    Points come from the burst count (how many fresh headlines this symbol has),
+    which is a measurable fact too; a roundup headline (more than
+    FUSION_NEWS_MAX_SYMBOLS tagged) mints at 0.0 — present on the card, scoring
+    nothing.
+
+    Returns ``(dirty episode ids, max ingest_seq consumed)``; the caller does the
+    single rescore per dirty episode and advances the cursor.
+
+    TWO READS, one guarded mint path. The CURSOR batch is the arrival lane. The
+    BACKFILL read closes the cursor-ordering gap: the cursor advances past a
+    headline whose symbols have no open episode YET, and the academic prior says
+    news LEADS the flow — so the most valuable case (headline, then the burst
+    that opens the episode minutes later) was exactly the one being dropped.
+    Each pass therefore re-reads the headlines still inside the freshness window
+    whose symbols now DO have an open episode, skipping pairs already dotted.
+    Both lanes run through the same roundup/skew/dedup guards and the same burst
+    count, so a backfilled dot is indistinguishable from a live one except in
+    lane_stats."""
+    cursor = fusion_db.get_cursor("news", db_path=db_path)
+    # Open episodes are one-per-symbol and bounded by what is being watched, so
+    # the whole set is cheaper (and IN-variable-limit-proof) than a symbol filter.
+    with _connect(db_path) as conn:
+        open_episodes = {
+            str(row["symbol"]): str(row["id"])
+            for row in conn.execute(
+                "SELECT id, symbol FROM fusion_episodes WHERE state = 'open'"
+            ).fetchall()
+        }
+        rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, ingest_seq, headline, url, source, symbols, published_at
+                FROM news_items
+                WHERE ingest_seq > ?
+                ORDER BY ingest_seq ASC
+                LIMIT ?
+                """,
+                (int(cursor), int(batch_limit)),
+            ).fetchall()
+        ]
+        backfill: list[dict] = []
+        if open_episodes:
+            # ingest_seq <= cursor keeps this DISJOINT from the batch above, so
+            # no row is processed twice in one pass. The published_at floor is a
+            # naive prefix on purpose: stored stamps are UTC in either the 'Z' or
+            # '+00:00' spelling and both compare correctly against it, and the
+            # 7-day slack absorbs any odd offset. _news_fresh is the exact test.
+            # No ORDER BY: the Python sort below orders both lanes together, and
+            # asking SQLite for one here only bought a temp B-tree.
+            floor = (now - timedelta(days=_NEWS_BACKFILL_LOOKBACK_DAYS)).strftime(
+                "%Y-%m-%dT%H:%M:%S"
+            )
+            backfill = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT id, ingest_seq, headline, url, source, symbols, published_at
+                    FROM news_items
+                    WHERE published_at >= ? AND ingest_seq <= ?
+                    """,
+                    (floor, int(cursor)),
+                ).fetchall()
+            ]
+    if not rows and not backfill:
+        return set(), 0
+
+    fresh_keys: dict[str, set[str]] = {}
+    known_keys: dict[str, set[str]] = {}
+    dirty: set[str] = set()
+    minted = backfilled = roundups = no_episode = 0
+    as_of = now.isoformat()
+    # Chronological across BOTH lanes so the burst buckets reflect the order the
+    # headlines actually landed, not which read found them.
+    ordered = sorted(
+        [(row, False) for row in rows] + [(row, True) for row in backfill],
+        key=lambda pair: int(pair[0]["ingest_seq"] or 0),
+    )
+    with _connect(db_path) as conn:
+        for row, is_backfill in ordered:
+            in_window = _news_fresh(str(row["published_at"]), now)
+            if is_backfill and not in_window:
+                # The backfill exists to attach headlines that are STILL fresh.
+                # A stale one is skipped outright rather than minted at 0 (the
+                # arrival lane's behaviour, which it owes to giving every polled
+                # row exactly one outcome): minting here would drop a permanent
+                # zero-point dot onto every episode that opens in the next week.
+                # Checked before the JSON parse — most of the 7-day candidate set
+                # is out of window, so this is where the read pays for itself.
+                continue
+            try:
+                tagged = json.loads(row["symbols"] or "[]")
+            except (TypeError, json.JSONDecodeError):
+                tagged = []
+            if not isinstance(tagged, list):
+                # A bare JSON string iterates CHARACTERS — a malformed row would
+                # mint dots for phantom one-letter tickers ('T' is a real one).
+                tagged = []
+            # dict.fromkeys, not a set: order-stable, and a duplicate tag must
+            # not upsert the same dot twice in one pass (the second write would
+            # count the first as a prior fresh headline and double the bucket).
+            symbols = list(
+                dict.fromkeys(s for s in (str(x).strip().upper() for x in tagged) if s)
+            )
+            is_roundup = len(symbols) > FUSION_NEWS_MAX_SYMBOLS
+            for symbol in symbols:
+                episode_id = open_episodes.get(symbol)
+                if episode_id is None:
+                    # Only the arrival lane counts a miss: a backfill candidate
+                    # is, by construction, only read for symbols that HAVE an
+                    # open episode, so counting it here would double-count the
+                    # same headline's miss on every pass.
+                    if not is_backfill:
+                        no_episode += 1
+                    continue
+                seen = fresh_keys.get(episode_id)
+                if seen is None:
+                    seen = _fresh_news_keys(conn, episode_id, now)
+                    fresh_keys[episode_id] = seen
+                # The symbol in the key is MANDATORY: the dedup UNIQUE is
+                # (source_store, source_event_id, component) with NO episode_id,
+                # so one headline sharing a key across its tagged symbols would
+                # ping-pong a SINGLE row between their episodes (the
+                # _attach_shock bug class, 07-28). The key is deliberately NOT
+                # episode-scoped (unlike the _attach_* lanes) so a headline is
+                # minted at most once per symbol; the residue is that on a
+                # crash-replay ACROSS an episode rollover the upsert lands on the
+                # closed episode's row (ON CONFLICT never rewrites episode_id) and
+                # the new episode simply lacks that dot — history preserved, dot
+                # missing, which is the safe side of that trade.
+                key = f"{row['id']}:{symbol}"
+                if is_backfill:
+                    known = known_keys.get(episode_id)
+                    if known is None:
+                        known = _news_keys(conn, episode_id)
+                        known_keys[episode_id] = known
+                    if key in known:
+                        continue  # already attached — a replay stays free
+                # Excluding the dot's OWN key makes a re-poll idempotent: a crash
+                # before set_cursor replays this batch, and self-counting would
+                # bump the bucket one step every replay.
+                count = len(seen - {key}) + 1
+                points = 0.0 if (is_roundup or not in_window) else _news_points(count)
+                if points > 0:
+                    seen.add(key)
+                _insert_dot_on(
+                    conn,
+                    episode_id=episode_id,
+                    source_store="news",
+                    source_event_id=key,
+                    source_ingest_seq=int(row["ingest_seq"] or 0),
+                    symbol=symbol,
+                    ts=str(row["published_at"]),
+                    component="news",
+                    actor_group="catalyst",
+                    dot_kind="event",
+                    direction="none",
+                    raw_value=None,
+                    points=points,
+                    detail={
+                        "headline": row["headline"],
+                        "url": row["url"] or "",
+                        "source": row["source"] or "",
+                        "n_symbols": len(symbols),
+                        # ONE meaning on every dot: the burst that produced the
+                        # points. A dot that scores nothing counts nothing —
+                        # the same 0 the expiry sweep writes.
+                        "count_in_window": count if points > 0 else 0,
+                        "as_of": as_of,
+                    },
+                    price=None,
+                    atr14=None,
+                )
+                dirty.add(episode_id)
+                if is_backfill:
+                    backfilled += 1
+                else:
+                    minted += 1
+                if is_roundup:
+                    roundups += 1
+        conn.commit()
+
+    # news_dot_minted and news_backfill_minted are DISJOINT (one per dot, by
+    # origin): the first stays "attached as it arrived", the second is the
+    # late-attach rate the cursor-ordering gap used to lose. Their sum is the
+    # pass's total mints.
+    if minted:
+        bump("fusion_intake", "news_dot_minted", minted, db_path=db_path)
+    if backfilled:
+        bump("fusion_intake", "news_backfill_minted", backfilled, db_path=db_path)
+    if roundups:
+        bump("fusion_intake", "news_roundup_zeroed", roundups, db_path=db_path)
+    if no_episode:
+        bump("fusion_intake", "news_no_open_episode", no_episode, db_path=db_path)
+    # Only the ARRIVAL lane advances the cursor — the backfill deliberately
+    # re-reads rows the cursor has already passed.
+    return dirty, int(rows[-1]["ingest_seq"] or 0) if rows else 0
+
+
+def _expire_news_dots(now: datetime, db_path: Path) -> set[str]:
+    """Zero — never delete, never freeze — news dots that have aged out.
+
+    A frozen burst reading would keep a two-hour-old headline scoring for the
+    episode's whole TTL, the same lie the earnings minter zeroes. Read first
+    (the _attach_earnings idiom): with nothing stale this costs no write
+    transaction. Closed episodes are cold storage and are left alone."""
+    with _connect(db_path) as conn:
+        rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT d.id, d.ts, d.episode_id, d.detail_json
+                FROM evidence_dots d
+                JOIN fusion_episodes e ON e.id = d.episode_id
+                WHERE d.component = 'news' AND d.points > 0 AND e.state = 'open'
+                """
+            ).fetchall()
+        ]
+    stale = [row for row in rows if not _news_fresh(str(row["ts"]), now)]
+    if not stale:
+        return set()
+    with _connect(db_path) as conn:
+        for row in stale:
+            try:
+                detail = json.loads(row["detail_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                detail = {}
+            detail.update({"count_in_window": 0, "expired": True, "as_of": now.isoformat()})
+            conn.execute(
+                "UPDATE evidence_dots SET points = 0.0, detail_json = ? WHERE id = ?",
+                (fusion_db.serialize_detail(detail), row["id"]),
+            )
+        conn.commit()
+    return {str(row["episode_id"]) for row in stale}
+
+
 def _rescore(episode_id: str, db_path: Path) -> dict[str, Any]:
     dots = fusion_db.episode_dots(episode_id, db_path=db_path)
     state = score_dots(dots)
@@ -1086,10 +1432,12 @@ def intake_once(
 ) -> dict[str, int]:
     """Consume both native stores once, with one terminal disposition per row."""
     from db.equity_tape import init_db as init_equity
+    from db.news import init_db as init_news
     from db.options_flow import init_db as init_options
 
     init_options(db_path)
     init_equity(db_path)
+    init_news(db_path)  # news_items store, read by the attach-only news lane
     fusion_db.init_fusion_tables(db_path)
     init_chart_features(db_path)  # price_alerts store, read by _attach_structure
     counters = {key: 0 for key in fusion_db.DISPOSITIONS}
@@ -1259,5 +1607,38 @@ def intake_once(
             )
             counters[disposition] += 1
             fusion_db.set_cursor(store, int(event["ingest_seq"]), db_path=db_path)
+
+    # Attach-only news lane (fusion_db.ATTACH_STORES) — AFTER the actor loop,
+    # because it only ever rides episodes that already exist. Rescore/card/
+    # investigate run ONCE per dirty episode, never per headline: a busy news
+    # minute must not multiply write commits on the single-writer WAL (the
+    # 07-27 lock-starve class).
+    news_now = datetime.now(timezone.utc)
+    dirty, news_seq = _intake_news(news_now, db_path, batch_limit=batch_limit)
+    dirty |= _expire_news_dots(news_now, db_path)
+    if dirty:
+        from signals.fusion.cards import update_stack_card
+        from signals.fusion.investigate import evaluate_investigation
+
+        news_day = _market_day(news_now.isoformat())
+        for episode_id in sorted(dirty):
+            state = _rescore(episode_id, db_path)
+            with _connect(db_path) as conn:
+                # state='open': the lifecycle sweep runs in another process and
+                # can close an episode between the mint and this tail. A closed
+                # episode is cold storage — _rescore already refuses to rewrite
+                # its summary, and it must not be re-carded or re-investigated
+                # either (a closed stack is not a live candidate).
+                row = conn.execute(
+                    "SELECT * FROM fusion_episodes WHERE id = ? AND state = 'open'",
+                    (episode_id,),
+                ).fetchone()
+            if row is None:
+                continue
+            episode = dict(row)
+            update_stack_card(episode, state, db_path=db_path)
+            evaluate_investigation(episode, state, market_day=news_day, db_path=db_path)
+    if news_seq:
+        fusion_db.set_cursor("news", news_seq, db_path=db_path)
 
     return counters

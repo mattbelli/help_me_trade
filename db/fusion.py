@@ -32,6 +32,17 @@ def _ensure_tables_once(db_path: Path) -> None:
 
 STORES = ("options_flow", "equity_tape")
 
+# ATTACH-ONLY lanes: stores the intake reads through a bus cursor but that are
+# deliberately NOT in STORES and NOT in conservation_counts.
+#   - not in STORES: intake_once's `for store in STORES` loop drives _poll and
+#     _STORE_TABLES, i.e. the actor path that opens episodes. An attach lane only
+#     rides EXISTING open episodes, so it runs as its own pass.
+#   - not in conservation_counts: a news row legitimately has no episode (nobody
+#     is watching the symbol), so inputs ≠ dispositions by construction. Do NOT
+#     extend the conservation law to cover it — the law's value is that it is
+#     exact for the lanes that DO mint one terminal disposition per row.
+ATTACH_STORES = ("news",)
+
 # Round-3 fusion_episodes shape (Fusion Horizon Redesign §2.4). Shared by the
 # fresh-install CREATE and the one-time rebuild migration so the two never drift.
 _FUSION_EPISODES_COLUMNS = """
@@ -389,6 +400,7 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             ("reddit_buzz", "attention", "state", "latest_best", 1),
             ("stocktwits_buzz", "attention", "state", "latest_best", 1),
             ("earnings_proximity", "catalyst", "state", "latest_best", 1),
+            ("news", "catalyst", "event", "latest_best", 1),
             ("regime", "context", "state", "annotate_only", 1),
             ("index_pressure", "context", "state", "annotate_only", 1),
             ("market_shock", "context", "state", "annotate_only", 1),
@@ -407,7 +419,10 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             group_rows,
         )
         now = now_iso()
-        for store in STORES:
+        # Attach lanes get a cursor row too: set_cursor is a bare UPDATE, so an
+        # unseeded store would silently no-op forever and the lane would re-poll
+        # the same rows every pass.
+        for store in STORES + ATTACH_STORES:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO bus_cursors(store, last_ingest_seq, updated_at)

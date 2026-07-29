@@ -32,6 +32,7 @@ import {
   withAlpha,
 } from "@/lib/chart-colors";
 import { ChartEngine } from "@/lib/chart-engine/engine";
+import { mergeFetchedBars } from "@/lib/chart-engine/merge";
 import { crosshairTimeLabel } from "@/lib/chart-engine/ticks";
 import type {
   EngineBar,
@@ -217,6 +218,9 @@ export function NativeChart({
   // see the bars the engine is drawing.
   const barsRef = useRef<EngineBar[]>([]);
   const dataKeyRef = useRef<string>("");
+  // Identity of the last bars payload actually applied — a cache hit hands back
+  // the SAME object, and re-applying it would discard every tick merged since.
+  const appliedPayloadRef = useRef<unknown>(null);
   const staleRefetchPendingRef = useRef(false);
   const staleRefetchLastSecRef = useRef(0);
   const styleRef = useRef(style);
@@ -573,7 +577,19 @@ export function NativeChart({
     })
       .then((data) => {
         if (cancelled) return;
-        const bars: EngineBar[] = data.bars.map((b: StockBar) => ({
+        // A refresh reconciles with vendor truth; it must never REGRESS the
+        // tail. The refresh interval is shorter than the cache TTL (30s vs 60s
+        // on 1Min, 180s on 5Min), so most refreshes are cache hits handing back
+        // a payload we already applied — re-mapping it wiped the live close /
+        // high / low and, worse, deleted a bar we had rolled over locally. The
+        // next tick then re-rolled it open at the CURRENT price, leaving a
+        // phantom gap the size of everything that moved since the snapshot.
+        if (!keyChanged && data === appliedPayloadRef.current) {
+          setError(null);
+          return; // nothing new to reconcile — leave the live bars alone
+        }
+        appliedPayloadRef.current = data;
+        const fetched: EngineBar[] = data.bars.map((b: StockBar) => ({
           time: Date.parse(b.time),
           open: b.open,
           high: b.high,
@@ -581,6 +597,11 @@ export function NativeChart({
           close: b.close,
           volume: b.volume,
         }));
+        // Keep locally-formed bars the vendor hasn't published yet. A key
+        // change is a different series entirely — nothing to carry over.
+        const bars = keyChanged
+          ? fetched
+          : mergeFetchedBars(fetched, barsRef.current);
         barsRef.current = bars;
         dataKeyRef.current = key;
         engineRef.current?.setBars(bars, { anchorRight: keyChanged });
