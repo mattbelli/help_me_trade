@@ -896,6 +896,24 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
         table (Addendum B), the axis measurement, and 1.8's `netflip`. Their current numbers are
         superseded on landing, and any that move materially must be re-recorded, not quietly
         replaced.
+      - **V7 RE-RUN COMPLETE (2026-07-29).** Re-roll: 256 sessions, 2h06m, `stale_spot=0`
+        throughout, wide-print exclusion 3.0–6.8% of quoted prints per session (mean ~4.1% over
+        the 2025 half, 4.9–5.9% in the busy 2026 tail). All three downstream measurements re-run
+        against v7; **nothing moved materially — every v6 conclusion stands verbatim**:
+        - *Base-rate table:* Q1 1.961% / Q5 8.629% vs v6's 1.96% / 8.63%; B2 STATIONARY (0.63pt
+          vs 2.0pt bar); B1 still NOT MET on SHORT_OTM (Q1 tested=680 < 1,000) — the thin-tier
+          sample problem is structural, not schema. Same seed ⇒ identical ε-draws, so the
+          residual deltas are the pure clause-1 effect: negligible.
+        - *Axis measurement:* corr +0.403/+0.241/+0.109 and opposite-sign 31.8%/36.8%/39.2% at
+          the $0/$250k/$1M floors (v6: +0.404/+0.235/+0.102, 31.7%/37.0%/39.4%). Name-days
+          938,453 vs 1,073,060 — clause 1 de-labels thin name-days entirely; disagreement
+          finding unchanged.
+        - *1.8 netflip:* single dir +26.4B→+10.1B **no flip** (v6 +27.9B→+11.4B), single side
+          −16.1B→+47.0B FLIPS (v6 −13.7B→+48.3B), idx dir −93.5B→+9.4B FLIPS, idx side
+          −95.5B→+20.0B FLIPS; per-session flip counts 47/80/117/112 vs v6's 48/79/118/112.
+        - The pre-stated expectation (premium-weighted results barely move; sign-sensitive ones
+          have the most room to shift) held and overshot — even the flip counts moved ≤1 session.
+        v7 is now the corpus of record; v6 numbers above are retained as the audit trail.
 
 **Phase 1 is done when:** the corpus is re-rolled clean, the four numbers exist, and Addendum F is
 committed. Only then does anything below produce a trustworthy result.
