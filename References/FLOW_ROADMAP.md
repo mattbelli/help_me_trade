@@ -734,7 +734,13 @@ it is a description of the market. No exceptions.
       consecutive same-sign tilt days (*the "multiple days of bull flow" hypothesis*); largest single
       print relative to that name's own normal, split by liquidity tier (*the "abnormally large
       sweeps on smaller caps" hypothesis*); concentration — one day or spread out; DTE mix; moneyness
-      mix; call/put mix; multi-leg share.
+      mix; call/put mix; multi-leg share. **Candidate feature from 1.11b (founder question
+      2026-07-29, "can we use the chase for positioning?"):** chase-adjusted tilt — residualize
+      each name-day's tilt on the prior day's excess return (1.11b measured the chase as the
+      NORMAL behavior of uninformed flow, k=−1 the only replicated structure), so the profile
+      asks about UNEXPLAINED flow; heavy flow after a move is what the crowd always does, heavy
+      flow with no prior move is the anomaly worth profiling. Exact form registered with 1.13,
+      not here.
 - [ ] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
       footprint — that is seconds, this is days. Did underlying **volume expand** in the sessions
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
