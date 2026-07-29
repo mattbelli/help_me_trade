@@ -44,6 +44,8 @@ CHUNK = 5_000_000  # full-day to_ndarray() is ~16 GB; chunked stays under ~2 GB
 # A .part untouched this long is abandoned, not in flight (same rule as the tcbbo
 # backfill): sessions take 1-6 min and the client writes continuously.
 PART_STALE_S = 900.0
+DL_ATTEMPTS = 4
+DL_BACKOFF_S = 20
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "databento"
 OUT_DIR = DATA_DIR / "opra_oi"
 SMOKE_FILE = DATA_DIR / "stats_probe_20260724.dbn.zst"
@@ -112,10 +114,25 @@ def _process_day(client: db.Historical, d: date, max_cost: float) -> None:
         logger.warning("%s: stale .part (%.0f min) — taking over", day,
                        (time.time() - raw.stat().st_mtime) / 60)
         raw.unlink()
+    # Databento streams occasionally end premature ("Response ended prematurely")
+    # — measured 2026-07-28, it killed two unattended shards mid-run. Retry with
+    # backoff, clearing the partial each time; a whole-day stream is ~678 MB so a
+    # truncated file is worthless, never resumable.
     t0 = time.time()
-    client.timeseries.get_range(
-        dataset=DATASET, schema=SCHEMA, symbols="ALL_SYMBOLS",
-        start=day, end=nxt, path=str(raw))
+    for attempt in range(1, DL_ATTEMPTS + 1):
+        try:
+            client.timeseries.get_range(
+                dataset=DATASET, schema=SCHEMA, symbols="ALL_SYMBOLS",
+                start=day, end=nxt, path=str(raw))
+            break
+        except Exception as exc:
+            raw.unlink(missing_ok=True)
+            if attempt == DL_ATTEMPTS:
+                raise
+            wait = DL_BACKOFF_S * attempt
+            logger.warning("%s: download attempt %d/%d failed (%s) — retrying in %ds",
+                           day, attempt, DL_ATTEMPTS, exc, wait)
+            time.sleep(wait)
     t_dl = time.time() - t0
     try:
         iid, oi, n_rec, n_dis = _condense(raw)
