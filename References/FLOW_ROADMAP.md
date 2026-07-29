@@ -1149,6 +1149,51 @@ it is a description of the market. No exceptions.
       profiles; pooling them repeats the index/single-name mistake one level down. Earnings/opex
       flags already exist as covariates — this makes the split a registered look in the ledger.
 
+      **1.14b PRE-REGISTRATION — REGISTERED 2026-07-29, run at founder direction ("go
+      ahead on 1.14b", same day). Does the established pre-move fingerprint differ
+      between catalyst and no-catalyst events? Registered BEFORE any per-episode
+      catalyst flag was computed (the earnings-date fetch is pure acquisition; the
+      flag definition below is fixed here).**
+
+      - **Catalyst flag:** an episode is EARNINGS-ADJACENT if ≥1 EDGAR 8-K Item-2.02
+        filing date for the name falls within ±1 SPY session of the episode date.
+        The ±1 window is motivated by the recorded EDGAR filing-hour bias (a filing
+        can lag the announcement by a session) — registered, not tuned. Data:
+        `data/research/earnings.db` built by the existing `research/earnings.py`
+        for the mover names only (controls need no flag — they were required quiet).
+        Names with no CIK / no dates cannot be flagged: counted, reported, and left
+        in no-catalyst with the contamination disclosed.
+      - **Honest scope, stated up front:** catalyst detection = EARNINGS ONLY. M&A /
+        FDA / guidance / analyst days are not detectable with free keyless data, so
+        "no-catalyst" is really "no-KNOWN-catalyst" and the contamination pushes the
+        two subsets TOWARD each other ⇒ a no-difference result is weak evidence; a
+        difference that survives it is strong evidence.
+      - **Features — the four established fingerprint components, zero new degrees of
+        freedom:** short_dte_share-hi, concentration-hi, largest_print_ratio-hi (all
+        at the FROZEN 1.12 control p90s) + vol_max_ratio-hi (1.13b's controls-first
+        thresholds, recorded in `mover_volume_113b.json` meta, reused verbatim).
+      - **Statistics:** per (feature, window, sign): D_cat = mover−control
+        exceedance-share difference among catalyst episodes, D_nocat = same among
+        no-catalyst episodes, primary contrast **X = D_cat − D_nocat** (paired per
+        draw, as 1.14's C). Residual primary / raw replication. Battery: 4 features
+        × 3 windows × 2 signs = **24 primary X intervals ⇒ ~1 expected false
+        positive.** D components reported with CIs; X carries the verdict. Also
+        reported descriptively: the catalyst share of episodes per sign/arm, and the
+        presence comparison per subset.
+      - **Uncertainty:** session-cluster bootstrap, 10,000 draws, one shared
+        resampling, SEED=20260804.
+      - **Reading rule:** a split FINDING requires (a) X's CI clear of zero, (b) ≥2
+        window lengths, (c) raw-arm direction replication. **Interpretation map,
+        fixed in advance:** fingerprint concentrated in the catalyst subset ⇒
+        positioning before scheduled news — perception watches event-adjacent
+        windows (feeds the event-gated idea flywheel); concentrated in no-catalyst ⇒
+        non-public-information-flavored, the more alarming and more valuable alert;
+        no difference ⇒ general mechanism, remembering the contamination bias makes
+        this the weakest conclusion.
+      - **Disclosure.** Fourth read of mover windows; features and thresholds all
+        pre-existing. Training only, test split untouched. Output: full tables +
+        `data/research/mover_catalyst_114b.json` (`tools/mover_catalyst.py`).
+
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
 no slippage, no position sizing, no P&L** appears anywhere in 1c. The only output is of the form
