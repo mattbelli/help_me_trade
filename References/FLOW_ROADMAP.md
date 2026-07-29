@@ -1243,6 +1243,55 @@ it is a description of the market. No exceptions.
         fingerprint is not one mechanism — alerting should branch on
         earnings-adjacency (free, keyless, already built).
 
+- [ ] **1.14c The forward flip — from "what preceded moves" to "what follows the signal"**
+      (founder standing authorization 07-29: "keep moving forward with tests"). Every 1c test so
+      far conditioned on the move and looked backwards; the alertability question is the flip:
+      when a fingerprint component fires on an ordinary name-day, how much more often does a big
+      move follow than base rate — and how often does it fire? A component 1.5× enriched
+      backwards can still be useless forward if it fires constantly; a rare trigger that
+      multiplies forward odds is a product. Still 1c, still NOT a backtest: occurrence rates
+      only, no entry/exit/P&L.
+
+      **1.14c PRE-REGISTRATION — REGISTERED 2026-07-29, before any forward rate was computed.**
+
+      - **Grain and universe:** every (name, session t) in the fenced single-name universe
+        (1.11's 6,931 names) across training sessions, with the full forward window inside the
+        training session range (last usable t = training end − W). Trigger features are computed
+        on the TRAILING window t−W+1…t (the forward mirror of backwards windows ending t−1);
+        outcome = ≥1 episode START (frozen 1.11 event set, 5-session-collapsed, EITHER sign —
+        direction-free per 1.14's no-sign verdict) in t+1…t+W. Horizon = W ∈ {5,10,20}, tied to
+        the trigger window by symmetry with the backwards design — registered, not tuned.
+      - **Triggers — the four fingerprint components at their PRE-EXISTING thresholds, zero new
+        degrees of freedom:** short_dte_share, concentration, largest_print_ratio at the frozen
+        1.12 control p90s; vol_max_ratio at 1.13b's recorded controls-first thresholds
+        (`mover_volume_113b.json` meta). Plus ONE registered conjunction: vol_max_ratio ∧
+        short_dte_share (the two regime leaders from 1.14b). A name-day with no classified flow
+        does not fire flow triggers (operational truth: no flow = no alert — registered as
+        fires=False, not NA); the vol trigger requires a computable baseline (1.13b's rule: ≥20
+        finite dollar-volume days in t−W−60…t−W−1).
+      - **The clustering guard (the adversarial check, primary by design):** a vol spike or flow
+        burst at t may BE a move already underway — foreshadowing and clustering are different
+        claims. **Primary arm = FRESH signals only**: name-days with no episode start (either
+        arm, either sign) for that name in t−W…t. The all-days arm (alert-simulation truth: the
+        alert fires when it fires) is reported alongside without pass/fail authority.
+      - **Statistics, per (trigger, W), residual episodes primary / raw replication:** firing
+        rate (share of eligible name-days + mean alerts/session); forward-episode share among
+        fired vs unfired; **primary = the difference in pp** with CI, enrichment ratio reported
+        descriptively. Battery = 5 triggers × 3 windows = **15 primary intervals ⇒ ~1 expected
+        false.** Descriptive color (no authority): rise/fall split of the followed moves;
+        earnings-adjacency composition of hits (1.14b branch); enrichment-by-decile curve of
+        each trigger feature (report-only — threshold refinement would be a NEW registration).
+      - **Uncertainty:** the forward windows of adjacent sessions overlap mechanically, so the
+        session-cluster bootstrap would understate CI width — upgraded to a **circular
+        moving-block bootstrap over sessions, block length = W**, 10,000 draws, one shared
+        resampling, SEED=20260805.
+      - **Reading rule:** a forward FINDING requires (a) the fired−unfired difference CI clear
+        of zero, (b) ≥2 windows, (c) raw-arm direction replication. Fresh-vs-all-days divergence
+        is reported as the clustering diagnosis, not averaged away.
+      - **Disclosure.** First forward read of the training corpus; thresholds and event set all
+        frozen upstream. Test split untouched (all windows end ≤ training boundary). Output:
+        full tables + `data/research/mover_forward_114c.json` (`tools/mover_forward.py`).
+
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
 no slippage, no position sizing, no P&L** appears anywhere in 1c. The only output is of the form
