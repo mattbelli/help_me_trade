@@ -341,6 +341,103 @@ Each decides something downstream. Run them, do not skip to building.
         whether the per-quintile exact base rate replaces the flat one in the grading spec
         (it should — but that is a registered change, not an edit). **(b) is now drafted as
         1.23**, founder-asked 07-29; (a) and 1.23(c) are the SAME long run, so one job closes both.
+
+      **1.7 ADDENDUM B — REGISTERED 2026-07-29, BEFORE THE FULL-WINDOW RUN.** Everything above
+      stands unedited. ⚠️ **This run cannot un-fail 1.7 and is not an attempt to.** The A2
+      criterion was breached on 07-29; that FAIL is permanent and the normal-vs-exact agreement
+      bar is **not re-tested here** — re-running a failed criterion at a new window until it
+      passes is precisely the fishing the prereg law exists to stop. What this run does is
+      supply the two things that are still genuinely unknown: **1.23(c)'s base-rate table on the
+      real grading window**, and the **SHORT_OTM** Q1/Q5 question that 40 sessions provably could
+      not populate.
+      - **Window:** all **251** real sessions on disk, **2025-07-28 … 2026-07-27** (one full
+        year; 261 files, 10 holiday stubs excluded by the >1 MB size filter). 231 tested days
+        after the 20-day burn-in. Definitions verified present for all 251 before registering.
+      - ⚠️ **This does NOT spend the untouched test split.** The shuffle consumes **no outcomes**:
+        it randomizes order signs and counts how often the DETECTOR fires. No forward return, no
+        post-event move, nothing after the session is read — the only price touched is the PRIOR
+        close, for moneyness bucketing. So the 2026-06-01 → 2026-07-25 split stays free despite
+        the window covering it. Recorded because it is the obvious thing to challenge later.
+      - **(B1) SHORT_OTM liquidity neutrality.** Exact-null **Q1/Q5 < 2.0×** with **Q1 ≥ 1,000**
+        tested name-days — the bar A1 used for ALL. If Q1 still falls short at a full year, the
+        arm is declared **unevaluable at any window we possess** and reported as such; it is NOT
+        retried at a longer window we do not have.
+      - **(B2) Stationarity — registered so this run CAN produce a negative result.** The table
+        is reported on the full window **and** on two halves (first 125 vs last 126 sessions).
+        If any quintile's exact rate moves **> 2.0 percentage points** between halves, the base
+        rate is declared **non-stationary** and 1.23(c) is amended from a fixed table to a
+        window-matched one BEFORE any grading uses it. A wobbly table must not be presentable
+        later as a stable one.
+      - **(B3) Draw noise is reported, not hidden.** 20 draws. Report each quintile's standard
+        error across draws; any quintile with across-draw SE > 0.5pt carries that SE in the
+        table rather than being quoted as a point estimate.
+      - *Mechanics, declared up front:* seed **20260729**, and the draw loop is inverted
+        (sessions outer, draws inner) so memory is ~0.7 GB instead of ~30 GB. That changes the
+        random stream, so this is a **fresh run, not a reproduction** of A2's numbers. A2 stays
+        reproducible: it keeps `tools/order_grain_null.py` unmodified and this runs in a
+        separate `tools/base_rate_table.py`.
+
+      **EXTERNAL AUDIT — RECEIVED 2026-07-29, DISPOSITION VERIFIED BEFORE ACTING.** An independent
+      adversarial audit of the whole flow method. Each claim was re-checked against code and data
+      rather than accepted; the dispositions below are what survived that check.
+      - ⛔ **ACCEPTED — the axis defect (audit Findings 1/2). This is the real one.** The prereg
+        registers a **call/put directional** tilt (`bull = call_buy + put_sell`,
+        `FLOW_BASELINE_PREREG_2026-07-26.md:68-72`), but the real-statistic code paths compute
+        **aggressor buy − sell with `right` ignored** — `tools/multileg_arm_probe_v6.py:11` is
+        literally `net = sum(premium|side=buy) - sum(premium|side=sell)`. **Measured on the full
+        corpus** (1,073,060 name-days, all 251 sessions), the two axes are different statistics:
+        corr **+0.404 / +0.235 / +0.102** and opposite-sign **31.7% / 37.0% / 39.4%** at premium
+        floors none / $250k / $1M. ⚠️ **The disagreement WORSENS with size** — on the biggest
+        name-days, the ones carrying the signal, the axes are nearly uncorrelated and point
+        opposite ways ~2 days in 5. Every conclusion drawn from the aggressor axis is a
+        conclusion about a statistic the prereg does not register.
+      - ✅ **Cost of the fix is small, and that is a measured fact, not an estimate:** `right` is
+        already a stored rollup column (`db/flow_corpus.py:92,135,219`; the rollup key packs
+        `n_r = 2` at `tools/flow_corpus_rollup.py:396-398`). The registered tilt is therefore
+        computable **from existing rollups — no re-ingest, no re-extraction.** What must be
+        re-run is 1.8's probe and `corpus_direction`, not the nulls.
+      - ❌ **REJECTED — that the nulls (1.7 / A2 / Addendum B) measured the wrong statistic.** The
+        audit concludes "any noise floor, Q1/Q5, or later grading applied to call/put tilt is
+        unmeasured." That is wrong **structurally, not by degree.** The null never reads `side`
+        or `right`: it is built from unsigned per-order premium and a coin flip. Both axes are
+        `Σsᵢpᵢ / Σpᵢ` with `sᵢ ∈ {±1}` — registered uses `s = side_sign × right_sign`, aggressor
+        uses `s = side_sign` — and replacing `s` with a symmetric Rademacher ε makes them the
+        **same process**, since `ε × right_sign` is distributed identically to `ε`. Denominators
+        match too: `bull + bear` partitions exactly the classified set that `buy + sell` does.
+        Quintiles, presence, `N_eff` and the SHORT_OTM subset are premium/bucket-defined and so
+        do not move either. ⇒ **the noise-floor curve transfers to the registered tilt exactly**,
+        and Addendum B's run is not invalidated. Recorded with the argument so this is not
+        re-litigated from the audit text alone.
+      - ★ **NEW, and worth more than the finding it was filed under:** within-order cancellation
+        IS axis-dependent, and nobody had this. A straddle (call buy + put buy) is one sign on
+        the aggressor axis but two opposing signs on the registered axis. The null models each
+        order as a single signed decision carrying its whole premium — an assumption that fits
+        the two axes differently, on a corpus where packages are ~56% of premium. Measurable;
+        queued rather than argued.
+      - ⛔ **ACCEPTED — audit Finding 5, and it changes Addendum B's runner before it ships.**
+        Prereg registers quintiles by **trailing-60-day median** premium
+        (`FLOW_BASELINE_PREREG_2026-07-26.md:149`); `z_null_probe.py` and `order_grain_null.py`
+        both use a **whole-corpus median fixed per name**. Implementation ≠ registration, and the
+        cut-points are conditioned on the full sample including the reserved test window. The
+        1.23(c) table is INDEXED BY QUINTILE, so this lands on it directly: the table must be
+        built under the registered trailing-60 rule. Caught before the table was produced.
+      - ⛔ **ACCEPTED — audit Finding 4: registered clauses that were never implemented.** No
+        demeaning by the whole-market daily mean (Addendum A), no `spread > 50% of mid` print
+        drop, and no `>20%`-dropped name-day exclusion (both prereg:60-61) exist anywhere in
+        `tools/flow_corpus_rollup.py` — `good_q` tests null/zero/crossed only. Each must be
+        implemented or **explicitly retired by addendum** before grading; until then "we followed
+        the prereg" is not a claim we may make about these three clauses.
+      - ✅ **ACCEPTED as autopsy — audit Finding 3.** The tilt is bounded to [−1, 1] but the
+        normal draw is not: at `N_eff ≈ 1.4`, σ ≈ 0.845 puts ~24% of draws outside the support
+        the real statistic can even occupy, sorted by liquidity exactly where exact and normal
+        diverged. Does not un-fail 1.7 (already FAILED); it sharpens **why** the approximation
+        died, and any future normal shortcut must respect the bound or not be used.
+      - **Withdraw list — 2 of 3 accepted.** (i) "the rule is liquidity-neutral" (A1 RESULT
+        wording) — **withdrawn**; the exact null says 0.24×, which is *under*-firing on thin
+        names, not neutrality. (ii) 1.8's single-name unreadability claim, insofar as it is read
+        as applying to directional tilt — **withdrawn pending re-run on the registered axis**.
+        (iii) "1.7's per-quintile rates are floors only for aggressor-imbalance z" — **rejected**,
+        per the axis-invariance argument above.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the

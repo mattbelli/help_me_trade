@@ -64,8 +64,8 @@ UNDEF_SIZE = 4_294_967_295
 logger = logging.getLogger("order_grain_null")
 
 
-def _sessions() -> list[date]:
-    """The N_SESSIONS most recent REAL sessions, newest last.
+def _sessions(n: int = N_SESSIONS) -> list[date]:
+    """The n most recent REAL sessions, newest last (n <= 0 means all of them).
 
     Market holidays leave an 87-byte tcbbo file (measured: Juneteenth 2026-06-19).
     Counting one as a session would silently cost a tested day — the burn-in eats
@@ -74,7 +74,7 @@ def _sessions() -> list[date]:
     """
     days = sorted(p.name.split(".")[0] for p in TCBBO_DIR.glob("*.dbn.zst")
                   if p.stat().st_size > 1_000_000)
-    return [date.fromisoformat(d) for d in days[-N_SESSIONS:]]
+    return [date.fromisoformat(d) for d in (days[-n:] if n > 0 else days)]
 
 
 def _extract(session: date) -> None:
@@ -221,6 +221,10 @@ def _report(label, fired_q, tested_q):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--extract", action="store_true")
+    # A2 ran on the 40-session default and that is left untouched so its result stays
+    # reproducible. 1.7 Addendum B extracts the full year through the same code path.
+    ap.add_argument("--sessions", type=int, default=N_SESSIONS,
+                    help="how many recent real sessions; <=0 means all on disk")
     # Must match the A1-corrected eligibility. Left at the registered $250k, A2
     # reproduces exactly the pathology A1 diagnosed: Q1 gets ~20 tested name-days
     # and SHORT_OTM's gets zero, so the Q1/Q5 leg compares nothing to nothing.
@@ -228,7 +232,7 @@ def main() -> None:
                     help="per-day total premium floor; 0 = the A1 no-floor universe")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    sessions = _sessions()
+    sessions = _sessions(args.sessions)
     logger.info("sessions: %s .. %s (%d)", sessions[0], sessions[-1], len(sessions))
 
     if args.extract:
