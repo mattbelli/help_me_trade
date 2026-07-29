@@ -630,7 +630,7 @@ it is a description of the market. No exceptions.
       the trade and becomes the **confirmation** that something real happened.
       *Not an assumption about founder reaction speed* — if a pattern lands at 15 minutes and is
       actionable, that is live. The axis is impact vs drift, not fast vs slow.
-- [ ] **1.11b Lead, lag, or coincident — run this FIRST, it is an afternoon.** Correlate name-level
+- [x] **1.11b Lead, lag, or coincident — run this FIRST, it is an afternoon.** Correlate name-level
       flow against forward and trailing returns at lags −10 … +10 days. The correlation between
       option flow and price is **mechanical and not in question** — options are derivatives. The open
       question is the **arrow of time**: a peak at negative lags means flow leads and there is
@@ -685,6 +685,47 @@ it is a description of the market. No exceptions.
       - **Disclosure:** positive lags from late-May sessions read June equity CLOSES —
         outcome bars only; test-split flow stays unmined (2.4 precedent). Early sessions
         lack full trailing lags (bars begin 2025-07-25); skipped and counted.
+
+      **1.11b RESULT (2026-07-29, `tools/lead_lag.py`, single run per leg, curves recorded
+      in full per the whole-curve law).** Panel: 212 sessions × 3,263 names, 178,624
+      name-days (~843/session) on the primary arm.
+
+      - **Flow does NOT lead price at daily grain — anywhere we looked.** Primary arm:
+        every positive lag +1 … +10 is a hair from zero with the interval straddling it
+        (largest +0.0059 at k=+1, CI [−0.0017, +0.0136]). Same in the ALL arm, the $1M
+        floor, and — most pointedly — **SHORT_OTM, the academic prior's home: stone dead
+        at every non-zero lag** (all 20 CIs straddle zero) while carrying the STRONGEST
+        same-day coupling of any leg (+0.323). The coherence bar for "flow leads" is not
+        approached, let alone met.
+      - **Lag 0 behaves exactly as registered:** +0.241 fenced / +0.197 blended /
+        +0.323 short-OTM / +0.286 at $1M — big, mechanical, no authority. Packages
+        DILUTE it (blended < fenced), consistent with the fence.
+      - **The one real structure: flow CHASES yesterday, and the chase grows with the
+        money.** k=−1 is the only lag with replicated nonzero readings: **+0.0114
+        [+0.0039, +0.0190] fenced, +0.0163 [+0.0069, +0.0258] at $1M**, directionally
+        present but diluted in the blended arm (+0.0052), absent in SHORT_OTM. Recorded
+        honestly: −1 is a single lag, so the adjacent-lag coherence test cannot apply;
+        the evidence is its replication across two independent legs. Lone spikes
+        elsewhere (−10 in the $1M leg, +7 negative in the blended arm; ~1 false positive
+        per 21-lag curve expected at 95%) are pre-registered noise and claimed as
+        nothing.
+      - **Magnitude lane (leg iv): no time-structure either.** |tilt| vs |move| is a
+        FLAT ≈−0.03 at every lag −10 … +10 (all CIs clear of zero, both directions,
+        no decay, no asymmetry) with lag 0 sitting ~+0.037 ABOVE that background —
+        i.e. the flat negative band is a persistent cross-name TRAIT correlation
+        (one-sided-tilt names are systematically smaller-|move| names in this panel),
+        not a dynamic signal, and the only dynamic term is the same-day mechanical one.
+        One-sided flow does not foreshadow bigger movement at any daily horizon.
+      - **What this decides for the later steps (the registration's stated purpose):**
+        the unconditional daily-grain prior is now LOW — flow at this grain is
+        coincident-plus-chase, not leading. 1.12–1.14 remain the right next steps
+        precisely because they ask the CONDITIONAL question this scan cannot answer:
+        a rare predictive configuration (extreme events, specific shapes, catalyst
+        windows) would dilute to invisibility inside a ~843-name/day pooled rank
+        correlation. What dies today is "flow broadly leads price"; what survives is
+        only the narrower hypothesis the profiling ladder exists to test — with
+        expectations set accordingly. Impact-vs-drift (1.11a-ii) reading: at daily
+        grain, everything lives in the impact/coincident term, nothing in drift.
 
 - [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
       sector and date. *Done when:* the control set's own base rates are computed and written down
