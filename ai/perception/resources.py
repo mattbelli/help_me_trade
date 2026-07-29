@@ -567,6 +567,36 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     return out
 
 
+def _read_flow_perception(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from db.flow_perception import rows_for_session
+
+    session = str(filters.get("session") or "").strip() or None
+    symbol = str(filters.get("symbol") or "").strip().upper() or None
+    try:
+        window = int(filters["window"]) if filters.get("window") else None
+    except (TypeError, ValueError):
+        return [{"error": "window must be 5, 10 or 20"}]
+    try:
+        limit = int(filters.get("limit") or 50)
+    except (TypeError, ValueError):
+        limit = 50
+    rows = rows_for_session(
+        session, window=window, symbol=symbol, limit=limit, db_path=db_path
+    )
+    if not rows:
+        return [
+            {
+                "unavailable": True,
+                "session": session or "latest",
+                "symbol": symbol,
+                # Absence is the common case and it is informative: only names that
+                # cleared their peer cell's top decile get a row.
+                "note": "no name-day cleared the peer top decile (or no scan has run)",
+            }
+        ]
+    return rows
+
+
 def _read_flow_report(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     from db.reports import recent_reports_by_kind
 
@@ -913,6 +943,28 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_flow_report,
     },
+    "flow_perception": {
+        "description": (
+            "Daily unusual-vs-peers flow scan: names whose trailing-window option "
+            "flow or equity volume was in the top decile of their own liquidity peer "
+            "group (session x dollar-volume quintile) on four components — "
+            "short-dated share, single-day burst concentration, abnormal largest "
+            "print, equity volume spike — with the earnings-adjacency regime and "
+            "days to earnings. PERCEPTION ONLY: describes unusualness, never "
+            "predicts. Forward screening on these components was pre-registered NULL "
+            "twice (FLOW_ROADMAP 1.14c/1.14d), so there is no probability, win rate "
+            "or signal here; each row carries its own disclaimer plus "
+            "session_age_days, which says how stale the scanned session is. A symbol "
+            "with no row was simply not unusual versus its peers."
+        ),
+        "filters": {
+            "session": "optional YYYY-MM-DD — default the latest scanned session",
+            "symbol": "optional ticker",
+            "window": "optional trailing sessions — 5 | 10 | 20",
+            "limit": "optional row cap — default 50",
+        },
+        "read": _read_flow_perception,
+    },
 }
 
 
@@ -955,6 +1007,9 @@ _RESOURCE_ALIASES = {
     "flow_decomp": "flow_report",
     "flow_decomposition": "flow_report",
     "daily_flow_report": "flow_report",
+    "unusual_flow": "flow_perception",
+    "unusual_options_flow": "flow_perception",
+    "flow_scan": "flow_perception",
 }
 
 
