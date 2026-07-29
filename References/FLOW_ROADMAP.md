@@ -853,6 +853,56 @@ it is a description of the market. No exceptions.
       asks about UNEXPLAINED flow; heavy flow after a move is what the crowd always does, heavy
       flow with no prior move is the anomaly worth profiling. Exact form registered with 1.13,
       not here.
+
+      **1.13 PRE-REGISTRATION — REGISTERED 2026-07-29, run at founder direction ("go",
+      same day). The first look at mover flow. Discovery (1c): every number reported,
+      no pass/fail; the reading rule is fixed here before the run.**
+
+      - **Inputs, all frozen by 1.12:** the episode set, the 5-per-episode matched
+        controls, the window features exactly as `tools/mover_controls.py` computes them
+        (same code paths), and the pooled control quantiles in
+        `data/research/mover_controls.json`. Windows 5/10/20 ending t−1. Residual arm =
+        primary; raw arm = replication leg. Rises and falls SEPARATE everywhere.
+      - **Primary statistic per (feature, window, sign): exceedance-share DIFFERENCE.**
+        Share of mover windows at or beyond a frozen control threshold, minus the same
+        share among their matched controls. Thresholds: the FROZEN pooled control p90
+        (upper tail) and p10 (lower tail) from 1.12 — both tails reported for every
+        feature, no picking; p99/p1 reported as secondary color. Shares are computed
+        over non-NA windows, and each feature's NA share (mover vs control) is itself
+        reported — "had no classified flow at all" is a finding, not a dropout.
+        The ratio (mover share ÷ control share) is reported as the readable lift, but
+        the DIFFERENCE carries the interval — ratios explode when the denominator is
+        near zero.
+      - **Presence comparison** (the base-rate headline made a test): share of windows
+        with ≥1 active day, mover vs matched control, same difference-with-CI form.
+      - **Uncertainty.** 95% CI on each difference by bootstrap over EVENT SESSIONS
+        (episodes cluster on market-wide vol days; resampling sessions keeps that
+        dependence), 10,000 draws, one shared resampling across all features/windows per
+        draw, SEED=20260731.
+      - **Chase-adjusted tilt (the 1.11b follow-on, exact form).** Daily tilt on active
+        days regressed (OLS, single pooled slope b) on the PREVIOUS session's
+        excess-vs-SPY return in own-ATR14 units, estimated on the 59,958 unique CONTROL
+        name-days only (untainted by movers; b recorded). Feature: window_tilt minus
+        b × (classified-premium-weighted mean of prev-day excess z over the window's
+        flow days; available-x weighting, NA if no finite x). Thresholds for this ONE
+        feature cannot come from the 1.12 freeze (it did not exist): its control
+        p10/p90 are computed on the same unique control name-days at run start, before
+        any mover value — enforced by code order, disclosed here.
+      - **Liquidity split (the "small caps" hypothesis):** largest-print-ratio and
+        presence differences additionally reported per liquidity quintile (matching
+        makes the split clean); thin cells counted, never silently dropped.
+      - **Reading rule, fixed in advance.** ~11 features × 3 windows × 2 tails × 2 signs
+        ≈ 130 primary-arm intervals ⇒ **expect ~6–7 false positives at 95% by chance
+        alone.** A profile difference is a FINDING only if: (a) its CI is clear of zero,
+        (b) it repeats across ≥2 window lengths, (c) it replicates in direction in the
+        raw arm, and (d) it survives the liquidity split (not a size artifact). Anything
+        weaker is reported as noise-compatible. Signed hypotheses (bullish-before-fall
+        reversal etc.) belong to 1.14, not here — 1.13 asks WHETHER movers' preceding
+        flow differs, feature by feature.
+      - **Disclosure.** Mover flow is read for the first time under this registration.
+        All windows end at t−1 ≤ 2026-05-28: training flow only, test split untouched.
+        Output: full tables + `data/research/mover_profile_113.json`
+        (`tools/mover_profile.py`).
 - [ ] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
       footprint — that is seconds, this is days. Did underlying **volume expand** in the sessions
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
