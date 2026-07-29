@@ -1038,8 +1038,10 @@ out of a rolling window. There is no rush; do it after Phase 1.
         robustness subset (clean coverage dips to 80–87% there per 2.3); vol floor
         stated up front. Pass/fail criteria still to be registered before any graded run.
 
-      **2.4 PRE-REGISTRATION — DRAFT 2026-07-29 (drafted at founder direction; becomes
-      BINDING on founder approval; NO graded run before that approval).**
+      **2.4 PRE-REGISTRATION — REGISTERED 2026-07-29. Drafted at founder direction
+      2026-07-29; two report-only legs (iv)/(v) added from founder review the same day;
+      founder approved ("ok lets go") 2026-07-29 with the legs included. BINDING from
+      approval — changes from here require a dated addendum.**
 
       *The question in one sentence:* when the Phase-1 flow alarm fires on a name, does the
       alarm work better on days when that name's options volume was mostly NEW positions
@@ -1081,7 +1083,18 @@ out of a rolling window. There is no rush; do it after Phase 1.
       - **Robustness legs (report-only, no authority):** (i) recompute f_open on DTE 5–89
         cells only; (ii) drop events on monthly-expiry sessions (2.3: clean coverage dips
         to 80–87% there); (iii) tercile edges ±5 percentile points, to show the verdict
-        is not an artifact of the 33/67 cut.
+        is not an artifact of the 33/67 cut; (iv) **dose-response gradient** (founder,
+        07-29): events lined up by f_open percentile (quintiles of rank), median signed
+        alpha per bucket — a real effect should climb with the dose, a fluke shows up in
+        one bucket and vanishes in the next; (v) **same-side f_open** (founder, 07-29):
+        f_open recomputed on the event's dominant right only (calls for call-driven
+        events, puts for put-driven — dominant = the right carrying the majority of the
+        event day's bull/bear premium), since "the calls were open-heavy" is sharper for
+        a call-driven bullish event than the whole name's blend. ⚠️ Registered honesty
+        note on (v): ΔOI cannot see WHICH party opened — an aggressive call WRITER
+        raises OI exactly like an aggressive call buyer; the leg stacks evidence
+        (aggressor side from quotes + newness from ΔOI + location from right), it does
+        not recover the true label.
       - **Registered limitation, stated up front:** `f_open` is a **name-day, unsigned**
         estimate — it says "today's volume in this name skewed toward opening," not
         "the bullish side was opening." The literature's instrument was signed
