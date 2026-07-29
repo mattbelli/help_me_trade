@@ -1014,6 +1014,30 @@ out of a rolling window. There is no rush; do it after Phase 1.
 - [ ] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
       recovers the predictability the literature reports.
 
+      **PRE-CHECK RUN 2026-07-29** (`tools/f_open_dispersion.py` on `data/oi_reconcile.db`,
+      vol floor 1,000 contracts/name-day, ~1,195 qualifying names/session) — asked BEFORE
+      writing the prereg whether the feature can discriminate at all. **It can; 2.4 is
+      runnable**, and the compression worry raised 07-29 is measurably WRONG:
+      - **Cross-name spread is wide, not thin.** p10=0.535 / p50=0.685 / p90=0.870 —
+        a 0.335 p90−p10 spread, cross-sectional std 0.139. The 0.60–0.70 range that
+        prompted the worry was the *vol-weighted aggregate*, which compression-averages
+        the very dispersion 2.4 needs. Aggregate compression ≠ cross-name compression.
+      - **The spread is NOT the expiry calendar.** DTE gradient of the vol-weighted mean
+        is only 0.573→0.687 (short→long), while the *within-bucket* cross-name spread is
+        0.30–0.42 in every bucket — the name effect dwarfs the DTE effect. Excluding
+        DTE 0/1–4 entirely leaves the spread at 0.340 (vs 0.335 with them). The calendar
+        artifact lives in the aggregate time series, not the cross-section. (DTE-0 cells
+        are already absent by construction — expiry-day f_open is NULL per 2.3's flags.)
+      - **It is a partly persistent name trait, not day noise:** day-over-day Spearman
+        rank autocorr 0.289 (lag 1) / 0.203 (lag 5), ~10 SE from zero at this breadth.
+        Persistent enough to condition on; the non-persistent remainder is the event-day
+        variation 2.4 actually wants to read.
+      - **What the prereg must therefore gate on** (constraints, not yet the registration):
+        cross-sectional rank/percentile of f_open per session, never levels; DTE held
+        fixed or ranked within bucket; monthly-expiry sessions flagged into the
+        robustness subset (clean coverage dips to 80–87% there per 2.3); vol floor
+        stated up front. Pass/fail criteria still to be registered before any graded run.
+
 ⚠️ **What OI will NOT do:** disambiguate a spread's direction. A bull call spread and a bear call
 spread produce identical OI changes on both legs. That problem is Phase 3's.
 
