@@ -1339,7 +1339,7 @@ it is a description of the market. No exceptions.
         is dead entirely at these feature definitions; the event-gated earnings
         branch and finer grains remain open regardless.
 
-- [ ] **1.14d The peer-relative forward screen** (the registered follow-up to 1.14c's
+- [x] **1.14d The peer-relative forward screen** (the registered follow-up to 1.14c's
       composition diagnosis; founder standing authorization 07-29). 1.14c showed the pooled
       global-threshold screen dies in cross-name composition while the backwards design —
       which found the fingerprint — compared each mover against controls matched on session +
@@ -1378,6 +1378,37 @@ it is a description of the market. No exceptions.
         hidden). Sector is NOT in the matching cell (cells would go too thin) — one rung
         coarser than the backwards controls, disclosed. Test split untouched. Output:
         tables + `data/research/mover_relative_114d.json` (`tools/mover_relative.py`).
+
+      **1.14d RESULT — RUN 2026-07-29 (single registered run, SEED=20260806; panel
+      verification passed). VERDICT: the registered NULL branch — day-grain
+      alertability at these feature definitions is dead in BOTH forms. Ranking within
+      peers did not rescue the screen: NO finding, positive or negative, clears the
+      full reading rule (6/15 fresh-residual stars vs ~1 expected false, but none
+      with ≥2 same-direction windows + raw replication).**
+      - **The 5d short-DTE lift recurs — the one persistent positive.** +0.77pp*
+        over 2.74% base (1.28×), raw-replicated (+0.70pp*, 1.27×) — nearly identical
+        to 1.14c's global-bar version (1.19×/1.28×). Twice-seen, both times
+        5d-single-window (10d ns, 20d flips NEGATIVE-starred −0.88pp*), and still
+        ~434 alerts/session for a 3.5%-vs-2.7% hit rate. A real-looking, localized,
+        operationally unusable-standalone signal: recorded, not claimed.
+      - **The longer windows lean systematically NEGATIVE.** Residual fresh 10–20d:
+        concentration 10d −0.77pp* (raw-replicated), largest_print 20d −0.98pp*
+        (raw-replicated), vol_max_ratio 20d −2.10pp* (raw ns), short_dte 20d
+        −0.88pp* (raw ns) — each single-window so none is claimed, but 4 negative
+        stars at 10–20d against ~1 expected false is a consistent lean: peer-unusual
+        flow/volume days are followed by slightly FEWER fresh episodes at 2–4 week
+        range. Mechanism not established (candidates: the flow resolving without a
+        move; benign-fire composition after the fresh guard) — color, not a finding.
+      - **vol_and_short conjunction: ns everywhere fresh** (~45 alerts/session;
+        all/raw arm negative-starred — post-move composition, no authority).
+      - **Interpretation (per the pre-registered map):** the backwards profile
+        DESCRIBES big-move windows without SELECTING them at day grain — matched
+        enrichment (1.4–1.7×) is real but too weak and too common to screen, in
+        global-bar and peer-rank form alike. The open paths are the ones day grain
+        cannot see: the event-gated earnings branch (1.14b) and finer-than-daily
+        grains. Threshold-severity rescue is NOT indicated (1.14c decile curves were
+        flat-to-inverted). The one thread worth carrying: 5d short-DTE, as one angle
+        in fusion — never a standalone alert.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
