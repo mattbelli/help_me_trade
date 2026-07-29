@@ -953,6 +953,58 @@ it is a description of the market. No exceptions.
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
       alone? Free: daily volume is already in `equity_bars.v`. A two-part pattern is also harder to
       fake than a one-part one, so if it holds it is more likely real.
+
+      **1.13b PRE-REGISTRATION — REGISTERED 2026-07-29, run at founder direction ("go ahead
+      on 1.13b", same day). Stays in the backwards frame (1c law): equity-volume features
+      join the preceding-window profile, movers vs frozen matched controls. Third read of
+      mover-window data; first read of mover equity volume as a profile feature (volume
+      already served as a matching variable — see the conservative-bias disclosure).**
+
+      - **Inputs, frozen by 1.12:** episode set, matched controls, windows 5/10/20 ending
+        t−1, residual primary / raw replication, training only. Dollar volume dv = close ×
+        share volume from the same bars matrices the matching quintiles used.
+      - **Baseline B** per (name, t, W): median dv over the 60 sessions ending at t−W−1
+        (≥20 finite required, else NA) — strictly PRE-window, so expansion inside the
+        window cannot leak into its own yardstick.
+      - **Window features (same code paths for movers and controls):**
+        1. `vol_expansion` = mean window dv ÷ B.
+        2. `vol_max_ratio` = max window dv ÷ B (the volume analog of the largest-print
+           ratio).
+        3. `post_flow_vol` = mean dv over days STRICTLY AFTER the window's largest flow
+           day (argmax classified premium among active ≥$250k days) ÷ B; NA if no active
+           day or the largest flow day is the window's last. The founder's literal
+           question: volume in the sessions following the unusual flow, still before the
+           move.
+        4. `flow_leads_vol` = indicator that the largest flow day strictly precedes the
+           window's max-volume day; NA if no active day. Ordering evidence for
+           informed-flow-before vs reaction-to-drift — evidence, not proof; finer grains
+           remain the real separator.
+        5. **Two-part battery:** `flow_sig` = largest_print_ratio ≥ the FROZEN 1.12
+           control p90 (the 1.13 finding's signature); `vol_hi` = vol_expansion ≥ control
+           p90. D reported for `two_part` (flow_sig AND vol_hi), `flow_only` (flow_sig
+           AND NOT vol_hi), `vol_only` (vol_hi AND NOT flow_sig).
+      - **Statistics:** exceedance-share differences exactly as 1.13 — features 1–3 at
+        control p90/p10 (both tails — volume CONTRACTION before movers would be a finding
+        too), feature 4 and the two-part battery as single shares; NA shares reported.
+        New features' thresholds cannot come from the 1.12 freeze: computed on control
+        windows FIRST at run start, before any mover value (code-order enforcement, as
+        1.13's chase feature). Session-cluster bootstrap, 10,000 draws, one shared
+        resampling, SEED=20260803. Battery: 10 stats × 3 windows × 2 signs = **60
+        residual intervals ⇒ ~3 expected false positives.**
+      - **Reading rule:** as 1.13 — (a) CI clear of zero, (b) ≥2 windows, (c) raw-arm
+        direction replication, (d) liquidity split survival (split reported for
+        vol_expansion + two_part). **"Two-part foreshadows better" is supported only if**
+        D(two_part) is a finding under (a)–(d) AND the two_part mover÷control ratio
+        exceeds the flow_only ratio at the same windows.
+      - **Conservative-bias disclosure (registered before the run, not discovered
+        after):** controls are matched on the trailing-20d median dv over t−20…t−1, which
+        OVERLAPS the feature windows — fully at 20d, least at 5d (a 20-day median barely
+        moves for a ≤5-day spike). Genuine mover volume expansion is therefore partially
+        matched away: the test is biased TOWARD null, most at 20d. Findings that survive
+        are stronger for it; **a null at 20d is NOT evidence of absence.**
+      - **Disclosure.** Windows end t−1 ≤ 2026-05-28, training only, test split
+        untouched. Output: full tables + `data/research/mover_volume_113b.json`
+        (`tools/mover_volume.py`).
 - [x] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
       **falls** separately. Same profile ⇒ no signal. Bullish flow preceding falls more often ⇒ the
       reversal effect, which is what Pan & Poteshman measured (price pressure at d+1, significantly
