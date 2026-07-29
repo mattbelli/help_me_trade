@@ -959,6 +959,58 @@ it is a description of the market. No exceptions.
       reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
       entire retail industry sells**, which would be the most valuable single finding available to us.
       *Note:* partially absorbs measurement 1.10's cross-tab — run 1.10 inside this frame.
+
+      **1.14 PRE-REGISTRATION — REGISTERED 2026-07-29, run at founder direction ("go", same
+      day). The targeted sign test: does the DIRECTION of preceding tilt carry information
+      about the direction of the coming move — right-way, reversed, or none. Second read of
+      mover flow, same frozen windows.**
+
+      - **Inputs, all frozen by 1.12:** episode set, 5-per-episode matched controls, window
+        machinery (`tools/mover_controls.py` code paths), windows 5/10/20 ending t−1,
+        residual arm primary / raw arm replication, training only (t−1 ≤ 2026-05-28).
+      - **Direction feature 1 — all-flow tilt sign.** A non-NA window is BULLISH if
+        `window_tilt` (frozen definition) > 0, BEARISH if < 0; tilt exactly 0 counted in
+        neither share (count disclosed). Parameter-free — no threshold to choose.
+      - **Direction feature 2 — short-DTE tilt sign.** Same tilt form restricted to
+        `dte_bucket IN ('0-7','8-30')` on the identical fence (side buy/sell, multileg=0):
+        bull_short = short-DTE call-buy + put-sell premium; tilt_short =
+        (2·bull_short − cls_short).sum ÷ cls_short.sum over the window; NA if the window
+        has zero short-DTE classified premium. Registered reason: 1.13 localized the
+        informative flow in short tenor, so the sign question is tested where the signal
+        lives. Read independently of feature 1; if the two star in OPPOSITE directions the
+        result is recorded as UNRESOLVED, never cherry-picked.
+      - **Primary statistic per (feature, window):** D_sign = bull-share(movers) −
+        bull-share(matched controls), computed for rises and falls separately, then the
+        contrast **C = D_fall − D_rise**. Controls cancel name/session/sector/size
+        composition within each sign; C compares the excesses. Sign map fixed in advance:
+        **C > 0 ⇒ reversal** (excess bullishness before falls — the Pan–Poteshman
+        direction); **C < 0 ⇒ right-way flow**; CI covering 0 ⇒ no day-grain sign
+        information in tilt. Bull/bear shares both tabulated but the interval sits on the
+        bull-share D and on C only (bear ≈ mirror; no double counting). Shares over non-NA
+        windows; NA shares reported but the presence confound is 1.13's recorded fact, not
+        re-litigated here.
+      - **Uncertainty.** Same session-cluster bootstrap: 10,000 draws over event sessions,
+        one shared resampling across all statistics, SEED=20260802; C per draw = that
+        draw's D_fall − D_rise. Battery: 2 features × 3 windows × {D_rise, D_fall, C}
+        residual = **18 primary intervals ⇒ ~1 false positive expected at 95%.**
+      - **Secondary / color (no stars claimed):** (i) magnitude version — mean window
+        tilt, mover minus control, per sign + contrast; (ii) continuity rows — the frozen
+        p90/p10 tilt-tail exceedance rows from 1.13 (the pointer that sent us here)
+        re-reported per sign with the contrast; (iii) descriptive cross-tab — episode
+        counts by (tilt sign × move sign) per window, residual arm, control shares
+        alongside. The cross-tab covers the flow-sign×move-sign quadrant of 1.10;
+        1.10 (d)'s drift×sweep 2×2 with production sweep parameters stays open.
+      - **Reading rule.** A sign FINDING requires (a) C's CI clear of zero, (b) ≥2 window
+        lengths, (c) raw-arm direction replication, (d) survival of the liquidity split
+        (D and C per quintile for feature 1, same bootstrap, robustness not primary;
+        unknown-quintile episodes counted, never silent).
+      - **Outcome map, registered so the trading meaning is not improvised after the
+        look:** right-way ⇒ tilt enters perception as directional evidence; reversal ⇒
+        tilt enters with INVERTED sign (the industry-inverting outcome); none ⇒ tilt is
+        retired as a direction carrier at day grain and direction must come from other
+        angles — 1.13's direction-free shape findings stand regardless.
+      - **Disclosure.** Output: full tables + `data/research/mover_sign_114.json`
+        (`tools/mover_sign.py`). Test split untouched.
 - [ ] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
       at catalyst moments — earnings, guidance, M&A, FDA). "Someone knew about the event" and
       "someone moved the stock" are different stories with plausibly different preceding-flow
