@@ -948,7 +948,7 @@ it is a description of the market. No exceptions.
         lift = presence × conditional. And day-grain windows cannot distinguish
         "informed flow before the event" from "flow reacting to pre-event drift" —
         that separation belongs to 1.13b (volume expansion) and finer grains.
-- [ ] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
+- [x] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
       footprint — that is seconds, this is days. Did underlying **volume expand** in the sessions
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
       alone? Free: daily volume is already in `equity_bars.v`. A two-part pattern is also harder to
@@ -1005,6 +1005,51 @@ it is a description of the market. No exceptions.
       - **Disclosure.** Windows end t−1 ≤ 2026-05-28, training only, test split
         untouched. Output: full tables + `data/research/mover_volume_113b.json`
         (`tools/mover_volume.py`).
+
+      **1.13b RESULT (2026-07-29, `tools/mover_volume.py`, single run; full tables in
+      the JSON — this block is the reading-rule verdict).** Far more coherent structure
+      than the ~3 expected false positives; the verdicts, feature by feature:
+
+      - **FINDING 1 — the strongest row in the study so far: a volume-SPIKE day sits in
+        the pre-move window.** vol_max_ratio-hi (max window volume ≥ ~4–7× own pre-window
+        normal) elevated at ALL windows, BOTH signs, ALL raw-replicated — 12/12 starred:
+        rises +5.4/+4.8/+4.3pp, falls +6.9/+5.1/+5.1pp over ~10% base (≈1.4–1.7×), with
+        the quiet mirror (lo tail) suppressed in 5 of 6 residual cells. Unlike every flow
+        finding it is symmetric across move direction. (Split registered only for
+        vol_expansion + two_part; given Finding 2's localization the spike likely shares
+        some of it — un-split by registration, stated not hidden.)
+      - **FINDING 2 — sustained volume expansion before moves is a THIN-NAME
+        phenomenon.** vol_expansion-hi clears the rule (rises 2 windows, falls 3, raw
+        direction replicates) but the split localizes it: q0/q1 carry +5…+13pp while
+        q2–q4 sit at zero (q4 rise 20d even flips to −3.2pp*). In liquid names the
+        pre-move window does NOT run abnormally loud overall — the signal there is the
+        single spike day (Finding 1), not a louder tape.
+      - **FINDING 3 — the founder's literal question: volume DOES expand in the sessions
+        after the flow day, at short range.** post_flow_vol-hi: rises +7.6pp (5d) and
+        +4.0pp (10d) both CI-clear with raw 5d replication; falls +7.3pp at 5d (10d
+        +3.4pp, CI grazing zero); gone by 20d. Scope caveat: defined only on windows with
+        an active flow day before the window's last session (~9–13% of mover windows —
+        the 1.13 presence confound selects this subset; its NA rows star for exactly that
+        reason, recorded not re-claimed).
+      - **NOT SUPPORTED — "flow + volume expansion foreshadows better than flow alone."**
+        two_part stars once (fall 5d +0.9pp on a ~2% base) ⇒ fails ≥2 windows; the
+        registered better-than-flow_only gate is therefore not reached. flow_only (the
+        abnormal print WITHOUT volume expansion) carries the fall-side discrimination on
+        its own (+3.4pp* at 5d residual; raw +4.5/+2.3pp*) — the 1.13 print signature
+        does not need volume confirmation, the joint cell is rare (power), and the two
+        parts overlap in information. The two-part idea stays alive only as a finer-grain
+        question.
+      - **Ordering (flow_leads_vol): NO signal.** Movers' biggest flow day does not
+        precede their volume peak more often than controls' (residual ns everywhere).
+        The informed-flow-before vs reaction-to-drift question stays unresolved at day
+        grain, exactly as the standing caveat anticipated. Raw-rise-only stars
+        (−4.2/−4.3pp) pattern-match the raw-rise confound family; recorded, not claimed.
+      - **Confound bookkeeping:** post_flow_vol / flow_leads_vol / two_part NA elevations
+        (+3…+17pp) are the 1.13 presence/optionability confound recurring through
+        feature definitions; vol_expansion NA +1.1–1.6pp is thin bar history. Recorded.
+      - **Standing conservative bias (registered pre-run):** volume-quintile matching
+        overlaps the windows, so all expansion effects here are floors, and the 20d
+        fades are partly mechanical.
 - [x] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
       **falls** separately. Same profile ⇒ no signal. Bullish flow preceding falls more often ⇒ the
       reversal effect, which is what Pan & Poteshman measured (price pressure at d+1, significantly
