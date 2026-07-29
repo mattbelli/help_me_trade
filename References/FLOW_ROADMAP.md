@@ -264,6 +264,14 @@ Each decides something downstream. Run them, do not skip to building.
         the 20-day baseline burn-in. Assign each order an independent ε = ±1 with p = 0.5 —
         no normal approximation — recompute tilt = Σεᵢpᵢ / Σpᵢ, and apply the registered rule.
         Orders are the rollup's own grain: distinct `(ts_event, instrument_id)` groups.
+        *Window note (2026-07-28, during the run):* market holidays leave an 87-byte tcbbo
+        file that the naive glob counted as a session — Juneteenth 2026-06-19 sat inside the
+        window, and since the 20-day burn-in eats half of it, that silently yields **19**
+        tested days against a registered **≥20**. Sessions are now selected by file size
+        (> 1 MB), not by calendar, so the window is 40 REAL sessions: **2026-05-29 …
+        2026-07-27**. Also measured while extracting: the `size` UNDEF sentinel runs
+        ~45–47k prints/session and is now dropped by an EXPLICIT guard with the count
+        logged, rather than relying on the incidental definitions-join protection.
       - **PASS/FAIL for the close (both must hold):** (1) A1's Q1/Q5 **< 2.0×** in the
         no-day-floor universe for BOTH arms, with Q1 non-empty in each; (2) A2's pooled
         firing rate and Q1/Q5 agree with the normal-draw null to within **±2 percentage
@@ -291,6 +299,47 @@ Each decides something downstream. Run them, do not skip to building.
         operating universes if one is ever wanted: N_eff ≥ 5 → 2,788 names; ≥ 10 → 1,919;
         ≥ 25 → 996. Contract volume was NOT measured (absent from the cached aggregate;
         an 8-min rescan if it is ever wanted as a third ranking).
+
+      **A2 RESULT — RAN 2026-07-29. ⛔ 1.7 FAILS its registered closing criterion.** 40
+      sessions (2026-05-29 … 2026-07-27), ~380M orders rebuilt from raw tcbbo, 20 draws,
+      every order given a real ±1 — no normal approximation anywhere.
+      | arm | pooled exact | pooled normal | Δ | Q1/Q5 exact | Q1/Q5 normal | Δ | verdict |
+      |---|---|---|---|---|---|---|---|
+      | ALL | 7.362% | 8.983% | 1.62pt ✓ | **0.24×** | **1.04×** | **0.80× ✗** | **FAIL** |
+      | SHORT_OTM | 8.580% | 9.860% | 1.28pt ✓ | 0.00× | 0.00× | — | **degenerate, NOT a pass** |
+      The registered bar was ±2.0pt pooled AND ±0.5× on Q1/Q5. ALL breaches the ratio leg,
+      and per the registration ("A2 disagreeing beyond that means the normal approximation
+      was hiding tail behaviour and 1.7 fails regardless of A1") **1.7 is FAILED and stays
+      open.** The asymmetry registered on 07-28 did exactly the job it was written for.
+      - **What actually broke: the normal approximation overstates false alarms in thin
+        names by ~4×.** Exact vs normal by quintile (ALL): Q1 **2.129% vs 9.020%**, Q2 3.386
+        vs 9.046, Q3 6.282 vs 9.332, Q4 8.810 vs 8.987, Q5 **8.927 vs 8.680**. The two nulls
+        agree where there are many orders and diverge where there are few — the tilt of a
+        3-order day is a handful of discrete values, not a bell curve, and a 20-day baseline
+        built from lumpy ±1s has a std wide enough that today rarely clears 2σ.
+      - ⚠️ **The base rate is NOT one number — it is a curve in liquidity, and it is lower
+        than 1.7 reported.** True pooled null is **7.36%**, not 8.4–9.0%, and it runs from
+        **2.1% (thinnest) to 8.9% (most liquid)**. Every prior statement of "≈8.4% regardless
+        of liquidity" came from the normal null and is **superseded**: grading must subtract a
+        PER-QUINTILE base rate, or thin-name signal will be scored against a bar ~4× too high.
+      - **The substantive liquidity-detector question is answered MORE strongly, not less.**
+        Exact Q1/Q5 = 0.24× against a 2.0× bar: the rule does not over-fire on thin names, it
+        **under**-fires on them. A1's finding survives; what died is the approximation used
+        to reach it.
+      - **SHORT_OTM's "PASS" is spurious and is not banked.** Q1 = 60 tested name-days, 0
+        fired, so 0.00× vs 0.00× is nothing compared to nothing. Structural, not a bug: the
+        ≥15-of-20 presence rule needs a thin name to carry short-dated OTM flow on 15 of 20
+        days, which a 40-session window cannot supply (A1 got 13,000 Q1 name-days only by
+        spanning all 251). **A2's SHORT_OTM ratio is unevaluable at this window length.**
+      - *Defect on the first A2 attempt (recorded, not hidden):* it ran with the $250k day
+        floor still wired in, reproducing the exact pathology A1 diagnosed (Q1 = 20 tested,
+        SHORT_OTM Q1 = 0) and returning a meaningless ALL "PASS" of 0.00× vs 0.00×. Re-run on
+        the A1-corrected universe is the result above; the day floor is now a CLI flag
+        defaulting to the no-floor universe so the two addenda cannot drift apart again.
+      - **To close 1.7 now needs:** (a) a SHORT_OTM window long enough to populate Q1 — the
+        exact shuffle over ≥120 sessions, since 40 provably cannot; and (b) a decision on
+        whether the per-quintile exact base rate replaces the flat one in the grading spec
+        (it should — but that is a registered change, not an edit).
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the

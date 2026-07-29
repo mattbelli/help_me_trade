@@ -65,8 +65,15 @@ logger = logging.getLogger("order_grain_null")
 
 
 def _sessions() -> list[date]:
-    """The N_SESSIONS most recent sessions that have BOTH a tcbbo file and defs."""
-    days = sorted(p.name.split(".")[0] for p in TCBBO_DIR.glob("*.dbn.zst"))
+    """The N_SESSIONS most recent REAL sessions, newest last.
+
+    Market holidays leave an 87-byte tcbbo file (measured: Juneteenth 2026-06-19).
+    Counting one as a session would silently cost a tested day — the burn-in eats
+    20 of the window, so 40 files with a holiday in them yields 19, not the
+    registered 20. Size filter, not a calendar, so it cannot drift out of date.
+    """
+    days = sorted(p.name.split(".")[0] for p in TCBBO_DIR.glob("*.dbn.zst")
+                  if p.stat().st_size > 1_000_000)
     return [date.fromisoformat(d) for d in days[-N_SESSIONS:]]
 
 
@@ -141,35 +148,34 @@ def _extract(session: date) -> None:
 
 def _load_panel(sessions: list[date]) -> tuple:
     """Per-order premiums -> ragged per (name, day) lists, plus the day totals."""
-    per_day, all_names = [], set()
-    for s in sessions:
-        f = OUT_DIR / f"{s.isoformat()}.npz"
-        if not f.exists():
-            per_day.append(None)
-            continue
-        with np.load(f, allow_pickle=False) as z:
-            names = z["names"]
-            und = names[z["und"]]
-            # float32 per order: 372M orders across the window would be 7.4 GB at
-            # float64. Sums still accumulate in float64 (bincount's output), and a
-            # 1e-7 relative error on one order's premium cannot move a tilt ratio.
-            per_day.append((und, z["p_all"].astype(np.float32),
-                            z["p_so"].astype(np.float32)))
-            all_names.update(und.tolist())
+    # Two passes on purpose. Each npz stores a small per-session ticker list plus
+    # an int code per order, so the global name set comes from the LISTS alone —
+    # expanding codes to ticker strings for all 40 days at once is ~9 GB and OOMs.
+    files = [OUT_DIR / f"{s.isoformat()}.npz" for s in sessions]
+    all_names: set[str] = set()
+    for f in files:
+        if f.exists():
+            with np.load(f, allow_pickle=False) as z:
+                all_names.update(z["names"].tolist())
     names = np.array(sorted(all_names))
     ni = {n: i for i, n in enumerate(names.tolist())}
     n_names, n_days = len(names), len(sessions)
-    # group index -> row, so a shuffle is one vectorised pass per day
+
     rows, groups = [], []
-    for day in per_day:
-        if day is None:
+    for f in files:
+        if not f.exists():
             rows.append(None)
             groups.append(None)
             continue
-        und, p_all, p_so = day
-        r = np.fromiter((ni[x] for x in und.tolist()), np.int32, len(und))
-        rows.append(r)
-        groups.append((p_all, p_so))
+        with np.load(f, allow_pickle=False) as z:
+            # local ticker code -> global row, applied as one vectorised gather
+            lut = np.array([ni[n] for n in z["names"].tolist()], dtype=np.int32)
+            rows.append(lut[z["und"]])
+            # float32 per order: 380M orders would be 6 GB at float64. Sums still
+            # accumulate in float64 (bincount's output dtype), and a 1e-7 relative
+            # error on one order's premium cannot move a tilt ratio.
+            groups.append((z["p_all"].astype(np.float32),
+                           z["p_so"].astype(np.float32)))
     return names, rows, groups, n_names, n_days
 
 
@@ -215,6 +221,11 @@ def _report(label, fired_q, tested_q):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--extract", action="store_true")
+    # Must match the A1-corrected eligibility. Left at the registered $250k, A2
+    # reproduces exactly the pathology A1 diagnosed: Q1 gets ~20 tested name-days
+    # and SHORT_OTM's gets zero, so the Q1/Q5 leg compares nothing to nothing.
+    ap.add_argument("--day-floor", type=float, default=0.0,
+                    help="per-day total premium floor; 0 = the A1 no-floor universe")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     sessions = _sessions()
@@ -248,7 +259,7 @@ def main() -> None:
     live = med > 0
     quint = np.full(n_names, -1, np.int64)
     quint[live] = np.digitize(med[live], np.quantile(med[live], [0.2, 0.4, 0.6, 0.8]))
-    eligible = P_ALL >= PREMIUM_FLOOR
+    eligible = P_ALL >= args.day_floor if args.day_floor else P_ALL > 0
 
     sig, pres = {}, {}
     for arm, P, Q in (("ALL", P_ALL, Q_ALL), ("SHORT_OTM", P_SO, Q_SO)):
