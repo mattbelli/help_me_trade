@@ -842,7 +842,7 @@ it is a description of the market. No exceptions.
       - NA columns are themselves base rates and stay recorded: e.g. 12,077 / 59,958
         5d-windows have no classified premium at all (window_tilt NA), 46,144 have no
         active day (concentration NA).
-- [ ] **1.13 Profile the preceding flow**, 5 / 10 / 20 days before each event, movers vs controls:
+- [x] **1.13 Profile the preceding flow**, 5 / 10 / 20 days before each event, movers vs controls:
       consecutive same-sign tilt days (*the "multiple days of bull flow" hypothesis*); largest single
       print relative to that name's own normal, split by liquidity tier (*the "abnormally large
       sweeps on smaller caps" hypothesis*); concentration — one day or spread out; DTE mix; moneyness
@@ -903,6 +903,51 @@ it is a description of the market. No exceptions.
         All windows end at t−1 ≤ 2026-05-28: training flow only, test split untouched.
         Output: full tables + `data/research/mover_profile_113.json`
         (`tools/mover_profile.py`).
+
+      **1.13 RESULT (2026-07-29, `tools/mover_profile.py`, single run; full tables in the
+      JSON — this block is the reading-rule verdict on them).** Chase slope b = +0.00358
+      (9,348 active control name-days). ~60 starred intervals appeared against ~6–7
+      expected false — but the reading rule collapses most into ONE confound family
+      before anything is claimed:
+
+      - **CONFOUND, not finding: the presence deficit.** Movers have LESS preceding flow
+        than controls (presence −4.7…−10.7pp residual, growing with window; every
+        NA-share star is the same fact). The liquidity split localizes it in the top
+        quintiles (q4 20d: mover 55% vs control 87%) and it FLIPS SIGN in the raw-rise
+        arm — a within-quintile name-trait artifact (movers sit at the less-optioned end
+        of coarse dollar-volume buckets), failing registered checks (c) and (d). The
+        max_run deficit tracks it mechanically and also flips in raw rises ⇒ **the
+        "multiple days of same-sign flow" hypothesis gets NO day-grain support.** The
+        otm_share-lo and multileg-lo elevations ride the same activity confound (both
+        flip in raw rises); recorded, not claimed.
+      - **FINDING 1 — the flow that DOES precede movers is SHORT-DATED.** Top-decile
+        short-DTE share (conditional on having flow, so the presence confound points the
+        other way): falls +9.1/+7.4/+3.8pp over ~10% base at 5/10/20d (≈1.4–1.9×), rises
+        +4.1/+3.5/+2.8pp; raw arm replicates (rise 20d borderline); the zero-short-DTE
+        tail is flat, so it is a tenor shift, not thin-window extremization.
+      - **FINDING 2 — before FALLS, preceding flow arrives as a single-day burst.**
+        Concentration-hi +4.9/+3.5pp (20d +2.3 ns) with the spread-out tail suppressed
+        −4.7/−5.4/−3.4pp, all raw-replicated. Rises: absent.
+      - **FINDING 3 — before FALLS, an abnormally large single print (vs the name's own
+        60d normal) is ≈1.2–1.4× more common:** +4.4pp at 5d (14.6% vs 10.2%), positive
+        at 10/20d, raw-replicated (20d ns), and the split shows it in EVERY size tier
+        (q1–q4 positive, most starred) — "abnormally large sweeps," yes; small-caps-
+        specific, no. Findings 2+3 are plausibly one phenomenon: bursty, outsized flow
+        shortly before big falls. The asymmetry itself (falls ≫ rises) matches the
+        academic prior that informed options trading concentrates on the negative side.
+      - **1.14 pointer, NOT a finding:** BULLISH-tilted flow modestly elevated before
+        falls (window_tilt-hi +2.1/+1.9/+2.0pp, residual, all windows) — the
+        Pan–Poteshman reversal flavor — but it fails raw-arm replication (c), so it goes
+        to 1.14 as the thing its sign test exists to check. Bearish-tilt-before-falls:
+        nothing, anywhere.
+      - **Chase-adjusted tilt: INERT.** b is tiny (as 1.11b's +0.011 rank correlation
+        implied); adjusted and raw tilt rows are near-identical everywhere. The founder's
+        residualization idea was worth building and is now measured: at day grain the
+        chase is too weak to relabel any window. Recorded, retired at this grain.
+      - **Standing caveat:** shares are conditional on non-NA windows; unconditional
+        lift = presence × conditional. And day-grain windows cannot distinguish
+        "informed flow before the event" from "flow reacting to pre-event drift" —
+        that separation belongs to 1.13b (volume expansion) and finer grains.
 - [ ] **1.13b Equity activity AFTER the flow.** Founder, 07-27. Distinct from the Phase 3 hedge
       footprint — that is seconds, this is days. Did underlying **volume expand** in the sessions
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
