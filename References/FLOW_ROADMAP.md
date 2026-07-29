@@ -1243,7 +1243,7 @@ it is a description of the market. No exceptions.
         fingerprint is not one mechanism — alerting should branch on
         earnings-adjacency (free, keyless, already built).
 
-- [ ] **1.14c The forward flip — from "what preceded moves" to "what follows the signal"**
+- [x] **1.14c The forward flip — from "what preceded moves" to "what follows the signal"**
       (founder standing authorization 07-29: "keep moving forward with tests"). Every 1c test so
       far conditioned on the move and looked backwards; the alertability question is the flip:
       when a fingerprint component fires on an ordinary name-day, how much more often does a big
@@ -1291,6 +1291,93 @@ it is a description of the market. No exceptions.
       - **Disclosure.** First forward read of the training corpus; thresholds and event set all
         frozen upstream. Test split untouched (all windows end ≤ training boundary). Output:
         full tables + `data/research/mover_forward_114c.json` (`tools/mover_forward.py`).
+
+      **1.14c RESULT — RUN 2026-07-29 (single registered run, SEED=20260805; panel
+      verification vs the registered feature functions passed, 400 samples × 3 windows
+      × 4 features). VERDICT: at day grain, at the frozen global thresholds, the
+      fingerprint does NOT work as a market-wide forward screen. No positive finding
+      clears the reading rule; the one rule-clearing finding is NEGATIVE
+      (concentration anti-selects). The failure mode is diagnosed, not mysterious:
+      composition.**
+      Base rates (fresh arm): P(episode within 5/10/20d) = 3.1% / 5.5% / 9.9% over
+      ~0.8–1.0M eligible name-days per window. Primary battery (fresh/residual, 15
+      intervals, ~1 expected false): 4 stars.
+      - **short_dte_share, 5d only: +0.58pp* over 3.05% base (ratio 1.19×),
+        raw-replicated (+0.75pp*, 1.28×).** Fails the ≥2-windows rule (10d/20d ns) —
+        recorded as a real-looking but 5d-localized, operationally tiny lift: the
+        trigger fires on 7.7% of name-days ≈ 435 alerts/session for a 3.6%-vs-3.1%
+        hit rate. Not alertable standalone.
+      - **concentration: NEGATIVE, the only rule-clearing finding** — 5d −0.46pp*,
+        10d −1.01pp* residual; raw replicates 10d −0.94pp* / 20d −1.23pp* (ratios
+        0.82–0.85). Single-day-burst days across the pooled market are slightly LESS
+        likely to precede a fresh episode.
+      - **vol_max_ratio 20d −1.80pp*** is single-window and raw-ns ⇒ consistent with
+        the ~1 expected false; 5d/10d ns. The study's strongest backwards feature
+        carries nothing forward as a pooled screen.
+      - **vol_and_short conjunction: ns everywhere** (5d +0.41pp, ratio 1.13, n=8,681
+        — underpowered direction-consistent, not claimable; ~56–68 alerts/session).
+      - **The clustering guard earned its keep:** the all-days arm is broadly
+        NEGATIVE (10 stars) where the fresh arm is ≈flat ⇒ firing right after a move
+        marks post-move suppression (5-session episode collapse + eventfulness
+        mean-reversion), which would have masqueraded as signal structure had the
+        arms been pooled.
+      - **Diagnosis (from the report-only decile curves): the pooled screen dies in
+        cross-name composition.** vol_max_ratio's forward hit share DECREASES
+        monotonically in the feature at 10/20d (15.3% in the lowest decile → 8.0% in
+        the highest at 20d) — which names fire dominates whether moves follow,
+        drowning the within-peer signal the backwards design isolated via matched
+        controls. The backwards fingerprint is a CONDITIONAL (vs-matched-peers) fact;
+        a global-threshold screen discards the conditioning.
+      - **1.14b's regimes recur forward (descriptive):** flow-trigger hits are
+        39–52% earnings-adjacent (episode base ≈24–27%) while vol-trigger hits are
+        8–14% — the flow screen naturally surfaces scheduled-news names, the vol
+        screen avoids them.
+      - **Consequence:** day-grain market-wide alerting at frozen global thresholds
+        is dead; the registered follow-up (1.14d) tests the peer-relative screen —
+        fire on rank within (session × liquidity tier), the forward mirror of the
+        matched-control construction. If THAT is also null, day-grain alertability
+        is dead entirely at these feature definitions; the event-gated earnings
+        branch and finer grains remain open regardless.
+
+- [ ] **1.14d The peer-relative forward screen** (the registered follow-up to 1.14c's
+      composition diagnosis; founder standing authorization 07-29). 1.14c showed the pooled
+      global-threshold screen dies in cross-name composition while the backwards design —
+      which found the fingerprint — compared each mover against controls matched on session +
+      liquidity tier. 1.14d is the forward mirror of that construction: does being unusual
+      **versus your peers today** foreshadow a move, where being unusual versus a fixed
+      global bar does not?
+
+      **1.14d PRE-REGISTRATION — REGISTERED 2026-07-29, before any peer-relative forward
+      rate was computed.**
+
+      - **Everything inherited from 1.14c unchanged:** grain, eligibility, outcome (frozen
+        1.11 episode starts, either sign, in t+1…t+W), FRESH primary arm / all-days
+        reported, residual primary / raw replication, W ∈ {5,10,20}, fired−unfired pp
+        difference primary, circular moving-block bootstrap (block = W), 10,000 draws, one
+        shared resampling per W. SEED=20260806.
+      - **The one change — triggers are RANKS, not levels:** a component fires when the
+        name-day's feature value is ≥ the 90th percentile of that feature among eligible
+        name-days with a defined value in the SAME (session × trailing-20d dollar-volume
+        quintile) cell (`_tier_quintiles`, computed on t−20…t−1 — no lookahead). p90
+        mirrors the frozen backwards thresholds' tail choice — registered, not tuned; no
+        new level parameters exist. Name-days with undefined feature or unknown quintile
+        (−1) are ineligible for that trigger and counted. Conjunction = vol_max_ratio ∧
+        short_dte_share, both peer-relative.
+      - **Battery:** 5 triggers × 3 windows = **15 primary intervals ⇒ ~1 expected
+        false.** Reading rule as 1.14c: (a) CI clear, (b) ≥2 windows, (c) raw
+        replication. Descriptive color: firing/alert rates, rise/fall and
+        earnings-adjacency composition of hits.
+      - **Interpretation map, fixed in advance:** positive ⇒ the fingerprint's forward
+        value is peer-relative — any alert must rank within tier, never apply a global
+        bar; null ⇒ day-grain alertability at these feature definitions is dead in BOTH
+        forms (global 1.14c + relative 1.14d), and the honest conclusion is that the
+        backwards profile describes moves without selecting them at day grain — the
+        event-gated earnings branch and finer-than-daily grains remain the open paths.
+      - **Disclosure.** Second forward read of the training corpus (the ~1 expected false
+        applies per battery; two forward batteries have now been run — reported, not
+        hidden). Sector is NOT in the matching cell (cells would go too thin) — one rung
+        coarser than the backwards controls, disclosed. Test split untouched. Output:
+        tables + `data/research/mover_relative_114d.json` (`tools/mover_relative.py`).
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
