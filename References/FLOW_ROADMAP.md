@@ -834,6 +834,30 @@ found here becomes a registered hypothesis in Addendum F before it may be tested
         ⚠️ **The 20% number is deliberately held fixed.** Only the base is corrected, so this is
         not threshold-tuning; had the number been re-picked after seeing the drop rates, it would
         have been fishing. Whatever this excludes, it excludes.
+      - ⛔ **Clause 2 — RETIRED 2026-07-29 (founder call), superseding the amendment above after
+        it was measured and failed.** The amendment cut exclusions from 64.8–80.4% of name-days
+        (2.6–12.3% of premium) to **44.7–60.8%** (1.4–6.7%) — better, and still deleting more than
+        half the name-days, concentrated in the thin tier where the Q1/Q5 result lives. My stated
+        reason for the amendment (no-quote prints were the driver) was only partly right: thin
+        names genuinely have wide spreads, so the base fix could not have been enough.
+        **Retirement rests on three mechanisms that already do clause 2's job:** (1) clause 1
+        gives wide prints **no label at all**, so they cannot bias `bull`/`bear`; (2) the
+        registered **$250k floor** already drops name-days without enough labelled premium to
+        read; (3) — the argument that decided it — a name-day with many wide prints has fewer
+        LABELLED prints, so its tilt rests on less data, and **that is exactly what `N_eff`
+        measures and what the Addendum B base rate already prices in** (1.96% thin → 8.63%
+        liquid). Clause 2 therefore guards nothing the machinery does not already handle, at the
+        cost of half the corpus.
+        ⚠️ **Registered as a retirement, not deleted from the record.** The prereg text stands;
+        this is the amendment that supersedes it, with the measurement that justified it. If a
+        later finding shows unlabelled-print density biases tilts *beyond* what `N_eff` captures,
+        this is the entry to reopen.
+        ⚠️ **Bug disclosed:** `tools/prereg_clause_impact.py` first reported 2,297 exclusions
+        where the rollup reported 2,583 on the same session — its amended denominator added
+        `wide` to a base that already contained it, understating the exclusion rate and
+        flattering my own amendment on both count and premium. **Caught only because two
+        independent implementations of one rule disagreed;** a single implementation would have
+        shipped the wrong number. The rollup was correct. Both now agree exactly.
       - **Clause 3 — untouched, still open.** Statistic-level, no re-roll, decided separately.
       - **Consequences accepted up front:** `SCHEMA_VERSION` 6 → 7, a full 251-session re-roll,
         and re-running everything downstream that reads the rollup or the tape — the base-rate

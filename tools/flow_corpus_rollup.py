@@ -73,15 +73,13 @@ from tools.condition_labels import (  # noqa: E402
 UNDEF = 9223372036854775807
 PX = 1e9  # DBN fixed-point scale
 
-# Prereg print-quality clauses, registered 2026-07-26 and implemented 2026-07-29.
-# SPREAD_MAX_FRAC is prereg:60 verbatim. NAMEDAY_WIDE_MAX keeps prereg:61's 20%
-# threshold unchanged but on the AMENDED base (usable-quote prints, not all
-# prints) -- the original counted no-quote prints, which cannot be labelled and
-# so corrupt nothing, and that deleted 65-80% of name-days while touching only
-# 2.6-12.3% of premium. The number is deliberately not re-tuned; only the base
-# was wrong. See FLOW_ROADMAP §1.25.
+# Prereg clause 1 (prereg:60) verbatim, registered 2026-07-26, implemented
+# 2026-07-29. Clause 2 (prereg:61, the >20% name-day exclusion) was measured and
+# RETIRED the same day: wide prints already get no label here, the registered
+# $250k floor already drops starved name-days, and thin labelling is already
+# priced into the null via N_eff -- so it deleted 45-61% of name-days, mostly
+# from the thin tier, to guard something already covered. See FLOW_ROADMAP §1.25.
 SPREAD_MAX_FRAC = 0.50
-NAMEDAY_WIDE_MAX = 0.20
 ROOT = Path(__file__).resolve().parent.parent
 TCBBO_DIR = ROOT / "data" / "databento" / "opra_tcbbo"
 DEFS_DIR = ROOT / "data" / "databento" / "opra_defs"
@@ -414,16 +412,6 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     # every field shifts but MNY_BUCKETS[s_mny] and DTE_BUCKETS[s_dte] still
     # index legally, so rows come out attributed to the wrong UNDERLYING with no
     # exception. One source for both directions removes that failure entirely.
-    # Prereg clause 2 (prereg:61) as AMENDED 2026-07-29. Base = prints that HAD a
-    # usable quote; a print with no quote is already unclassified and cannot
-    # corrupt bull/bear, whereas a wide-spread print gets a near-coin-flip label,
-    # which is what justifies discarding the day. Threshold held at the
-    # registered 20% -- only the base is corrected, so this is not a re-tune.
-    n_und = len(uniq_und)
-    q_by_und = np.bincount(und_code[q_ok], minlength=n_und)
-    w_by_und = np.bincount(und_code[wide_q], minlength=n_und)
-    excluded_und = (q_by_und > 0) & (w_by_und > NAMEDAY_WIDE_MAX * q_by_und)
-
     n_r, n_d, n_m, n_s, n_ml = 2, len(DTE_BUCKETS), len(MNY_BUCKETS), len(SIDES), 2
     key = (((((und_code.astype(np.int64) * n_r + right) * n_d + dte_b) * n_m
              + mny_b) * n_s + side) * n_s + strict) * n_ml + ml
@@ -476,7 +464,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
          float(prem_max[i]),
          float(u_prem[i]), float(u_prem_clip[i]), int(s_ml[i]), *tail(i),
          SCHEMA_VERSION)
-        for i in range(n) if not excluded_und[s_und[i]]
+        for i in range(n)
     ]
     upsert_rollup(rows, **kw)
     upsert_spot(
@@ -493,7 +481,6 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     return {"prints": n_prints, "joined": int(len(arr)), "orders": n_groups,
             "rows": len(rows),
             "wide_prints": int(wide_q.sum()), "quoted_prints": int(q_ok.sum()),
-            "excluded_namedays": int(excluded_und.sum()),
             "unresolved": unresolved, "stale_spot": stale_spot,
             "no_spot": no_spot, "no_spot_index": no_spot_index,
             "no_spot_premium": no_spot_premium,
@@ -524,14 +511,14 @@ def main() -> int:
                 # breaks account for.
                 # prints is what the file held; joined is what survived the
                 # contract join and is the only count `orders` is comparable to.
-                # wide/excl are the v7 prereg clauses: without them in the log the
-                # only visible symptom of a mis-set threshold would be a silently
-                # smaller corpus.
+                # wide= is the v7 prereg clause 1: without it in the log the only
+                # visible symptom of a mis-set threshold would be a silently
+                # smaller classified base.
                 qp = res.get("quoted_prints", 0)
                 logger.info(
                     "%s prints=%s joined=%s orders=%s rows=%s unds=%s "
                     "unresolved=%s no_spot=%s no_spot_$=%.1fM idx_no_spot=%s "
-                    "stale_spot=%s wide=%s(%.2f%%) excl_namedays=%s %.0fs",
+                    "stale_spot=%s wide=%s(%.2f%%) %.0fs",
                     d, f"{res['prints']:,}", f"{res.get('joined', 0):,}",
                     f"{res.get('orders', 0):,}", f"{res['rows']:,}",
                     res.get("underlyings"), f"{res.get('unresolved', 0):,}",
@@ -541,7 +528,6 @@ def main() -> int:
                     f"{res.get('stale_spot', 0):,}",
                     f"{res.get('wide_prints', 0):,}",
                     100.0 * res.get("wide_prints", 0) / max(qp, 1),
-                    f"{res.get('excluded_namedays', 0):,}",
                     (datetime.now(UTC) - t0).total_seconds(),
                 )
                 if LABELED and res.get("rows"):
