@@ -129,6 +129,21 @@ def _trailing_quintiles(p_all: np.ndarray) -> np.ndarray:
     return quint
 
 
+def _whole_corpus_quintiles(p_all: np.ndarray) -> np.ndarray:
+    """A1/A2's implementation: one median per name over the WHOLE window.
+
+    Not the registered rule — it conditions cut-points on every session including
+    the reserved test window, which is what the 2026-07-29 audit caught. Kept
+    solely to isolate how much of Addendum B's shift came from the rule change
+    versus the window extension, since B changed both at once.
+    """
+    med = np.array([np.median(r[r > 0]) if (r > 0).any() else 0.0 for r in p_all])
+    live = med > 0
+    quint = np.full(len(med), -1, np.int8)
+    quint[live] = np.digitize(med[live], np.quantile(med[live], [0.2, 0.4, 0.6, 0.8]))
+    return np.repeat(quint[:, None], p_all.shape[1], axis=1)
+
+
 def _tally(fired, tested, quint, daymask) -> tuple[np.ndarray, np.ndarray]:
     fq, tq = np.zeros(5, np.int64), np.zeros(5, np.int64)
     for i in range(5):
@@ -160,6 +175,13 @@ def _print(label, fq, tq, se=None) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--draws", type=int, default=N_DRAWS)
+    # Addendum B changed BOTH the window (40 -> 251) and the quintile rule
+    # (whole-corpus median -> prereg trailing-60). Those are confounded in its
+    # result, so this isolates the rule at a fixed window. `whole` is A1/A2's
+    # implementation, kept only as the comparison leg -- it is not the registered
+    # rule and must not be used to build a table grading consumes.
+    ap.add_argument("--quintile-rule", default="trailing60",
+                    choices=("trailing60", "whole"))
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "base_rate_table.json")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -173,9 +195,12 @@ def main() -> None:
     logger.info("panel: %d names x %d sessions", n_names, n_days)
 
     P, Q, T = _build(files, n_names, ni)
-    quint = _trailing_quintiles(P["ALL"])
-    logger.info("quintiles: trailing-%d-day median, %d classified name-days",
-                QUINT_LOOKBACK, int((quint >= 0).sum()))
+    if args.quintile_rule == "trailing60":
+        quint = _trailing_quintiles(P["ALL"])
+    else:
+        quint = _whole_corpus_quintiles(P["ALL"])
+    logger.info("quintiles: %s, %d classified name-days",
+                args.quintile_rule, int((quint >= 0).sum()))
 
     # Addendum B runs the A1-corrected no-floor universe: A1 measured that the
     # registered $250k DAY floor admits 0.105% of Q1 name-days, which is what made

@@ -482,6 +482,31 @@ Each decides something downstream. Run them, do not skip to building.
       - Consistency with A2's 40-session run (pooled 7.362%, Q1 2.129%, Q5 8.927%): same shape,
         modestly lower at full length — **~2.0% thinnest → ~8.6% most liquid, a 4.4× spread.**
         The curve is confirmed, not overturned.
+
+      **CONFOUND ISOLATED 2026-07-29 — and the headline was stable for a BAD REASON.** Addendum B
+      changed the window (40 → 251) and the quintile rule (whole-corpus → trailing-60) in the same
+      run, so neither could be credited. Re-ran the 251-session window under A1/A2's whole-corpus
+      rule (`--quintile-rule whole`), everything else held fixed:
+      | run | Q1 | Q5 | Q1/Q5 | pooled |
+      |---|---|---|---|---|
+      | 40 sessions, whole-corpus (A2) | 2.129% | 8.927% | 0.24× | 7.362% |
+      | 251 sessions, whole-corpus | 2.861% | 8.479% | **0.34×** | **6.612%** |
+      | 251 sessions, trailing-60 (registered) | 1.961% | 8.629% | **0.23×** | **6.612%** |
+      - ✅ **Pooled is bit-identical between the two rules** — same 16,928,740 tested and 1,119,326
+        fired. Correct by construction (the rule re-partitions name-days into tiers, it cannot
+        change which fire) and a useful implementation self-check. ⇒ **the pooled 7.362% → 6.612%
+        drop is 100% the WINDOW**, proven rather than argued.
+      - ⚠️ **The Q1/Q5 headline barely moved (0.24× → 0.23×) because two LARGE effects nearly
+        cancelled.** Window alone: 0.24× → 0.34× (less steep). Rule alone: 0.34× → 0.23× (more
+        steep). Reporting the endpoints as "stable" would have implied a robustness that does not
+        exist — recorded because that is exactly the false comfort this run was built to catch.
+      - **The registered rule is the better ESTIMATOR, not merely the compliant one.** It yields a
+        monotone SHORT_OTM curve (3.143% < 3.389% at Q2/Q3) where the whole-corpus rule inverts
+        (4.907% > 4.077%). Mechanism: a whole-corpus median files a name in one tier for the year,
+        so names whose liquidity changed are systematically misfiled; daily relative ranking puts
+        each name-day in the tier it actually occupied that day.
+      - **B1's SHORT_OTM NOT-MET verdict is robust to the rule:** Q1 = 48 real name-days under
+        whole-corpus vs 34 under trailing-60, both far under the registered 1,000 bar.
 - [x] **1.8 (b) Is the multi-leg sign flip real, or just SPX? — RE-ANSWERED AT v6 2026-07-28:
       IT REACHES SINGLE NAMES.** The corpus-wide re-run on code labels
       (`tools/multileg_arm_probe_v6.py`, all 251 sessions, rollup grain) **overturns the
@@ -797,6 +822,31 @@ out of a rolling window. There is no rush; do it after Phase 1.
         v6 corpus is UNAFFECTED — **verified**: 0 of 24,298 sentinel prints resolve to that day's
         definitions, so `flow_corpus_rollup.py`'s instrument join drops them all before premium is
         computed. Note the protection is incidental (an unresolvable id), not an explicit guard.
+
+      **2.3 FULL-CORPUS RUN COMPLETE 2026-07-29** — `oi-reconcile-full.service`, 40m51s, 7.5G
+      peak, `data/oi_reconcile.db` (444 MB) + `data/oi_reconcile.log`. **Construction lane is
+      DONE; 2.4 is unblocked.**
+      - **`instrument_id` instability confirmed corpus-wide, not just on 3 sessions:**
+        iid-stability **0.0000–0.0010** every session. The OCC-symbol join was mandatory.
+      - **Clean coverage 95–98% on ordinary sessions**, falling to **~80–87% on monthly-expiry
+        days** where `expired` and `no-oi-both-days` spike together (2026-06-18: 70,007 expired /
+        80,367 no-oi; 2026-07-17: 62,618 / 68,225). Expected — OI dies at expiry without a closing
+        trade — and the flags are reported, not silently dropped, exactly as registered.
+      - **Vol-weighted `f_open` runs 0.60–0.70** across the corpus, with the high end landing on
+        expiry-adjacent sessions. ⚠️ **Still not interpretable as "65% of trades open"** — the
+        registered caveat above stands unchanged, and 2.4 may use `f_open` **cross-sectionally
+        only**.
+      - ⚠️ **NEW — the `size` UNDEF sentinel DISAPPEARS FROM THE FEED between 2026-06-22 and
+        2026-06-29, and this is a corpus regime break.** Verified directly against the tcbbo tape,
+        not inferred from the OI pipeline: 2026-06-22 = 47,103 sentinel prints, 2026-06-29 = **0**,
+        2026-07-23 = **0**. It also roughly DOUBLED before vanishing — the 2025-07-28 note above
+        measured ~24k/session, and 2026 sessions run ~47–48k. Consequences: (i) the explicit
+        sentinel guard added for A2 is load-bearing for ~11 months of the corpus and a no-op for
+        the tail, so it must not be removed as dead code; (ii) **open question, not chased here:**
+        whether those ~48k prints/session now arrive with REAL sizes — in which case post-06-26
+        sessions carry flow that earlier sessions dropped, a systematic composition change across
+        the corpus — or simply stopped being published. Session print totals are flat across the
+        break (11.56M → 11.59M), which does not settle it either way.
 - [ ] **2.4 Re-grade the Phase 1 signal split by open vs close.** *Decides:* whether the split
       recovers the predictability the literature reports.
 
