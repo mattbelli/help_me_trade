@@ -1410,7 +1410,7 @@ it is a description of the market. No exceptions.
         flat-to-inverted). The one thread worth carrying: 5d short-DTE, as one angle
         in fusion — never a standalone alert.
 
-- [ ] **1.14e The event-gated screen — earnings-adjacent days only** (the first of 1.14d's two
+- [x] **1.14e The event-gated screen — earnings-adjacent days only** (the first of 1.14d's two
       pre-registered open paths; founder direction 07-29: ship the perception surface, keep the
       earnings angle, then finer grains). 1.14b showed the fingerprint's flow regime (short-DTE
       tilt, concentration) lives on catalyst-adjacent windows; 1.14c/d showed no day-grain
@@ -1461,6 +1461,57 @@ it is a description of the market. No exceptions.
         from outcomes. Test split untouched (all windows end ≤ training boundary). Output:
         full tables + `data/research/mover_earnings_114e.json`
         (`tools/mover_earnings_gate.py`).
+
+      **1.14e RESULT — RUN 2026-07-29 (single registered run, SEED=20260807; panel
+      verification passed 200×3×4; gate verification passed, 300 samples vs raw
+      filing dates; gate data = earnings.db extended to the full universe first —
+      3,117/6,931 names with EDGAR history, 3,814 unflaggable ⇒ 45% of eligible
+      name-days excluded, disclosed). VERDICT: no positive clears the rule — but
+      the GATE ITSELF is the headline, and two NEGATIVE findings clear the full
+      rule in-gate.**
+      - **The gate is the base-rate story.** P(fresh episode ≤5/10/20d) in-gate =
+        9.8% / 20.3% / 22.5% vs 1.3% / 2.5% / 8.7% in the earnings-far complement —
+        the earnings calendar ALONE multiplies day-grain move odds ~7×/8×/2.6×.
+        The alertable object is the calendar window; the flow features fine-tune
+        it only weakly. Gate ≈ 9.1% of eligible name-days (~17% of the known-name
+        slice, matching registered geometry).
+      - **The 5d short-DTE lift appears a THIRD time** — +1.46pp* over 9.91%
+        in-gate (1.15×), raw-replicated (+1.39pp*) — and for the third time is
+        5d-single-window (10d ns; 20d flips NEGATIVE-starred −1.70pp*). Its
+        in-gate ratio (1.15×) is WEAKER than ungated (1.28×): the gate absorbs
+        part of what short-DTE flow was proxying. Still a fusion angle only.
+      - **concentration — the other motivated positive — is null everywhere
+        in-gate.** The 1.14b backwards catalyst association did not carry forward.
+      - **vol_max_ratio: NEGATIVE, clears the full rule, all three windows,
+        large.** Fresh/residual −3.99pp* / −10.02pp* / −8.49pp* (ratios
+        0.60/0.51/0.63); raw replicates all three. The registered expectation was
+        null-or-negative (1.14b: vol spike = no-catalyst regime); the data says
+        STRONGLY negative: a p90-vs-peers volume spike in the run-up to earnings
+        roughly HALVES the odds of a big-move window at 10d (10.5% vs 20.5%).
+        Candidate mechanism (color, not established): fired∧fresh = the tape
+        already spiked without registering an episode — pre-positioned /
+        pre-announced names whose event resolves quieter.
+      - **largest_print_ratio: NEGATIVE, clears the rule at 10/20d** (−1.67pp* /
+        −4.43pp*; raw −1.76pp* / −4.09pp*). Same family of meaning.
+      - **vol_and_short:** 10d −13.8pp* single-window fresh (raw replicates;
+        all-days arm negative-starred 10/20d) — direction-consistent with
+        vol_max_ratio, pools tiny (~310–430 fired).
+      - **Far-complement color (no authority):** short_dte 5d +0.64pp* (1.51×)
+        and vol_and_short 5d +1.89pp* (2.45×, n=3,222) star positive OUTSIDE the
+        gate at 5d. Noted as color — the ungated population was already tested
+        (1.14d) and not claimable; these cells are a different composition (known
+        names, earnings-far) and would need their own registration to claim.
+      - **Consequence — the earnings-gated lane's product shape:** (1) the GATE
+        is the alert primitive: "earnings within 10 sessions" = elevated-odds
+        window, carried by the EXISTING earnings_calendar infra; (2) in-gate,
+        the fingerprint's forward value is mostly NEGATIVE discrimination —
+        vol-spike / large-print fired names expect QUIETER earnings windows — a
+        fusion/context flag (candidate context input for earnings_drift sizing
+        SOMEDAY, after its own validation), never a standalone; (3) 5d short-DTE
+        remains the one recurring positive angle (~49 alerts/session in-gate).
+        Day-grain arc CLOSED (1.14c global / 1.14d peer-relative / 1.14e
+        event-gated): the remaining open path from 1.14d's map is
+        finer-than-daily grains.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
