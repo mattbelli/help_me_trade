@@ -953,7 +953,7 @@ it is a description of the market. No exceptions.
       following unusual option flow, and does flow-plus-volume-expansion foreshadow better than flow
       alone? Free: daily volume is already in `equity_bars.v`. A two-part pattern is also harder to
       fake than a one-part one, so if it holds it is more likely real.
-- [ ] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
+- [x] **1.14 Test the sign directly.** Compute the profile before big **rises** and before big
       **falls** separately. Same profile ⇒ no signal. Bullish flow preceding falls more often ⇒ the
       reversal effect, which is what Pan & Poteshman measured (price pressure at d+1, significantly
       reversing d+2 through d+10 — our exact window). If it replicates here it **inverts the sign the
@@ -1011,6 +1011,41 @@ it is a description of the market. No exceptions.
         angles — 1.13's direction-free shape findings stand regardless.
       - **Disclosure.** Output: full tables + `data/research/mover_sign_114.json`
         (`tools/mover_sign.py`). Test split untouched.
+
+      **1.14 RESULT (2026-07-29, `tools/mover_sign.py`, single run; full tables in the
+      JSON). The registered answer: NO SIGN. Every primary contrast C = D_fall − D_rise
+      straddles zero — both features (all-flow tilt, short-DTE tilt), all three windows,
+      residual arm: 0 of 6 C intervals clear of zero against ~1 expected false positive.
+      (The lone raw-arm C star, short-DTE 5d −0.036, is single-window, sign-flips by 20d,
+      and sits in the replication arm — pre-registered noise.) Per the registered outcome
+      map: tilt is RETIRED as a direction carrier at day grain — neither right-way flow
+      nor the Pan–Poteshman reversal.**
+
+      - **What the tables show instead of a sign: a small direction-FREE bullish excess.**
+        All 12 residual D point estimates are positive — movers' preceding flow leans
+        ~1–4pp more bull-tilted than its matched controls before rises AND before falls
+        alike. Starred only at 5d (fails the ≥2-window rule ⇒ noise-compatible even as a
+        level effect) and symmetric across move direction ⇒ zero contrast. The cross-tab
+        says it plainly: signed mover windows are ~51% bullish before rises and ~50%
+        before falls, each ≈2pp above their own controls.
+      - **The 1.13 pointer resolves as this symmetry, not a reversal.** The frozen-tail
+        continuity rows reproduce 1.13's bullish-tail-before-falls elevation (+~2pp,
+        residual, all windows), but the contrast vs rises straddles zero everywhere in
+        the residual arm — bullish-tilt-before-falls was the fall-side half of a
+        both-signs bullishness excess, not sign information.
+      - **Raw-arm color, recorded not claimed:** before raw RISES both extreme-tilt
+        tails are suppressed (tilt-hi −2.7pp, tilt-lo −3.0pp), a less-extreme-tilt
+        effect that makes the raw tail contrasts star; absent in the residual arm and
+        pattern-matching 1.13's raw-rise confound family.
+      - **Liquidity split:** no quintile shows a CI-clear contrast in either direction —
+        the null sign verdict is not hiding a size pocket. (8 rise / 5 fall
+        unknown-quintile episodes excluded, counted.)
+      - **Consequence, per the registered outcome map:** the agent's day-grain flow
+        perception is SHAPE, not direction — 1.13's short-dated / bursty /
+        outsized-print profile flags "big move risk, especially downside," and direction
+        must come from other angles (trend, news, catalyst context). Direction may still
+        live at finer grains or inside catalyst subsets (1.14b), but the day-grain sign
+        question is answered and closed.
 - [ ] **1.14b Split events by catalyst vs no-catalyst** (founder framing, 07-27: correlation breaks
       at catalyst moments — earnings, guidance, M&A, FDA). "Someone knew about the event" and
       "someone moved the stock" are different stories with plausibly different preceding-flow
