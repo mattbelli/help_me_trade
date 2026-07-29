@@ -67,6 +67,9 @@ export class ChartEngine {
 
   private width = 0;
   private height = 0;
+  /** Raw container box (fractional) — re-snapped to the grid whenever dpr moves. */
+  private boxWidth = 0;
+  private boxHeight = 0;
   private dpr = 1;
   private readonly layers: CanvasLayers;
   private readonly ro: ResizeObserver;
@@ -672,10 +675,23 @@ export class ChartEngine {
 
   private resize(width: number, height: number): void {
     if (width <= 0 || height <= 0) return;
-    this.width = width;
-    this.height = height;
+    this.boxWidth = width;
+    this.boxHeight = height;
+    this.applySize();
+  }
+
+  /**
+   * Adopt the container box at the current dpr, rounded so the logical size is
+   * a WHOLE number of device pixels. ResizeObserver hands us fractional boxes;
+   * left alone, the bitmap (rounded) and the CSS box (fractional) disagree and
+   * the browser resamples the entire canvas — a position-dependent sub-pixel
+   * blur that undoes every snap the painter does.
+   */
+  private applySize(): void {
     this.dpr = window.devicePixelRatio || 1;
-    this.layers.resize(width, height, this.dpr);
+    this.width = Math.round(this.boxWidth * this.dpr) / this.dpr;
+    this.height = Math.round(this.boxHeight * this.dpr) / this.dpr;
+    this.layers.resize(this.width, this.height, this.dpr);
     this.vp = clampViewport(this.vp, this.paneWidth(), this.bars.length);
     this.invalidate("both");
   }
@@ -692,11 +708,10 @@ export class ChartEngine {
     this.raf = null;
     if (this.width <= 0 || this.height <= 0) return;
 
-    // A dpr change (browser zoom / monitor move) re-sizes bitmaps in place.
-    const dpr = window.devicePixelRatio || 1;
-    if (dpr !== this.dpr) {
-      this.dpr = dpr;
-      this.layers.resize(this.width, this.height, dpr);
+    // A dpr change (browser zoom / monitor move) re-sizes bitmaps in place —
+    // from the RAW box, since the old logical size was snapped to the old grid.
+    if ((window.devicePixelRatio || 1) !== this.dpr) {
+      this.applySize();
       this.dirtyScene = true;
       this.dirtyCursor = true;
     }

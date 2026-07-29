@@ -35,10 +35,32 @@ export type CircleStyle = {
   strokeWidth?: number;
 };
 
+/**
+ * One bar slot snapped to the device-pixel grid. Body and wick share ONE
+ * centre by construction and the body carries the wick's parity, so the wick
+ * always has a middle column to sit in. Both rects are logical px whose edges
+ * land exactly on device pixels.
+ */
+export type BarColumn = {
+  bodyX: number;
+  bodyW: number;
+  wickX: number;
+  /** Also the engine's minimum stroke thickness (1 logical px in whole device px). */
+  wickW: number;
+};
+
 export interface Painter {
   /** Clear the whole layer to transparent. */
   clear(): void;
   fillRect(x: number, y: number, w: number, h: number, color: string): void;
+  /**
+   * Body + wick rects for a bar centred at logical `x` in a `barSpacing`-wide
+   * slot. Every per-bar column (candle, volume, MACD histogram) must come from
+   * here: rounding each rect independently is what made wicks lean left on one
+   * candle and right on the next, and body widths alternate within one frame.
+   * The adapter owns the width policy — it is a device-pixel decision.
+   */
+  barColumn(x: number, barSpacing: number): BarColumn;
   /** fillRect with rounded corners (no pixel snapping — antialiasing is the point). */
   roundRect(x: number, y: number, w: number, h: number, r: number, color: string): void;
   line(x1: number, y1: number, x2: number, y2: number, style: StrokeStyle): void;

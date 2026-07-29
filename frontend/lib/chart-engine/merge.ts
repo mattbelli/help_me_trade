@@ -27,6 +27,26 @@ export function applyLive(bars: EngineBar[], price: number): boolean {
 }
 
 /**
+ * Reconcile a freshly fetched series with the locally-formed tail.
+ *
+ * A periodic refresh exists to adopt vendor corrections — it must never REGRESS
+ * the tail. Dropping a bar we rolled over locally makes the next tick roll over
+ * again and re-open it at the CURRENT price, painting a gap the size of
+ * everything that moved since the payload was built (up to a full cache TTL).
+ * Vendor bars always win; ours survive only past the end of what it published,
+ * so this can neither duplicate a timestamp nor reorder the series.
+ */
+export function mergeFetchedBars(
+  fetched: EngineBar[],
+  local: readonly EngineBar[],
+): EngineBar[] {
+  if (fetched.length === 0) return fetched; // an empty payload clears, as before
+  const lastFetched = fetched[fetched.length - 1].time;
+  const tail = local.filter((b) => b.time > lastFetched);
+  return tail.length ? [...fetched, ...tail] : fetched;
+}
+
+/**
  * A fresh forming bar for the next interval bucket, opened at `price`.
  * Pure construction — the caller decides whether appending is legitimate
  * (single-step rollover only; gaps are a refetch, never fabricated buckets).

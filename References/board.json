@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-28T16:22:11.885803+00:00",
+  "updated_at": "2026-07-29T21:22:37.895741+00:00",
   "lanes": [
     "inbox",
     "founder",
@@ -9,6 +9,15 @@
     "done"
   ],
   "cards": [
+    {
+      "id": "chart-candle-fidelity-0729",
+      "title": "Native chart candle fidelity: pixel-grid geometry (wick lean / body-width flicker) + the live-rollover phantom gap",
+      "lane": "done",
+      "type": "bug",
+      "priority": "high",
+      "owner": "serv",
+      "notes": "SHIPPED + DEPLOYED :3001 2026-07-29 (BUILD_ID 17:09). Detail in the BUILD_LOG 2026-07-29 row. TWO unrelated bugs behind one founder report. (1) GEOMETRY: candle body (fillRect, per-edge Math.round) and wick (line, floor(x*dpr)+0.5) snapped to DIFFERENT pixel grids -> wick sat +/-0.5 device px off centre and flipped sides bar-to-bar at 81/169 spacings at dpr 1 (21/169 at dpr 2 -- halved, NOT gone); candleBodyWidth rounded only the first term of min(round(sp*0.7), sp-2) so widths went fractional below ~6.7px spacing -> alternating 3px/4px bodies in ONE frame (70/341 zooms); wick tips left fractional in Y. Fix = one Painter.barColumn(x, barSpacing) in the adapter: single snapped centre shared by body/wick/volume/MACD-hist, body width forced to the wick's PARITY (an even body has no middle column, so the wick must pick a side -- that flip WAS the artifact). Measured: lean 0.5 -> 0, multi-width frames 70/341 -> 0, no touching bodies, default view byte-identical (5px body). Canvas CSS box now pinned to bitmap/dpr + engine rounds its logical size (resampling path closed -- FLAGGED BUT NEVER CONFIRMED LIVE, fixed because it is 3 lines). (2) THE GAP THE FOUNDER ACTUALLY MEANT: refetch every 30s vs client bars-cache TTL 60s (1Min) / 180s (5Min), so most refreshes were cache HITS -- the same payload re-mapped and setBars replacing the array wholesale, wiping live ticks and DELETING the forming candle when the snapshot predated the bucket; the next tick (~100ms, quotes at 10 Hz) rolled over again and re-opened it at the CURRENT price => gap = all movement since the snapshot (<=30s on 1m, <=3min on 5m). Same family as chart-stale-merge-fix (07-06) but a distinct mechanism (that was the >=2-interval staleness gate; this is a cache hit regressing the tail INSIDE the freshness window). Fix = skip re-applying an already-applied payload object + new pure mergeFetchedBars(fetched, local) in chart-engine/merge.ts (vendor wins; local bars survive only strictly past the payload's last bar, so no dupes/reorder). 22 new tests (17 geometry invariants across dpr 1/1.5/2, 5 merge-contract); 80 engine tests, tsc + eslint clean on touched files. FOUNDER VERIFY: watch a 1m/5m chart through several bucket switches -- gap should be gone. Follow-ups, NOT done (notes only, no new cards): inter-candle gaps still alternate 1 device px (inherent to fractional bar spacing, TV same); at dpr 1 spacing 3.05-3.95 renders bare wicks (no odd body fits without merging); autoscale recomputes the price range every frame, so a fast tape can still shimmer sub-pixel (design question, not a bug); futures 1H buckets on UTC hours so a session's first hourly bar spans 30min (equities use Alpaca native 1H, unaffected); Recharts surfaces (equity-chart / pnl-chart / /charts) were never reviewed this round."
+    },
     {
       "id": "live-flow-pairing",
       "title": "Live flow pairing \u2014 Databento whole-market spine + Alpaca wildcard condition codes, matched per print",

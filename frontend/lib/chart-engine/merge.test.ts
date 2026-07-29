@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyLive, rolledOverBar } from "./merge";
+import { applyLive, mergeFetchedBars, rolledOverBar } from "./merge";
 import type { EngineBar } from "./types";
 
 function mkBars(): EngineBar[] {
@@ -51,6 +51,51 @@ describe("applyLive", () => {
     expect(applyLive(bars, -5)).toBe(false);
     expect(applyLive(bars, Infinity)).toBe(false);
     expect(bars).toEqual(before);
+  });
+});
+
+describe("mergeFetchedBars", () => {
+  const local = (): EngineBar[] => [
+    ...mkBars(),
+    // Rolled over locally; the vendor has not published this bucket yet.
+    { time: 4000, open: 12.2, high: 12.6, low: 12.1, close: 12.5, volume: 0 },
+  ];
+
+  it("keeps a locally-rolled-over bar the payload doesn't reach", () => {
+    const merged = mergeFetchedBars(mkBars(), local());
+    expect(merged).toHaveLength(4);
+    expect(merged[3].time).toBe(4000);
+    expect(merged[3].close).toBe(12.5); // the forming candle survives the refresh
+  });
+
+  it("lets the vendor's copy win once it publishes that bucket", () => {
+    const published = [
+      ...mkBars(),
+      { time: 4000, open: 12.2, high: 13, low: 12, close: 12.9, volume: 900 },
+    ];
+    const merged = mergeFetchedBars(published, local());
+    expect(merged).toHaveLength(4);
+    expect(merged[3].close).toBe(12.9); // vendor truth, not our estimate
+    expect(merged[3].volume).toBe(900);
+  });
+
+  it("never duplicates or reorders — times stay strictly ascending", () => {
+    const merged = mergeFetchedBars(mkBars(), local());
+    const times = merged.map((b) => b.time);
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    expect(new Set(times).size).toBe(times.length);
+  });
+
+  it("drops a stranded local bar once the payload moves past it", () => {
+    // Vendor skipped 4000 (no trades) and published 5000 instead.
+    const ahead = [...mkBars(), { time: 5000, open: 13, high: 13, low: 13, close: 13, volume: 10 }];
+    const merged = mergeFetchedBars(ahead, local());
+    expect(merged.map((b) => b.time)).toEqual([1000, 2000, 3000, 5000]);
+  });
+
+  it("an empty payload clears, and no local tail is invented", () => {
+    expect(mergeFetchedBars([], local())).toEqual([]);
+    expect(mergeFetchedBars(mkBars(), [])).toEqual(mkBars());
   });
 });
 
