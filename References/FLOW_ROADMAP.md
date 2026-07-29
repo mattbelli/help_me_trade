@@ -601,7 +601,7 @@ control set — same liquidity tier, same sector, same period, names that did NO
 as lift over base rate, never as a raw frequency.** A number without its control is not a finding,
 it is a description of the market. No exceptions.
 
-- [ ] **1.11 Define the event set — MARKET-RELATIVE, graded RAW.** Founder, 07-27: *"essentially
+- [x] **1.11 Define the event set — MARKET-RELATIVE, graded RAW.** Founder, 07-27: *"essentially
       measuring alpha over average market returns — not every stock went up."* Correct, and it fixes
       a flaw in the first draft of this file: a top-decile raw move in a rising market selects
       **high-beta names**, so we would "discover" beta. Define the event on the **residual** (move
@@ -763,7 +763,7 @@ it is a description of the market. No exceptions.
         expectations set accordingly. Impact-vs-drift (1.11a-ii) reading: at daily
         grain, everything lives in the impact/coincident term, nothing in drift.
 
-- [ ] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
+- [x] **1.12 Build the matched control set.** For every mover, controls matched on liquidity tier,
       sector and date. *Done when:* the control set's own base rates are computed and written down
       BEFORE any mover statistic is looked at.
 
@@ -808,6 +808,40 @@ it is a description of the market. No exceptions.
       - **Output.** `tools/mover_controls.py` → `data/research/mover_controls.json`
         (episodes, matched controls, base rates) — the frozen input 1.13 profiles
         against; regenerates deterministically from the corpus.
+
+      **1.11+1.12 RESULT (2026-07-29, `tools/mover_controls.py`, single run; mover flow
+      never read).** Event set: residual arm **4,204 rise / 3,534 fall** episodes, raw arm
+      2,818 / 3,171 (slightly under the calibration table's counts — the registered
+      ≥21-prior-sessions rule removes the August-2025 edge, as disclosed). Controls:
+      **68,635 draws = 13,727 episodes × 5, zero episodes dropped**; ladder use 39,781
+      full match / 28,744 quintile+date / 10 sector+date / 100 date-only. Sector coverage
+      3,866 / 6,931 names (EDGAR SIC; 5,745 episodes in no-sector names — largely ETFs
+      past the hand-built fence and digit-suffixed adjusted option roots — start at the
+      quintile rung per the registered fallback, and their 5,745×5 ≈ the quintile-rung
+      count: with-sector episodes filled at full match almost every time). 59,958 unique
+      control name-days carry the base rates.
+
+      **Control base rates (the done-when), recorded before any mover statistic exists.**
+      Quantiles p10/p25/p50/p75/p90/p99 per window in the run log + JSON; what they say:
+      - **The MEDIAN control window has ZERO active days** (days ≥ $250k classified
+        premium): p50 = 0 at 5d, 10d and 20d, while p90 ≈ the full window (5/9/18) —
+        strongly bimodal: a minority of quiet names carry continuous flow, most carry
+        none. Plain words: most names that did NOT move had no notable options flow at
+        all — so mere PRESENCE of flow is the first thing 1.13 must beat, and lift
+        claims must survive the liquidity-tier match (presence correlates with size).
+      - **Same-sign runs are genuinely rare among controls**: max run p90 = 2/3/4 and
+        p99 = 4/6/8 at 5/10/20d. A 4-day same-sign streak inside a 10-day window is a
+        ~1-in-100 control event — the founder's "multiple days of bull flow" hypothesis
+        now has a real yardstick instead of a guess.
+      - **Window tilt is symmetric and centered on zero** (p50 ≈ −0.01 everywhere, wide
+        spread) — no ambient bullish/bearish skew to correct for.
+      - Yardsticks for the rest of the battery: largest-print ratio p50 ≈ 3.3/5.7/9.7×
+        (rises with window length mechanically — max-of-window vs 60d median), p99 ≈
+        111/161/249×; call share p50 ≈ 0.80; short-DTE share p50 ≈ 0.20–0.22; OTM share
+        p50 ≈ 0.36–0.39; multileg share p50 ≈ 0.10–0.15.
+      - NA columns are themselves base rates and stay recorded: e.g. 12,077 / 59,958
+        5d-windows have no classified premium at all (window_tilt NA), 46,144 have no
+        active day (concentration NA).
 - [ ] **1.13 Profile the preceding flow**, 5 / 10 / 20 days before each event, movers vs controls:
       consecutive same-sign tilt days (*the "multiple days of bull flow" hypothesis*); largest single
       print relative to that name's own normal, split by liquidity tier (*the "abnormally large
