@@ -91,6 +91,12 @@ def _row_to_proposal(row: sqlite3.Row) -> dict[str, Any]:
     for column, _ in _NEW_COLUMNS:
         if column in row.keys():
             out[column] = row[column]
+    # account_id migrates outside _NEW_COLUMNS (see init_paper_order_tables), so
+    # the loop above does NOT carry it — it needs copying explicitly. Omitting it
+    # silently disabled every account-scoped consumer: stop_guard's filter read
+    # None, skipped every candidate, and never placed a protective stop.
+    if "account_id" in row.keys():
+        out["account_id"] = row["account_id"]
     raw_score = row["score_json"] if "score_json" in row.keys() else None
     if raw_score:
         try:
