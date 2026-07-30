@@ -42,8 +42,12 @@ export function buildChatTools(enabledIds?: readonly ChatToolId[]) {
       execute: async () => executePythonTool("list_capabilities", {}),
     }),
     query: tool({
+      // Deliberately does NOT enumerate resources: this legacy TS path cannot import
+      // the Python registry, and its hand-copied list had rotted to 9 of 19. The live
+      // (CHAT_BRAIN=python) path derives the names from `RESOURCES`; here, point the
+      // model at list_capabilities so it reads the real set instead of a stale copy.
       description:
-        "List app data across resources: watchlists, strategies, screener, market regime, news, calibration, price_alerts, proposals, reports. Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score use get_context instead.",
+        "List app data across resources (watchlists, market, news, fundamentals, options_flow, my_trades, schwab_accounts and more — call list_capabilities for the full current set; do not assume this handful is all of them). Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score use get_context instead.",
       inputSchema: z.object({
         resource: z.string(),
         filters: z.record(z.string(), z.any()).optional(),

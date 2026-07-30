@@ -14,6 +14,7 @@ from ai.llm.base import LLMMessage
 from ai.llm.factory import get_llm
 from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from ai.perception.resources import list_resources
 from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
 from ai.utils.symbols import extract_symbol
@@ -72,6 +73,14 @@ def _quote_save_over_cap(session_id: str | None) -> bool:
     return False
 
 
+# The queryable resources, DERIVED from the perception registry so registering a new
+# source reaches the agent the moment it lands — never hand-copied. Four hand-written
+# copies of this list had rotted to the same stale 9 of 19, which is why fundamentals,
+# options flow, the equity tape and the user's real Schwab accounts were unreachable in
+# chat: nothing in the prompt told the model they existed. Guarded by
+# tests/test_perception_resources.py::test_every_resource_is_named_to_the_agent.
+_QUERY_RESOURCES = ", ".join(sorted(list_resources()))
+
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
         "title": "Portfolio snapshot",
@@ -120,8 +129,7 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "query": {
         "title": "App data query",
         "description": (
-            "List app data across resources: watchlists, strategies, screener, "
-            "market regime, news, calibration, price_alerts, proposals, reports. "
+            "List app data across resources: " + _QUERY_RESOURCES + ". "
             "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
             "use get_context instead."
         ),
@@ -303,7 +311,7 @@ Rules:
 - Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
 - Only call start_research when the user explicitly asks for a deep research report or written report.
 - Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
-- Use query for watchlists, strategies, screener, market regime, news, calibration, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
+- Use query for app data (not single-symbol snapshots). Valid resource values: {QUERY_RESOURCES}.
 - Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
 - Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
 - Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
@@ -314,7 +322,8 @@ Rules:
 - When the user says "remember this/that ..." call save_memory with quote = their exact words. Do NOT save risk/config limits (those live in Settings) or one-off requests.
 - When the user says "forget that" / "that's no longer true", call forget_memory with the id (find it first via search_memories).
 - When the user asks to add/remove watchlist symbols or create/rename a list, call the watchlist tools ('list' takes the list's NAME or id; omit for the active list). Only symbols the user named or just discussed.
-"""
+""".replace("{QUERY_RESOURCES}", _QUERY_RESOURCES)
+# (.replace, not an f-string: the prompt is full of literal JSON braces.)
 
 
 # Appended to the planner prompt ONLY when allow_propose_order=True (the mobile copilot).

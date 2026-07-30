@@ -41,10 +41,12 @@ only the actions are here.
 
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
-- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` FAILS on clean main**
-  (grades `lost=0`). It guards the GRADING_TIEBREAK law — a bar touching stop AND target must
-  grade LOST — so the law is currently unguarded. Found while running the suite for the
-  data-wiring round; untouched there. Fix or re-date.
+- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` is FLAKY, not broken** —
+  it failed (grades `lost=0`) during the data-wiring round and passes now both in isolation and in a
+  full 3,036-test run. Intermittent means shared state leaks between tests, which is *worse* than a
+  hard failure: the GRADING_TIEBREAK law (a bar touching stop AND target grades LOST) is only
+  sometimes guarded, and a green suite is no longer proof. ⏳ Find the leak (suspect a shared DB path
+  or module-level cache, cf. the two known CI shared-DB flakes) — do not close on a passing run.
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
@@ -227,6 +229,10 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
   session allowlist — likely (the 07-29 scrapers used session-level WebFetch/WebSearch) but
   UNVERIFIED. Check tonight's transcripts for `perception_query.py` calls and for a drop in
   web-scrape sub-agents; if seats can't run it, the pack must carry the data instead.
+- ⏳ **2026-07-30 needs a deploy: chat/mobile still name 9 of 19 resources.** The queryable-resource
+  list is now DERIVED from `RESOURCES` (card `agent-capability-drift`), but the running backend holds
+  the stale strings until it restarts — so `fundamentals`, `options_flow`, `my_trades` and
+  `schwab_accounts` stay unnamed to the live copilot. Books already pick it up on their next session.
 
 ## ▶ Waiting on founder
 
