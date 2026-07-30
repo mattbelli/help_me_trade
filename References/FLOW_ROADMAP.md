@@ -1513,6 +1513,91 @@ it is a description of the market. No exceptions.
         event-gated): the remaining open path from 1.14d's map is
         finer-than-daily grains.
 
+- [ ] **1.14f The intraday screen — the grain descent** (the second of 1.14d's two pre-registered
+      open paths; founder direction 07-29: "lets begin the intraday research arc"). 1.14c/d/e
+      closed the day-grain arc: the fingerprint describes big-move windows without selecting
+      them at day grain, and the one conditioning that works (earnings) is a calendar fact,
+      not a flow fact. The remaining registered question: does the SAME fingerprint, computed
+      inside the session from the labeled print tape, select forthcoming moves at horizons of
+      minutes-to-hours — the grain the components were arguably always about (a sweep burst is
+      an intraday object; daily aggregation may have been the blur)?
+
+      **1.14f PRE-REGISTRATION — REGISTERED 2026-07-30, before any intraday outcome exists on
+      disk (the outcome store is not yet fetched; that is the point — fetch-to-the-spec).**
+
+      - **Feature tape (exists):** raw `opra_tcbbo` prints joined to `opra_defs`, fenced with
+        the CURRENT registered semantics (v7): quote gate incl. the 1.25 clause-1 spread
+        fence, side = midpoint rule, `multileg = 0` via condition codes (heuristic fallback on
+        unmatched prints, per Addendum F). Features are computed per print from the raw tape —
+        NEVER from the daily rollup. Primary = all train sessions; robustness arm = the
+        ≥98%-join subset (`join_ledger.json`, Addendum F's registered subset).
+      - **Outcome store (registered spec, fetched AFTER this registration commits):** a new
+        equity intraday bars store — Alpaca SIP **5-minute RTH bars**, universe = every
+        underlying in `opra_defs` with ≥1 RTH tcbbo print on ≥1 corpus session (the
+        active-name sweep is backfill prep; measured 2026-07-24: 4,503 active names of 6,294
+        defs), span = the full corpus range in ONE pull; **analysis mask = train sessions
+        only (≤ 2026-05-31)** — the test tail lands on disk and stays untouched. Names with
+        missing/insufficient bars are NA-counted, disclosed, never silently dropped.
+      - **Grain:** features evaluated on the half-hour boundary grid b ∈ {10:00 … 15:30 ET},
+        trailing windows W ∈ {30, 60, 120} minutes; a (b, W) pair enters only if the window
+        lies fully inside RTH (no overnight bleed; the open bucket participates as window
+        CONTENT, never as a truncated window). Eligibility: ≥ **20** fenced classified prints
+        in the window — set from the 07-24 geometry probe (~1,000–1,300 names clear it per
+        60-minute boundary; probe measured GEOMETRY only, no outcomes; probe script + output
+        recorded in BUILD_LOG). Peer cell = (session × boundary-of-day × trailing-20-session
+        equity dollar-volume quintile); boundary-of-day in the cell is mandatory — prints per
+        bucket run 1.68M at the open to 0.55M mid-day to 0.91M at the close (same probe).
+      - **Components — the four registered ones, intraday forms declared (analog ≠ identity;
+        each transplant is stated, not assumed):**
+        1. `short_dte_share`: short-DTE (0-7 ∪ 8-30) share of window classified premium —
+           direct transplant.
+        2. `concentration`: top 5-minute bin's share of window classified premium (granule
+           descends day→5-min bin with the grain) — declared analog.
+        3. `largest_print_ratio`: max single-print premium in the window ÷ the name's own
+           trailing-60-session median daily `premium_max` (denominator ends at t−1; same
+           normalizer as day grain, ≥20 valid days else NA) — numerator descends, denominator
+           unchanged.
+        4. `vol_max_ratio`: window classified premium ÷ the name's own trailing-20-session
+           median of the SAME (boundary, W) window premium (≥10 valid sessions else NA) —
+           the time-of-day-matched RVOL analog; declared redefinition (day grain compared
+           daily dollar volume to a trailing baseline).
+        All denominators use sessions ≤ t−1 only — no same-day leakage into a normalizer.
+      - **Firing:** component ≥ p90 within the peer cell (1.14d's rule at the new grain).
+        **First-fire-per-day:** a (name, session, component, W) contributes its FIRST firing
+        boundary only; later same-day boundaries are excluded from fired AND complement
+        (overlapping windows make within-day repeats pseudo-replicates, and a fired name's
+        later boundaries are contaminated). Complement = eligible names never fired that
+        session for that component/W, evaluated at the same boundary cell.
+      - **Outcome measure (magnitude primary, like the day-grain episodes):** from boundary b,
+        the max |cumulative 5-min log return| reached within horizon H ∈ {30m, 2h, close},
+        normalized by the name's own trailing-20-session median of the same (b, H) measure
+        (≥10 valid sessions else NA). Per-horizon boundary eligibility is mechanical: H=2h
+        needs b ≤ 14:00, H=30m and H=close need b ≤ 15:30. Halt/LULD gaps: the measure runs
+        over the bars that exist; sessions where the name has <80% of expected bars are NA
+        for that name-day, counted.
+      - **Statistics:** primary = fired − complement difference in MEDIAN normalized forward
+        move, at the primary cell **(W=60, H=2h)**, per component ⇒ **4 primary intervals**
+        (~0.2 expected false at 95%). Circular moving-block bootstrap over SESSIONS, block=5,
+        10,000 draws, one shared resampling. SEED=20260808. Reading rule: (a) primary CI
+        clear of zero, (b) same-direction star at ≥2 of 3 horizons for W=60, (c) replication
+        star at W=30 or W=120. Secondary battery (reported, no survival authority): tail-rate
+        difference at normalized move ≥3×; the other (W, H) cells; ONE direction test —
+        window-tilt-sign × signed-H=2h-return agreement vs 50% at (W=60) for fired rows.
+      - **Expectations recorded in advance:** `short_dte_share` is the motivated positive
+        (the one recurring day-grain positive, three appearances, all at the shortest
+        window — if the effect is real and intraday-born, it should be LARGER here);
+        `vol_max_ratio` and `largest_print_ratio` carry NEGATIVE day-grain forward priors
+        (1.14e), and a negative finding here is confirmatory color, not a discovery;
+        `concentration` has no surviving prior. Earnings confound: rows inside the 1.14e
+        gate (EDGAR filing within 10 sessions) are reported as a disclosed SPLIT of every
+        starred finding — a "finding" that collapses to the earnings-adjacent split is the
+        calendar wearing a flow costume.
+      - **Disclosure.** Fourth forward read of the training corpus. The eligibility
+        threshold and boundary grid were set from a one-session geometry probe (2026-07-24,
+        print counts and premium concentration only — no outcome was computed anywhere
+        before this registration). Output: `tools/mover_intraday.py` →
+        `data/research/mover_intraday_114f.json`, full tables in the run log.
+
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
 no slippage, no position sizing, no P&L** appears anywhere in 1c. The only output is of the form
