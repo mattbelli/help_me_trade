@@ -1588,6 +1588,32 @@ def test_an_absent_cell_is_reported_as_absent_not_as_a_mismatch(
     assert report["provenance"]["n_cells_compared"] == 36
 
 
+def test_diff_comes_from_the_unrounded_medians_like_the_114f_writer():
+    """The first real run aborted at the gate over THIS: 6 of 36 cells had
+    integer-exact counts and digit-exact medians but a `diff` off by exactly
+    1e-5, because `screen_cells` subtracted the already-rounded medians while
+    the 1.14f writer rounds the difference of the unrounded ones
+    (`mover_intraday.py` `round(mf - mc, 5)`). Recompute-vs-recompute tests
+    cannot see it — both sides share the derivation — so this pins the formula
+    on values that straddle a 5th-decimal rounding boundary."""
+    mf, mc = 1.000006, 0.500002          # 1.00001 / 0.50000 once rounded
+    assert round(round(mf, 5) - round(mc, 5), 5) != round(mf - mc, 5), \
+        "fixture no longer straddles a rounding boundary"
+    n_w, n_f, n_h = len(mi.WINDOWS), len(mi.FEATS), len(mi.HORIZONS)
+    fired = np.zeros((4, n_w, n_f), bool)
+    fired[:2] = True
+    table = {"sess": np.zeros(4, np.int32),
+             "pool": np.ones((4, n_w, n_f), bool),
+             "excl": np.zeros((4, n_w, n_f), bool),
+             "fired": fired,
+             "norm": np.where(np.arange(4)[:, None] < 2, mf, mc
+                              ) * np.ones((4, n_h))}
+    for cell in g.screen_cells(table):
+        assert cell["median_fired"] == round(mf, 5)
+        assert cell["median_complement"] == round(mc, 5)
+        assert cell["diff"] == round(mf - mc, 5)
+
+
 def test_the_gate_refuses_a_locked_file_from_the_wrong_run(
         tmp_path, monkeypatch):
     """Provenance, not just agreement: the locked file must be 1.14f's own —

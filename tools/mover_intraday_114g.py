@@ -990,13 +990,19 @@ def screen_cells(table, primary_only: bool = False) -> list[dict]:
                 # carries no medians, so it must carry none here either — the
                 # gate has to compare like with like on a degenerate cell too
                 degenerate = not fr.any() or not (~fr).any()
-                row["median_fired"] = (None if degenerate else
-                                       round(float(np.median(v[fr])), 5))
-                row["median_complement"] = (None if degenerate else
-                                            round(float(np.median(v[~fr])), 5))
-                row["diff"] = (None if degenerate else
-                               round(row["median_fired"]
-                                     - row["median_complement"], 5))
+                if degenerate:
+                    row["median_fired"] = row["median_complement"] = None
+                    row["diff"] = None
+                else:
+                    # diff from the UNROUNDED medians, exactly as the 1.14f
+                    # writer computes it — subtracting the rounded medians
+                    # disagrees by 1e-5 when the true diff straddles a 5th-
+                    # decimal rounding boundary (6 of 36 cells on the real tape)
+                    mf = float(np.median(v[fr]))
+                    mc = float(np.median(v[~fr]))
+                    row["median_fired"] = round(mf, 5)
+                    row["median_complement"] = round(mc, 5)
+                    row["diff"] = round(mf - mc, 5)
                 out.append(row)
     return out
 
