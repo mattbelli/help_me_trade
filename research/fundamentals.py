@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from datetime import date as _date
 from pathlib import Path
 
 from db.base import connect
@@ -25,8 +26,43 @@ SHARES_FALLBACK_URL = (
     "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik:010d}/us-gaap/"
     "CommonStockSharesOutstanding.json"
 )
+# One request returns every XBRL concept a company has ever filed — far cheaper
+# than a companyconcept call per metric.
+COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
 _REQUEST_INTERVAL_SEC = 0.13  # ~7–8 req/sec, polite EDGAR throttle
+
+# Canonical metric -> the us-gaap tags that carry it, in preference order.
+# Filers are inconsistent (revenue especially), so we normalize on the way in
+# and keep the source tag on every row so a number can be traced back.
+FINANCIAL_CONCEPTS: dict[str, tuple[str, ...]] = {
+    "revenue": (
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "SalesRevenueNet",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+    ),
+    "gross_profit": ("GrossProfit",),
+    "operating_income": ("OperatingIncomeLoss",),
+    "net_income": ("NetIncomeLoss",),
+    "eps_diluted": ("EarningsPerShareDiluted",),
+    "assets": ("Assets",),
+    "liabilities": ("Liabilities",),
+    "equity": (
+        "StockholdersEquity",
+        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+    ),
+    "cash": (
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    ),
+    "long_term_debt": ("LongTermDebtNoncurrent", "LongTermDebt"),
+    "rnd_expense": ("ResearchAndDevelopmentExpense",),
+    "operating_cash_flow": (
+        "NetCashProvidedByUsedInOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+    ),
+}
 
 _CREATE_COMPANIES = """
 CREATE TABLE IF NOT EXISTS companies (
@@ -51,11 +87,38 @@ _CREATE_SHARES_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_shares_cik_date ON shares (cik, date)
 """
 
+# `filed` is what makes this point-in-time: EDGAR restates, so the same period
+# appears in several filings and only `filed` says when a number became public.
+# It is part of the key — a restatement must land beside the original, never
+# overwrite it, or a backtest silently gains hindsight.
+_CREATE_FINANCIALS = """
+CREATE TABLE IF NOT EXISTS financials (
+    cik TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    period_start TEXT NOT NULL DEFAULT '',
+    period_end TEXT NOT NULL,
+    fy INTEGER,
+    fp TEXT,
+    form TEXT,
+    filed TEXT NOT NULL,
+    val REAL NOT NULL,
+    PRIMARY KEY (cik, metric, tag, unit, period_start, period_end, form, filed)
+)
+"""
+_CREATE_FINANCIALS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_financials_lookup
+    ON financials (cik, metric, period_end DESC, filed DESC)
+"""
+
 
 def _ensure_schema(conn) -> None:
     conn.execute(_CREATE_COMPANIES)
     conn.execute(_CREATE_SHARES)
     conn.execute(_CREATE_SHARES_INDEX)
+    conn.execute(_CREATE_FINANCIALS)
+    conn.execute(_CREATE_FINANCIALS_INDEX)
     conn.commit()
 
 
@@ -119,6 +182,74 @@ def _parse_shares(json_dict: dict) -> list[tuple[str, float]]:
             continue
         parsed.append((str(end), float(val)))
     return parsed
+
+
+def _parse_company_facts(payload: dict) -> list[tuple]:
+    """companyfacts JSON -> financials rows, normalized to canonical metrics.
+
+    Every candidate tag is kept, not just the first one that matches: filers
+    migrate between concepts mid-history (NVDA reports revenue under
+    `RevenueFromContractWithCustomer…` only through FY2022, then `Revenues`), so
+    stopping at the first non-empty tag truncates the series at the switch. The
+    reader picks one row per period and reports the `tag` it came from.
+    """
+    us_gaap = (payload.get("facts") or {}).get("us-gaap") or {}
+    rows: list[tuple] = []
+    for metric, tags in FINANCIAL_CONCEPTS.items():
+        for tag in tags:
+            concept = us_gaap.get(tag)
+            if not concept:
+                continue
+            metric_rows: list[tuple] = []
+            for unit, entries in (concept.get("units") or {}).items():
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    end, val, filed = item.get("end"), item.get("val"), item.get("filed")
+                    if end is None or val is None or filed is None:
+                        continue
+                    try:
+                        value = float(val)
+                    except (TypeError, ValueError):
+                        continue
+                    metric_rows.append(
+                        (
+                            metric,
+                            tag,
+                            str(unit),
+                            str(item.get("start") or ""),
+                            str(end),
+                            item.get("fy"),
+                            item.get("fp"),
+                            item.get("form"),
+                            str(filed),
+                            value,
+                        )
+                    )
+            rows.extend(metric_rows)
+    return rows
+
+
+def _fetch_company_facts(client, cik: str) -> list[tuple]:
+    response = client.get(COMPANY_FACTS_URL.format(cik=int(cik)))
+    if response.status_code == 404:
+        # No XBRL facts filed (common for trusts/ETFs) — a coverage gap, not an error.
+        return []
+    response.raise_for_status()
+    return _parse_company_facts(response.json())
+
+
+def _upsert_financials(conn, cik: str, rows: list[tuple]) -> None:
+    if not rows:
+        return
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO financials
+            (cik, metric, tag, unit, period_start, period_end, fy, fp, form, filed, val)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [(cik, *row) for row in rows],
+    )
 
 
 def _load_ticker_cik_map(client) -> dict[str, str]:
@@ -287,6 +418,174 @@ def build_fundamentals(
     return report
 
 
+def _period_bucket(period_start: str, period_end: str, fp: str | None) -> str | None:
+    """Classify a period as "annual", "quarterly", or None, by its actual LENGTH.
+
+    Not from `form`/`fp`: a 10-Q carries year-to-date and trailing-12-month
+    durations alongside the quarter, so trusting the form files a $58B "quarterly"
+    net income (measured on NVDA, 2026-04-26). Balance-sheet concepts are instant
+    (no start) and fall back to the fiscal-period label.
+    """
+    if not period_start:
+        return "annual" if str(fp or "").upper() == "FY" else "quarterly"
+    try:
+        days = (
+            _date.fromisoformat(period_end) - _date.fromisoformat(period_start)
+        ).days
+    except ValueError:
+        return None
+    if 300 <= days <= 400:
+        return "annual"
+    if 60 <= days <= 120:
+        return "quarterly"
+    return None
+
+
+def build_financials(
+    symbols: list[str],
+    *,
+    cache_db: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> dict:
+    """Fetch EDGAR companyfacts financials for `symbols`. Returns per-symbol row counts.
+
+    Separate from build_fundamentals so refreshing statements doesn't re-walk the
+    shares/SIC history. Resolves CIKs from the companies table first and only
+    hits the ticker map for symbols we haven't seen.
+    """
+    import httpx
+
+    written: dict[str, int] = {}
+    conn = connect(cache_db)
+    try:
+        _ensure_schema(conn)
+        known = {
+            row["symbol"]: row["cik"]
+            for row in conn.execute("SELECT symbol, cik FROM companies").fetchall()
+        }
+        with httpx.Client(
+            timeout=60.0,
+            headers={"User-Agent": user_agent},
+            follow_redirects=True,
+        ) as client:
+            ticker_cik: dict[str, str] | None = None
+            for symbol in symbols:
+                sym = symbol.strip().upper()
+                cik = known.get(sym)
+                if not cik:
+                    if ticker_cik is None:
+                        ticker_cik = _load_ticker_cik_map(client)
+                        time.sleep(_REQUEST_INTERVAL_SEC)
+                    cik = ticker_cik.get(_base_ticker(sym))
+                if not cik:
+                    logger.debug("No CIK for %s", sym)
+                    written[sym] = 0
+                    continue
+                try:
+                    if sym not in known:
+                        # Record symbol -> CIK (with sector) or nothing can resolve
+                        # this symbol later — the reader looks up `companies` first.
+                        sic, sic_desc = _fetch_submissions(client, cik)
+                        time.sleep(_REQUEST_INTERVAL_SEC)
+                        _upsert_company(conn, symbol=sym, cik=cik, sic=sic, sic_desc=sic_desc)
+                        known[sym] = cik
+                    rows = _fetch_company_facts(client, cik)
+                    time.sleep(_REQUEST_INTERVAL_SEC)
+                    _upsert_financials(conn, cik, rows)
+                    conn.commit()
+                    written[sym] = len(rows)
+                    logger.info("Cached %d financial rows for %s (CIK %s)", len(rows), sym, cik)
+                except Exception as exc:  # noqa: BLE001 - one bad symbol must not kill the run
+                    logger.warning("  %s (CIK %s): companyfacts failed (%s)", sym, cik, str(exc)[:80])
+                    written[sym] = 0
+    finally:
+        conn.close()
+    return written
+
+
+def latest_financials(
+    symbol: str,
+    *,
+    as_of: str | None = None,
+    periods: int = 4,
+    cache_db: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
+) -> dict | None:
+    """Recent annual and quarterly statement values per metric, point-in-time.
+
+    `as_of` (YYYY-MM-DD) restricts to what had actually been FILED by that date,
+    so a backtest sees what the market saw. Within a period, the latest filing
+    wins — a restatement supersedes the original rather than duplicating it.
+    Returns None when the symbol has no cached company row.
+    """
+    conn = connect(cache_db)
+    try:
+        _ensure_schema(conn)
+        company = _company_row(conn, symbol)
+        if company is None:
+            return None
+        params: list = [company["cik"]]
+        filed_clause = ""
+        if as_of:
+            filed_clause = "AND filed <= ?"
+            params.append(as_of)
+        # First row seen for a period wins the dedup below, so order by: newest
+        # period, then FY-labelled, then newest filing. The FY preference matters
+        # for balance-sheet instants — a later 10-Q repeats the fiscal year-end
+        # balance as a `Q1` comparative, and taking that copy (same value, wrong
+        # label) leaves the annual series stranded two years back.
+        rows = conn.execute(
+            f"""
+            SELECT metric, tag, unit, period_start, period_end, fy, fp, form, filed, val
+            FROM financials
+            WHERE cik = ? {filed_clause}
+            ORDER BY metric ASC, period_end DESC,
+                     CASE WHEN UPPER(COALESCE(fp, '')) = 'FY' THEN 0 ELSE 1 END ASC,
+                     filed DESC
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    metrics: dict[str, dict] = {}
+    seen: set[tuple] = set()
+    for row in rows:
+        period = (row["metric"], row["period_start"], row["period_end"])
+        if period in seen:
+            continue  # an earlier filing of a period we already took
+        seen.add(period)
+        bucket = _period_bucket(row["period_start"], row["period_end"], row["fp"])
+        if bucket is None:
+            continue  # a 6- or 9-month year-to-date figure — not a comparable series
+        entry = metrics.setdefault(
+            row["metric"], {"unit": row["unit"], "annual": [], "quarterly": []}
+        )
+        if row["unit"] != entry["unit"]:
+            continue  # a second reporting currency — never mix it into one series
+        if len(entry[bucket]) >= periods:
+            continue
+        entry[bucket].append(
+            {
+                "period_end": row["period_end"],
+                "period_start": row["period_start"] or None,
+                "val": row["val"],
+                "tag": row["tag"],
+                "fy": row["fy"],
+                "fp": row["fp"],
+                "form": row["form"],
+                "filed": row["filed"],
+            }
+        )
+    return {
+        "symbol": company["symbol"],
+        "cik": company["cik"],
+        "sector": company["sector"],
+        "sic_desc": company["sic_desc"],
+        "as_of": as_of,
+        "metrics": metrics,
+    }
+
+
 def _company_row(conn, symbol: str):
     return conn.execute(
         "SELECT symbol, cik, sic, sic_desc, sector FROM companies WHERE symbol = ?",
@@ -403,6 +702,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Fetch EDGAR data for cached Norgate symbols and print coverage",
     )
+    parser.add_argument(
+        "--build-financials",
+        metavar="SYMBOLS",
+        help="Fetch EDGAR companyfacts statements for a comma-separated symbol list",
+    )
     parser.add_argument("--lookup", metavar="SYMBOL", help="Print cached company details")
     parser.add_argument(
         "--coverage",
@@ -432,6 +736,15 @@ def main(argv: list[str] | None = None) -> None:
         report = build_fundamentals(cache_db=args.cache_db, bars_db=args.bars_db)
         _print_coverage(report)
 
+    if args.build_financials:
+        symbols = [s for s in (t.strip() for t in args.build_financials.split(",")) if s]
+        written = build_financials(symbols, cache_db=args.cache_db)
+        total = sum(written.values())
+        empty = sorted(s for s, n in written.items() if n == 0)
+        print(f"financials: {total:,} rows across {len(written) - len(empty)}/{len(written)} symbols")
+        if empty:
+            print(f"no facts for: {', '.join(empty)}")
+
     if args.lookup:
         _lookup_symbol(args.lookup, cache_db=args.cache_db)
 
@@ -439,7 +752,7 @@ def main(argv: list[str] | None = None) -> None:
         report = coverage_report(cache_db=args.cache_db, bars_db=args.bars_db)
         _print_coverage(report)
 
-    if not (args.build or args.lookup or args.coverage):
+    if not (args.build or args.build_financials or args.lookup or args.coverage):
         _parse_args(["--help"])
 
 

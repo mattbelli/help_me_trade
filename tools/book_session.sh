@@ -14,6 +14,7 @@ mkdir -p data/book_sessions/work
 TOOLS=(
   "Bash(uv run python tools/book_context_pack.py:*)"
   "Bash(uv run python tools/book_session_submit.py:*)"
+  "Bash(uv run python tools/perception_query.py:*)"
   "Read"
   "Write"
   "WebSearch"

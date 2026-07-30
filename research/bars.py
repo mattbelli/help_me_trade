@@ -9,6 +9,7 @@ from pathlib import Path
 from brokers.alpaca import StockBar
 from db.base import ROOT, connect
 from signals.trade_context import DatedBar, _stockbar_to_dated
+from trading.market_hours import last_session_close
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,11 @@ def _ensure_schema(conn) -> None:
     conn.commit()
 
 
+def _last_complete_session(now: datetime | None = None) -> date:
+    """ET date of the most recently CLOSED regular session (half-day aware)."""
+    return last_session_close(now or datetime.now(timezone.utc)).date()
+
+
 def _fetch_alpaca(symbol: str, start: date, end: date) -> list[DatedBar]:
     """Fetch daily bars from Alpaca (dev/testing adapter; Norgate path plugs in via cache_bars)."""
     from brokers.factory import get_broker
@@ -62,9 +68,19 @@ def cache_bars(
     source: str = "alpaca",
     db_path: Path = DEFAULT_BARS_DB_PATH,
 ) -> None:
-    """Upsert daily bars (used by Alpaca fetch and future Norgate loaders)."""
+    """Upsert daily bars (used by Alpaca fetch and future Norgate loaders).
+
+    Bars for a session that has not closed yet are DROPPED here rather than at
+    each caller: this is the one chokepoint every writer passes through, and a
+    stored partial is permanent (nothing re-reads a date the cache already
+    covers).
+    """
     sym = symbol.strip().upper()
     if not sym or not bars:
+        return
+    cutoff = _last_complete_session().isoformat()
+    bars = [bar for bar in bars if bar["d"] <= cutoff]
+    if not bars:
         return
     conn = connect(db_path)
     try:
@@ -162,8 +178,19 @@ def get_daily_bars(
     source: str = "alpaca",
     db_path: Path = DEFAULT_BARS_DB_PATH,
 ) -> list[DatedBar]:
-    """Return cached daily bars in [start, end], fetching and upserting gaps from the source."""
+    """Return cached daily bars in [start, end], fetching and upserting gaps from the source.
+
+    ``end`` is clamped to the last CLOSED session. Mid-session the source
+    returns a PARTIAL bar for today — a couple of hours of volume and an
+    intraday print as the "close" — and ``INSERT OR REPLACE`` freezes it in the
+    store as that day's final bar, which nothing ever revisits (``_needs_fetch``
+    sees the date covered). This cache holds completed sessions only; callers
+    that need a live price use the quote path, not the daily-bar store.
+    """
     sym = symbol.strip().upper()
+    end = min(end, _last_complete_session())
+    if end < start:
+        return []
     cached = _load_cached(sym, start, end, source, db_path)
     if _needs_fetch(cached, start, end):
         if source != "alpaca":

@@ -41,6 +41,11 @@ only the actions are here.
 
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
+- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` FAILS on clean main**
+  (grades `lost=0`). It guards the GRADING_TIEBREAK law — a bar touching stop AND target must
+  grade LOST — so the law is currently unguarded. Found while running the suite for the
+  data-wiring round; untouched there. Fix or re-date.
+
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
 - ⏳ (was Mon 07-27) IV corpus first live cron run: `iv_daily` row per universe symbol + sane
@@ -206,6 +211,12 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
   founder acts manually — the nightly pack's open-orders section is the review surface.
 - Lab book positions section honest-empty (per-account positions endpoint); session-book research
   depth v2.
+- ⏳ **2026-07-30 tonight: confirm the seats actually USE the perception CLI.** The books were
+  blind (no perception access at all) until `tools/perception_query.py` was wired into
+  `book_session.sh --allowedTools` + both prompts. This assumes Agent-spawned seats inherit the
+  session allowlist — likely (the 07-29 scrapers used session-level WebFetch/WebSearch) but
+  UNVERIFIED. Check tonight's transcripts for `perception_query.py` calls and for a drop in
+  web-scrape sub-agents; if seats can't run it, the pack must carry the data instead.
 
 ## ▶ Waiting on founder
 
