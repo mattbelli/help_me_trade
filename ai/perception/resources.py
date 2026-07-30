@@ -955,7 +955,12 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "twice (FLOW_ROADMAP 1.14c/1.14d), so there is no probability, win rate "
             "or signal here; each row carries its own disclaimer plus "
             "session_age_days, which says how stale the scanned session is. A symbol "
-            "with no row was simply not unusual versus its peers."
+            "with no row was simply not unusual versus its peers. "
+            "days_to_earnings may be PROJECTED from the name's own SEC filing "
+            "cadence — earnings_estimated=1 means it is an estimate, never a "
+            "confirmed date, and must be described that way; earnings_state says "
+            "whether we have a date ('dated'), know the name files no earnings at "
+            "all ('non_filer', e.g. an ETF), or have never looked ('unknown')."
         ),
         "filters": {
             "session": "optional YYYY-MM-DD — default the latest scanned session",

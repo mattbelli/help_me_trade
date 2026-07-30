@@ -23,7 +23,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from db.base import DEFAULT_DB_PATH  # noqa: E402
-from signals.flow_perception import emit_alerts, run_scan  # noqa: E402
+from signals.flow_perception import (  # noqa: E402
+    earnings_phrase,
+    emit_alerts,
+    run_scan,
+)
 
 
 def main() -> None:
@@ -54,11 +58,7 @@ def main() -> None:
     for row in sorted(rows, key=lambda r: (-r["n_fired"], r["symbol"], r["window"]))[
         : max(0, args.top)
     ]:
-        earn = (
-            f"earnings in {row['days_to_earnings']}d"
-            if row["days_to_earnings"] is not None
-            else ("no date known" if row["earnings_coverage"] else "no earnings data")
-        )
+        earn = earnings_phrase(row)
         print(
             f"  {row['symbol']:<8} {row['window']:>2}d q{row['quintile']} "
             f"fired={row['n_fired']} [{row['fired_components']}] "

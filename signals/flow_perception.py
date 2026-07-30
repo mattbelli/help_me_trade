@@ -47,7 +47,11 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from db.base import DEFAULT_DB_PATH
-from db.earnings_calendar import last_earnings_date, next_earnings_date
+from db.earnings_calendar import (
+    STATE_NON_FILER,
+    last_earnings_date,
+    next_earnings_with_state,
+)
 from db.flow_perception import COMPONENT_COLUMNS, upsert_rows
 from tools import mover_controls, mover_profile
 from tools.mover_controls import (
@@ -153,18 +157,26 @@ def _rank_within_cells(
 
 def _earnings_context(
     symbol: str, session: str, *, db_path: Path
-) -> tuple[int | None, bool, str]:
-    """(calendar days to next known earnings, have any earnings data, regime).
+) -> tuple[int | None, bool, str, bool, str]:
+    """(days to next earnings, have any earnings data, regime, estimated, state).
 
     Coverage is reported separately from the date so "we have no earnings data for
-    this name" never reads as "this name has no catalyst": the live
-    earnings_calendar covers the symbols the refresh job tracks, which is far
-    narrower than the flow corpus.
+    this name" never reads as "this name has no catalyst". Three things can be
+    true of a name with no date and they are NOT the same claim — it files no
+    earnings (`non_filer`, an ETF, where no catalyst is the correct answer), or
+    nobody has looked it up yet (`unknown`) — so the state rides on the row next
+    to the coverage bit.
+
+    The date itself may be a cadence PROJECTION (see
+    ``tools/earnings_coverage_refresh.py``): the corpus is ~5.9k names and the
+    vendor calendar covers a few hundred, so without estimates almost every card
+    reads "no earnings data" — but an estimate that presented as a confirmed date
+    would be a fabricated fact, hence the flag travels with it everywhere.
     """
-    nxt = next_earnings_date(symbol, session, db_path=db_path)
+    nxt, estimated, state = next_earnings_with_state(symbol, session, db_path=db_path)
     covered = bool(nxt) or bool(last_earnings_date(symbol, session, db_path=db_path))
     if not nxt:
-        return None, covered, REGIME_NO_CATALYST
+        return None, covered, REGIME_NO_CATALYST, False, state
     days = (_date.fromisoformat(nxt) - _date.fromisoformat(session)).days
     sessions = int(np.busday_count(session, nxt))
     regime = (
@@ -172,7 +184,7 @@ def _earnings_context(
         if sessions <= EARNINGS_ADJACENT_MAX_SESSIONS
         else REGIME_NO_CATALYST
     )
-    return days, covered, regime
+    return days, covered, regime, estimated, state
 
 
 def scan_session(
@@ -219,7 +231,7 @@ def scan_session(
     session_age = int(np.busday_count(target, scan_day))
     idx = np.flatnonzero(eligible)
     rows: list[dict[str, Any]] = []
-    earnings_cache: dict[str, tuple[int | None, bool, str]] = {}
+    earnings_cache: dict[str, tuple[int | None, bool, str, bool, str]] = {}
 
     for W in WINDOWS:
         values = {c: np.full(len(universe), np.nan) for c in COMPONENT_COLUMNS}
@@ -248,7 +260,13 @@ def scan_session(
                 earnings_cache[symbol] = _earnings_context(
                     symbol, target, db_path=db_path
                 )
-            days_to_earnings, covered, regime = earnings_cache[symbol]
+            (
+                days_to_earnings,
+                covered,
+                regime,
+                earnings_estimated,
+                earnings_state,
+            ) = earnings_cache[symbol]
             fired_names = [c for c in COMPONENT_COLUMNS if ranked[c][1][i]]
             row: dict[str, Any] = {
                 "session": target,
@@ -259,6 +277,8 @@ def scan_session(
                 "fired_components": ",".join(fired_names),
                 "days_to_earnings": days_to_earnings,
                 "earnings_coverage": int(covered),
+                "earnings_estimated": int(earnings_estimated),
+                "earnings_state": earnings_state,
                 "regime": regime,
                 "session_age_days": session_age,
                 "disclaimer": DISCLAIMER,
@@ -300,6 +320,27 @@ def run_scan(
     }
 
 
+def earnings_phrase(row: dict[str, Any]) -> str:
+    """The earnings sentence for one row — every branch says what it actually knows.
+
+    An estimated date NEVER renders as a plain date: the projection is spelled out
+    in the same breath, because this string is what a human reads on the card.
+    """
+    days = row.get("days_to_earnings")
+    if days is not None:
+        if row.get("earnings_estimated"):
+            return (
+                f"earnings in ~{days}d — ESTIMATED from this name's own SEC filing "
+                "cadence, not a confirmed date"
+            )
+        return f"earnings in {days}d"
+    if row.get("earnings_state") == STATE_NON_FILER:
+        return "files no earnings at all (no 8-K Item 2.02 on EDGAR)"
+    if row.get("earnings_coverage"):
+        return "no upcoming earnings date known"
+    return "no earnings data for this name"
+
+
 def _alert_rows(rows: list[dict[str, Any]], min_components: int) -> list[dict[str, Any]]:
     """One row per symbol — the window where the most components fired."""
     best: dict[str, dict[str, Any]] = {}
@@ -336,12 +377,7 @@ def emit_alerts(
     sent = []
     for row in _alert_rows(rows, min_components):
         fired = row["fired_components"].replace(",", ", ")
-        earnings = (
-            f"earnings in {row['days_to_earnings']}d"
-            if row["days_to_earnings"] is not None
-            else ("no upcoming earnings date known" if row["earnings_coverage"]
-                  else "no earnings data for this name")
-        )
+        earnings = earnings_phrase(row)
         body = (
             f"{row['n_fired']} of 4 components in the top decile of its liquidity "
             f"peers over {row['window']} sessions: {fired}. "
@@ -361,6 +397,8 @@ def emit_alerts(
                 "fired_components": row["fired_components"],
                 "regime": row["regime"],
                 "days_to_earnings": row["days_to_earnings"],
+                "earnings_estimated": row.get("earnings_estimated", 0),
+                "earnings_state": row.get("earnings_state"),
                 "session_age_days": row["session_age_days"],
                 "disclaimer": DISCLAIMER,
             },
