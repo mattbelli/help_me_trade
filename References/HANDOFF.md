@@ -125,11 +125,16 @@ flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 **⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
 attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
 uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
-- ▶ **07-30 pre-open: deploy news dots** — on main since `8cf8008` (PR #134). ⚠️ the code is ALREADY in
-  the dev tree while the backend has not restarted since 07-28 12:33 UTC, so the *next restart of any
-  kind* starts the news cohort — restart deliberately pre-open, never mid-session.
-- ▶ **07-30, after that deploy: PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main
-  in, re-verify, merge, then deploy **07-31 pre-open**. Never the same cohort date as news.
+- ⚠️⚠️ **THE RAM-UPGRADE REBOOT (server down 07-29 evening) DEPLOYS NEWS BY ITSELF — no deploy step is
+  owed.** All four `hmt-*` units are `enabled` at boot and the dev tree already contains `8cf8008`
+  (PR #134), so the first post-upgrade backend start runs the news lane. **FIRST JOB ON THE WAY BACK:
+  record that start time (`systemctl show hmt-backend -p ActiveEnterTimestamp`) — that timestamp, not
+  07-30, IS the news cohort boundary.** If the box returns mid-session, that day is a PARTIAL cohort:
+  label it and never use it as a baseline. (Pre-upgrade the backend had not restarted since 07-28
+  12:33 UTC, so everything before the reboot is clean measurement-round data.)
+- ▶ **PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main in, re-verify (full suite
+  + ruff), merge, then deploy on the session AFTER news has had one full clean day. Never the same
+  cohort date as news.
 - ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
   `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
 - ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
