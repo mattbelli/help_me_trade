@@ -15,6 +15,30 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
+
+DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with
+**zero open orders at the broker** — its 314.90 stop was never placed, and the guard has placed
+**nothing since it shipped**. Full diagnosis + the measured Alpaca constraint matrix live on the cards;
+only the actions are here.
+
+- **⏳ Fix `stop-guard-never-fires` first** (card, `next`, critical). ~One line — `account_id` is
+  dropped by `db/paper_orders.py:_row_to_proposal()`, so `trading/stop_guard.py:118` skips every
+  candidate. Needs an **account-scoped** regression test; the existing tests pass `account_id=None`
+  and never exercise the filter.
+- **⚠️ Timing is load-bearing, not cosmetic:** Alpaca 422s a stop whose trigger is already breached
+  (*"stop price must be less than current price"*), so the guard must place on fill while price is
+  still above the stop. After a gap-down it **cannot** place one at all — "re-place it each morning"
+  is not a workaround.
+- **⏳ A second entry is resting NOW:** `paper_9fa4e9a31332` (Fable, GOOGL 54 @ 328, expires 07-30
+  19:59) will repeat this on fill. Check it before assuming the blast radius is one position.
+- **⏳ Founder decision open:** `ext-entry-sizing-decision` (founder lane) — `ext` notional parity vs
+  smaller, since no stop can be live outside RTH and a stop barely helps across a gap.
+- Then `book-accounts-invisible-in-cockpit`, then `ext-hours-soft-stop` (data gate already passes —
+  the 24/7 poll already carries a live overnight mark).
+
+---
+
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x

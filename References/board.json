@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-30T00:09:06.011540+00:00",
+ "updated_at": "2026-07-30T00:22:40.415112+00:00",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,46 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "ext-entry-sizing-decision",
+   "title": "Founder call: should `ext` entries size smaller, given the overnight window is uninsurable?",
+   "lane": "founder",
+   "type": "decision",
+   "priority": "high",
+   "owner": "founder",
+   "updated_at": "2026-07-30",
+   "notes": "Surfaced 07-28. MEASURED: no stop of any kind can be live outside RTH (see ext-hours-soft-stop for the probe matrix). The `ext` style — your 07-24 choice, motivated by 'analysis is priced off the close, what if GOOGL jumps $10 by morning' — buys entry-price certainty and pays for it with a window nothing can insure. That is a real trade, not a bug. AND a stop barely helps across a gap anyway: 314.90 stop, GOOGL opens 300 -> triggers, becomes a MARKET order, fills near 300. You lose ~$27/sh instead of ~$12 — you get out, not at your price. (Stop-MARKET is correct here and is what we send: stop_guard.py:164 order_type='stop', limit_price=None, and RiskEngine won't permit stop_limit. A stop-LIMIT at 314.90 into a gap to 300 would never fill and you'd be stuck holding.) So the only levers that actually bound overnight risk are POSITION SIZE and whether to take `ext` at all. Today `ext` sizes identically to every other style — GOOGL went on at the full $20K notional. DECISION: leave `ext` at parity and accept the window, or give it a smaller notional? Risk-appetite call, yours."
+  },
+  {
+   "id": "ext-hours-soft-stop",
+   "title": "Ext-hours soft stop — the ONLY protection possible outside RTH; extends existing exit_engine, does not replace the broker stop",
+   "lane": "next",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-07-30",
+   "notes": "Founder ask 07-28: 'does it make sense to build ourselves a watcher? llm submits the stop to it - once the buy fills it's alerted - if price hits stop - it sends an order to close?' Answer: yes, and nearly every piece already exists and is already running. ★ MEASURED 07-28 by live paper probe (acct_fc78907f4bda) — the constraint that forces this: limit (GTC, RTH) + bracket/oto -> ACCEPTED, child legs 'held', arm on fill | ext (GTC limit + extended_hours) + bracket/oto -> 403 'do not support extended hours trading' | moo (tif=opg) + bracket/oto -> 422 'support only day or gtc time_in_force' | stop / stop_limit + extended_hours=true -> 422 'not eligible for extended hours trading'. So NO stop of any kind can be live outside RTH — native brackets are a red herring, and a perfect bracket implementation would have left GOOGL exactly as exposed. Child legs inherit the PARENT's tif (day parent -> child dies at that session's close; gtc parent -> ~90d), so the 07-24 'day-bracket children die at the close' note is real but avoidable with a GTC parent. ★ THE DATA GATE PASSES (expected to be the blocker; it isn't): the broker snapshot's current_price is LIVE overnight — GOOGL 21:00 ET 326.34 / 23:00 324.60 / 01:00 324.33 / 03:00 325.25, tracking Alpaca's overnight venue (feed=boats) tick for tick. The poll loop already runs 24/7 (~350 polls/hr overnight, measured), so we are ALREADY pulling a live overnight mark for every held position. SIP covers 04:00-19:59 ET, boats covers 20:00-03:59 ET; together 24h continuous. Also: overnight liquidity is NOT the trap first claimed — GOOGL did 8-17k sh/hr overnight, so 61 shares is nothing. That becomes a per-name liquidity GATE, not a reason to skip. ALREADY BUILT: 24/7 poll loop; live overnight price; managed_positions (stop/target/high-water state); exit_engine (evaluates vs snapshot, closes via ExecutionService.submit -> the chokepoint); and the stop price itself, already sitting unused in the proposal payload — no new 'LLM submits the stop' interface is needed. ACTUAL WORK: (a) book entries never get a managed_positions row (only auto_entry does); (b) exit_engine._strategy_kind() dispatches earnings/dip/vix_spike, a book position falls through to unknown_kind -> skip (the books spec deliberately set 'scan/exit-engine skip book'); (c) the exit order MUST be a marketable ext-hours LIMIT — market orders are rejected outside RTH, so the founder's 'sends a mkt order' works in RTH only; (d) STAND-DOWN so the soft stop and the broker stop cannot both fire — double-sell = short 61; RiskEngine's sell_position check should backstop but the design must be explicit, not lean on it. SHAPE: broker GTC stop stays PRIMARY (survives our backend dying, no data dependency, no latency); the soft stop covers ONLY the ~17.5h/day the broker stop legally cannot, and cedes during RTH. Needs a confirmation rule (N consecutive polls below, or min size behind the print) so one wide overnight quote can't stop us out on noise — PRE-REGISTERED, not improvised. Auto-execute = Rung 3: ships DISABLED, founder arms, always through ExecutionService.submit(), never a direct broker call. ⏳ OPEN QUESTION TO PRE-REGISTER BEFORE ARMING: is acting at 03:00 actually better than waiting for the open? Hard news gap, yes. Ordinary overnight chop, we'd be selling thin into a move that reverts by 09:30. We now have the data (boats + our own snapshots) to measure historical overnight breaches and revert-by-open rates rather than guess. SEQUENCING: behind stop-guard-never-fires (one line, covers RTH, broker-side = categorically stronger). (a) is shared plumbing with that card and unlocks book positions for every subsystem that reads open positions."
+  },
+  {
+   "id": "book-accounts-invisible-in-cockpit",
+   "title": "Book-account activity invisible in cockpit: alpaca ledger sync is single-account + toolbar DAY tile ignores the selector",
+   "lane": "next",
+   "type": "bug",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-07-30",
+   "notes": "Found 07-28 alongside stop-guard-never-fires. Two independent read-side gaps, one symptom: the founder's GOOGL fill showed nowhere in the dashboard. (1) BACKEND — trading/sync.py sync_alpaca() is hardwired to ONE account: get_or_create_broker_account('alpaca') + the default get_broker('alpaca') adapter. The five sub-accounts (deepseek/fable/open/strat1/strat2) each have their own connection and are NEVER ledger-synced. trade_accounts.last_synced_at is NULL for all five; trade_events has zero rows for any of them; last alpaca_api event is 2026-06-23. So /api/performance/dashboard?account_id=acct_alpaca_deepseek returns all zeros and day-pnl returns has_activity:false — true for EVERY trade the books have ever made, not just this one. (2) FRONTEND — useDayPnl() (frontend/lib/workspace/use-day-pnl.ts:8) calls fetchPortfolioHistory('1D') with no account_id, so api/main.py:3623 falls through to the DEFAULT broker account. The toolbar DAY tile therefore shows Matt+LLM regardless of which paper account is selected. useLedgerDayPnl is wired for real/Schwab scope only. NOT broken: /api/snapshot itself carries the position correctly (deepseek pv 100,419.09, GOOGL 61 @ 327, unrealized +417.55) — VALUE/CASH/UNREAL render fine when Deep Seek is selected."
+  },
+  {
+   "id": "stop-guard-never-fires",
+   "title": "⚠️ SAFETY: stop_guard has NEVER placed a stop — account_id dropped by _row_to_proposal, every candidate skipped silently",
+   "lane": "next",
+   "type": "safety",
+   "priority": "critical",
+   "owner": "agent",
+   "updated_at": "2026-07-30",
+   "notes": "Found 07-28 investigating an unprotected fill. DeepSeek book GOOGL exec_7958562468e9, 61 @ 327.00 filled 07-27 18:25 ET; stop should be 314.90 (in the proposal payload + the book's journal: 'stop $314.90 GTC. Falsifier: close below $315'). Still naked as of 07-30 00:19 (+$592.92 unrealized, ZERO open orders at broker). ROOT CAUSE: trading/stop_guard.py:118 filters row.get('account_id') != account_id, and place_protective_stops is ONLY ever called with a non-None account_id (api/main.py:359, inside _poll_account). But db/paper_orders.py _row_to_proposal() builds its dict from a hardcoded key list + _NEW_COLUMNS, which OMITS account_id though the column exists and is populated -> lookup is always None, never matches, every candidate skipped every poll. Verified by running list_book_entries_needing_stop() against the live DB: 3 rows, all 'acct None'. Zero rows have ever existed with proposal_id LIKE 'stop|%' — the guard has placed nothing since it shipped (9f72e0e). FAILS SILENTLY: the continue sits ABOVE the attempt counter, so the _MAX_ATTEMPTS 'UNPROTECTED position' critical page can never fire either. GOOGL 07-27 was the FIRST book entry ever to fill (4 prior expired/still resting), so the guard's first live test was its first failure. ⚠️ WHY EXISTING TESTS MISS IT: tests/test_book_execution_round.py calls place_protective_stops('alpaca', db_path=db) with NO account_id — the filter is never exercised. Fix needs an account-scoped regression test. ⚠️⚠️ MEASURED 07-28, and it makes the timing load-bearing: Alpaca REJECTS a protective stop whose trigger is already breached — 422 'stop price must be less than current price'. So the guard MUST place the stop immediately on fill while price is still above it. Place it at 18:25 with GOOGL at 327 -> accepted, rests, live at 09:30. Try at 09:31 after a gap to 300 -> 422, no stop at all, and the guard burns 10 retries then pages. The recovery path fails in exactly the scenario it exists for; 're-place it each morning' is NOT a workaround. Fix is ~one line + tests. ⚠️ A SECOND book entry is resting right now (paper_9fa4e9a31332, Fable, GOOGL 54 @ 328, submitted 07-29, expires 07-30 19:59) — it will repeat this on fill."
+  },
   {
    "id": "chart-candle-fidelity-0729",
    "title": "Native chart candle fidelity: pixel-grid geometry (wick lean / body-width flicker) + the live-rollover phantom gap",
