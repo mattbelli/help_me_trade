@@ -15,6 +15,30 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
+
+DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with
+**zero open orders at the broker** — its 314.90 stop was never placed, and the guard has placed
+**nothing since it shipped**. Full diagnosis + the measured Alpaca constraint matrix live on the cards;
+only the actions are here.
+
+- **⏳ Fix `stop-guard-never-fires` first** (card, `next`, critical). ~One line — `account_id` is
+  dropped by `db/paper_orders.py:_row_to_proposal()`, so `trading/stop_guard.py:118` skips every
+  candidate. Needs an **account-scoped** regression test; the existing tests pass `account_id=None`
+  and never exercise the filter.
+- **⚠️ Timing is load-bearing, not cosmetic:** Alpaca 422s a stop whose trigger is already breached
+  (*"stop price must be less than current price"*), so the guard must place on fill while price is
+  still above the stop. After a gap-down it **cannot** place one at all — "re-place it each morning"
+  is not a workaround.
+- **⏳ A second entry is resting NOW:** `paper_9fa4e9a31332` (Fable, GOOGL 54 @ 328, expires 07-30
+  19:59) will repeat this on fill. Check it before assuming the blast radius is one position.
+- **⏳ Founder decision open:** `ext-entry-sizing-decision` (founder lane) — `ext` notional parity vs
+  smaller, since no stop can be live outside RTH and a stop barely helps across a gap.
+- Then `book-accounts-invisible-in-cockpit`, then `ext-hours-soft-stop` (data gate already passes —
+  the 24/7 poll already carries a live overnight mark).
+
+---
+
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
@@ -26,7 +50,8 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
   ratio is the robust part).
 - ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
   Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
-  submit-at-the-open. Then confirm stop_guard placed the resting GTC within a poll tick.
+  submit-at-the-open. The stop_guard half of this verify is blocked until `stop-guard-never-fires`
+  lands (see the 07-30 section) — it cannot pass today.
 - ⏳ chart prewarm: `/health` bars_prewarm `lag_s` stays well under the shortest TTL across a few
   sessions (`chart-bars-prewarm-storms`).
 
@@ -111,11 +136,33 @@ snapshot per sweep). Open threads only:
 
 Findings live on cards; six of nine closed. Still open: `chat-dead-ts-surface` (dead TS brain incl.
 an unguarded `propose_order` endpoint) · `copilot-memory-store-empty` (0 active memories, embeddings
-backfill never ran) · `fusion-unminted-dots` (3 of 4 minted 07-28; `rvol_ex_prints` remains).
+backfill never ran) · `fusion-unminted-dots` (4 of 4 BUILT 07-28; `rvol_ex_prints` awaits its deploy —
+see fusion section).
 REASON/DECIDE wall-down was proven live Monday (TSLA/XLE admissions); the `REASON_EMIT_ENABLED`
 flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 
 ## ▶ Fusion — Horizon Redesign Round 5 + measurement follow-ups
+
+**⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
+attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
+uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
+- ⚠️⚠️ **THE RAM-UPGRADE REBOOT (server down 07-29 evening) DEPLOYS NEWS BY ITSELF — no deploy step is
+  owed.** All four `hmt-*` units are `enabled` at boot and the dev tree already contains `8cf8008`
+  (PR #134), so the first post-upgrade backend start runs the news lane. **FIRST JOB ON THE WAY BACK:
+  record that start time (`systemctl show hmt-backend -p ActiveEnterTimestamp`) — that timestamp, not
+  07-30, IS the news cohort boundary.** If the box returns mid-session, that day is a PARTIAL cohort:
+  label it and never use it as a baseline. (Pre-upgrade the backend had not restarted since 07-28
+  12:33 UTC, so everything before the reboot is clean measurement-round data.)
+- ▶ **PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main in, re-verify (full suite
+  + ruff), merge, then deploy on the session AFTER news has had one full clean day. Never the same
+  cohort date as news.
+- ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
+  `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
+- ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
+  for (never done); attention scores stepping DOWN = **the correction, not signal**. Watch the one-time
+  attention migration — it full-scans ~591k `evidence_dots`, so keep it off the lock-starve path.
+- ⏳ next in this lane: filings → fusion dots — needs `ingest_seq` on `filings_events` plus a founder call
+  on insider-buy direction (`none` like news, or a deliberate exception). Congress rows stale since 07-02.
 
 Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - ⏳ ≈2026-08-05: T=3.5 revisit (recount T tables on print-price-era + flow-list-era dots) AND the
