@@ -203,7 +203,12 @@ def _order_stats(inv: np.ndarray, gid: np.ndarray, premium: np.ndarray,
 class Fenced(NamedTuple):
     """One session's prints after the v7 quote fence + side classification."""
 
-    price: np.ndarray      # dollars per contract-unit (DBN fixed-point undone)
+    # ⚠️ RAW DBN fixed-point price as float64 — NOT divided by PX. `premium`
+    # below is the dollar figure. A caller that treats this as dollars and hands
+    # it to `multileg_flags` (which divides by PX itself) computes cents 1e9 too
+    # small, joins nothing, and silently degrades v6/v7 code-based multileg to
+    # the heuristic — which flips net premium's sign per the corpus-sign finding.
+    price: np.ndarray
     size: np.ndarray
     q_ok: np.ndarray       # a two-sided, positive, non-crossed quote exists
     wide_q: np.ndarray     # quoted but wider than SPREAD_MAX_FRAC of the mid
@@ -289,8 +294,11 @@ def multileg_flags(
     flagged, because mixed provenance would be worse than an honestly-heuristic
     session.
 
-    `price` is the fenced float price (DBN fixed-point undone by dividing PX);
-    `size` must be the integer contract size the capture was keyed on.
+    ⚠️ `price` must be the RAW DBN fixed-point price (i.e. `Fenced.price`, or
+    `arr["price"]`) — this function divides by `PX` itself to reach cents. Handing
+    it an already-scaled dollar price makes every joined cents value 1e9 too
+    small, so nothing matches and the flag degrades to the heuristic without an
+    error. `size` must be the integer contract size the capture was keyed on.
     """
     ml_heur = _multileg(ts_ev, iid)
     cond = np.full(len(ts_ev), "", dtype="U1")
@@ -394,6 +402,12 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
         return {"prints": 0, "rows": 0}
 
     # --- join prints to contracts ------------------------------------------
+    # NOTE: the `size == 4_294_967_295` sentinel is never filtered explicitly
+    # here. It is excluded INCIDENTALLY, because sentinel prints carry no real
+    # instrument and so fail this definitions join. Any consumer that reads the
+    # raw tape by another route has to drop them itself (see
+    # `tools/mover_intraday.py`, which does it after the flags so its row set
+    # stays identical to this one's).
     pid = arr["instrument_id"].astype(np.int64)
     idx = np.searchsorted(d_ids, pid)
     np.clip(idx, 0, len(d_ids) - 1, out=idx)

@@ -145,6 +145,61 @@ def test_the_v7_fence_and_side_rule():
     assert fx.premium[0] == pytest.approx(1.06 * 10 * 100)
 
 
+def test_the_strict_at_the_quote_rule_is_the_secondary_classification():
+    """`strict` is written on every row so neither rule can be chosen after
+    seeing results, and it had no coverage: a >=/<= flip here is invisible in
+    every table the corpus produces today, because nothing reads it yet."""
+    arr = _prints([
+        (int(1.10 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # AT the ask
+        (int(1.00 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # AT the bid
+        (int(1.06 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # inside
+        (int(1.50 * PX), 1, int(1.00 * PX), int(2.00 * PX)),   # wide
+        (int(1.06 * PX), 1, UNDEF, int(1.10 * PX)),            # unquoted
+    ])
+    fx = fence_and_classify(arr)
+    assert list(fx.strict) == [0, 1, 2, 3, 2]
+    # at the touch the two rules agree; inside the spread they deliberately differ
+    assert list(fx.side[:3]) == [0, 1, 0]
+
+
+def test_u_is_the_half_spread_ratio_and_is_zero_where_there_is_no_quote():
+    """`u` carries the directional intensity weighting. The nan_to_num(0.0)
+    convention matters: an unquoted or wide print contributes NOTHING to a
+    u-weighted sum rather than a NaN that would poison the whole aggregate."""
+    arr = _prints([
+        (int(1.10 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # at the ask: +1
+        (int(1.00 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # at the bid: -1
+        (int(1.05 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # at the mid: 0
+        (int(1.20 * PX), 1, int(1.00 * PX), int(1.10 * PX)),   # through: >1
+        (int(1.50 * PX), 1, int(1.00 * PX), int(2.00 * PX)),   # wide -> 0
+        (int(1.06 * PX), 1, UNDEF, int(1.10 * PX)),            # unquoted -> 0
+    ])
+    u = fence_and_classify(arr).u
+    assert u[0] == pytest.approx(1.0)
+    assert u[1] == pytest.approx(-1.0)
+    assert u[2] == pytest.approx(0.0)
+    assert u[3] == pytest.approx(3.0)          # (1.20-1.05)/0.05
+    assert u[4] == 0.0 and u[5] == 0.0
+    assert np.isfinite(u).all()
+
+
+def test_premium_is_computed_on_every_row_including_the_fenced_out_ones():
+    """Rows are KEPT and labelled rather than deleted, which is what leaves the
+    discarded volume auditable — so premium must be real on a wide or unquoted
+    print even though it never reaches a bull/bear total."""
+    arr = _prints([
+        (int(1.50 * PX), 3, int(1.00 * PX), int(2.00 * PX)),   # wide
+        (int(1.06 * PX), 4, UNDEF, int(1.10 * PX)),            # unquoted
+    ])
+    fx = fence_and_classify(arr)
+    assert fx.premium[0] == pytest.approx(1.50 * 3 * 100)
+    assert fx.premium[1] == pytest.approx(1.06 * 4 * 100)
+    assert list(fx.side) == [3, 2]             # neither is bull or bear
+    # and the price field is the RAW fixed-point value, not dollars — the
+    # docstring contract multileg_flags depends on
+    assert fx.price[0] == 1.50 * PX
+
+
 def test_the_spread_fence_boundary_is_fifty_percent_of_the_mid():
     """"the 1.25 clause-1 spread fence" names FLOW_ROADMAP section 1.25, not a
     1.25 threshold — the registered number is 0.50 of the mid, and reading it as
@@ -156,6 +211,126 @@ def test_the_spread_fence_boundary_is_fifty_percent_of_the_mid():
     over = _prints([(int(1.0 * PX), 1, int(0.745 * PX), int(1.255 * PX))])
     assert not fence_and_classify(at).wide_q[0]
     assert fence_and_classify(over).wide_q[0]
+
+
+# ---------------------------------------------------------------------------
+# multileg_flags — the other extracted function, previously untested
+# ---------------------------------------------------------------------------
+
+SESSION = date(2026, 5, 15)
+
+
+def _ml(monkeypatch, ts, iid, *, labeled=True, cond=None, join_rate=0.99):
+    """Call `multileg_flags` with the condition-label join stubbed out."""
+    import tools.flow_corpus_rollup as fcr
+    monkeypatch.setattr(fcr, "LABELED", labeled)
+    if labeled:
+        def fake(session, ts_ev, iid_, cents, size, **kw):
+            if cond is None:
+                return None
+            return np.array(cond, dtype="U1"), {"join_rate_dbn": join_rate}
+        monkeypatch.setattr(fcr, "join_condition_codes", fake)
+    n = len(ts)
+    return fcr.multileg_flags(
+        SESSION, np.array(ts, np.int64), np.array(iid, np.int64),
+        np.full(n, 1.0 * PX), np.ones(n, np.int64))
+
+
+def test_the_multileg_heuristic_is_a_different_instrument_at_one_nanosecond(
+        monkeypatch):
+    """The v5 ns-collision rule, which is still the per-print fallback at v7. A
+    sweep crossing venues is the SAME instrument at one nanosecond and is not
+    contamination; a package is a DIFFERENT instrument at one nanosecond."""
+    ml, cond, src, jr, cov = _ml(monkeypatch, [1, 1], [7, 8], labeled=False)
+    assert list(ml) == [1, 1]                  # two legs of one package
+    ml, *_ = _ml(monkeypatch, [1, 1], [7, 7], labeled=False)
+    assert list(ml) == [0, 0]                  # one sweep, two venues
+    ml, *_ = _ml(monkeypatch, [1, 2], [7, 8], labeled=False)
+    assert list(ml) == [0, 0]                  # unrelated prints
+    assert (src, jr, cov) == ("heuristic", None, None)
+    assert list(cond) == ["", ""]
+
+
+def test_a_session_with_no_completed_label_capture_stays_wholly_heuristic(
+        monkeypatch):
+    """Registered fallback hierarchy: no capture => the whole session is honestly
+    heuristic, with the reason logged. Mixed provenance would be worse."""
+    ml, cond, src, jr, cov = _ml(monkeypatch, [1, 1], [7, 8], cond=None)
+    assert list(ml) == [1, 1] and src == "heuristic"
+    assert jr is None and cov is None and list(cond) == ["", ""]
+
+
+def test_joined_condition_codes_win_per_print_and_the_heuristic_fills_the_gaps(
+        monkeypatch):
+    """Addendum E/F adoption, the subtle part: adoption is PER PRINT. A joined
+    non-package code must override the heuristic (row 1 collides at one
+    nanosecond yet is NOT a package), and only an unmatched print falls back."""
+    # all three collide at ts=1 on different instruments => heuristic says 1,1,1
+    ml, cond, src, jr, cov = _ml(
+        monkeypatch, [1, 1, 1], [7, 8, 9], cond=["t", "a", ""])
+    assert list(ml) == [1, 0, 1]
+    assert src == "codes" and jr == pytest.approx(0.99)
+    assert cov == pytest.approx(2 / 3)          # two of three prints labelled
+    assert list(cond) == ["t", "a", ""]
+
+
+def test_a_below_floor_join_still_adopts_its_labels(monkeypatch):
+    """Addendum F (2026-07-28) turned the 98% floor into a REPORTING gate, not a
+    rejection — exactly 115 of 251 sessions clear it, and blocking the rest would
+    have blocked the v6 migration. The floor must not silently revert a session
+    to the heuristic."""
+    ml, _c, src, jr, _cov = _ml(
+        monkeypatch, [1, 1], [7, 8], cond=["t", "a"], join_rate=0.77)
+    assert src == "codes"                       # labels adopted anyway
+    assert jr == pytest.approx(0.77)
+    assert list(ml) == [1, 0]
+
+
+# ---------------------------------------------------------------------------
+# golden vectors: the shared fence cannot drift from the v7 corpus vintage
+# ---------------------------------------------------------------------------
+
+GOLDEN_INPUT = [
+    # (price_fixed, size, bid_fixed, ask_fixed)
+    (1_060_000_000, 10, 1_000_000_000, 1_100_000_000),   # inside, above mid
+    (1_100_000_000, 5, 1_000_000_000, 1_100_000_000),    # at the ask
+    (1_000_000_000, 5, 1_000_000_000, 1_100_000_000),    # at the bid
+    (1_050_000_000, 2, 1_000_000_000, 1_100_000_000),    # exactly at the mid
+    (1_500_000_000, 3, 1_000_000_000, 2_000_000_000),    # spread > 50% of mid
+    (1_060_000_000, 4, UNDEF, 1_100_000_000),            # no bid
+]
+GOLDEN = {
+    "price": [1.06e9, 1.10e9, 1.00e9, 1.05e9, 1.50e9, 1.06e9],
+    "size": [10.0, 5.0, 5.0, 2.0, 3.0, 4.0],
+    "q_ok": [True, True, True, True, True, False],
+    "wide_q": [False, False, False, False, True, False],
+    "good_q": [True, True, True, True, False, False],
+    "u": [0.2, 1.0, -1.0, 0.0, 0.0, 0.0],
+    "side": [0, 0, 1, 2, 3, 2],
+    "strict": [2, 0, 1, 2, 3, 2],
+    "premium": [1060.0, 550.0, 500.0, 210.0, 450.0, 424.0],
+}
+
+
+def test_the_fence_matches_its_frozen_golden_vectors(monkeypatch):
+    """A PIN, not a behaviour test. `fence_and_classify` is now shared by the
+    corpus roller and 1.14f, so a future edit that changes it silently rewrites
+    what "fenced" means for a registered study AND for the corpus it is compared
+    against. Every one of the nine fields is frozen here at the v7 vintage; if
+    this test has to change, that change is a corpus-semantics decision and needs
+    a re-roll, not a passing test suite."""
+    fx = fence_and_classify(_prints(GOLDEN_INPUT))
+    for field, want in GOLDEN.items():
+        got = getattr(fx, field)
+        assert len(got) == len(want), field
+        for i, (g, w) in enumerate(zip(got, want)):
+            assert g == pytest.approx(w), f"{field}[{i}]: {g} != {w}"
+
+    # and the multileg flag on the same frozen rows: rows 0 and 1 collide at one
+    # nanosecond on different instruments, the rest are singletons
+    ml, _c, src, _jr, _cov = _ml(
+        monkeypatch, [1, 1, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], labeled=False)
+    assert list(ml) == [1, 1, 0, 0, 0, 0] and src == "heuristic"
 
 
 # ---------------------------------------------------------------------------
@@ -297,10 +472,10 @@ def test_the_outcome_is_max_abs_cumulative_log_return_from_the_price_at_b():
     the outcome shares no bar with the feature window; max|x| must pick up an
     adverse excursion as readily as a favourable one."""
     closes = np.full((1, mi.RTH_BINS), np.nan)
-    closes[0, 5] = 100.0                                  # the price at 10:00
+    closes[0, :6] = 100.0                                 # the price at 10:00
     for b, px in zip(range(6, 12), (101, 99, 105, 100, 98, 100)):
         closes[0, b] = px
-    meas, signed, ok = mi.outcome_measures(closes, expected_bars=7)
+    meas, signed, ok = mi.outcome_measures(closes, last_bin=12)
     bi, hi = 0, mi.HORIZONS.index("30m")                  # b=10:00, H=30m
     assert ok[0]
     assert meas[0, bi, hi] == pytest.approx(abs(np.log(105 / 100)))
@@ -308,10 +483,10 @@ def test_the_outcome_is_max_abs_cumulative_log_return_from_the_price_at_b():
 
     # a purely adverse path: the magnitude measure still sees it
     down = np.full((1, mi.RTH_BINS), np.nan)
-    down[0, 5] = 100.0
+    down[0, :6] = 100.0
     for b, px in zip(range(6, 12), (99, 98, 97, 96, 95, 94)):
         down[0, b] = px
-    m2, s2, _ = mi.outcome_measures(down, expected_bars=7)
+    m2, s2, _ = mi.outcome_measures(down, last_bin=12)
     assert m2[0, bi, hi] == pytest.approx(abs(np.log(94 / 100)))
     assert s2[0, bi, hi] == pytest.approx(np.log(94 / 100))    # signed is negative
     assert s2[0, bi, hi] < 0
@@ -320,7 +495,7 @@ def test_the_outcome_is_max_abs_cumulative_log_return_from_the_price_at_b():
 def test_a_horizon_the_boundary_cannot_reach_is_na_not_truncated():
     closes = np.full((1, mi.RTH_BINS), 100.0)
     closes[0, 60:] = np.arange(100.0, 100.0 + mi.RTH_BINS - 60)
-    meas, _s, _ok = mi.outcome_measures(closes, expected_bars=mi.RTH_BINS)
+    meas, _s, _ok = mi.outcome_measures(closes, last_bin=mi.RTH_BINS)
     b_1430 = mi.BOUNDARY_BINS.index(60)
     assert np.isnan(meas[0, b_1430, mi.HORIZONS.index("2h")])
     assert np.isfinite(meas[0, b_1430, mi.HORIZONS.index("30m")])
@@ -339,8 +514,8 @@ def test_a_name_day_below_eighty_percent_of_the_session_grid_is_na_and_counted()
     # 42-bar early close: 40 bars is 95% of ITS grid, so the name-day survives
     half = np.full((1, mi.RTH_BINS), np.nan)
     half[0, :40] = 100.0
-    assert mi.outcome_measures(half, expected_bars=42)[2][0]
-    assert not mi.outcome_measures(half, expected_bars=78)[2][0]
+    assert mi.outcome_measures(half, last_bin=42)[2][0]
+    assert not mi.outcome_measures(half, last_bin=78)[2][0]
 
 
 def test_a_name_that_stops_trading_at_the_boundary_has_no_signed_return():
@@ -348,7 +523,9 @@ def test_a_name_that_stops_trading_at_the_boundary_has_no_signed_return():
     that would park a fabricated 0 in the middle of the sign distribution."""
     closes = np.full((1, mi.RTH_BINS), np.nan)
     closes[0, :6] = 100.0
-    meas, signed, _ = mi.outcome_measures(closes, expected_bars=6)
+    # last_bin is the FULL grid, so the 10:00 boundary is eligible and the NA
+    # comes from "this name has no bars after b" — not from a short session
+    meas, signed, _ = mi.outcome_measures(closes, last_bin=mi.RTH_BINS)
     assert np.isnan(signed[0, 0, mi.HORIZONS.index("30m")])
     assert np.isnan(meas[0, 0, mi.HORIZONS.index("30m")])
 
@@ -413,14 +590,19 @@ def test_the_block_bootstrap_is_reproducible_under_the_registered_seed():
         40, 50, mi.BLOCK, np.random.default_rng(mi.SEED + 1)))
 
 
-def test_every_draw_resamples_whole_blocks_of_sessions():
-    """Circular moving blocks of 5 SESSIONS: each draw's total weight is
-    n_blocks*5, and the wrap-around is what keeps every session equally likely
-    to be drawn (a non-circular version under-samples the tail)."""
-    w = mi.block_weights(40, 200, 5, np.random.default_rng(mi.SEED))
-    assert w.shape == (200, 40)
-    assert (w.sum(axis=1) == 40).all()          # ceil(40/5) blocks x 5
+def test_every_draw_resamples_exactly_as_many_sessions_as_the_sample_has():
+    """S=42 is deliberately NOT divisible by the block length: ceil(42/5)=9 whole
+    blocks cover 45 sessions, so without truncation every draw is 3 sessions
+    larger than the sample and every interval built from it comes out too narrow.
+    The circular wrap is what keeps the tail sessions equally likely to be drawn.
+    """
+    w = mi.block_weights(42, 200, mi.BLOCK, np.random.default_rng(mi.SEED))
+    assert w.shape == (200, 42)
+    assert (w.sum(axis=1) == 42).all()          # truncated to exactly S
     assert w.sum(axis=0).min() > 0              # no session is unreachable
+    # the divisible case is unchanged
+    w40 = mi.block_weights(40, 50, mi.BLOCK, np.random.default_rng(mi.SEED))
+    assert (w40.sum(axis=1) == 40).all()
 
 
 def test_the_bootstrap_median_is_exact_not_a_histogram_approximation():
@@ -487,22 +669,66 @@ def test_the_bar_store_is_read_in_the_layout_the_backfill_writes(tmp_path):
     session = date(2026, 5, 15)
     _write_npz(tmp_path / f"{session.isoformat()}.npz", session,
                {"AAA": {0: 10.0, 1: 11.0, 77: 12.0}, "ZZZ": {0: 99.0}})
-    closes, expected, n_sym = mi.load_bars_session(
+    closes, last_bin, n_sym = mi.load_bars_session(
         tmp_path / f"{session.isoformat()}.npz", {"AAA": 0}, 1)
     assert closes.shape == (1, mi.RTH_BINS)
     assert closes[0, 0] == 10.0 and closes[0, 1] == 11.0 and closes[0, 77] == 12.0
     assert np.isnan(closes[0, 2])
     assert n_sym == 1                       # ZZZ is outside the universe
-    assert expected == 3                    # the session's own observed grid
+    # a 2-symbol file has no cross-section to collapse, so the grid reads full
+    assert last_bin == mi.RTH_BINS
 
 
-def test_the_expected_bar_grid_never_exceeds_a_full_session(tmp_path):
+def test_the_bar_grid_never_exceeds_a_full_session(tmp_path):
     session = date(2026, 5, 15)
     _write_npz(tmp_path / f"{session.isoformat()}.npz", session,
                {"AAA": dict.fromkeys(range(mi.RTH_BINS), 10.0)})
-    _c, expected, _n = mi.load_bars_session(
+    _c, last_bin, _n = mi.load_bars_session(
         tmp_path / f"{session.isoformat()}.npz", {"AAA": 0}, 1)
-    assert expected == mi.RTH_BINS
+    assert last_bin == mi.RTH_BINS
+
+
+def test_a_half_day_grid_is_found_from_the_cross_section_not_the_timestamps():
+    """The measured 2025-11-28 / 2025-12-24 failure. ~500 of ~4,500 names carry
+    late-reported bars through 15:55 on a 13:00-close day, so counting DISTINCT
+    timestamps saturates at 78: every ordinary name then reads ~54% coverage,
+    fails the 80% rule, and the only names left are the anomalous ones — the NA
+    rule inverts into a selection filter that keeps the weirdest names."""
+    bins = []
+    for b in range(42):                     # 200 names trade the real session
+        bins += [b] * 200
+    for b in range(42, mi.RTH_BINS):        # 20 stragglers report past the close
+        bins += [b] * 20
+    arr = np.array(bins)
+    assert mi.session_last_bin(arr) == 42
+    assert len(np.unique(arr)) == mi.RTH_BINS   # what the old rule would have seen
+
+    full = np.repeat(np.arange(mi.RTH_BINS), 200)
+    assert mi.session_last_bin(full) == mi.RTH_BINS
+    assert mi.session_last_bin(np.array([], dtype=np.int64)) == 0
+
+
+def test_on_a_half_day_ordinary_names_survive_and_horizons_that_overrun_are_na():
+    """Both halves of the fix, on the same grid: a name that trades the whole
+    13:00 session is NOT NA'd, and H=2h from 12:30 — which would need bars until
+    14:30 — is NA rather than silently truncated into a 30-minute measure."""
+    last_bin = 42
+    closes = np.full((2, mi.RTH_BINS), np.nan)
+    closes[0, :42] = 100.0                      # ordinary: full real session
+    closes[1, :] = 100.0                        # straggler: bars past the close
+    meas, _s, ok = mi.outcome_measures(closes, last_bin)
+    assert ok[0] and ok[1]                      # the ordinary name survives
+
+    b_1230 = mi.BOUNDARY_BINS.index(36)
+    assert mi.horizon_end_bin(36, "2h", last_bin) is None
+    assert np.isnan(meas[0, b_1230, mi.HORIZONS.index("2h")])
+    assert np.isnan(meas[1, b_1230, mi.HORIZONS.index("2h")])
+    # H=close ends AT the real close, and 30m from 12:30 fits inside it
+    assert mi.horizon_end_bin(36, "close", last_bin) == last_bin
+    assert mi.horizon_end_bin(36, "30m", last_bin) == 42
+    # a boundary past the real close contributes nothing at all
+    b_1500 = mi.BOUNDARY_BINS.index(66)
+    assert np.isnan(meas[0, b_1500, :]).all()
 
 
 # ---------------------------------------------------------------------------
@@ -679,21 +905,187 @@ def test_a_name_with_no_bars_is_na_counted_and_never_dropped_in_silence(
     assert na["rows_na_outcome_measure"] + na["rows_na_outcome_normalizer"] > 0
 
 
-def test_a_session_with_no_bar_file_is_counted_and_does_not_shift_the_rings(
+def _recording_rings(monkeypatch):
+    """Capture the two Ring instances run_sessions builds, and every push."""
+    made = []
+
+    class Recording(mi.Ring):
+        def __init__(self, shape, k):
+            super().__init__(shape, k)
+            self.finite_per_push: list[int] = []
+            made.append(self)
+
+        def push(self, values):
+            self.finite_per_push.append(int(np.isfinite(values).sum()))
+            super().push(values)
+
+    monkeypatch.setattr(mi, "Ring", Recording)
+    return made
+
+
+def test_a_session_with_no_bar_file_still_consumes_a_ring_slot(
         tmp_path, monkeypatch):
-    """A missing session must still consume a ring slot (see the NaN-slot test),
-    so it is skipped for rows but never skipped for trailing bookkeeping."""
+    """Asserts the RING STATE, not just a counter: a session that produces no
+    rows must still push a slot, or "the trailing 20 sessions" silently stretches
+    across the gap and every normalizer quietly reaches further back than
+    registered. Also pins the vol ring's disclosed definition — window premium is
+    computable from the TAPE alone, so a missing bar file must not blank it."""
+    made = _recording_rings(monkeypatch)
     tape = {n: {b: 100.0 for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
     monkeypatch.setattr(mi, "tape_bins", _fake_tape(tape))
     sessions = [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)]
     names = [f"N{i:02d}" for i in range(N_NAMES)]
-    _write_npz(tmp_path / "2026-01-05.npz", sessions[0],
-               {n: {0: 100.0} for n in names})
+    moving = _zigzag_bars()
+    _write_npz(tmp_path / "2026-01-05.npz", sessions[0], moving(0, names))
     quint, mp, cp = _daily_panels(3)
     na = mi.new_na_counters()
     mi.run_sessions(sessions, names, [s.isoformat() for s in sessions],
                     quint, mp, cp, tmp_path, na)
-    assert na["sessions_no_bars"] == 2
+
+    assert na["sessions_no_bar_file"] == 2
+    vol_ring, out_ring = made
+    assert vol_ring.n == 3 and out_ring.n == 3          # no skipped slots
+    # window premium is tape-only: present on ALL three sessions
+    assert all(c > 0 for c in vol_ring.finite_per_push)
+    # the outcome ring has nothing to record on the two bar-less sessions
+    assert out_ring.finite_per_push[1] == 0
+    assert out_ring.finite_per_push[2] == 0
+
+
+def test_a_session_off_the_equity_calendar_also_consumes_a_ring_slot(
+        tmp_path, monkeypatch):
+    """The path that used to `continue` before either push. A corpus session with
+    no SPY bar cannot be peer-celled, but it still has to occupy its slot."""
+    made = _recording_rings(monkeypatch)
+    tape = {n: {b: 100.0 for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
+    monkeypatch.setattr(mi, "tape_bins", _fake_tape(tape))
+    sessions = [date(2026, 1, 5), date(2026, 1, 6), date(2026, 1, 7)]
+    names = [f"N{i:02d}" for i in range(N_NAMES)]
+    quint, mp, cp = _daily_panels(3)
+    na = mi.new_na_counters()
+    # only the first two sessions exist on the equity calendar
+    mi.run_sessions(sessions, names, [s.isoformat() for s in sessions[:2]],
+                    quint, mp, cp, tmp_path, na)
+    assert na["sessions_no_calendar_position"] == 1
+    for r in made:
+        assert r.n == 3
+    assert made[0].finite_per_push[2] == 0     # nothing known for that session
+
+
+def test_a_row_that_could_never_have_fired_is_in_neither_arm(
+        tmp_path, monkeypatch):
+    """BLOCKER regression. The complement is the FIRING POOL minus the fired, not
+    "everything eligible": a row whose component is NA (no denominator history
+    yet) or whose name has no liquidity quintile could not have fired however
+    extreme the tape was, so scoring it as "did not fire" pollutes the contrast
+    with rows that were never at risk. Measured consequence: largest_print_ratio
+    needs a 60-session denominator, so the corpus's first sessions would
+    contribute complement-only rows. 1.14d's rule is `unfired = ~fr & pool`
+    (tools/mover_earnings_gate.py:241-242).
+
+    Name 8 has 19 valid premium_max days (one short of the registered 20), so it
+    is out of the largest_print_ratio pool but stays in the others. Name 9 has no
+    quintile, so it is out of EVERY pool.
+    """
+    monkeypatch.setattr(mi, "tape_bins", _fake_tape(
+        {n: dict.fromkeys(range(mi.RTH_BINS), 100.0 + 10.0 * n)
+         for n in range(N_NAMES)}))
+    n_sessions = 12
+    sessions, d = [], date(2026, 1, 5)
+    while len(sessions) < n_sessions:
+        if d.weekday() < 5:
+            sessions.append(d)
+        d = d.fromordinal(d.toordinal() + 1)
+    names = [f"N{i:02d}" for i in range(N_NAMES)]
+    dates = [s.isoformat() for s in sessions]
+    moving = _zigzag_bars()
+    for s in sessions:
+        _write_npz(tmp_path / f"{s.isoformat()}.npz", s, moving(0, names))
+
+    quint, med_pmax, cnt_pmax = _daily_panels(n_sessions)
+    cnt_pmax[8, :] = 19.0                       # one short of MIN_PMAX_DAYS
+    quint[9, :] = -1                            # no peer cell at all
+    na = mi.new_na_counters()
+    table = mi.run_sessions(sessions, names, dates, quint, med_pmax, cnt_pmax,
+                            tmp_path, na)
+
+    wi, hi = mi.WINDOWS.index(30), mi.HORIZONS.index("2h")
+    fi_lpr = mi.FEATS.index("largest_print_ratio")
+    fi_short = mi.FEATS.index("short_dte_share")
+
+    # name 9 is in no pool anywhere, so it never became a row
+    assert 9 not in set(table["name"].tolist())
+    # name 8 IS a row (other components pool it) but is absent from the
+    # largest_print_ratio cell entirely — neither fired nor complement
+    keep_lpr = mi.cell_mask(table, wi, fi_lpr, hi)
+    assert 8 not in set(table["name"][keep_lpr].tolist())
+    assert keep_lpr.any()                       # the cell is otherwise populated
+    # ...and present in a component whose pool it does satisfy
+    assert 8 in set(table["name"][mi.cell_mask(table, wi, fi_short, hi)].tolist())
+    # the same holds through the arm-level accessor both arms use
+    _v, _s, _fr = mi.cell_rows(table, wi, fi_lpr, hi,
+                               np.arange(n_sessions, dtype=np.int64))
+    assert len(_v) == int(keep_lpr.sum())
+
+
+def test_a_name_with_no_edgar_history_lands_in_neither_earnings_arm(
+        tmp_path, monkeypatch):
+    """The second BLOCKER. `~gate` sweeps unknown-history names into "far", but
+    1.14e excludes them (`far = ~gate & known`) and this tool's own docstring
+    promises the same. ~55% of corpus roots have no EDGAR history, so the
+    contrast arm would have been mostly a bucket of unflaggable names."""
+    tape = {n: {b: (100.0 + 30.0 * n if b % 2 else 100.0)
+                for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
+    table, _na, sessions, names = _run(
+        tmp_path, 12, _fake_tape(tape), _zigzag_bars(), monkeypatch)
+    dates = [s.isoformat() for s in sessions]
+
+    known = np.ones(N_NAMES, bool)
+    known[4] = False                            # no resolved EDGAR history
+    gate = np.zeros((N_NAMES, len(dates)), bool)
+    gate[0, :] = True                           # one genuinely gated name
+    rows = mi.earnings_split(table, sessions, gate, dates, known)
+
+    wi, hi = mi.WINDOWS.index(mi.PRIMARY_W), mi.HORIZONS.index(mi.PRIMARY_H)
+    for r, fi in zip(rows, range(len(mi.FEATS))):
+        keep = mi.cell_mask(table, wi, fi, hi)
+        n_unknown = int((keep & (table["name"] == 4)).sum())
+        assert r["n_unknown_excluded"] == n_unknown
+        # the unknown name's rows are in neither arm's counts
+        counted = sum(r[lab][k] for lab in ("gated", "far")
+                      for k in ("n_fired", "n_complement"))
+        assert counted == int(keep.sum()) - n_unknown
+    assert any(r["n_unknown_excluded"] > 0 for r in rows), "fixture proved nothing"
+
+
+def test_an_empty_arm_is_reported_unavailable_rather_than_crashing(
+        tmp_path, monkeypatch):
+    """The join-ledger arm can select zero sessions. The guard has to sit BEFORE
+    the session indexing: an empty comprehension yields a float64 array, and the
+    IndexError used to land after the multi-hour session pass had already run."""
+    tape = {n: dict.fromkeys(range(mi.RTH_BINS), 100.0) for n in range(N_NAMES)}
+    table, _na, sessions, _names = _run(
+        tmp_path, 12, _fake_tape(tape), _zigzag_bars(), monkeypatch)
+    res = mi.analyse(table, sessions, set(), mi.SEED)
+    assert res["n_sessions"] == 0 and "unavailable" in res
+    assert "cells" not in res
+    # and an arm too small for one bootstrap block is also refused, not run
+    small = {sessions[0].isoformat(), sessions[1].isoformat()}
+    assert "unavailable" in mi.analyse(table, sessions, small, mi.SEED)
+
+
+def test_a_component_with_an_empty_primary_cell_is_reported_not_omitted():
+    """A missing reading-rule row reads as "not checked" when it means "could not
+    be evaluated" — the two must never look the same in a prereg readout."""
+    cells = [{"W": 60, "H": "2h", "component": "concentration", "diff": 0.1,
+              "star": True, "primary_cell": True}]
+    primary = [cells[0]]
+    rr = mi.reading_rule(primary, cells)
+    assert set(rr) == set(mi.FEATS)
+    assert rr["concentration"]["a_primary_clear_of_zero"] is True
+    for f in ("short_dte_share", "largest_print_ratio", "vol_max_ratio"):
+        assert "unavailable" in rr[f]
+        assert rr[f]["all_three"] is False
 
 
 def test_na_accounting_reaches_the_output_and_names_every_stage(
@@ -804,12 +1196,36 @@ def test_a_session_past_the_train_end_is_never_read_into_the_analysis(
     for banned in ("pnl", "p&l", "slippage", "hit_rate", "hit_share",
                    "win_rate", "entry_price", "position_size", "return_pct"):
         assert banned not in blob, banned
-    # what the results DO carry: medians, intervals, and NA counts
+    # what the results DO carry: medians, intervals, distributions, NA counts
     arm = payload["arms"]["all_train"]
     assert arm["n_sessions"] == len(train)
     assert any(c.get("star") is not None for c in arm["cells"])
-    assert {"median_fired", "median_complement", "diff", "ci"} <= set(
-        next(c for c in arm["cells"] if "median_fired" in c))
+    live = next(c for c in arm["cells"] if "median_fired" in c)
+    assert {"median_fired", "median_complement", "diff", "ci",
+            "fire_rate", "fired_window_premium_usd",
+            "normalized_move_fired", "normalized_move_complement"} <= set(live)
+    # "report the DISTRIBUTION" — four percentiles on both sides of the contrast
+    for key in ("normalized_move_fired", "normalized_move_complement"):
+        assert set(live[key]) == {f"p{p}" for p in mi.DIST_PCTL}
+    assert 0.0 < live["fire_rate"] <= 1.0
+    # the reading-B diagnostic carries a full interval, not just a median
+    for d in arm["complement_first_boundary_only"]:
+        assert {"diff", "ci", "star", "median_fired"} <= set(d)
+    # per-boundary composition, per arm
+    bb = arm["primary_cell_rows_by_boundary"]
+    assert bb and set(bb[0]["fired"]) == set(mi.BOUNDARY_LABELS)
+    # the earnings split names its excluded-unknown count per component
+    assert all("n_unknown_excluded" in r
+               for r in payload["earnings_split_primary_cell"])
+    # the NA ledger's new buckets exist and the disjointness note ships with them
+    for key in ("prints_outside_universe", "sessions_no_calendar_position",
+                "sessions_no_bar_file", "sessions_half_day",
+                "rows_normalizer_below_5bp"):
+        assert key in payload["na_accounting"], key
+    assert payload["meta"]["na_note"]
+    for amb in ("half_day_sessions", "reading_rule_c_horizon",
+                "direction_test_count", "universe_is_the_corpus"):
+        assert amb in payload["meta"]["ambiguities"], amb
 
 
 def test_a_missing_join_ledger_disables_the_robustness_arm_rather_than_faking_it(
