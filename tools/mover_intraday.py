@@ -478,7 +478,8 @@ def outcome_measures(
     return max_abs, signed, bars_ok
 
 
-def load_bars_session(path: Path, name_index: dict[str, int], n_names: int):
+def load_bars_session(path: Path, name_index: dict[str, int], n_names: int,
+                      with_range: bool = False):
     """`(closes, last_bin, n_symbols)` from one outcome-store npz.
 
     READ-ONLY consumer of the layout `tools/equity_bars_5min_backfill.py`
@@ -489,15 +490,24 @@ def load_bars_session(path: Path, name_index: dict[str, int], n_names: int):
     `last_bin` comes from `session_last_bin` over the WHOLE file, not just the
     universe rows: the wider the cross-section, the sharper the collapse that
     marks an early close.
+
+    `with_range=True` additionally returns the per-bin `high`/`low` panels as
+    `(closes, last_bin, n_symbols, highs, lows)` — 1.14g's Parkinson stratifier
+    needs the range and reads the SAME store through the same loader. The
+    default return shape is unchanged, so 1.14f's own path is untouched.
     """
     with np.load(path) as z:
         symbols = z["symbols"]
         sym_idx = z["sym_idx"]
         t_ns = z["t_ns"]
         close = z["close"]
+        high = z["high"] if with_range else None
+        low = z["low"] if with_range else None
     closes = np.full((n_names, RTH_BINS), np.nan)
+    highs = np.full((n_names, RTH_BINS), np.nan) if with_range else None
+    lows = np.full((n_names, RTH_BINS), np.nan) if with_range else None
     if not len(t_ns):
-        return closes, 0, 0
+        return (closes, 0, 0, highs, lows) if with_range else (closes, 0, 0)
     session = date.fromisoformat(path.stem)
     b = bins_from_ns(t_ns, session)
     last_bin = session_last_bin(b)
@@ -505,7 +515,12 @@ def load_bars_session(path: Path, name_index: dict[str, int], n_names: int):
     ni = mapped[sym_idx]
     keep = (ni >= 0) & (b >= 0)
     closes[ni[keep], b[keep]] = close[keep]
-    return closes, last_bin, int((mapped >= 0).sum())
+    n_sym = int((mapped >= 0).sum())
+    if not with_range:
+        return closes, last_bin, n_sym
+    highs[ni[keep], b[keep]] = high[keep]
+    lows[ni[keep], b[keep]] = low[keep]
+    return closes, last_bin, n_sym, highs, lows
 
 
 # --------------------------------------------------------------------------
