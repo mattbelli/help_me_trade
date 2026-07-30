@@ -440,11 +440,11 @@ async def test_market_read_includes_macro_and_survives_its_absence(
 
 def test_every_resource_is_named_to_the_agent() -> None:
     """A resource the model is never told about is unreachable in practice: it has
-    no reason to guess the key. Four hand-copied lists had rotted to the same stale
+    no reason to guess the key. Hand-copied lists had rotted to the same stale
     9 of 19 — fundamentals, options_flow, equity_tape, my_trades and schwab_accounts
     among the invisible. Every surface must DERIVE its list from RESOURCES, so this
     fails the moment someone hand-writes one again."""
-    from ai.chat.tools import _QUERY_RESOURCES, _TOOL_PLANNER_PROMPT, TOOL_DEFINITIONS
+    from ai.chat.tools import _QUERY_RESOURCES, TOOL_DEFINITIONS
     from ai.perception.context import list_capabilities
 
     names = set(list_resources())
@@ -452,7 +452,6 @@ def test_every_resource_is_named_to_the_agent() -> None:
 
     for surface, text in (
         ("query tool description", TOOL_DEFINITIONS["query"]["description"]),
-        ("mobile tool planner", _TOOL_PLANNER_PROMPT),
         ("perception manifest notes", list_capabilities()["notes"]),
     ):
         missing = sorted(n for n in names if n not in text)
@@ -460,6 +459,3 @@ def test_every_resource_is_named_to_the_agent() -> None:
         # ...verbatim, not by coincidence: short keys like `news` and `market` appear
         # in unrelated prose, so a name-by-name check alone could pass a stale list.
         assert _QUERY_RESOURCES in text, f"{surface} does not carry the derived list"
-
-    # ...and the planner's placeholder was actually substituted.
-    assert "{QUERY_RESOURCES}" not in _TOOL_PLANNER_PROMPT

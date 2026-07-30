@@ -5,14 +5,13 @@ from __future__ import annotations
 import pytest
 
 from ai.chat.brain import (
-    build_turn_context,
     finalize_turn,
     is_ephemeral_mode,
     normalize_chat_mode,
-    run_tool,
     should_learn_from_turn,
     tool_catalog,
 )
+from ai.chat.tools import execute_tool as run_tool
 
 
 def test_normalize_chat_mode():
@@ -35,29 +34,14 @@ def test_should_learn_from_turn():
     assert should_learn_from_turn(mode="private") is False
 
 
-def test_build_turn_context_includes_system_prompt():
-    ctx = build_turn_context("portfolio exposure")
-    assert "Help Me Trade" in ctx["system"]
-    assert ctx["memories"] == []
-    assert "Relevant memories" not in ctx["system"]
-
-
-def test_build_turn_context_injects_memories_when_enabled(monkeypatch):
-    monkeypatch.setattr(
-        "ai.chat.brain.turn_memory_context",
-        lambda _text, **_: [{"type": "preference", "content": "Risk cap", "score": 0.9}],
-    )
-    ctx = build_turn_context("hello", inject_memories=True)
-    assert "Relevant memories" in ctx["system"]
-    assert len(ctx["memories"]) == 1
-
-
 def test_injection_fence_wired_end_to_end(monkeypatch, tmp_path):
     """HIGH-3 integration: the injection fence + provenance chips are WIRED, not
     just defined. A real store (no stubs) holds an active user_confirmed row, an
     active agent_inferred row, an archived row, and an active unknown-authority
-    row — build_turn_context(inject_memories=True) must emit the first two with
-    their chips and never the last two."""
+    row — assemble_system_prompt(inject_memories=True) must emit the first two
+    with their chips and never the last two. (Repointed 2026-07-30 from the
+    retired build_turn_context to the live loop's assembler — same fence, on
+    the surface that actually runs.)"""
     import json
     import sqlite3
 
@@ -102,10 +86,13 @@ def test_injection_fence_wired_end_to_end(monkeypatch, tmp_path):
             (spoofed["id"],),
         )
 
-    ctx = build_turn_context(
-        "how should I handle earnings trades this week?", inject_memories=True
-    )
-    system = ctx["system"]
+    from ai.chat.loop import assemble_system_prompt
+
+    system = assemble_system_prompt(
+        "how should I handle earnings trades this week?",
+        inject_memories=True,
+        inject_journal=False,
+    ).system
 
     # The two fenced-in rows are present...
     assert confirmed["content"] in system
@@ -121,27 +108,6 @@ def test_injection_fence_wired_end_to_end(monkeypatch, tmp_path):
     assert provenance[confirmed["content"]] == "founder-confirmed"
     assert provenance[inferred["content"]] == "agent-inferred (unverified)"
     assert set(provenance) == {confirmed["content"], inferred["content"]}
-
-
-def test_build_turn_context_injects_journal_when_enabled(monkeypatch):
-    monkeypatch.setattr(
-        "ai.chat.brain.turn_journal_context",
-        lambda _text, **_: {
-            "decisions": [
-                {
-                    "symbol": "NVDA",
-                    "decision": "buy",
-                    "outcome": "win",
-                    "r_multiple": 1.2,
-                }
-            ],
-            "ai_stats": {"n": 1, "wins": 1, "losses": 0, "avg_r": 1.2},
-            "user_profile": "5 trades",
-        },
-    )
-    ctx = build_turn_context("how did my NVDA trades go?", inject_journal=True)
-    assert "Your track record for this turn" in ctx["system"]
-    assert ctx["journal"]["decisions"]
 
 
 def test_tool_catalog_includes_propose_order():
@@ -279,15 +245,43 @@ async def test_run_tool_propose_order_ok(monkeypatch, tmp_path):
     assert result["proposal"]["symbol"] == "AAPL"
 
 
-def test_build_turn_context_order_intent_adds_block():
-    ctx = build_turn_context("Buy 100 shares of NVDA at market open")
-    assert "ORDER REQUEST" in ctx["system"]
-    assert "propose_order" in ctx["system"]
+def test_assembled_prompt_order_intent_adds_block():
+    """Ported from the retired TS route (2026-07-30): the live loop assembles
+    this block, so an order turn still carries the options long-only rules and
+    the do-NOT-narrate instruction."""
+    from ai.chat.loop import assemble_system_prompt
+
+    system = assemble_system_prompt(
+        "Buy 100 shares of NVDA at market open",
+        inject_memories=False,
+        inject_journal=False,
+    ).system
+    assert "ORDER REQUEST" in system
+    assert "propose_order" in system
+    assert "[Calling propose_order...]" in system
 
 
-def test_build_turn_context_non_order_no_block():
-    ctx = build_turn_context("What is a limit order?")
-    assert "ORDER REQUEST" not in ctx["system"]
+def test_assembled_prompt_non_order_no_block():
+    from ai.chat.loop import assemble_system_prompt
+
+    system = assemble_system_prompt(
+        "What is a limit order?", inject_memories=False, inject_journal=False
+    ).system
+    assert "ORDER REQUEST" not in system
+
+
+def test_assembled_prompt_alert_intent_carries_metric_vocabulary():
+    """The alert block is the only place the model is told which metric and
+    operator names create_rule will accept — without it, it guesses."""
+    from ai.chat.loop import assemble_system_prompt
+
+    system = assemble_system_prompt(
+        "alert me when NVDA crosses below its 200 day average",
+        inject_memories=False,
+        inject_journal=False,
+    ).system
+    assert "ALERT / SIGNAL REQUEST" in system
+    assert "Valid metrics:" in system and "Valid operators:" in system
 
 
 def test_looks_like_order_intent():

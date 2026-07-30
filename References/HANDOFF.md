@@ -233,6 +233,16 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
   list is now DERIVED from `RESOURCES` (card `agent-capability-drift`), but the running backend holds
   the stale strings until it restarts — so `fundamentals`, `options_flow`, `my_trades` and
   `schwab_accounts` stay unnamed to the live copilot. Books already pick it up on their next session.
+- ⚠ **2026-07-30 the same deploy CLOSES a live side door** (card `chat-dead-ts-surface`, done):
+  `POST /api/chat/tools/execute` runs `propose_order` with no allowlist and no approval ledger, and
+  `GET /api/chat/llm-runtime` hands back the raw provider API key — both gated only by the
+  browser-visible `NEXT_PUBLIC_API_TOKEN`. They are deleted in code and **still live on serv until the
+  restart**. Treat that restart as the fix, not the commit.
+- ⏳ **2026-07-30 forced tool-choice was NOT ported and is now gone from the code.** The retired TS
+  route forced `toolChoice: propose_order` on an order turn; `ai/chat/loop.py` is `tool_choice="auto"`
+  throughout. The intent prompt block says the same thing in prose, so this is belt-and-braces — but if
+  "[Calling propose_order...]" narration reappears in chat, this is the first suspect. Porting it needs
+  per-provider handling (DeepSeek thinking models 400 on `tool_choice`).
 
 ## ▶ Waiting on founder
 

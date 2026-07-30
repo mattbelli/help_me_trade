@@ -1,25 +1,17 @@
-"""Chat brain helpers for the Next.js route host (Python remains the brain)."""
+"""Chat-turn helpers shared by the web and mobile chat routes.
+
+The Next.js-host helpers that lived here (``build_turn_context``,
+``llm_runtime_config``, ``run_tool``) died with the TS chat brain on
+2026-07-30 — see the BUILD_LOG row and card ``chat-dead-ts-surface``.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from ai.chat.agent import ChatRunResult, chat_system_prompt, finalize_chat_turn
-from ai.chat.alert_intent import alert_intent_prompt_block
-from ai.chat.context import (
-    format_journal_context_block,
-    format_memory_context_block,
-    turn_journal_context,
-    turn_memory_context,
-)
-from ai.chat.intent import order_intent_prompt_block
+from ai.chat.agent import ChatRunResult, finalize_chat_turn
 from ai.chat.messages import last_user_text
-from ai.chat.tools import TOOL_DEFINITIONS, execute_tool
-from ai.llm.config import get_default_llm, get_resolved_ai_settings, provider_credentials
-
-OPENAI_COMPATIBLE_PROVIDERS = frozenset(
-    {"openai", "deepseek", "openrouter", "ollama"}
-)
+from ai.chat.tools import TOOL_DEFINITIONS
 
 
 def normalize_chat_mode(mode: str) -> str:
@@ -44,42 +36,6 @@ def should_learn_from_turn(*, mode: str) -> bool:
     return True
 
 
-def build_turn_context(
-    user_text: str,
-    *,
-    inject_memories: bool = False,
-    inject_journal: bool = False,
-) -> dict[str, Any]:
-    memories = turn_memory_context(user_text) if inject_memories else []
-    journal = turn_journal_context(user_text) if inject_journal else {}
-    system = (
-        chat_system_prompt()
-        + order_intent_prompt_block(user_text)
-        + alert_intent_prompt_block(user_text)
-        + format_memory_context_block(memories)
-        + format_journal_context_block(journal)
-    )
-    return {
-        "system": system,
-        "memories": memories,
-        "journal": journal,
-    }
-
-
-def llm_runtime_config(*, model: str | None = None) -> dict[str, Any]:
-    default_provider, default_model = get_default_llm()
-    ai = get_resolved_ai_settings()
-    creds = provider_credentials(default_provider, ai)
-    resolved_model = (model or default_model or creds.get("model") or "").strip()
-    return {
-        "provider": default_provider,
-        "api_key": creds["api_key"],
-        "base_url": creds["base_url"],
-        "model": resolved_model,
-        "openai_compatible": default_provider in OPENAI_COMPATIBLE_PROVIDERS,
-    }
-
-
 def tool_catalog() -> list[dict[str, Any]]:
     return [
         {
@@ -89,10 +45,6 @@ def tool_catalog() -> list[dict[str, Any]]:
         }
         for name, meta in TOOL_DEFINITIONS.items()
     ]
-
-
-async def run_tool(name: str, arguments: dict[str, Any] | None = None) -> Any:
-    return await execute_tool(name, dict(arguments or {}))
 
 
 def finalize_turn(
