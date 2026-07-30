@@ -43,6 +43,10 @@ only the actions are here.
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
+- ⏳ 07-31: first TIMER-driven external backup (09:15 UTC) stamps `/mnt/backup/hmt-backups/
+  last_success` and the log ends "backup OK" — the two manual runs prove the script, not the
+  timer. Also confirm the drive is still mounted `fuseblk` (ntfs-3g), NEVER `ntfs3`
+  (`ntfs3-kernel-driver-panicked-serv`).
 - ⏳ (was Mon 07-27) IV corpus first live cron run: `iv_daily` row per universe symbol + sane
   `bars_current`; then 07-28: OI backfill lands on 07-27's rows (OI publishes a session late).
 - ⏳ (was Mon 07-27+) re-run `tools/option_spread_probe.py` INTRADAY before recording the spread
@@ -112,14 +116,17 @@ snapshot per sweep). Open threads only:
   `alerts.flow_perception_alerts_enabled` (recommend ≥3 components or top-N — ≥2 yields ~451
   candidates/session); UI widget; watchlist fundamentals panel still shows confirmed dates only
   (surfacing estimates there needs a UI label first).
-- **⏳ 1.14f intraday screen — REGISTERED (46b1049, SEED=20260808), outcome store not yet
-  fetched.** Sequence is LAW (fetch-to-the-spec): (1) bars backfill TOOL (agent building
-  `tools/equity_bars_5min_backfill.py` on a worktree branch, 07-30 — review + merge like the
-  earnings round); (2) run the FULL backfill (Alpaca SIP 5-min RTH, ~4.5–6.3k names, full corpus
-  span, ~10–15 GB) — **deliberately AFTER the 07-30 serv RAM upgrade**, nice'd, off market hours;
-  (3) build `tools/mover_intraday.py` per the registered spec; (4) single run, result recorded
-  whatever it shows. Geometry probe (07-24 session, counts only) justified eligibility ≥20
-  fenced prints/window and the boundary-of-day peer cell — recorded in the registration.
+- **⏳ 1.14f intraday screen — RAN 07-30, three findings + one null (BUILD_LOG rows). Open
+  follow-ups only:** (1) **pre-register the realized-vol-matched-controls follow-up BEFORE it
+  runs** — the +16%/+11% magnitude selection (`vol_max_ratio`/`largest_print_ratio`) may be
+  partly vol clustering (controls don't match contemporaneous realized vol at firing; caveat
+  recorded in the result + run log); (2) register the three findings in **Addendum F** before
+  anything touches the untouched test window (2026-06-01→07-25); (3) founder decision: surface
+  as labelled perception (magnitude-only — direction tests all null — so the honest surface is
+  "elevated move likelihood next 2h, direction unknown"); (4) `short_dte_share` day-grain-vs-
+  intraday contradiction is a real question, not an error — park until (1) settles the confound.
+  Grok fresh-eyes interpretation pass ⏳ in the founder's `grok-audit` pane — fold its read into
+  (1)'s design.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.
