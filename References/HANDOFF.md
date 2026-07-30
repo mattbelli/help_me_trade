@@ -50,7 +50,8 @@ only the actions are here.
   ratio is the robust part).
 - ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
   Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
-  submit-at-the-open. Then confirm stop_guard placed the resting GTC within a poll tick.
+  submit-at-the-open. The stop_guard half of this verify is blocked until `stop-guard-never-fires`
+  lands (see the 07-30 section) — it cannot pass today.
 - ⏳ chart prewarm: `/health` bars_prewarm `lag_s` stays well under the shortest TTL across a few
   sessions (`chart-bars-prewarm-storms`).
 
