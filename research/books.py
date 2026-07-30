@@ -63,7 +63,11 @@ BOOKS: dict[str, Book] = {
     "panel": Book(
         "panel", "Claude Panel", "acct_alpaca_open", "book_panel", PANEL_SEATS, paused=True
     ),
-    "matt": Book("matt", "Matt + LLM", "acct_fc78907f4bda", None),
+    # PAUSED 2026-07-30 (founder): the account holds nothing, so a nightly
+    # advisory pass reviews an empty book — and the co-managed idea belongs in
+    # CHAT, where the founder can actually go back and forth, not in an
+    # unprompted once-a-night report. See card matt-llm-belongs-in-chat.
+    "matt": Book("matt", "Matt + LLM", "acct_fc78907f4bda", None, paused=True),
 }
 
 # Every lane this program writes — config/idea_engine.py cooldowns and the

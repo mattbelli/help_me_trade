@@ -189,7 +189,8 @@ def test_paused_book_stays_fully_registered() -> None:
     assert panel.seats and panel.headline_origin == "book:panel"
     assert all(f"book:panel/{seat}" in ALL_BOOK_ORIGINS for seat in panel.seats)
     # the books still running must not have been paused by accident
-    assert [b.book_id for b in BOOKS.values() if b.paused] == ["panel"]
+    assert sorted(b.book_id for b in BOOKS.values() if b.paused) == ["matt", "panel"]
+    assert not BOOKS["deepseek"].paused and not BOOKS["fable"].paused
 
 
 @pytest.mark.asyncio
@@ -233,3 +234,24 @@ class _FrozenDatetime:
         import datetime as _dt
 
         return getattr(_dt.datetime, name)
+
+
+@pytest.mark.asyncio
+async def test_paused_book_refuses_to_run_on_every_path(tmp_path: Path) -> None:
+    """The pause lives at the _gate chokepoint, so it holds for the in-process
+    job, a session submit, and a manual run alike — not just for whichever
+    scheduler happens to launch that book."""
+    from research.book_driver import run_book_cycle, submit_session_cycle
+
+    db = tmp_path / "paused.db"
+
+    # advisory book, in-process cycle
+    assert (await run_book_cycle("matt", db_path=db)) == {
+        "status": "skipped",
+        "reason": "paused",
+    }
+    # session book, the path a manually-launched panel session would take
+    submitted = await submit_session_cycle(
+        "panel", "# report", {"candidates": []}, db_path=db
+    )
+    assert submitted["status"] == "skipped" and submitted["reason"] == "paused"

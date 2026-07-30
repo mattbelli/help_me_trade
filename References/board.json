@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-30T18:40:00+00:00",
+ "updated_at": "2026-07-30T19:05:00+00:00",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,16 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "matt-llm-belongs-in-chat",
+   "title": "Matt + LLM is the wrong shape as a nightly pass — the co-managed book belongs in CHAT",
+   "lane": "next",
+   "type": "build",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-07-30",
+   "notes": "Founder 2026-07-30: \"i also have no positions in matt and llm so there is no point for that to run - i also think this should be me interacting with chat - not its own nightly pass.\" VERIFIED before pausing: acct_fc78907f4bda (Matt + LLM, alpaca) had 0 position rows on poll runs minutes old — the nightly advisory cycle was analysing an empty book and pushing a report about it.\n\nPAUSED NOW: BOOKS['matt'].paused=True, enforced at the _gate chokepoint in research/book_driver.py so it holds for the in-process job, a session submit and a manual run alike (run_book_cycle('matt') -> {'status':'skipped','reason':'paused'}). The book_matt job stays registered and self-skips — the skip is observable in /health rather than the job vanishing.\n\nWHY THE SHAPE IS WRONG (the actual design point, not just the empty account): a co-managed book is a CONVERSATION — the founder asks, pushes back, asks again. A once-a-night unprompted monologue delivers a report he did not ask for, at a time he did not choose, with no way to reply. The other three books are different in kind: they are autonomous agents forward-testing their OWN decisions for calibration, which is exactly what a scheduled pass is for.\n\nWHAT IS ACTUALLY MISSING (chat already does most of it): the chat agent already reaches positions, quotes, technicals, news and now the macro block + EDGAR statements via the perception layer. The one thing the nightly pass had that chat does not is the DETERMINISTIC CONTEXT PACK (research/books.py build_book_pack) — account, positions, open orders, journal handoff, market frame, assembled the same way every time. So the deliverable is small: a way to pull that pack into a chat turn (a slash-command / a 'brief me on my book' intent that calls build_book_pack and seeds the conversation), NOT a new agent. Decide then whether the matt book, the desk journal and its report kind are retired outright or kept as the pack builder behind the chat entry point.\n\nParent thread: llm-books-program (the other three books are unaffected and keep running)."
+  },
   {
    "id": "wire-desk-data-to-agents",
    "title": "Wire the desk's data to the AGENTS — perception CLI, macro block, EDGAR statements, and the partial-bar bug that made the store lie",

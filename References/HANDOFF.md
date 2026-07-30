@@ -200,6 +200,9 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 
 ## ▶ LLM paper books — ARMED + LIVE; increments open
 
+- ⏸ **2026-07-30 Matt + LLM PAUSED** — account verified empty (0 positions). Founder wants this as a
+  CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
+  `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).
 - ⏸ **2026-07-30 Claude Panel PAUSED** (cron line commented + `BOOKS['panel'].paused=True`). Solo books still run.
   - ⏳ **Needs a deploy**: the dead-man skip is code, so until the backend restarts the founder gets one
     "Book dead-man: 1 report(s) missing" warning push at 20:00 ET each night naming Claude Panel.

@@ -261,9 +261,16 @@ def _report_kind(book_id: str) -> str:
     return f"book_{book_id}"
 
 
-def _gate(now_et: datetime, kind: str, db_path: Path) -> str | None:
+def _gate(
+    now_et: datetime, kind: str, db_path: Path, *, paused: bool = False
+) -> str | None:
     from db.reports import report_exists_for_day
 
+    if paused:
+        # Checked HERE so "paused" means the same thing on every path into a
+        # cycle — the in-process job, a session submit, or a manual run — rather
+        # than living only in whatever scheduler happens to launch that book.
+        return "paused"
     if now_et.weekday() >= 5:
         return "weekend"
     if (now_et.hour, now_et.minute) < (BOOK_CYCLE_AFTER_ET_HOUR, BOOK_CYCLE_AFTER_ET_MINUTE):
@@ -334,7 +341,7 @@ async def run_book_cycle(
     kind = _report_kind(book_id)
     now = now_et or datetime.now(_ET)
 
-    gate = _gate(now, kind, db_path)
+    gate = _gate(now, kind, db_path, paused=book.paused)
     if gate:
         return {"status": "skipped", "reason": gate}
 
@@ -494,7 +501,7 @@ async def submit_session_cycle(
     kind = _report_kind(book_id)
     now = now_et or datetime.now(_ET)
 
-    gate = _gate(now, kind, db_path)
+    gate = _gate(now, kind, db_path, paused=book.paused)
     if gate:
         return {"status": "skipped", "reason": gate}
 
