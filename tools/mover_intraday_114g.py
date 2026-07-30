@@ -2788,7 +2788,7 @@ def main(argv=None) -> int:
               "tolerance is loosened.\n")
         print(str(exc))
         return 3
-    logger.info("reproduce gate PASSED at all four 1.14f primary cells")
+    logger.info("reproduce gate PASSED at all 36 1.14f cells")
 
     proof = None
     if a.vectorized:
