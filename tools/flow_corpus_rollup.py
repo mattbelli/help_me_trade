@@ -72,6 +72,14 @@ from tools.condition_labels import (  # noqa: E402
 
 UNDEF = 9223372036854775807
 PX = 1e9  # DBN fixed-point scale
+
+# Prereg clause 1 (prereg:60) verbatim, registered 2026-07-26, implemented
+# 2026-07-29. Clause 2 (prereg:61, the >20% name-day exclusion) was measured and
+# RETIRED the same day: wide prints already get no label here, the registered
+# $250k floor already drops starved name-days, and thin labelling is already
+# priced into the null via N_eff -- so it deleted 45-61% of name-days, mostly
+# from the thin tier, to guard something already covered. See FLOW_ROADMAP §1.25.
+SPREAD_MAX_FRAC = 0.50
 ROOT = Path(__file__).resolve().parent.parent
 TCBBO_DIR = ROOT / "data" / "databento" / "opra_tcbbo"
 DEFS_DIR = ROOT / "data" / "databento" / "opra_defs"
@@ -287,8 +295,19 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     bid = arr["bid_px_00"].astype(np.float64)
     ask = arr["ask_px_00"].astype(np.float64)
 
-    good_q = (arr["bid_px_00"] != UNDEF) & (arr["ask_px_00"] != UNDEF) \
+    q_ok = (arr["bid_px_00"] != UNDEF) & (arr["ask_px_00"] != UNDEF) \
         & (bid > 0) & (ask > 0) & (ask > bid)
+    # Prereg clause 1 (prereg:60), registered 2026-07-26, implemented 2026-07-29
+    # after the audit found it absent. A spread wider than half the mid makes the
+    # midpoint side close to a coin flip. Measured before implementing: these are
+    # 5.7-7.6% of classified prints but only 0.32-0.43% of premium, and removing
+    # them flips a name-day's bull/bear sign on 2.2-4.0% of name-days -- the same
+    # order as the detector's own firing rate. Rows are KEPT and fall through to
+    # side = unclassified rather than being deleted: the tilt denominator is
+    # bull + bear either way, and keeping them leaves the discarded volume
+    # auditable and clause 2 computable from this same pass.
+    wide_q = q_ok & ((ask - bid) > SPREAD_MAX_FRAC * (bid + ask) / 2.0)
+    good_q = q_ok & ~wide_q
     mid = np.where(good_q, (bid + ask) / 2.0, np.nan)
     half = np.where(good_q, (ask - bid) / 2.0, np.nan)
 
@@ -299,10 +318,15 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     side = np.full(len(arr), 2, dtype=np.int8)              # unclassified
     side[good_q & (price > mid)] = 0                        # buy
     side[good_q & (price < mid)] = 1                        # sell
+    # v7: clause-1 casualties get their own label rather than being pooled into
+    # `unclassified` with no-quote prints, so the wide-spread volume per name-day
+    # stays recoverable as a covariate. They are excluded from bull/bear either way.
+    side[wide_q] = 3                                        # wide_spread
 
     strict = np.full(len(arr), 2, dtype=np.int8)
     strict[good_q & (price >= ask)] = 0
     strict[good_q & (price <= bid)] = 1
+    strict[wide_q] = 3
 
     premium = price / PX * size * 100.0
 
@@ -461,6 +485,7 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
                    label_join_rate=join_rate, label_coverage=coverage, **kw)
     return {"prints": n_prints, "joined": int(len(arr)), "orders": n_groups,
             "rows": len(rows),
+            "wide_prints": int(wide_q.sum()), "quoted_prints": int(q_ok.sum()),
             "unresolved": unresolved, "stale_spot": stale_spot,
             "no_spot": no_spot, "no_spot_index": no_spot_index,
             "no_spot_premium": no_spot_premium,
@@ -491,10 +516,14 @@ def main() -> int:
                 # breaks account for.
                 # prints is what the file held; joined is what survived the
                 # contract join and is the only count `orders` is comparable to.
+                # wide= is the v7 prereg clause 1: without it in the log the only
+                # visible symptom of a mis-set threshold would be a silently
+                # smaller classified base.
+                qp = res.get("quoted_prints", 0)
                 logger.info(
                     "%s prints=%s joined=%s orders=%s rows=%s unds=%s "
                     "unresolved=%s no_spot=%s no_spot_$=%.1fM idx_no_spot=%s "
-                    "stale_spot=%s %.0fs",
+                    "stale_spot=%s wide=%s(%.2f%%) %.0fs",
                     d, f"{res['prints']:,}", f"{res.get('joined', 0):,}",
                     f"{res.get('orders', 0):,}", f"{res['rows']:,}",
                     res.get("underlyings"), f"{res.get('unresolved', 0):,}",
@@ -502,6 +531,8 @@ def main() -> int:
                     res.get("no_spot_premium", 0.0) / 1e6,
                     f"{res.get('no_spot_index', 0):,}",
                     f"{res.get('stale_spot', 0):,}",
+                    f"{res.get('wide_prints', 0):,}",
+                    100.0 * res.get("wide_prints", 0) / max(qp, 1),
                     (datetime.now(UTC) - t0).total_seconds(),
                 )
                 if LABELED and res.get("rows"):

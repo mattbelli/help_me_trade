@@ -163,10 +163,11 @@ def test_v6_session_ledger_records_the_label_provenance(v6):
     assert r["schema_version"] == 6
 
 
-def test_default_vintage_is_v6():
-    """Migration FIRED 2026-07-28 (Addendum E executed under Addendum F): the
-    default import is the labeled vintage with the cond grain. Regressing this
-    silently would re-roll new sessions at v5 into a v6 corpus."""
+def test_default_vintage_is_v7():
+    """Migration FIRED 2026-07-28 (Addendum E executed under Addendum F); v7 is
+    the 1.25 clause-1 spread fence (c9698b1, registered disposition 2026-07-29).
+    The default import must be the current labeled vintage — regressing this
+    silently would re-roll new sessions at a stale vintage into the corpus."""
     fc = importlib.reload(db.flow_corpus)
-    assert fc.SCHEMA_VERSION == 6 and fc.LABELED
+    assert fc.SCHEMA_VERSION == 7 and fc.LABELED
     assert "cond" in fc._ROLLUP_COLUMNS
