@@ -1,9 +1,11 @@
 """Roadmap 1.14f: the intraday screen — the grain descent.
 
 PRE-REGISTERED 2026-07-30 (`References/FLOW_ROADMAP.md` §1.14f) BEFORE any
-intraday outcome existed on disk. This file implements that registration
-literally; it does not get to improve it. 1.14c/d/e closed the day-grain arc —
-the fingerprint describes big-move windows without selecting them, and the one
+intraday outcome existed on disk. This file implements that registration with
+EVERY interpretive fork declared in `AMBIGUITIES` below — it does not get to
+improve the registration, and it does not get to pretend the registered text was
+unambiguous where it was not. 1.14c/d/e closed the day-grain arc — the
+fingerprint describes big-move windows without selecting them, and the one
 conditioning that works (earnings) is a calendar fact. The registered question
 here: does the SAME fingerprint, computed inside the session from the labeled
 print tape, select forthcoming moves at minutes-to-hours?
@@ -159,10 +161,46 @@ AMBIGUITIES = {
         "registration's intraday form states no floor, and the >=20-print "
         "eligibility plays that role here. No floor is applied."),
     "universe_fence": (
-        "the analysis universe inherits the day-grain arc's fence "
-        "(INDEX_ROOTS | ETF_SET, as 1.14c/d/e used) because 1.14f is "
-        "explicitly the SAME fingerprint at a finer grain. --no-universe-fence "
-        "runs the unfenced superset; both counts are disclosed."),
+        "the DEFAULT run uses the REGISTERED universe: every opra_defs "
+        "underlying with >=1 RTH tcbbo print, with NO index/ETF exclusion. The "
+        "registration's outcome-store bullet defines the universe that way and "
+        "never mentions the day-grain arc's fence, so applying that fence by "
+        "default (as an earlier revision of this tool did, inheriting "
+        "1.14c/d/e) was a deviation, not an interpretation. ETFs are IN; "
+        "cash-index roots enter and NA out naturally, having no equity bars. "
+        "--universe-fence runs the fenced variant, which is a NON-REGISTERED "
+        "SECONDARY arm and is labelled as such in the output. This is not a "
+        "cosmetic choice: the peer cell is a trailing dollar-volume QUINTILE, "
+        "so removing the highest-volume names in the corpus moves the "
+        "cut-points for every name that remains, and therefore changes which "
+        "names fire — the two universes are not nested results."),
+    "robustness_arm_normalizer_scope": (
+        "the >=98%-join robustness arm filters analysis ROWS only. The trailing "
+        "state — the vol_max_ratio (boundary, W) window-premium ring, the "
+        "outcome (b, H) ring, and the trailing-60-session daily premium_max "
+        "median — is built from ALL train sessions, including below-floor-join "
+        "days. Kept deliberately: rebuilding the rings over only the 115 "
+        "in-subset sessions would thin every history against its registered "
+        "minimum (>=10 valid sessions for vol_max_ratio and the outcome "
+        "normalizer, >=20 valid days for premium_max), so a large share of rows "
+        "would go NA and the arm would stop being a robustness check on the "
+        "same measurements and become a different, weaker study. The arm "
+        "therefore tests whether the label provenance of the FEATURE rows "
+        "matters, not whether it matters to the normalizers."),
+    "half_day_close_horizon": (
+        "H=close is a variable-length horizon by construction, and on an "
+        "early-close session it spans ~3.5h where a full session spans ~6.5h. "
+        "Both feed the SAME trailing (b, H=close) normalizer ring, so an "
+        "early-close session's measure is normalized against a median that is "
+        "mostly full-length sessions (and contributes to later ones). Kept: "
+        "the registration defines H=close as 'to the close' and says the "
+        "measure runs over the bars that exist, and early closes are ~1-2% of "
+        "sessions. Disclosed instead of corrected — `sessions_early_close` "
+        "counts them, `early_close_sessions` lists each one with its detected "
+        "last bin so the detection can be checked against the exchange's real "
+        "early-close calendar, and every such session is logged at INFO. H=30m "
+        "and H=2h are unaffected: a fixed-length horizon that would overrun the "
+        "detected close is NA, never truncated."),
     "outcome_base_price": (
         "'cumulative 5-min log return from b' is measured against the close of "
         "the last bar strictly before b (the price AT b), so the outcome shares "
@@ -191,6 +229,16 @@ AMBIGUITIES = {
         "component. Rows with zero window tilt or exactly zero signed return "
         "are dropped rather than scored as agreement or disagreement (a sign of "
         "0 is neither); the dropped count is reported."),
+    "complement_uses_end_of_day_information": (
+        "The complement under the registered 'never fired that session' "
+        "definition is selected using end-of-day information: early-boundary "
+        "complement rows come from names quiet for the REST of the day, a "
+        "systematically calmer population than a contemporaneous non-fire set."),
+    "fired_to_complement_row_ratio": (
+        "The primary contrast pools 1 fired row per name-day against up to 11 "
+        "complement rows per quiet name-day; per-(b,H) normalization removes "
+        "level effects but not composition — see by_boundary counts and the "
+        "reading-B diagnostic."),
     "universe_is_the_corpus": (
         "the universe is every underlying in `flow_rollup` (i.e. observed "
         "anywhere across the corpus sessions), minus the fence — NOT a "
@@ -603,7 +651,15 @@ def starred(lo: float | None, hi: float | None) -> bool:
 # corpus / universe / gate loaders
 # --------------------------------------------------------------------------
 
-def load_universe(db: Path, fenced: bool) -> list[str]:
+def load_universe(db: Path, fenced: bool = False) -> list[str]:
+    """The analysis universe. `fenced=False` is the REGISTERED default.
+
+    The registration's universe is every `opra_defs` underlying with >=1 RTH
+    print — index and ETF roots included. `fenced=True` drops
+    `INDEX_ROOTS | ETF_SET` (what the day-grain arc used) and produces a
+    non-registered secondary arm; see AMBIGUITIES['universe_fence'] for why the
+    two are not nested results.
+    """
     from db.flow_corpus import INDEX_ROOTS
     from tools.multileg_arm_probe import ETF_SET
     fence = (set(INDEX_ROOTS) | ETF_SET) if fenced else set()
@@ -798,7 +854,7 @@ def new_na_counters() -> dict[str, int]:
         "sessions_no_tape", "sessions_no_defs", "sessions_empty_tape",
         "sessions_join_empty", "sessions_no_calendar_position",
         "sessions_no_bar_file", "sessions_empty_bar_file", "sessions_analysed",
-        "sessions_half_day", "prints_unresolved", "prints_fenced_out",
+        "sessions_early_close", "prints_unresolved", "prints_fenced_out",
         "prints_outside_universe", "prints_kept",
         "namedays_bars_below_coverage", "namedays_with_bars",
         "cells_ineligible_prints", "cells_no_quintile",
@@ -809,6 +865,20 @@ def new_na_counters() -> dict[str, int]:
         "rows_excluded_later_boundary",
     ), 0)
 
+
+# Caveats on the registered definitions — NOT defects, and not fixable without
+# changing a registered measure. They ship in the run log verbatim so a reader
+# reaches them at the same time as the numbers.
+RUN_NOTES = (
+    "The complement under the registered 'never fired that session' definition "
+    "is selected using end-of-day information: early-boundary complement rows "
+    "come from names quiet for the REST of the day, a systematically calmer "
+    "population than a contemporaneous non-fire set.",
+    "The primary contrast pools 1 fired row per name-day against up to 11 "
+    "complement rows per quiet name-day; per-(b,H) normalization removes level "
+    "effects but not composition — see by_boundary counts and the reading-B "
+    "diagnostic.",
+)
 
 NA_NOTE = (
     "cells_* count (name, boundary, W) cells for names with >=1 fenced "
@@ -823,7 +893,7 @@ NA_NOTE = (
 
 
 def run_sessions(sessions, universe, dates, quint, med_pmax, cnt_pmax,
-                 bars_dir, na):
+                 bars_dir, na, early_close=None):
     """Chronological single pass: returns the row table the statistics read.
 
     Bounded memory by construction — one session of tape at a time, and the
@@ -896,7 +966,16 @@ def run_sessions(sessions, universe, dates, quint, med_pmax, cnt_pmax,
             out_ring.push(out_write)
             continue
         if last_bin < RTH_BINS:
-            na["sessions_half_day"] += 1
+            # Logged AND listed, not just counted: the detection is heuristic
+            # (a cross-sectional collapse), so a reader has to be able to check
+            # the detected list against the exchange's real early-close calendar.
+            na["sessions_early_close"] += 1
+            if early_close is not None:
+                early_close[ds] = last_bin
+            end_min = OPEN_MIN + last_bin * BAR_MIN
+            logger.info("%s EARLY CLOSE detected: last_bin=%d (grid ends "
+                        "%02d:%02d ET) — verify against the exchange calendar",
+                        ds, last_bin, end_min // 60, end_min % 60)
         meas, signed, bars_ok = outcome_measures(closes, last_bin)
         has_bars = np.isfinite(closes[:, :last_bin]).any(axis=1)
         na["namedays_with_bars"] += int(has_bars.sum())
@@ -1030,8 +1109,15 @@ def _pctl(vals: np.ndarray) -> dict[str, float] | None:
     return {f"p{p}": round(float(v), 5) for p, v in zip(DIST_PCTL, qs)}
 
 
-def analyse(table, sessions, arm_sessions, rng_seed):
-    """The registered battery for one arm (all-train, or the >=98% join subset)."""
+def analyse(table, sessions, arm_sessions, rng_seed, gate=None, known=None,
+            dates=None):
+    """The registered battery for one arm (all-train, or the >=98% join subset).
+
+    `gate`/`known`/`dates` are optional only so the geometry can be exercised
+    without an earnings DB; when present, EVERY starred cell carries its
+    earnings-gate split, which is what the registration asks for ("earnings-gate
+    split disclosed on every star").
+    """
     keep_s = np.array([i for i, s in enumerate(sessions)
                        if s.isoformat() in arm_sessions], dtype=np.int64) \
         if arm_sessions is not None else np.arange(len(sessions))
@@ -1050,6 +1136,11 @@ def analyse(table, sessions, arm_sessions, rng_seed):
 
     in_arm = sess_map[table["sess"]] >= 0
     rows = {k: v[in_arm] for k, v in table.items()}
+    # `rows["sess"]` still holds GLOBAL session indices, so the gate masks are
+    # built against the full session list and simply come out arm-length
+    gmask = kmask = None
+    if gate is not None and known is not None and dates is not None:
+        gmask, kmask = gate_row_masks(rows, sessions, gate, dates, known)
 
     cells, primary = [], []
     for wi, W in enumerate(WINDOWS):
@@ -1105,6 +1196,15 @@ def analyse(table, sessions, arm_sessions, rng_seed):
                                 None if thi is None else round(thi, 5)],
                     "primary_cell": (W == PRIMARY_W and H == PRIMARY_H),
                 }
+                # "earnings-gate split disclosed on every star" — attached to the
+                # starred cell's own object, including tail-rate stars, so a
+                # secondary finding cannot be read without its split. Unstarred
+                # cells stay lean; the primary cells always get one separately.
+                if gmask is not None and (row["star"] or starred(tlo, thi)):
+                    row["earnings_split"] = split_cell(
+                        rows, wi, fi, hi, gmask, kmask)
+                    row["earnings_split_reason"] = (
+                        "median" if row["star"] else "tail_rate")
                 cells.append(row)
                 if row["primary_cell"]:
                     primary.append(row)
@@ -1234,12 +1334,8 @@ def reading_rule(primary, cells) -> dict:
     return out
 
 
-def earnings_split(table, sessions, gate, dates, known) -> list[dict]:
-    """Every starred finding is reported split by the 1.14e earnings gate.
-
-    A finding that collapses to the earnings-adjacent split is the calendar
-    wearing a flow costume, so the split is computed for the primary cell
-    unconditionally rather than only when something stars.
+def gate_row_masks(table, sessions, gate, dates, known):
+    """`(gated, known)` boolean masks aligned to the row table.
 
     Names with NO resolved EDGAR history are UNKNOWN, not earnings-far: they land
     in NEITHER arm, with the count disclosed. 1.14e is explicit about this
@@ -1249,28 +1345,40 @@ def earnings_split(table, sessions, gate, dates, known) -> list[dict]:
     """
     di = {d: t for t, d in enumerate(dates)}
     tcol = np.array([di.get(s.isoformat(), -1) for s in sessions])[table["sess"]]
-    wi, hi = WINDOWS.index(PRIMARY_W), HORIZONS.index(PRIMARY_H)
     g = np.zeros(len(tcol), bool)
     ok = tcol >= 0
     g[ok] = gate[table["name"][ok], tcol[ok]]
-    kn = known[table["name"]]
-    out = []
-    for fi, f in enumerate(FEATS):
-        keep = cell_mask(table, wi, fi, hi)
-        fr = table["fired"][:, wi, fi]
-        row = {"component": f,
-               "n_unknown_excluded": int((keep & ~kn).sum())}
-        for lab, m in (("gated", g & kn), ("far", ~g & kn)):
-            kf, kc = keep & fr & m, keep & ~fr & m
-            row[lab] = {
-                "median_fired": (round(float(np.median(table["norm"][kf, hi])), 5)
-                                 if kf.any() else None),
-                "median_complement": (
-                    round(float(np.median(table["norm"][kc, hi])), 5)
-                    if kc.any() else None),
-                "n_fired": int(kf.sum()), "n_complement": int(kc.sum())}
-        out.append(row)
+    return g, known[table["name"]]
+
+
+def split_cell(table, wi, fi, hi, g, kn) -> dict:
+    """The 1.14e gated/far split of one (W, component, H) cell.
+
+    A finding that collapses to the earnings-adjacent split is the calendar
+    wearing a flow costume, which is why the registration attaches this to every
+    star rather than to a chosen headline.
+    """
+    keep = cell_mask(table, wi, fi, hi)
+    fr = table["fired"][:, wi, fi]
+    out = {"n_unknown_excluded": int((keep & ~kn).sum())}
+    for lab, m in (("gated", g & kn), ("far", ~g & kn)):
+        kf, kc = keep & fr & m, keep & ~fr & m
+        out[lab] = {
+            "median_fired": (round(float(np.median(table["norm"][kf, hi])), 5)
+                             if kf.any() else None),
+            "median_complement": (
+                round(float(np.median(table["norm"][kc, hi])), 5)
+                if kc.any() else None),
+            "n_fired": int(kf.sum()), "n_complement": int(kc.sum())}
     return out
+
+
+def earnings_split(table, sessions, gate, dates, known) -> list[dict]:
+    """The primary cell's split, computed unconditionally (starred or not)."""
+    g, kn = gate_row_masks(table, sessions, gate, dates, known)
+    wi, hi = WINDOWS.index(PRIMARY_W), HORIZONS.index(PRIMARY_H)
+    return [{"component": f, **split_cell(table, wi, fi, hi, g, kn)}
+            for fi, f in enumerate(FEATS)]
 
 
 def main() -> int:
@@ -1284,14 +1392,20 @@ def main() -> int:
                    help="analysis mask; sessions after this are never read")
     p.add_argument("--limit-sessions", type=int, default=None,
                    help="first N train sessions (smoke only)")
-    p.add_argument("--no-universe-fence", action="store_true",
-                   help="keep index/ETF roots (see AMBIGUITIES)")
+    p.add_argument("--universe-fence", action="store_true",
+                   help="NON-REGISTERED secondary arm: drop index/ETF roots as "
+                        "the day-grain arc did. The registered universe (the "
+                        "default) keeps them — see AMBIGUITIES['universe_fence']")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
     db, bars_dir = Path(a.corpus_db), Path(a.bars_dir)
     na = new_na_counters()
-    universe = load_universe(db, not a.no_universe_fence)
+    universe = load_universe(db, a.universe_fence)
+    if a.universe_fence:
+        logger.warning("--universe-fence: this is a NON-REGISTERED secondary "
+                       "arm. Quintile cut-points differ from the registered "
+                       "run, so firing differs and the two are not nested.")
     dates, C, V, pmax = load_daily(db, universe)
 
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -1313,8 +1427,9 @@ def main() -> int:
 
     logger.info("universe=%d sessions=%d (of %d on disk; train_end=%s)",
                 len(universe), len(sessions), len(all_sessions), a.train_end)
+    early_close: dict[str, int] = {}
     table = run_sessions(sessions, universe, dates, quint, med_pmax, cnt_pmax,
-                         bars_dir, na)
+                         bars_dir, na, early_close)
     if not len(table["sess"]):
         logger.warning("no rows emitted — nothing to analyse")
 
@@ -1330,7 +1445,8 @@ def main() -> int:
 
     results = {}
     for arm, arm_sessions in arms.items():
-        results[arm] = (analyse(table, sessions, arm_sessions, SEED)
+        results[arm] = (analyse(table, sessions, arm_sessions, SEED,
+                                gate=gate, known=known, dates=dates)
                         if len(table["sess"]) else {"unavailable": "no rows"})
         if "cells" in results[arm]:
             results[arm]["reading_rule"] = reading_rule(
@@ -1361,15 +1477,22 @@ def main() -> int:
             "universe_source": "DISTINCT underlying FROM flow_rollup over the "
                                "whole corpus (not a per-session defs universe)",
             "universe_size": len(universe),
-            "universe_fenced": not a.no_universe_fence,
+            "universe_fenced": a.universe_fence,
+            "universe_arm": ("NON-REGISTERED secondary (index/ETF roots "
+                             "dropped; quintile cut-points differ)"
+                             if a.universe_fence else
+                             "registered (every opra_defs underlying with >=1 "
+                             "RTH print; index/ETF roots included)"),
             "sessions_analysed": na["sessions_analysed"],
             "distribution_percentiles": list(DIST_PCTL),
             "thin_normalizer_threshold": THIN_NORMALIZER,
             "na_note": NA_NOTE,
+            "run_notes": list(RUN_NOTES),
             "ambiguities": AMBIGUITIES,
         },
         "arms": results,
         "earnings_split_primary_cell": split,
+        "early_close_sessions": early_close,
         "na_accounting": na,
     }
     outp = Path(a.out)
@@ -1454,10 +1577,38 @@ def _print_tables(payload: dict) -> None:
                   f"complement={g['median_complement']} (n={g['n_complement']})")
         print(f"  {r['component']:<22} unknown-EDGAR rows excluded="
               f"{r['n_unknown_excluded']}")
+    starred_secondary = [
+        (arm, c) for arm, res in payload["arms"].items()
+        for c in res.get("cells", [])
+        if "earnings_split" in c and not c.get("primary_cell")]
+    if starred_secondary:
+        print("\n== earnings split of STARRED SECONDARY cells "
+              "(no survival authority) ==")
+        for arm, c in starred_secondary:
+            print(f"  [{arm}] {c['component']:<20} W={c['W']:>3} "
+                  f"H={c['H']:<5} starred_on={c['earnings_split_reason']}")
+            for lab in ("gated", "far"):
+                g = c["earnings_split"][lab]
+                print(f"      {lab:<6} fired={g['median_fired']} "
+                      f"(n={g['n_fired']}) complement={g['median_complement']} "
+                      f"(n={g['n_complement']})")
+
+    ec = payload.get("early_close_sessions") or {}
+    print(f"\n== early-close sessions detected: {len(ec)} ==")
+    print("   CHECK this list against the exchange's real early-close calendar "
+          "— detection is a cross-sectional heuristic, not a calendar lookup")
+    for ds, lb in sorted(ec.items()):
+        end_min = OPEN_MIN + lb * BAR_MIN
+        print(f"   {ds}  last_bin={lb:<3} grid ends {end_min // 60:02d}:"
+              f"{end_min % 60:02d} ET")
+
     print("\n== NA accounting (nothing is silently dropped) ==")
     for k, v in payload["na_accounting"].items():
         print(f"  {k:<34} {v:,}")
     print(f"\n  note: {payload['meta']['na_note']}")
+    print("\n== notes on the registered definitions (caveats, not defects) ==")
+    for note in payload["meta"]["run_notes"]:
+        print(f"  * {note}")
 
 
 def _print_cell(r: dict, indent: int = 4) -> None:

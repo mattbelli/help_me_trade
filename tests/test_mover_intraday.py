@@ -1088,6 +1088,39 @@ def test_a_component_with_an_empty_primary_cell_is_reported_not_omitted():
         assert rr[f]["all_three"] is False
 
 
+def test_an_early_close_session_is_counted_and_listed_with_its_detected_grid(
+        tmp_path, monkeypatch):
+    """Detection is a cross-sectional heuristic, not a calendar lookup, so the
+    run has to hand the reader the detected list to check against the exchange's
+    real early-close calendar. Counting them alone would not be checkable.
+
+    Also the disclosed consequence: H=close on such a session spans ~3.5h where a
+    full session spans ~6.5h, and both feed the same trailing ring — kept per the
+    registration, disclosed in AMBIGUITIES['half_day_close_horizon']."""
+    monkeypatch.setattr(mi, "tape_bins", _fake_tape(
+        {n: dict.fromkeys(range(mi.RTH_BINS), 100.0) for n in range(N_NAMES)}))
+    sessions = [date(2026, 1, 5), date(2026, 1, 6)]
+    names = [f"N{i:02d}" for i in range(N_NAMES)]
+    moving = _zigzag_bars()
+    _write_npz(tmp_path / "2026-01-05.npz", sessions[0], moving(0, names))
+    # a 13:00 close: every name stops at bin 42, two stragglers report past it
+    half = {n: {b: (100.0 * np.exp(0.001) if b % 2 else 100.0)
+                for b in range(42)} for n in names}
+    for n in names[:2]:
+        half[n] = {b: (100.0 * np.exp(0.001) if b % 2 else 100.0)
+                   for b in range(mi.RTH_BINS)}
+    _write_npz(tmp_path / "2026-01-06.npz", sessions[1], half)
+
+    quint, mp, cp = _daily_panels(2)
+    na = mi.new_na_counters()
+    early: dict[str, int] = {}
+    mi.run_sessions(sessions, names, [s.isoformat() for s in sessions],
+                    quint, mp, cp, tmp_path, na, early)
+    assert na["sessions_early_close"] == 1
+    assert early == {"2026-01-06": 42}
+    assert "2026-01-05" not in early          # the full session is not flagged
+
+
 def test_na_accounting_reaches_the_output_and_names_every_stage(
         tmp_path, monkeypatch):
     tape = {n: {b: 100.0 for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
@@ -1219,13 +1252,146 @@ def test_a_session_past_the_train_end_is_never_read_into_the_analysis(
                for r in payload["earnings_split_primary_cell"])
     # the NA ledger's new buckets exist and the disjointness note ships with them
     for key in ("prints_outside_universe", "sessions_no_calendar_position",
-                "sessions_no_bar_file", "sessions_half_day",
+                "sessions_no_bar_file", "sessions_early_close",
                 "rows_normalizer_below_5bp"):
         assert key in payload["na_accounting"], key
     assert payload["meta"]["na_note"]
     for amb in ("half_day_sessions", "reading_rule_c_horizon",
-                "direction_test_count", "universe_is_the_corpus"):
+                "direction_test_count", "universe_is_the_corpus",
+                "robustness_arm_normalizer_scope", "half_day_close_horizon"):
         assert amb in payload["meta"]["ambiguities"], amb
+    # the default run is the REGISTERED universe, and the output says so
+    assert payload["meta"]["universe_fenced"] is False
+    assert "registered" in payload["meta"]["universe_arm"]
+    # the early-close list ships so it can be checked against the real calendar
+    assert "early_close_sessions" in payload
+    # the two registered-definition caveats ride along with the numbers
+    assert len(payload["meta"]["run_notes"]) == 2
+    assert any("end-of-day information" in n
+               for n in payload["meta"]["run_notes"])
+    assert any("1 fired row per name-day" in n
+               for n in payload["meta"]["run_notes"])
+
+
+def test_the_default_universe_is_the_registered_one_and_keeps_etfs(tmp_path):
+    """The registration's outcome-store bullet defines the universe as every
+    opra_defs underlying with >=1 RTH print and never mentions the day-grain
+    arc's index/ETF fence, so applying that fence by default was a DEVIATION,
+    not an interpretation. It also is not cosmetic: the peer cell is a trailing
+    dollar-volume QUINTILE, so dropping the highest-volume names in the corpus
+    moves the cut-points for every name that remains."""
+    from db.flow_corpus import INDEX_ROOTS
+    db = tmp_path / "corpus.db"
+    _corpus_db(db, ["AAPL", "SPY", "QQQ", "SPX"], ["2026-01-05"], ["2026-01-05"])
+    con = sqlite3.connect(db)
+    for u in ("AAPL", "SPY", "QQQ", "SPX"):
+        con.execute(
+            "INSERT OR REPLACE INTO flow_rollup (date, underlying, right, "
+            "dte_bucket, mny_bucket, side, strict_side, prints, orders, "
+            "contracts, premium_usd, premium_sq, premium_sq_orders, "
+            "premium_max, u_premium, u_premium_clipped, multileg, cond, "
+            "schema_version) VALUES ('2026-01-05',?,'C','0-7','atm','buy',"
+            "'buy',1,1,1,1000.0,1.0,1.0,1000.0,0.0,0.0,0,'',7)", (u,))
+    con.commit()
+    con.close()
+
+    registered = mi.load_universe(db)                 # the DEFAULT
+    assert registered == ["AAPL", "QQQ", "SPX", "SPY"]
+    assert "SPY" in registered and "QQQ" in registered   # ETFs are IN
+    assert "SPX" in registered                          # index roots enter...
+    assert "SPX" in INDEX_ROOTS                         # ...and NA out on bars
+
+    fenced = mi.load_universe(db, fenced=True)          # the secondary arm
+    assert fenced == ["AAPL"]
+    assert len(fenced) < len(registered)
+
+
+def test_the_fenced_universe_run_is_labelled_a_non_registered_arm(
+        tmp_path, monkeypatch):
+    """If the fenced variant is ever run, its output has to say what it is —
+    otherwise a non-registered result is indistinguishable from the registered
+    one in the JSON."""
+    dates, d = [], date(2026, 3, 2)
+    while len(dates) < 60:
+        if d.weekday() < 5:
+            dates.append(d.isoformat())
+        d = d.fromordinal(d.toordinal() + 1)
+    names = [f"N{i:02d}" for i in range(N_NAMES)]
+    corpus = [x for x in dates if x <= mi.TRAIN_END][-14:]
+    db = tmp_path / "corpus.db"
+    _corpus_db(db, names, dates, corpus)
+    bars = tmp_path / "bars"
+    moving = _zigzag_bars()
+    for ds in corpus:
+        _write_npz(bars / f"{ds}.npz", date.fromisoformat(ds), moving(0, names))
+    tape = {n: {b: (100.0 + 30.0 * n if b % 2 else 100.0)
+                for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
+    monkeypatch.setattr(mi, "tape_bins", _fake_tape(tape))
+    monkeypatch.setattr(mi, "N_BOOT", 60)
+    seen = {}
+
+    def fake_universe(dbp, fenced=False):
+        seen["fenced"] = fenced
+        return list(names)
+    monkeypatch.setattr(mi, "load_universe", fake_universe)
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", [
+        "mover_intraday", "--corpus-db", str(db), "--bars-dir", str(bars),
+        "--earnings-db", str(tmp_path / "nope.db"),
+        "--join-ledger", str(tmp_path / "nope.json"),
+        "--universe-fence", "--out", str(out)])
+    assert mi.main() == 0
+    assert seen["fenced"] is True
+    meta = json.loads(out.read_text())["meta"]
+    assert meta["universe_fenced"] is True
+    assert "NON-REGISTERED" in meta["universe_arm"]
+
+
+def test_every_starred_cell_carries_its_earnings_split_and_lean_ones_do_not(
+        tmp_path, monkeypatch):
+    """Registration: "earnings-gate split disclosed on every star." A star in the
+    secondary battery is still a star, so it needs its split attached to its own
+    object — a reader must not have to go find it. Unstarred cells stay lean."""
+    tape = {n: {b: (100.0 + 30.0 * n if b % 2 else 100.0)
+                for b in range(mi.RTH_BINS)} for n in range(N_NAMES)}
+
+    def bars(si, names):
+        # give the top-index names genuinely larger moves so a median difference
+        # can actually clear zero and star
+        out = {}
+        for i, n in enumerate(names):
+            k = 1.0 + 4.0 * (i % 2) + 0.05 * si
+            out[n] = {b: (100.0 * np.exp(k * 0.001) if b % 2 else 100.0)
+                      for b in range(mi.RTH_BINS)}
+        return out
+
+    table, _na, sessions, names = _run(
+        tmp_path, 26, _fake_tape(tape), bars, monkeypatch)
+    dates = [s.isoformat() for s in sessions]
+    known = np.ones(N_NAMES, bool)
+    gate = np.zeros((N_NAMES, len(dates)), bool)
+    gate[:5, :] = True
+    monkeypatch.setattr(mi, "N_BOOT", 200)
+    res = mi.analyse(table, sessions, None, mi.SEED,
+                     gate=gate, known=known, dates=dates)
+
+    live = [c for c in res["cells"] if "median_fired" in c]
+    assert live, "fixture produced no evaluable cells"
+    for c in live:
+        star = c["star"] or mi.starred(*c["tail_ci"])
+        assert ("earnings_split" in c) == bool(star), (
+            c["component"], c["W"], c["H"], star)
+        if star:
+            assert c["earnings_split_reason"] in ("median", "tail_rate")
+            assert {"gated", "far", "n_unknown_excluded"} <= set(
+                c["earnings_split"])
+    assert any("earnings_split" in c for c in live), "no star to check"
+    # a split's two arms partition the cell's rows minus the unknown-history ones
+    c = next(c for c in live if "earnings_split" in c)
+    es = c["earnings_split"]
+    assert (es["gated"]["n_fired"] + es["far"]["n_fired"]) == c["n_fired"]
+    assert (es["gated"]["n_complement"]
+            + es["far"]["n_complement"]) == c["n_complement"]
 
 
 def test_a_missing_join_ledger_disables_the_robustness_arm_rather_than_faking_it(
