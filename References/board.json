@@ -21,13 +21,13 @@
   },
   {
    "id": "1-14f-vol-matched-followup",
-   "title": "1.14f follow-up: realized-vol-matched controls \u2014 pre-register BEFORE running (is +16% flow information or vol clustering?)",
+   "title": "1.14g prereg: RV-quintile-nested controls + equity-RV PLACEBO \u2014 the fork between useful perception and dressed-up vol clustering",
    "lane": "next",
    "type": "research",
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-07-30",
-   "notes": "The 1.14f stars may partly be 'moving names keep moving': controls match session\u00d7boundary\u00d7liquidity but not realized vol at firing. Design the matched-control prereg (fold in Grok interpretation pass from the founder's grok-audit pane), register as an addendum, THEN run. Also gates: Addendum F registration of the three findings before the test window opens; short_dte_share grain contradiction parked on this."
+   "notes": "Grok interpretation pass (07-30, founder's grok-audit pane) folded in. Design must include: (a) peer cells nested by contemporaneous realized-vol quintile at firing; (b) PLACEBO ARM \u2014 same screen triggered by pure equity RV with no options data; if the placebo reproduces +16%, flow adds nothing; (c) concentration negative expected to be mechanical (quiet/clumpy-window selection) \u2014 test that reading, don't sell it as alpha. short_dte grain contradiction parked here (transplant failed, day-grain catalyst story not necessarily dead). Register as addendum BEFORE running; Addendum F registration of the three 1.14f findings gates the test window. Product stance until then: magnitude radar \u2014 supervise/prioritize, never propose direction."
   },
   {
    "id": "1-14f-intraday-screen",
