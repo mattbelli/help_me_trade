@@ -120,10 +120,10 @@ snapshot per sweep). Open threads only:
   DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
   no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
   disguise"). Open: (a) **Addendum F registration** of the three 1.14f findings before anything
-  touches the test window (2026-06-01→07-25); (b) **founder decision — surface labelled flow
-  perception?** (founder list below) — honest framing must carry the RV context: a free equity-RV
-  screen's raw signal is 3–4× the components' stratified residual; (c) `short_dte_share` grain
-  contradiction stays parked.
+  touches the test window (2026-06-01→07-25); (b) RESOLVED 07-30 — founder PARKED the flow
+  perception surface (card `flow-perception-ship`, backlog); a vol/volume abnormality scanner is
+  carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain contradiction
+  stays parked.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.
@@ -209,10 +209,6 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 
 ## ▶ Waiting on founder
 
-- **Surface labelled flow perception?** 1.14g product verdict = NOT DEMOTED, so the gate is
-  cleared — but any surface must be labelled perception with the RV caveat (the screen's residual
-  beyond choppiness is unproven and a free RV screen's raw signal is 3–4× larger). Arming lives on
-  `flow-perception-ship` (`alerts.flow_perception_alerts_enabled`).
 - ⚠ global `allow_short_selling=true` in prod settings — broader than the per-strategy book
   authorization (any approved sell with no held long can short-to-open on paper; books + stops
   excluded, chat/manual not). Confirm or narrow when increment 5 builds the per-strategy flag.
