@@ -356,7 +356,9 @@ async def _poll_account(account: dict) -> bool:
         # Book protective stops ride the same pass: the snapshot saved above
         # already shows a just-filled entry, so the stop validates first try.
         if broker_name == "alpaca":
-            await place_protective_stops(broker_name, account_id=account_id)
+            await place_protective_stops(
+                broker_name, account_id=account_id, positions=positions
+            )
         # Analytics + rules-eval stay default-account-only (broker-keyed display +
         # watchlist-global rules) — unchanged.
         if not account.get("is_default"):

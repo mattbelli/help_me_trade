@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brokers.base import Account
+from brokers.base import Account, Position
 from config import settings as settings_mod
 from db import order_executions as order_executions_mod
 from db import paper_orders as paper_orders_mod
@@ -488,13 +488,27 @@ def _seed_book_entry(
     )
 
 
+def _position(symbol: str, current_price: float | None) -> Position:
+    return Position(
+        symbol=symbol,
+        qty=68.0,
+        side="long",
+        market_value=(current_price or 0.0) * 68.0,
+        unrealized_pl=0.0,
+        avg_entry_price=330.0,
+        current_price=current_price,  # type: ignore[arg-type]
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_stop_guard_state():
     stop_guard_mod._attempts.clear()
     stop_guard_mod._paged.clear()
+    stop_guard_mod._breach_paged.clear()
     yield
     stop_guard_mod._attempts.clear()
     stop_guard_mod._paged.clear()
+    stop_guard_mod._breach_paged.clear()
 
 
 @pytest.mark.asyncio
@@ -621,6 +635,178 @@ def test_proposal_rows_carry_account_id(tmp_path: Path) -> None:
         paper_orders_mod.get_proposal("paper_acct", db_path=db)["account_id"]
         == "acct_alpaca_fable"
     )
+
+
+def test_pending_proposal_rows_carry_account_id(tmp_path: Path) -> None:
+    """`list_pending_proposals` rebuilds a slim dict; it dropped account_id, so
+    /api/proposals/pending labelled every pending proposal `null`."""
+    db = tmp_path / "pending.db"
+    paper_orders_mod.create_pending_proposal(
+        proposal={"symbol": "GOOGL", "side": "buy", "qty": 68.0},
+        intent_fields={
+            "symbol": "GOOGL",
+            "side": "buy",
+            "qty": "68",
+            "order_type": "market",
+            "limit_price": None,
+        },
+        session_id=None,
+        ttl_seconds=3600,
+        summary="BUY 68 GOOGL @ market",
+        account_id="acct_alpaca_fable",
+        db_path=db,
+    )
+    rows = paper_orders_mod.list_pending_proposals(db_path=db)
+    assert [r["account_id"] for r in rows] == ["acct_alpaca_fable"]
+
+
+@pytest.mark.asyncio
+async def test_stop_guard_refuses_breached_stop_and_pages_once(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A stop already through the market would market-sell the whole position on
+    acceptance (real case: proposal paper_419b12c4be9b, stop 880 vs MU ~739)."""
+    db = tmp_path / "sg.db"
+    _seed_book_entry(db)
+
+    async def _fail(*_a, **_k):
+        raise AssertionError("a breached stop must never be submitted")
+
+    pages: list[dict] = []
+
+    async def _fake_notify(**kwargs):
+        pages.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(stop_guard_mod.ExecutionService, "submit", _fail)
+    monkeypatch.setattr(stop_guard_mod, "notify", _fake_notify)
+
+    positions = [_position("GOOGL", 300.00)]  # stop is 314.90 — already through
+    assert await place_protective_stops("alpaca", positions=positions, db_path=db) == 0
+    assert len(pages) == 1
+    assert pages[0]["severity"] == "critical"
+    assert pages[0]["ref_id"] == "paper_bk1"
+    assert "BREACHED" in pages[0]["title"]
+    # No retry budget consumed — retrying cannot move the market back up.
+    assert "paper_bk1" not in stop_guard_mod._attempts
+
+    # Second pass: still refused, and it does not page again.
+    assert await place_protective_stops("alpaca", positions=positions, db_path=db) == 0
+    assert len(pages) == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_guard_protects_once_a_breach_recovers(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A breach is a snapshot, not a verdict: price dips through the stop, we page
+    and refuse, then it rallies back above and the position MUST get its stop on a
+    later poll. `_breach_paged` gates the page only — never the placement — so the
+    guard self-heals rather than abandoning the position for the rest of its life.
+    """
+    db = tmp_path / "sg.db"
+    _seed_book_entry(db)
+    submitted: list[OrderIntent] = []
+    pages: list[dict] = []
+
+    async def _fake_submit(intent: OrderIntent, *, db_path: Path):
+        submitted.append(intent)
+        return ExecutionResult(
+            execution_id="exec_stop_r",
+            broker_order_id="bo1",
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+
+    async def _fake_notify(**kwargs):
+        pages.append(kwargs)
+        return {}
+
+    monkeypatch.setattr(stop_guard_mod.ExecutionService, "submit", _fake_submit)
+    monkeypatch.setattr(stop_guard_mod, "notify", _fake_notify)
+
+    # Breached: refused, paged, nothing submitted.
+    breached = [_position("GOOGL", 300.00)]
+    assert (
+        await place_protective_stops("alpaca", positions=breached, db_path=db) == 0
+    )
+    assert len(pages) == 1 and submitted == []
+
+    # Recovered above 314.90 — the stop is placeable again and must be placed.
+    recovered = [_position("GOOGL", 332.55)]
+    assert (
+        await place_protective_stops("alpaca", positions=recovered, db_path=db) == 1
+    )
+    assert len(submitted) == 1
+    assert submitted[0].stop_price == Decimal("314.90")
+    assert len(pages) == 1  # no second page
+
+
+@pytest.mark.asyncio
+async def test_stop_guard_places_stop_when_price_above_stop(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The breach check must not block the normal path."""
+    db = tmp_path / "sg.db"
+    _seed_book_entry(db)
+    submitted: list[OrderIntent] = []
+
+    async def _fake_submit(intent: OrderIntent, *, db_path: Path):
+        submitted.append(intent)
+        return ExecutionResult(
+            execution_id="exec_stop_1",
+            broker_order_id="bo1",
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+
+    monkeypatch.setattr(stop_guard_mod.ExecutionService, "submit", _fake_submit)
+    positions = [_position("GOOGL", 331.25)]  # stop is 314.90 — healthy
+    placed = await place_protective_stops("alpaca", positions=positions, db_path=db)
+    assert placed == 1
+    assert submitted[0].stop_price == Decimal("314.90")
+
+
+@pytest.mark.asyncio
+async def test_stop_guard_places_stop_when_snapshot_lacks_the_price(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Fail-soft: a missing symbol or unusable price behaves exactly as today —
+    an unplaced stop is worse than one we could not pre-validate."""
+    submitted: list[OrderIntent] = []
+
+    async def _fake_submit(intent: OrderIntent, *, db_path: Path):
+        submitted.append(intent)
+        return ExecutionResult(
+            execution_id="exec_stop_1",
+            broker_order_id="bo1",
+            execution_mode="paper",
+            status="submitted",
+            dry_run_log=None,
+        )
+
+    monkeypatch.setattr(stop_guard_mod.ExecutionService, "submit", _fake_submit)
+
+    absent_db = tmp_path / "absent.db"
+    _seed_book_entry(absent_db)
+    assert (
+        await place_protective_stops(
+            "alpaca", positions=[_position("AAPL", 210.0)], db_path=absent_db
+        )
+        == 1
+    )
+
+    no_price_db = tmp_path / "no_price.db"
+    _seed_book_entry(no_price_db)
+    assert (
+        await place_protective_stops(
+            "alpaca", positions=[_position("GOOGL", None)], db_path=no_price_db
+        )
+        == 1
+    )
+    assert len(submitted) == 2
 
 
 @pytest.mark.asyncio

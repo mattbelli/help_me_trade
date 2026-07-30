@@ -13,6 +13,10 @@ the stop exists — a restart re-derives everything from the DB. Failed attempts
 (snapshot lag right at the open, transient broker errors) retry on later ticks
 behind an in-memory backoff; exhausting the attempt budget pages the founder
 once rather than hammering the daily order counters forever.
+
+One case is never retried: a stated stop already through the market. Submitting
+it would market-sell the whole position the moment the broker accepts, so when
+the caller supplies its snapshot positions the guard refuses and pages instead.
 """
 
 from __future__ import annotations
@@ -56,6 +60,10 @@ _MAX_ATTEMPTS = 10
 # restart resets the budget and the DB check above still prevents duplicates.
 _attempts: dict[str, tuple[int, float]] = {}
 _paged: set[str] = set()
+# Proposals whose stop was already through the market when we tried to place it.
+# Separate from _attempts on purpose: retrying cannot un-breach a stop, so these
+# get one page and are then left alone until a human intervenes.
+_breach_paged: set[str] = set()
 
 
 def _wire_qty(qty: Decimal) -> Decimal:
@@ -92,14 +100,43 @@ def _entry_filled_qty(execution: dict[str, Any]) -> Decimal | None:
     return qty if qty > 0 else None
 
 
+def _snapshot_price(positions: list[Any], symbol: str) -> Decimal | None:
+    """Current price for ``symbol`` out of the poll's snapshot positions.
+
+    Accepts the adapters' ``Position`` dataclasses (what ``afetch_snapshot``
+    returns) or plain dicts. None when the symbol is absent or its price is
+    unusable — the caller then behaves as if no snapshot were supplied.
+    """
+    for pos in positions:
+        if isinstance(pos, dict):
+            raw_symbol, raw_price = pos.get("symbol"), pos.get("current_price")
+        else:
+            raw_symbol = getattr(pos, "symbol", None)
+            raw_price = getattr(pos, "current_price", None)
+        if str(raw_symbol or "").upper() != symbol:
+            continue
+        try:
+            price = Decimal(str(raw_price))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return price if price > 0 else None
+    return None
+
+
 async def place_protective_stops(
     broker_name: str,
     *,
     account_id: str | None = None,
+    positions: list[Any] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int:
     """Place missing GTC protective stops for filled book entries. Returns the
-    number placed this pass. Never raises — this runs inside the poll loop."""
+    number placed this pass. Never raises — this runs inside the poll loop.
+
+    ``positions`` is the caller's already-fetched snapshot (no extra broker
+    call). When supplied, a stop that is already through the market is refused
+    rather than submitted; without it the pre-existing behaviour is unchanged.
+    """
     placed = 0
     try:
         # Execution-state driven, not created_at driven: a GTC book entry
@@ -145,6 +182,21 @@ async def place_protective_stops(
             ):
                 continue
 
+            symbol = str(row["symbol"]).upper()
+            stop_price = Decimal(str(stop_raw))
+            # A sell stop at or below the market triggers the instant the broker
+            # accepts it: a full-size market liquidation nobody asked for. Refuse
+            # and hand it to the founder — no attempt budget, because retrying
+            # cannot move the market back above the stop.
+            price = _snapshot_price(positions, symbol) if positions else None
+            if price is not None and price <= stop_price:
+                if proposal_id not in _breach_paged:
+                    _breach_paged.add(proposal_id)
+                    await _page_breached_stop(
+                        row, stop_price=stop_price, price=price, db_path=db_path
+                    )
+                continue
+
             attempts, last = _attempts.get(proposal_id, (0, 0.0))
             if attempts >= _MAX_ATTEMPTS:
                 if proposal_id not in _paged:
@@ -158,12 +210,12 @@ async def place_protective_stops(
             intent = OrderIntent(
                 proposal_id=stop_pid,
                 session_id=None,
-                symbol=str(row["symbol"]).upper(),
+                symbol=symbol,
                 side="sell",
                 qty=_wire_qty(filled),
                 order_type="stop",
                 limit_price=None,
-                stop_price=Decimal(str(stop_raw)),
+                stop_price=stop_price,
                 time_in_force="gtc",
                 broker=str(entry.get("broker") or broker_name),
                 asset_class="us_equity",
@@ -208,3 +260,35 @@ async def _page_unprotected(row: dict[str, Any], *, db_path: Path) -> None:
         )
     except Exception:
         logger.exception("stop guard: failed to page for %s", row.get("id"))
+
+
+async def _page_breached_stop(
+    row: dict[str, Any],
+    *,
+    stop_price: Decimal,
+    price: Decimal,
+    db_path: Path,
+) -> None:
+    """One critical page when the book's stop is already through the market."""
+    try:
+        await notify(
+            kind="risk_block",
+            title=f"STOP ALREADY BREACHED: {row.get('symbol')}",
+            body=(
+                f"Book entry {row.get('id')} states stop {stop_price} but "
+                f"{row.get('symbol')} is at {price} — placing it would market-sell "
+                "the whole position on acceptance, so no stop was placed. The "
+                "position is UNPROTECTED pending your decision: flatten, or set a "
+                "new stop manually."
+            ),
+            severity="critical",
+            account_id=row.get("account_id"),
+            ref_type="proposal",
+            ref_id=str(row.get("id")),
+            push=True,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception(
+            "stop guard: failed to page breached stop for %s", row.get("id")
+        )
