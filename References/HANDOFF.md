@@ -116,17 +116,16 @@ snapshot per sweep). Open threads only:
   `alerts.flow_perception_alerts_enabled` (recommend ≥3 components or top-N — ≥2 yields ~451
   candidates/session); UI widget; watchlist fundamentals panel still shows confirmed dates only
   (surfacing estimates there needs a UI label first).
-- **⏳ 1.14f intraday screen — RAN 07-30, three findings + one null (BUILD_LOG rows). Open
-  follow-ups only:** (1) **pre-register the realized-vol-matched-controls follow-up BEFORE it
-  runs** — the +16%/+11% magnitude selection (`vol_max_ratio`/`largest_print_ratio`) may be
-  partly vol clustering (controls don't match contemporaneous realized vol at firing; caveat
-  recorded in the result + run log); (2) register the three findings in **Addendum F** before
-  anything touches the untouched test window (2026-06-01→07-25); (3) founder decision: surface
-  as labelled perception (magnitude-only — direction tests all null — so the honest surface is
-  "elevated move likelihood next 2h, direction unknown"); (4) `short_dte_share` day-grain-vs-
-  intraday contradiction is a real question, not an error — park until (1) settles the confound.
-  Grok fresh-eyes interpretation pass ⏳ in the founder's `grok-audit` pane — fold its read into
-  (1)'s design.
+- **⏳ 1.14g vol-clustering fork — REGISTERED 07-30 (FLOW_ROADMAP.md 1.14g, v3), not yet
+  built/run.** The registration survived a two-round adversarial gauntlet (2× Opus split-mandate
+  + Grok, 6+4 blockers fixed pre-run; v1's stratum design was shown by simulation to fabricate
+  ~64% of the 1.14f effect under a true null — never run). Next: build
+  `tools/mover_intraday_114g.py` to the registration (imports 1.14f machinery, reproduce-gate,
+  SEED=20260809), review, single registered run. Remaining 1.14f follow-ups ride on its result:
+  (a) Addendum F registration of the three 1.14f findings before anything touches the test
+  window (2026-06-01→07-25); (b) founder decision on surfacing labelled perception — now
+  explicitly gated on 1.14g's product verdict; (c) `short_dte_share` grain contradiction stays
+  parked (one secondary cell starred +0.014, disclosed in the RESULT section).
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.

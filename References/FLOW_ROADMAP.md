@@ -1513,7 +1513,7 @@ it is a description of the market. No exceptions.
         event-gated): the remaining open path from 1.14d's map is
         finer-than-daily grains.
 
-- [ ] **1.14f The intraday screen — the grain descent** (the second of 1.14d's two pre-registered
+- [x] **1.14f The intraday screen — the grain descent** (the second of 1.14d's two pre-registered
       open paths; founder direction 07-29: "lets begin the intraday research arc"). 1.14c/d/e
       closed the day-grain arc: the fingerprint describes big-move windows without selecting
       them at day grain, and the one conditioning that works (earnings) is a calendar fact,
@@ -1597,6 +1597,321 @@ it is a description of the market. No exceptions.
         print counts and premium concentration only — no outcome was computed anywhere
         before this registration). Output: `tools/mover_intraday.py` →
         `data/research/mover_intraday_114f.json`, full tables in the run log.
+
+      **1.14f RESULT — RUN 2026-07-30 (single registered run, SEED=20260808; 212 train
+      sessions analysed; outcome store fetched-to-spec first — 251 sessions, 93.5M 5-min
+      bars; three-audit build [2× Opus split-mandate + Grok fresh-eyes], 2 blockers +
+      ~20 findings fixed, fence extracted to `flow_corpus_rollup.py` and proven
+      bit-identical, before any outcome existed). VERDICT: three of four clear the full
+      reading rule — the intraday grain WORKS where the day grain didn't — but every
+      star is magnitude-only, and the vol-clustering confound is undischarged.**
+      - **vol_max_ratio +0.164★** [+0.144, +0.184]: fired names' 2h max-|move| runs
+        1.156× their own baseline vs 0.992× for the complement; stars all three
+        horizons, replicates at W=30 AND W=120; join≥98 arm +0.158★.
+      - **largest_print_ratio +0.114★** [+0.100, +0.130], full rule; join≥98 +0.107★.
+      - **concentration −0.021★** [−0.029, −0.012] NEGATIVE, clears the full rule —
+        but the earnings split FLIPS it: in-gate +0.017, earnings-far −0.025. Reads
+        as mechanical selection (one-print-dominates ⇒ quiet window), not signal;
+        that reading is a registered test in 1.14g, not a conclusion here.
+      - **short_dte_share NULL** [−0.008, +0.015]: the transplant of the recurring
+        day-grain 5d positive FAILS at intraday grain. One secondary cell (W=120,
+        H=close) starred +0.014 [+0.005, +0.023] with the expected sign — no survival
+        authority, disclosed. The day-grain finding is not thereby dead — the
+        transplant is (parked with the 1.14g thread).
+      - **Direction: all four NULL** — window tilt-sign carries no agreement with the
+        signed forward return. Magnitude radar only; nothing here proposes a side.
+      - Effects are LARGER far from earnings (vol_max far +0.180 vs in-gate +0.158) —
+        unlike every day-grain finding, this is NOT the calendar wearing a costume.
+      - ⚠️ **The undischarged confound:** peer cells match session, time-of-day and
+        liquidity — NOT contemporaneous realized vol. Elevated window premium ⇒
+        elevated equity RV ⇒ elevated forthcoming |move| is vol clustering, not flow
+        information. That fork is 1.14g; nothing ships to perception before it runs.
+
+- [ ] **1.14g The vol-clustering fork — RV-nested controls, the equity-RV placebo, and
+      the calibrated survival test** (the registered follow-up to 1.14f's stars; founder
+      authorization 07-30). The question, stated as TWO claims the design keeps separate:
+      (i) the PRODUCT claim — does the 1.14f screen add anything over a free equity-RV
+      monitor computed from the same bars at the same decision time? (ii) the SCIENCE
+      claim — do the stars carry options-flow information at all, or do they re-discover
+      that volatility clusters, with the options tape as an expensive thermometer?
+      Contemporaneous-RV controls answer (i) directly; (ii) additionally needs the lagged
+      panel, because same-window RV may MEDIATE a real flow effect and conditioning on a
+      mediator biases toward (and past) the null.
+
+      **1.14g PRE-REGISTRATION v3 — REGISTERED 2026-07-30, before any RV-stratified or
+      placebo statistic exists anywhere.** v1 and v2 were reviewed pre-run by three
+      adversarial auditors (2× Opus split-mandate + Grok fresh-eyes) over two rounds;
+      every v1→v3 change was driven by that review and by simulation against 1.14f's
+      PUBLISHED distributions (v1's session-nested strata were shown to fabricate ~64%
+      of the 1.14f effect under an exact null; v1/v2 were never run). No new data: same
+      feature tape (v7 fence), same outcome store, same train mask (≤ 2026-05-31); the
+      test tail stays untouched.
+
+      - **The stratifier — `rv_park`, range-based, one-bar-gapped, per-bin averaged:**
+        Parkinson RV over the trailing window: √( Σₖ (ln(hₖ/lₖ))² / (4·ln 2 · n_present) )
+        over bins [b−W/5, b−1) — the flow window MINUS its final bin (W/5−1 bins), so
+        the outcome-base bin b−1 contributes nothing to the stratifier (microstructure
+        noise in the boundary price would otherwise sit on both sides of the row — a
+        collider). Division by n_present (the per-bin average) so bin availability
+        cannot masquerade as vol. Bins with non-finite h/l, l ≤ 0, or h < l count as
+        absent; a bin with h == l is PRESENT and contributes 0 (11.6% of bars are
+        zero-range — do not "improve" this into an absence). ≥80% of W/5−1 bins
+        present else NA. No time scaling (the own-normalized ratio cancels it).
+        `rv_ratio` = rv_park ÷ the name's own trailing-20-session median of the same
+        (b, W) measure — median must be > 0 and built from ≥10 valid sessions else NA,
+        where a VALID session = bar file exists ∧ session_last_bin > 0 ∧ the window
+        holds ≥80% of its bins at-or-before session_last_bin (post-close stragglers
+        never count); every skipped session still pushes NaN into its ring slot (1.14f
+        Ring semantics — trailing-20 never silently stretches across gaps). Disclosed
+        secondary variants (reported, no authority): close-to-close RV (√ of the
+        per-return-averaged Σr² over returns between consecutive present closes of
+        bins [b−W/5, b−2] — 10 returns at W=60, ≥80% of the return count else NA) and
+        the zero-gap window [b−W/5, b).
+      - **rv-quintile assignment (the matching):** equal-count rank cuts computed
+        independently inside each 1.14f peer cell (session × boundary × trailing-$-vol
+        quintile), separately per W, over the assignment population = ≥20 fenced
+        classified prints ∧ valid $-vol quintile (q ≥ 0) ∧ valid `rv_ratio` —
+        deliberately NOT any component's pool, so one shared assignment serves all
+        components; computed inside the session pass over the full name grid, never
+        from any emitted row table. Breakpoints = np.percentile(rv_ratio,
+        [20,40,60,80], linear); assignment by searchsorted side='left' (ties fall to
+        the LOWER quintile). A peer cell with <25 assignment rows, or with <5 distinct
+        values, contributes NO strata (never partial-quintile strata; rows counted in
+        na_strata_cell_too_small). Session-local ranks mean a market-wide vol day
+        cannot shift labels.
+      - **Analysis strata — POOLED ACROSS SESSIONS:** stratum = (boundary-of-day ×
+        $-vol quintile × rv-quintile); session is absorbed by the block bootstrap, not
+        the stratum (v1's session-nested strata averaged ~1.5 fired rows each — a
+        one-row "median" estimates the mean of a right-skewed distribution and
+        simulation showed it fabricates +0.105 of stratified effect under an exact
+        null). Occupancy floor: a stratum needs ≥20 fired AND ≥20 complement rows,
+        else it drops with its rows counted. ONE threshold governs the point
+        estimate: >10% of a component's fired rows in occupancy-dropped strata ⇒ that
+        component's primary is UNAVAILABLE (not null, not star) — no re-cut fallback;
+        a re-cut would be a new registration. (Arm 1b's mechanical pre-11:30
+        exclusion is NOT a stratum drop and does not count here.)
+      - **Arm 1 — contemporaneous panel (PRIMARY; answers the product claim):** the
+        1.14f fired/complement sets reused unchanged — same thresholds, same
+        first-fire-per-day, same complement construction (holding the screen fixed is
+        the point: do the same alarms beat vol-matched peers?). Rows with NA
+        `rv_ratio` are excluded from BOTH sides and counted (the fired set is 1.14f's
+        p90 restricted to rv-valid rows, disclosed as such). Estimand: Δ = Σₛ wₛ ·
+        (median_fired,s − median_complement,s), wₛ = fired-count share, recomputed per
+        (W, H) analysis cell after that cell's NA filtering (ATT-on-alarms — the
+        decision-relevant weighting). The min(n_f, n_c)-weighted variant is a
+        registered secondary; if it disagrees with the primary in sign or star, the
+        disagreement is recorded and no product sentence may cite the primary alone.
+      - **Arm 1b — lagged panel (the adjudicator for the science claim):**
+        `rv_ratio_lag` = rv_park over the UNGAPPED W-minute window ending at b−W
+        (bins [b−2W/5, b−W/5), all W/5 bins — the collider that motivates the
+        contemporaneous gap does not exist at the lag; ≥80% of W/5 bins present else
+        NA; per-bin averaged), own-normalized by its own trailing-20 (b, W) lagged
+        ring under the identical VALID-session, median>0, ≥10-session and NaN-push
+        rules; same assignment algorithm, same estimand; reported at W=60, all three
+        horizons. Mechanically NA where the lagged window exits RTH (at W=60 this
+        excludes boundaries before 11:30 — ~45% of vol_max_ratio's primary-cell fired
+        mass). Therefore: **Arm 1b adjudicates ONLY the boundary-matched restriction
+        of Arm 1** (Arm 1 recomputed on b ≥ the first lagged-valid boundary per W,
+        reported alongside the unrestricted primary); no matrix branch reads Arm 1b
+        against the unrestricted result, and any "thermometer" record must state that
+        the early-boundary fired mass is UN-ADJUDICATED. The bin-count difference vs
+        the contemporaneous measure (W/5 vs W/5−1) is disclosed with the reliability
+        table. Arm 1b carries NO survival authority.
+      - **Arm 2a — the machinery placebo (control, outside the multiplicity budget):**
+        `rv_ratio` run through the IDENTICAL 1.14f machinery as a component — p90
+        firing within the original peer cell, first-fire-per-day, same outcomes, pool
+        = eligibility ∧ isfinite(rv_ratio) ∧ q ≥ 0 built by the 1.14f pool expression,
+        complement = ~fired ∧ pool (never ~fired ∧ elig). Reported UNSTRATIFIED
+        everywhere it appears (rv-stratifying a screen defined on rv_ratio is
+        degenerate — its fired rows all sit in the top quintile). Population note,
+        disclosed: this is an equity-RV screen on the OPTIONS-ELIGIBLE pool (same
+        universe-moments as the components, so magnitudes share a footing), not a
+        market-wide equity-RV study. Its unstratified Δ and any stratified component
+        Δ are NOT magnitude-comparable — the registration forbids demoting or
+        promoting by comparing those two numbers.
+      - **Arm 2b — the split-sample placebo (the survival benchmark):** a placebo
+        whose FIRING variable is the odd-bin ratio (odd-bin rv_park own-normalized by
+        its own odd-bin trailing ring) fired through the same machinery, and whose
+        STRATIFICATION uses quintiles of the EVEN-BIN RATIO — even-bin rv_park
+        own-normalized by its own even-bin trailing-20 (b, W) ring — so the
+        benchmark's stratifier stands in the same own-normalized relation to its
+        outcome as the components' does. ODD/EVEN = parity of the ABSOLUTE 5-minute
+        bin index within the gapped window (for the registered grid this equals
+        window-relative parity, since every boundary bin index and every W/5 are
+        even); at W=60 the 11 gapped bins split 6 even / 5 odd (the window's first
+        and last bins are even-index), so the STRATIFIER (even) is the thicker side. Each subset requires
+        ≥80% of its OWN bin count present (same enumerated absence conditions; h == l
+        present, contributing 0), is per-bin averaged over its own n_present, and has
+        its own trailing-20 (b, W) ring under the identical VALID-session, median>0,
+        ≥10-session, NaN-push rules. Arm 2b's strata are subject to the identical
+        occupancy floor and dropped-mass rules as component primaries; an UNAVAILABLE
+        Arm 2b makes criterion (d) — and therefore survival — UNAVAILABLE for every
+        component. Odd/even separation gives the placebo's firing variable and its
+        stratifier independent noise — the same structural relation a flow component
+        has to the stratifier — and even-bin RV is noisier than the full-window RV
+        the components are stratified on, so the benchmark retains MORE residual than
+        a fair thermometer would: conservative in the components' disfavor.
+        Simulation under a pure-clustering null: components retain ~43–47% of their
+        raw effect after quintile stratification with ZERO flow information; the
+        split-sample placebo retains ~57%. "CI clear of zero" alone is therefore NOT
+        diagnostic — survival requires beating this benchmark.
+      - **Calibration gates (mandatory, evaluated BEFORE any component result is
+        read; failing either makes the run INCONCLUSIVE):**
+        1. *Permuted-label null:* per component, rv-quintile labels randomly permuted
+           within (assignment cell × that component's fired/complement status) over
+           the Arm 1 analysis rows at (W=60, H=2h) — the same locked row universe as
+           the coarse baseline; rows outside the component's pool have no status and
+           are not permuted. This preserves every stratum's fired and complement
+           counts exactly, so the gate certifies the estimator on the REAL run's
+           occupancy geometry — 10 permutations, seeds SEED+1…SEED+10. Pass iff the
+           MAXIMUM over the 10 permutations of |permuted stratified Δ −
+           same-functional coarse Δ| ≤ 0.02 at (W=60, H=2h) — ±0.02 ABSOLUTE by
+           design: the gate certifies the estimator, not the component, so it does
+           not scale with component bands; all 10 deviations reported. (The coarse
+           baseline: strata
+           = boundary × $-vol quintile, same estimand, same occupancy floor, row
+           universe locked to the same rv-valid rows as Arm 1 — NA composition can
+           never move the denominator.)
+        2. *Machinery control:* Arm 2a must star POSITIVE. Null or negative ⇒ the
+           machinery failed to detect known physics; investigate the RV measure
+           before reading anything.
+      - **Stratification adequacy (survival authority gate):** the balance table —
+        within-stratum median `rv_ratio`, fired vs complement, per stratum at the
+        primary cell. An rv-quintile with no included stratum is NOT-EVALUABLE
+        (distinct from failing); a component's primary requires ≥4 evaluable
+        rv-quintiles, and each evaluable quintile must hold ≥1 included stratum at
+        ≥6 of 8 primary-cell boundaries. Adequacy = the within-stratum
+        fired-vs-complement median `rv_ratio` gap is <10% of the unstratified gap in
+        ALL evaluable quintiles when 4 are evaluable, or in ≥4 of 5 when all 5 are,
+        AND in every quintile holding ≥25% of that component's included fired mass
+        (in practice the top quintile — the pile-up the matching exists to control).
+        Fewer than 4 evaluable ⇒ INADEQUATE. A component failing balance has NO survival
+        authority (recorded INADEQUATE — the matching failed, not the hypothesis).
+        Stratifier reliability (odd-bin vs even-bin ratio correlation per (b, W)) is
+        reported alongside; the fired-mass distribution across rv-quintiles is
+        reported for ALL strata and for INCLUDED strata only.
+      - **Statistics:** multiplicity budget = the 3 component primaries
+        (`vol_max_ratio`, `largest_print_ratio`, `concentration`) at (W=60, H=2h),
+        Arm 1 — ~0.15 expected false at 95%. Arms 1b/2a/2b and the calibration gates
+        are controls/adjudicators OUTSIDE the budget, labelled as such. Bootstrap:
+        circular moving-block over sessions, block=5, 10,000 draws, ONE shared
+        resampling across all arms (what makes the paired test in (d) well-defined).
+        **SEED=20260809.** Quintile assignments and stratum memberships are computed
+        once on the real data; a draw reweights sessions and recomputes per-stratum
+        weighted medians (boot_medians semantics per stratum, via the shared
+        session-weight matrix); within-draw one-sided-empty strata drop with weights
+        renormalized — a DISTINCT mechanism from the point-estimate occupancy floor —
+        and the per-draw dropped-fired-mass distribution is reported, with a primary
+        UNAVAILABLE if its 95th percentile exceeds 20%.
+      - **Reading rule — the science test, all four required:**
+        (a) Arm 1 stratified primary CI clear of zero, same sign as its POOLED 1.14f
+            effect (concentration's registered sign is its pooled −0.021, never the
+            earnings-split signs);
+        (b) same-sign stratified star at ≥2 of 3 horizons at W=60 (every star in
+            (b)/(c) is the same weighted stratified estimand);
+        (c) stratified replication star at W=120, H=2h, PLUS the (d) benchmark test
+            re-run at W=120 (Arm 2b recomputed there). W=30 is DECLARED IN ADVANCE
+            unusable for replication: its gapped window has 5 bins — 3 even for the
+            stratifier, 2 odd for the firing side — far below the reliability floor
+            (odd-even correlation ≥80% of the primary cell's), so a W=30 "star"
+            would be a free pass through a stratifier too noisy to strat-match
+            anything. The floor is advance justification for excluding W=30, not a
+            runtime gate; W=120's odd-even correlation is reported and, if below the
+            floor, (c)'s W=120 star is recorded as reliability-caveated;
+        (d) the benchmark test, evaluated at (W=60, H=2h): attenuation ratio =
+            stratified Δ ÷ same-functional coarse Δ (the locked coarse baseline
+            above). Evaluable only where the component's coarse Δ has a bootstrap CI
+            clear of zero AND |coarse Δ| ≥ its negligible band (below, else (d) is
+            UNAVAILABLE and the component cannot pass the science test; a coarse
+            baseline failing the occupancy floor likewise makes (d) UNAVAILABLE for
+            that component). Per draw d,
+            R_x(d) = Δ_strat,x(d) ÷ Δ_coarse,x(d) using the SAME draw row of the
+            shared weight matrix for the component and for Arm 2b; test statistic =
+            R_comp(d) − R_2b(d); pass iff its 2.5th percentile > 0. Draws with
+            |Δ_coarse| < 0.005 for either arm drop as undefined; >5% dropped draws ⇒
+            (d) UNAVAILABLE (not passed, not failed).
+      - **Verdicts — science and product recorded SEPARATELY (precedence pinned):**
+        - *Negligible band, per component:* ±max(0.01, 0.25 × |its pooled 1.14f Δ|)
+          — vol_max_ratio ±0.041, largest_print_ratio ±0.029, concentration ±0.010.
+          A component whose own 1.14f effect sits inside its band would enter as a
+          descriptive control with no survival branch (none of the three does).
+        - *Science outcome:* passing (a)–(d) records "RV-ORTHOGONAL ASSOCIATION —
+          incremental to contemporaneous equity RV as measured by [Parkinson, gapped
+          W-window]" — never "flow information" unqualified. For a negative-sign
+          component (concentration), it means negative discrimination, and the
+          registered mechanical descriptive (median window classified premium + print
+          count, fired vs complement) is reported before any non-mechanical reading.
+        - *Product verdict:* Arm 1 stratified CI entirely inside the component's band
+          ⇒ PRODUCT-DEMOTED — "no incremental value over a free equity-RV monitor at
+          this grain, for this screen" — regardless of mediation (RV is decision-time
+          observable). A component may be science-positive AND product-demoted; the
+          record states both, the PRODUCT verdict governs any perception/ship
+          decision, and the unqualified word "SURVIVES" is reserved for
+          science-positive ∧ not product-demoted.
+        - CI containing zero but not inside the band ⇒ UNDERPOWERED, not demoted; the
+          realized bootstrap SE and implied minimum detectable effect are reported
+          with every primary.
+        - The flow ANGLE after a product demotion is adjudicated by Arm 1b on the
+          boundary-matched restriction: lagged-null too ⇒ the clustering story
+          strengthens and "thermometer" language is licensed FOR THE ADJUDICATED
+          SUBPOPULATION only; lagged-star ⇒ "not RV-orthogonal at this grain" — the
+          angle stays alive for other constructions, and "costume" language is
+          FORBIDDEN.
+        - Stratified star with sign OPPOSITE to 1.14f ⇒ recorded as a finding of
+          confounding-or-over-adjustment, never folded silently into "did not pass".
+        - Arm 2b's attenuation ratio ≥ every component's AND its own stratified CI
+          clear of zero ⇒ coarsening alone explains all residuals ⇒ INCONCLUSIVE for
+          all science claims.
+      - **Secondary battery (reported, no survival authority):** per-rv-quintile Δₛ
+        tables (fired-weighted mean of Δₛ within the quintile); attenuation ratios
+        with their benchmarks; a DECILE-grain re-cut of the Arm 1 primary (diagnostic
+        only — tells us whether finer strata would have changed a balance verdict);
+        co-firing rate = share of a component's fired rows at W=60 that are also
+        Arm 2a-fired at the same (name, session, boundary); share of each component's
+        fired rows in the top rv-quintile; the remaining (W, H) cells under the same
+        stratified estimand; the contemporaneous-complement arm (complement = names
+        not yet fired AS OF b — the decision-time population, removing 1.14f's known
+        quiet-rest-of-day selection) at the primary cell; denominator-inflation
+        diagnostics (the same estimand on the RAW unnormalized forward max |log
+        return|, and on the outcome ÷ same-window rv_park); share of fired rows with
+        above-peer feature-window |cum return|; earnings split of every starred
+        finding via 1.14f's raw split_cell machinery, labelled an unstratified
+        diagnostic; join≥98 arm mirror of the three component primaries (stratified)
+        + Arm 2a (unstratified), rows filtered to the 107-session subset with ALL
+        trailing rings still built from every train session (1.14f's registered
+        normalizer scope). NO direction tests (1.14f returned all-null at this
+        grain). An RV-conditional RE-FIRED screen (p90 within peer × rv cell) is
+        explicitly OUT OF SCOPE — a new screen, requiring its own registration.
+      - **Implementation lock:** `tools/mover_intraday_114g.py` IMPORTS the 1.14f
+        machinery from `tools/mover_intraday.py` (tape/window/component/firing/
+        cell-mask/Ring/bootstrap functions — no copied firing path), and gates on
+        REPRODUCING 1.14f before emitting anything: the recomputed screen must match
+        the locked 1.14f JSON at all four primary cells — n_fired and n_complement
+        integer-exact, diffs to 5 decimals — else ABORT, reporting the per-cell delta
+        and the environment diff; never proceed on a loosened tolerance. 1.14g stamps
+        numpy/python versions and platform into its meta (fixing 1.14f's environment
+        retroactively by this run's stamp). Fired row keys (session, name, boundary,
+        component, W) are persisted and their hash stamped into the output meta — a
+        FORWARD artifact for 1.14h+, not provenance for 1.14f (the reproduction gate
+        is the provenance). The per-stratum bootstrap may be vectorized provided the
+        vectorized path is proven bit-identical to per-stratum boot_medians on a
+        10-session smoke subset before the full run; wall time recorded in meta.
+        Memory bounded by the 1.14f tape pass (~10 GB).
+      - **Expectations recorded in advance** (conditioned on the seen 1.14f result —
+        a motivated follow-up, and says so): Arm 2a strongly positive; every
+        component attenuates substantially under Arm 1 (simulation says ~40–57%
+        retention is compatible with ZERO flow information — which is exactly why
+        the science test is beating the Arm 2b benchmark, not retaining a fraction);
+        `vol_max_ratio` most exposed (its numerator is mechanically coupled to RV);
+        `largest_print_ratio` the likelier science survivor; `concentration`
+        expected PRODUCT-DEMOTED with the mechanical descriptive carrying the story.
+        `short_dte_share` is parked, not retested as a primary here.
+      - **Disclosure.** Fifth forward read of the training corpus. Design conditioned
+        on the observed 1.14f result; registered before any RV-stratified or placebo
+        number existed; v1→v3 changes were driven entirely by pre-run adversarial
+        review and simulation against 1.14f's published distributions, never by any
+        1.14g outcome. Stratum occupancy, balance, reliability, evaluability, and
+        every NA count reported in full. Output: `data/research/mover_intraday_114g.json`.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,

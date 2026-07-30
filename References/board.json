@@ -21,13 +21,13 @@
   },
   {
    "id": "1-14f-vol-matched-followup",
-   "title": "1.14g prereg: RV-quintile-nested controls + equity-RV PLACEBO \u2014 the fork between useful perception and dressed-up vol clustering",
-   "lane": "next",
+   "title": "1.14g vol-clustering fork \u2014 REGISTERED v3 (two-round adversarial gauntlet); build + single run next",
+   "lane": "in_progress",
    "type": "research",
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-07-30",
-   "notes": "Grok interpretation pass (07-30, founder's grok-audit pane) folded in. Design must include: (a) peer cells nested by contemporaneous realized-vol quintile at firing; (b) PLACEBO ARM \u2014 same screen triggered by pure equity RV with no options data; if the placebo reproduces +16%, flow adds nothing; (c) concentration negative expected to be mechanical (quiet/clumpy-window selection) \u2014 test that reading, don't sell it as alpha. short_dte grain contradiction parked here (transplant failed, day-grain catalyst story not necessarily dead). Register as addendum BEFORE running; Addendum F registration of the three 1.14f findings gates the test window. Product stance until then: magnitude radar \u2014 supervise/prioritize, never propose direction."
+   "notes": "Registration is LAW at FLOW_ROADMAP.md \u00a71.14g (v3, SEED=20260809). Survived 2 rounds \u00d7 3 auditors (2 split-mandate Opus + Grok fresh-eyes) BEFORE any number existed: v1's session-nested strata were shown by simulation to fabricate ~64% of the 1.14f effect under a true null. Design: product claim (beat a free equity-RV monitor?) via Parkinson-RV-stratified contrast on the unchanged 1.14f fired sets; science claim adjudicated by lagged-RV panel (mediator-safe, boundary-matched only); survival = beating the split-sample placebo benchmark on a paired bootstrap, behind permuted-label + machinery-placebo calibration gates and a balance-adequacy gate. NEXT: build tools/mover_intraday_114g.py to the registration (imports 1.14f machinery, reproduce-abort gate), review, single registered run. Addendum F registration of the 1.14f findings still gates the test window; founder perception-surface decision now explicitly waits on 1.14g's product verdict."
   },
   {
    "id": "1-14f-intraday-screen",

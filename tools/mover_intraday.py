@@ -179,7 +179,7 @@ AMBIGUITIES = {
         "state — the vol_max_ratio (boundary, W) window-premium ring, the "
         "outcome (b, H) ring, and the trailing-60-session daily premium_max "
         "median — is built from ALL train sessions, including below-floor-join "
-        "days. Kept deliberately: rebuilding the rings over only the 115 "
+        "days. Kept deliberately: rebuilding the rings over only the 107 "
         "in-subset sessions would thin every history against its registered "
         "minimum (>=10 valid sessions for vol_max_ratio and the outcome "
         "normalizer, >=20 valid days for premium_max), so a large share of rows "
