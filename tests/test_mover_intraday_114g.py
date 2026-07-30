@@ -90,14 +90,21 @@ def test_every_registration_silent_choice_is_declared_not_resolved_silently():
                 "lagged_scope_is_w60", "secondary_rv_variants_scope",
                 "coarse_baseline_occupancy", "d_test_dropped_draw_denominator",
                 "attenuation_ratio_is_signed", "balance_quintile_gap",
-                "balance_evaluability_folds_coverage", "mde_definition",
+                "mde_definition",
                 "shared_resampling_is_per_arm", "join98_reuses_the_assignment",
                 "vectorizer_bit_identity", "gate_failure_blocks_reading",
                 "permutation_gate_occupancy_mismatch",
                 "extra_rows_from_the_placebo_pools",
-                "raw_outcome_row_universe"):
+                "raw_outcome_row_universe", "duplicated_pass_scaffolding",
+                "reproduce_gate_is_aggregate", "balance_boundary_count_is_derived",
+                "flow_angle_adjudication_inputs",
+                "per_draw_dropped_mass_denominator",
+                "min_variant_disagreement_scope", "earnings_split_scope",
+                "inside_band_is_strict", "join_mirror_extra_controls"):
         assert key in g.AMBIGUITIES, key
         assert len(g.AMBIGUITIES[key]) > 80, key
+    # the entry that OVERRODE a registered definition is gone, not renamed
+    assert "balance_evaluability_folds_coverage" not in g.AMBIGUITIES
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +451,27 @@ def test_the_per_draw_drop_rule_is_distinct_from_the_point_estimate_floor():
                - g.MDE_Z * r["bootstrap_se"]) < 1e-4
 
 
+def test_a_zero_range_window_makes_the_outcome_over_rv_diagnostic_na_not_inf(
+        tmp_path, monkeypatch, small_cells):
+    """rvp == 0 is a real measurement (a wholly zero-range window). The quotient
+    outcome / rv_park would be +-inf and then be dropped by `isfinite` with no
+    trace, so it is NaN'd explicitly and the loss is counted."""
+    table, _na, sessions, _n = _run_pass(tmp_path, monkeypatch, 14)
+    n = len(table["sess"])
+    wi, hi = mi.WINDOWS.index(60), mi.HORIZONS.index("2h")
+    tbl = {k: v.copy() for k, v in table.items()}
+    tbl["rvp"][:, wi] = 0.0                       # every window wholly flat
+    vals = g._values(tbl, wi, hi, "raw_over_rv")
+    assert not np.isinf(vals).any()
+    assert np.isnan(vals).all()
+    sel = g.select_cell(tbl, np.arange(len(sessions), dtype=np.int64),
+                        wi, mi.FEATS.index("concentration"), hi,
+                        value="raw_over_rv")
+    assert sel["vals"] is None
+    assert sel["n_zero_rv_denominator"] > 0
+    assert n > 0
+
+
 def test_a_cell_with_no_qualifying_stratum_is_unavailable_not_zero():
     vals, sess, fired, strat = _strat_fixture(n_f_a=5, n_c_a=5, n_f_b=5, n_c_b=5)
     wmat = mi.block_weights(10, 20, 5, np.random.default_rng(1))
@@ -642,7 +670,9 @@ def test_science_positive_can_still_be_product_demoted_and_then_not_survive():
     rule, v = g.verdict_for(f, cells, _dtests(f), ADEQUATE, {"star": True}, REL,
                             False, False)
     assert rule["all_four"]                       # the science test still passes
-    assert v["science"].startswith("RV-ORTHOGONAL ASSOCIATION")
+    # a demoted component's science reading is labelled SCIENCE-ONLY, in the
+    # sentence, so it cannot be quoted as a product claim
+    assert v["science"].startswith("SCIENCE-ONLY — RV-ORTHOGONAL ASSOCIATION")
     assert "NEGATIVE discrimination" in v["science"]     # sign < 0
     assert v["product"].startswith("PRODUCT-DEMOTED")
     assert "free equity-RV monitor" in v["product"]
@@ -702,6 +732,57 @@ def test_arm_2b_explaining_every_residual_is_inconclusive_for_all_science():
     assert v["product"].startswith("NOT DEMOTED")
 
 
+def test_the_min_weighted_variant_disagreement_reaches_the_product_sentence():
+    """Registered: the min(n_f, n_c)-weighted variant 'is a registered
+    secondary; if it disagrees with the primary in sign or star, the
+    disagreement is recorded and NO PRODUCT SENTENCE MAY CITE THE PRIMARY
+    ALONE.' So the caveat lives in the sentence, not in a footnote a reader has
+    to go find."""
+    # the comparison itself
+    prim = {"delta": 0.09, "star": True}
+    assert g.weighting_disagreement(prim, {"delta": 0.09, "star": True})[
+        "disagrees"] is False
+    flip = g.weighting_disagreement(prim, {"delta": -0.02, "star": True})
+    assert flip["disagrees"] and "sign" in flip["disagrees_why"]
+    star = g.weighting_disagreement(prim, {"delta": 0.09, "star": False})
+    assert star["disagrees"] and "star" in star["disagrees_why"]
+    # silence is NOT agreement
+    quiet = g.weighting_disagreement(prim, {"unavailable": "empty pool"})
+    assert quiet["disagrees"] is False and quiet["comparable"] is False
+    # and the flag rides into the product sentence
+    f = "vol_max_ratio"
+    cells = _cells(f, 0.09, [0.06, 0.12])
+    _r, clean = g.verdict_for(f, cells, _dtests(f), ADEQUATE, {"star": True},
+                              REL, False, False)
+    assert clean["min_variant_disagrees"] is False
+    assert "MIN-WEIGHTED" not in clean["product"]
+    _r, caveat = g.verdict_for(f, cells, _dtests(f), ADEQUATE, {"star": True},
+                               REL, False, False, None, None, True)
+    assert caveat["min_variant_disagrees"] is True
+    assert "MIN-WEIGHTED VARIANT DISAGREES" in caveat["product"]
+    assert "may not be cited without the variant" in caveat["product"]
+
+
+def test_a_coarsening_override_marks_the_product_sentence_too():
+    """The registration makes the override a SCIENCE verdict, but a reader
+    quoting the product line deserves to know the run is in that state."""
+    f = "largest_print_ratio"
+    _r, v = g.verdict_for(f, _cells(f, 0.06, [0.04, 0.08]), _dtests(f),
+                          ADEQUATE, {"star": True}, REL, False, True)
+    assert v["science"].startswith("INCONCLUSIVE")
+    assert v["product"].endswith("— coarsening override in effect")
+    assert v["survives"] is False
+
+
+def test_a_replication_caveat_is_carried_in_the_science_sentence():
+    f = "vol_max_ratio"
+    cells = _cells(f, 0.09, [0.06, 0.12])
+    rule, v = g.verdict_for(f, cells, _dtests(f), ADEQUATE, {"star": True},
+                            {"w120_below_floor": True}, False, False)
+    assert rule["c_reliability_caveated"] is True
+    assert v["science"].endswith(" — REPLICATION-CAVEATED")
+
+
 def test_an_inadequate_balance_removes_survival_authority_not_the_hypothesis():
     f = "vol_max_ratio"
     _rule, v = g.verdict_for(f, _cells(f, 0.09, [0.06, 0.12]), _dtests(f),
@@ -723,34 +804,56 @@ def test_an_unavailable_primary_is_unavailable_in_both_verdicts():
     assert v["survives"] is False
 
 
-def test_a_product_demotion_is_adjudicated_by_arm_1b_with_licensed_language():
-    """'The flow ANGLE after a product demotion is adjudicated by Arm 1b on the
-    boundary-matched restriction: lagged-null too => the clustering story
+def test_a_product_demotion_is_adjudicated_on_the_matched_and_lagged_pair():
+    """'The flow ANGLE after a product demotion is adjudicated by Arm 1b ON THE
+    BOUNDARY-MATCHED RESTRICTION: lagged-null TOO => the clustering story
     strengthens and "thermometer" language is licensed FOR THE ADJUDICATED
     SUBPOPULATION only; lagged-star => "not RV-orthogonal at this grain" — the
-    angle stays alive for other constructions, and "costume" language is
-    FORBIDDEN.'"""
+    angle stays alive, and "costume" language is FORBIDDEN.'
+
+    "TOO" presupposes a status for the thing being compared to, so the
+    adjudication reads the PAIR (boundary-matched Arm 1, Arm 1b) — all four
+    combinations, per AMBIGUITIES['flow_angle_adjudication_inputs']."""
     f = "concentration"
     demoted = _cells(f, -0.006, [-0.009, -0.002])       # inside the 0.010 band
     args = (demoted, _dtests(f), ADEQUATE, {"star": True}, REL, False, False)
-    # lagged NULL: thermometer language, restricted to the adjudicated subpop
-    _r, v = g.verdict_for(f, *args, {"delta": -0.001, "star": False})
+    null_row = {"delta": -0.001, "star": False}
+    star_row = {"delta": -0.02, "star": True}
+
+    # BOTH null: thermometer, and only for the adjudicated subpopulation
+    _r, v = g.verdict_for(f, *args, null_row, null_row)
     assert v["product"].startswith("PRODUCT-DEMOTED")
+    assert v["flow_angle_adjudication"].startswith("CLUSTERING STORY STRENGTHENS")
     assert "thermometer" in v["flow_angle_adjudication"]
     assert "SUBPOPULATION ONLY" in v["flow_angle_adjudication"]
-    assert "UN-ADJUDICATED" in v["flow_angle_adjudication"]
+    assert "UN-ADJUDICATED" in v["flow_angle_adjudication"]   # early mass
+    assert v["adjudication_inputs"]["arm1b_star"] is False
+    assert v["adjudication_inputs"]["boundary_matched_arm1_star"] is False
+
     # lagged STAR: the angle stays alive and "costume" is forbidden
-    _r, v = g.verdict_for(f, *args, {"delta": -0.02, "star": True})
+    _r, v = g.verdict_for(f, *args, star_row, null_row)
     assert "NOT RV-ORTHOGONAL AT THIS GRAIN" in v["flow_angle_adjudication"]
     assert "FORBIDDEN" in v["flow_angle_adjudication"]
     assert "thermometer" not in v["flow_angle_adjudication"]
-    # Arm 1b unavailable: neither word is licensed
-    _r, v = g.verdict_for(f, *args, {"unavailable": "no strata"})
-    assert v["flow_angle_adjudication"].startswith("UN-ADJUDICATED")
-    assert "survival" in v["arm1b_note"]
+
+    # matched STARS while the lag is null: the "TOO" premise fails => MIXED,
+    # and thermometer language is explicitly NOT licensed
+    _r, v = g.verdict_for(f, *args, null_row, star_row)
+    assert v["flow_angle_adjudication"].startswith("MIXED")
+    assert "NOT licensed" in v["flow_angle_adjudication"]
+    assert v["adjudication_inputs"]["boundary_matched_arm1_star"] is True
+
+    # either side unavailable: neither word is licensed
+    for lag, matched in (({"unavailable": "no strata"}, null_row),
+                         (null_row, {"unavailable": "no strata"}),
+                         (null_row, {})):
+        _r, v = g.verdict_for(f, *args, lag, matched)
+        assert v["flow_angle_adjudication"].startswith("UN-ADJUDICATED")
+        assert "survival" in v["arm1b_note"]
+
     # a component that is NOT demoted gets no adjudication line at all
     _r, v = g.verdict_for(f, _cells(f, -0.06, [-0.08, -0.04]), *args[1:],
-                          {"delta": -0.02, "star": True})
+                          star_row, star_row)
     assert "flow_angle_adjudication" not in v
 
 
@@ -800,6 +903,127 @@ def test_w30_is_never_a_replication_window():
     rule, _v = g.verdict_for(f, cells, _dtests(f, rep_passed=False), ADEQUATE,
                              {"star": True}, REL, False, False)
     assert not rule["c_pass"]
+
+
+def test_the_v31_reliability_ceiling_makes_d_unavailable_for_everyone():
+    """v3.1 pre-run amendment: 'if the primary-cell odd-vs-even reliability
+    correlation EXCEEDS 0.85 ... Arm 2b is declared NON-CONSERVATIVE, criterion
+    (d) is UNAVAILABLE for every component, and science claims are
+    INCONCLUSIVE. The correlation is reported next to every (d) row either
+    way.'"""
+    n = 500
+    cs, cc = _arm(0.09, np.full(n, 0.09)), _arm(0.10, np.full(n, 0.10))
+    b2s, b2c = _arm(0.05, np.full(n, 0.05)), _arm(0.10, np.full(n, 0.10))
+    assert g.RELIABILITY_CEILING == 0.85
+    # BELOW the ceiling: the benchmark stands, (d) evaluates normally
+    for corr in (0.80, 0.85):                       # 0.85 does not EXCEED 0.85
+        r = g.benchmark_test(cs, cc, b2s, b2c, "vol_max_ratio",
+                             reliability_corr=corr)
+        assert r["available"] and r["passed"] is True
+        assert r["arm2b_non_conservative"] is False
+        assert r["odd_even_reliability_correlation"] == corr
+    # ABOVE it: NON-CONSERVATIVE, (d) UNAVAILABLE, and never "failed"
+    for f in g.COMPONENTS:
+        r = g.benchmark_test(cs, cc, b2s, b2c, f, reliability_corr=0.851)
+        assert r["available"] is False and r["passed"] is None
+        assert r["arm2b_non_conservative"] is True
+        assert "NON-CONSERVATIVE" in r["unavailable"]
+        assert "EVERY component" in r["unavailable"]
+        assert r["odd_even_reliability_correlation"] == 0.851
+        assert r["reliability_ceiling"] == 0.85
+    # ...and the science verdict then reads UNAVAILABLE via criterion (d)
+    dead = {(f, WI_P): g.benchmark_test(cs, cc, b2s, b2c, f,
+                                        reliability_corr=0.9)
+            for f in g.COMPONENTS}
+    _rule, v = g.verdict_for("vol_max_ratio",
+                             _cells("vol_max_ratio", 0.09, [0.06, 0.12]),
+                             dead, ADEQUATE, {"star": True}, REL, False, False)
+    assert v["science"].startswith("UNAVAILABLE — criterion (d)")
+    assert "NON-CONSERVATIVE" in v["science"]
+    assert v["survives"] is False
+
+
+def test_a_zero_coarse_delta_does_not_crash_the_benchmark():
+    """A coarse delta of exactly 0.0 is reachable (every included stratum's two
+    medians equal). It must yield no ratio, not a ZeroDivisionError mid-run."""
+    assert g._ratio(0.09, 0.0) is None
+    assert g._ratio(None, 0.1) is None
+    assert g._ratio(0.09, 0.1) == pytest.approx(0.9)
+    n = 100
+    r = g.benchmark_test(_arm(0.09, np.full(n, 0.09)),
+                         _arm(0.10, np.full(n, 0.10)),
+                         _arm(0.0, np.full(n, 0.05)),
+                         _arm(0.0, np.full(n, 0.10)), "vol_max_ratio")
+    # the Arm 2b coarse delta is 0.0 => no ratio, and the run continues
+    assert r["attenuation_ratio_arm2b"] is None
+
+
+# ---------------------------------------------------------------------------
+# the balance gate, clause by clause
+# ---------------------------------------------------------------------------
+
+def _quints(**over):
+    """Five evaluable, fully-covering, in-limit quintiles; override per test."""
+    base = [{"rv_quintile": i, "evaluable": True, "boundary_coverage_ok": True,
+             "gap_within_limit": True, "heavy": False, "n_included_strata": 8}
+            for i in range(5)]
+    base[4]["heavy"] = True                      # the top-quintile pile-up
+    for i, patch in over.items():
+        base[int(i)].update(patch)
+    return base
+
+
+def test_the_balance_gate_is_three_separate_tests_in_order():
+    v = g.balance_verdict(_quints(), 8, 6)
+    assert v["verdict"] == "ADEQUATE" and v["n_evaluable"] == 5
+    # 1. evaluability is "has an included stratum", and nothing else
+    thin = g.balance_verdict(_quints(**{"0": {"evaluable": False},
+                                        "1": {"evaluable": False}}), 8, 6)
+    assert thin["verdict"] == "INADEQUATE" and "only 3 evaluable" in thin["reason"]
+
+
+def test_a_thin_boundary_coverage_fails_the_gate_rather_than_excusing_it():
+    """Registered: 'each evaluable quintile must hold >=1 included stratum at
+    >=6 of 8 primary-cell boundaries'. That is a REQUIREMENT on an evaluable
+    quintile — a violation makes the component INADEQUATE. Folding it into
+    evaluability instead would drop the offending quintile from the count and
+    could grant survival authority the registration denies."""
+    v = g.balance_verdict(_quints(**{"2": {"boundary_coverage_ok": False}}), 8, 6)
+    assert v["verdict"] == "INADEQUATE"
+    assert v["adequate"] is False
+    assert v["boundary_coverage_failures"] == [2]
+    assert "fewer than 6 of 8" in v["reason"]
+    # the offending quintile is still COUNTED as evaluable — the permissive
+    # reading would have shown 4 evaluable and passed
+    assert v["n_evaluable"] == 5
+
+
+def test_the_heavy_quintile_clause_has_no_evaluability_qualifier():
+    """'AND in every quintile holding >=25% of that component's included fired
+    mass' — no "evaluable" in that sentence. A heavy quintile that is thin is
+    exactly the pile-up the matching exists to control, so its bad gap fails the
+    gate even though it is not evaluable."""
+    q = _quints(**{"4": {"evaluable": False, "heavy": True,
+                         "gap_within_limit": False}})
+    # four evaluable quintiles remain, all in-limit and fully covering
+    v = g.balance_verdict(q, 8, 6)
+    assert v["n_evaluable"] == 4
+    assert v["heavy_quintile_failures"] == [4]
+    assert v["verdict"] == "INADEQUATE"
+    assert "failing heavy quintiles [4]" in v["reason"]
+    # the same shape with the heavy quintile IN limit is adequate
+    q[4]["gap_within_limit"] = True
+    assert g.balance_verdict(q, 8, 6)["verdict"] == "ADEQUATE"
+
+
+def test_four_of_five_may_fail_the_gap_only_when_all_five_are_evaluable():
+    """'in ALL evaluable quintiles when 4 are evaluable, or >=4 of 5 when all 5
+    are'."""
+    five = g.balance_verdict(_quints(**{"1": {"gap_within_limit": False}}), 8, 6)
+    assert five["verdict"] == "ADEQUATE"          # 4 of 5 pass
+    four = _quints(**{"0": {"evaluable": False},
+                      "1": {"gap_within_limit": False}})
+    assert g.balance_verdict(four, 8, 6)["verdict"] == "INADEQUATE"
 
 
 # ---------------------------------------------------------------------------
@@ -1106,6 +1330,33 @@ def test_the_rv_ratio_normalizer_reads_the_ring_before_this_session(
     assert np.isfinite(t12["rvr"][labelled, wi]).all()
 
 
+def test_arm_2a_keeps_rows_whose_peer_cell_never_got_an_rv_label(
+        tmp_path, monkeypatch, small_cells):
+    """Arm 2a's REGISTERED pool is `eligibility AND isfinite(rv_ratio) AND
+    q >= 0`. It says nothing about the rv-QUINTILE LABEL, and a peer cell that
+    failed assignment (<25 rows / <5 distinct) has no label while its rows stay
+    in the pool. Filtering on the label would hand mandatory calibration gate 2
+    a non-registered subpopulation — so the unstratified path must not."""
+    table, _na, sessions, _n = _run_pass(tmp_path, monkeypatch, 16)
+    # tighten the assignment so some peer cells produce NO label at all
+    monkeypatch.setattr(g, "MIN_ASSIGN_ROWS", 999)
+    monkeypatch.setattr(g, "MIN_ASSIGN_DISTINCT", 2)
+    table2, _na2, _s2, _n2 = _run_pass(tmp_path, monkeypatch, 16)
+    wi, hi = mi.WINDOWS.index(60), mi.HORIZONS.index("2h")
+    sess_map = np.arange(len(sessions), dtype=np.int64)
+    assert (table2["rvq"][:, wi] == -1).all(), "fixture kept its labels"
+
+    unstrat = g.select_cell(table2, sess_map, wi, 0, hi, arm="2a", qcol=None)
+    labelled = g.select_cell(table2, sess_map, wi, 0, hi, arm="2a", qcol="rvq")
+    assert unstrat["vals"] is not None          # the registered pool survives
+    assert unstrat["strat"] is None             # ...and is not stratified
+    assert unstrat["n_rows"] > 0
+    assert labelled["vals"] is None or labelled["n_rows"] == 0
+    assert unstrat["n_rows"] == unstrat["n_rows_before_label_filter"]
+    # the label filter is what used to be silently applied here
+    assert unstrat["n_rows"] > labelled.get("n_rows", 0)
+
+
 def test_the_two_placebo_arms_fire_through_the_same_machinery(
         tmp_path, monkeypatch, small_cells):
     """Arm 2a fires on rv_ratio and Arm 2b on the ODD-bin ratio, both through
@@ -1172,6 +1423,13 @@ def test_the_smoke_proof_runs_on_real_strata_and_sets_the_flag(
     assert proof["arrays_compared"] > 0
     assert g._VECTOR_PROVEN is True
     assert g._bootfn(True) is g.boot_medians_vec
+    # the cap bounds the WHOLE proof, not just the innermost loop: a cap of 3
+    # must stop at 3 comparisons even though there are far more strata
+    monkeypatch.setattr(g, "_VECTOR_PROVEN", False)
+    small = g.prove_vectorized(table, sessions, n_subset=10, n_boot=20,
+                               max_arrays=3)
+    assert small["proven"] is True
+    assert small["arrays_compared"] == 3 < proof["arrays_compared"]
     # too few sessions is reported, not silently accepted
     monkeypatch.setattr(g, "_VECTOR_PROVEN", False)
     tiny = g.prove_vectorized({k: v[:0] for k, v in table.items()}, sessions)
@@ -1182,10 +1440,25 @@ def test_the_smoke_proof_runs_on_real_strata_and_sets_the_flag(
 # the reproduce-1.14f gate
 # ---------------------------------------------------------------------------
 
-def _locked(primary, n_sessions=14):
-    return {"meta": {"registered": "2026-07-30"},
-            "arms": {"all_train": {"n_sessions": n_sessions,
-                                   "primary": primary}}}
+def _locked(table, n_sessions=14, cells=None, primary=None):
+    """A locked-1.14f stand-in in the real file's shape: 36 `cells` rows, the 4
+    `primary` rows, and the meta the gate's provenance checks read."""
+    return {"meta": {"registered": "2026-07-30", "seed": 20260808,
+                     "train_end": mi.TRAIN_END},
+            "arms": {"all_train": {
+                "n_sessions": n_sessions,
+                "primary": g.primary_screen(table) if primary is None
+                else primary,
+                "cells": g.screen_cells(table) if cells is None else cells}}}
+
+
+def _pin_pooled(monkeypatch, table):
+    """Point the hardcoded POOLED_114F constants at THIS fixture's screen, so
+    the gate's orphan guard has something true to check. The real constants are
+    pinned by `test_the_registration_bands_are_the_registered_literals`."""
+    prim = {r["component"]: r["diff"] for r in g.primary_screen(table)}
+    monkeypatch.setattr(g, "POOLED_114F", {f: prim[f] for f in g.COMPONENTS})
+
 
 
 def test_placebo_only_rows_can_never_reach_a_component_cell(
@@ -1223,16 +1496,29 @@ def test_placebo_only_rows_can_never_reach_a_component_cell(
                 assert not (mi.cell_mask(table, wi, fi, hi) & extra).any()
 
 
-def test_the_gate_passes_when_the_screen_reproduces_exactly(
+def test_the_gate_passes_when_the_screen_reproduces_at_all_36_cells(
         tmp_path, monkeypatch):
+    """The gate pins ALL 36 (W, component, H) cells, not just the four primary
+    ones — `run_sessions_114g` duplicates the session-loop scaffolding, and
+    W=30/W=120 firing is exactly where reading rule (c) looks."""
     table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
+    _pin_pooled(monkeypatch, table)
+    cells = g.screen_cells(table)
+    assert len(cells) == len(mi.WINDOWS) * len(mi.HORIZONS) * len(mi.FEATS) == 36
+    assert len({(c["component"], c["W"], c["H"]) for c in cells}) == 36
     primary = g.primary_screen(table)
-    assert len(primary) == 4                      # all four 1.14f components
-    assert {r["component"] for r in primary} == set(mi.FEATS)
-    report = g.reproduce_114f(table, _locked(primary))
+    assert len(primary) == 4 and {r["component"] for r in primary} == set(mi.FEATS)
+
+    report = g.reproduce_114f(table, _locked(table))
     assert report["passed"] is True
+    assert report["provenance"]["n_cells_compared"] == 36
+    assert sum(c["primary_cell"] for c in report["cells"]) == 4
     for cell in report["cells"]:
-        assert cell["n_fired"]["match"] and cell["diff"]["match"]
+        assert cell["n_fired"]["match"] and cell["n_complement"]["match"]
+        assert cell["median_fired"]["match"] and cell["diff"]["match"]
+    # the fired SETS are not in the locked file, and the stamp says so
+    assert report["fire_set_provenance"] == "aggregate-only"
+    assert "never the fired ROW KEYS" in report["fire_set_note"]
     # the environment is stamped, and the locked run's absence of one is stated
     assert report["environment_this_run"]["numpy"] == np.__version__
     assert "NOT STAMPED" in report["environment_locked_run"]
@@ -1244,32 +1530,154 @@ def test_a_one_row_count_difference_aborts_with_the_per_cell_delta(
     ABORT, reporting the per-cell delta and the environment diff; never proceed
     on a loosened tolerance.'"""
     table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
-    primary = g.primary_screen(table)
-    bad = [dict(r) for r in primary]
-    bad[2]["n_fired"] = bad[2]["n_fired"] + 1
+    _pin_pooled(monkeypatch, table)
+    cells = [dict(r) for r in g.screen_cells(table)]
+    cells[2]["n_fired"] = cells[2]["n_fired"] + 1
     with pytest.raises(g.ReproduceGateFailure) as exc:
-        g.reproduce_114f(table, _locked(bad))
+        g.reproduce_114f(table, _locked(table, cells=cells))
     report = json.loads(str(exc.value))
     assert report["passed"] is False
-    cell = next(c for c in report["cells"] if c["component"] == bad[2]["component"])
+    cell = next(c for c in report["cells"]
+                if (c["component"], c["W"], c["H"])
+                == (cells[2]["component"], cells[2]["W"], cells[2]["H"]))
     assert cell["n_fired"]["match"] is False
     assert cell["n_fired"]["locked"] == cell["n_fired"]["recomputed"] + 1
     assert report["environment_this_run"]["platform"]
-    assert "5 decimals" in report["tolerance"]
+    assert "36 cells" in report["tolerance"]
+
+
+def test_a_non_primary_cell_mismatch_also_aborts(tmp_path, monkeypatch):
+    """The whole point of widening the gate: a W=120 drift — the window reading
+    rule (c) replicates in — must abort, and a 4-cell gate would not have seen
+    it."""
+    table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
+    _pin_pooled(monkeypatch, table)
+    cells = [dict(r) for r in g.screen_cells(table)]
+    i = next(i for i, c in enumerate(cells) if c["W"] == 120)
+    cells[i]["n_complement"] += 1
+    with pytest.raises(g.ReproduceGateFailure) as exc:
+        g.reproduce_114f(table, _locked(table, cells=cells))
+    bad = next(c for c in json.loads(str(exc.value))["cells"]
+               if not c.get("n_complement", {}).get("match", True))
+    assert bad["W"] == 120 and bad["primary_cell"] is False
 
 
 def test_a_sixth_decimal_median_difference_aborts_too(tmp_path, monkeypatch):
     table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
-    primary = g.primary_screen(table)
-    bad = [dict(r) for r in primary]
-    live = next(i for i, r in enumerate(bad) if r["diff"] is not None)
-    bad[live]["diff"] = round(bad[live]["diff"] + 0.00001, 5)
+    _pin_pooled(monkeypatch, table)
+    cells = [dict(r) for r in g.screen_cells(table)]
+    live = next(i for i, r in enumerate(cells) if r["diff"] is not None)
+    cells[live]["diff"] = round(cells[live]["diff"] + 0.00001, 5)
     with pytest.raises(g.ReproduceGateFailure):
-        g.reproduce_114f(table, _locked(bad))
-    # a component missing from the locked JSON is a failure, not a skip
+        g.reproduce_114f(table, _locked(table, cells=cells))
+
+
+def test_an_absent_cell_is_reported_as_absent_not_as_a_mismatch(
+        tmp_path, monkeypatch):
+    """A locked file that does not DESCRIBE this study is a different failure
+    from one that disagrees with it, and the message says which."""
+    table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
+    _pin_pooled(monkeypatch, table)
+    cells = g.screen_cells(table)[:-1]
     with pytest.raises(g.ReproduceGateFailure) as exc:
-        g.reproduce_114f(table, _locked(primary[:3]))
-    assert "absent from locked JSON" in str(exc.value)
+        g.reproduce_114f(table, _locked(table, cells=cells))
+    report = json.loads(str(exc.value))
+    assert any("ABSENT from the locked JSON" in p for p in report["problems"])
+    assert any(c.get("problem") == "absent from locked JSON"
+               for c in report["cells"])
+    assert report["provenance"]["n_cells_compared"] == 36
+
+
+def test_the_gate_refuses_a_locked_file_from_the_wrong_run(
+        tmp_path, monkeypatch):
+    """Provenance, not just agreement: the locked file must be 1.14f's own —
+    right SEED, right train mask — or the gate passes for the wrong reason."""
+    table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
+    _pin_pooled(monkeypatch, table)
+    for key, value, needle in (("seed", 20260809, "SEED"),
+                               ("train_end", "2026-07-25", "train_end")):
+        locked = _locked(table)
+        locked["meta"][key] = value
+        with pytest.raises(g.ReproduceGateFailure) as exc:
+            g.reproduce_114f(table, locked)
+        assert needle in json.loads(str(exc.value))["problems"][0]
+
+
+def test_the_gate_catches_an_orphaned_pooled_effect_constant(
+        tmp_path, monkeypatch):
+    """POOLED_114F feeds the negligible bands and the registered signs. If the
+    locked run's pooled diffs ever stop matching those hardcoded constants, the
+    product verdict has been silently redefined — so the gate checks it."""
+    table, _na, _s, _n = _run_pass(tmp_path, monkeypatch, 14)
+    _pin_pooled(monkeypatch, table)
+    assert g.reproduce_114f(table, _locked(table))["passed"] is True
+    orphan = dict(g.POOLED_114F)
+    orphan["concentration"] = (orphan["concentration"] or 0.0) + 0.05
+    monkeypatch.setattr(g, "POOLED_114F", orphan)
+    with pytest.raises(g.ReproduceGateFailure) as exc:
+        g.reproduce_114f(table, _locked(table))
+    report = json.loads(str(exc.value))
+    assert any("POOLED_114F[concentration]" in p for p in report["problems"])
+    assert any(p["component"] == "concentration" and p["match"] is False
+               for p in report["provenance"]["pooled_114f_constants"])
+
+
+# ---------------------------------------------------------------------------
+# the duplicated pass scaffolding, pinned against 1.14f's own implementation
+# ---------------------------------------------------------------------------
+
+def test_the_two_session_passes_agree_at_every_one_of_the_36_cells(
+        tmp_path, monkeypatch):
+    """The mitigation for AMBIGUITIES['duplicated_pass_scaffolding'], as a test.
+
+    `run_sessions_114g` re-walks 1.14f's chronological pass to build the RV
+    panels alongside it. That scaffolding could drift without any imported
+    function changing, and the reproduce gate only catches it against a locked
+    JSON that a hermetic test does not have. So: drive `mi.run_sessions` and
+    `run_sessions_114g` over ONE shared fixture — same tape, same bars, same
+    panels — and assert exact agreement on n_fired / n_complement / medians /
+    diff at all 36 cells, plus row-level agreement of the fired masks."""
+    tape = {n: dict.fromkeys(range(mi.RTH_BINS), 100.0 + 10.0 * n)
+            for n in range(N_NAMES)}
+    tape[7] = {b: (500.0 if b >= 18 else 90.0) for b in range(mi.RTH_BINS)}
+    monkeypatch.setattr(mi, "tape_bins", _fake_tape(tape))
+    sessions = _sessions(16)
+    names = [f"N{i:02d}" for i in range(N_NAMES)]
+    dates = [s.isoformat() for s in sessions]
+    bars = _bars_fn()
+    for si, s in enumerate(sessions):
+        _write_npz(tmp_path / f"{s.isoformat()}.npz", s, bars(si, names))
+    quint, mp, cp = _panels(16)
+
+    ref = mi.run_sessions(sessions, names, dates, quint, mp, cp, tmp_path,
+                          mi.new_na_counters())
+    got = g.run_sessions_114g(sessions, names, dates, quint, mp, cp, tmp_path,
+                              g.new_na_114g())
+    assert len(ref["sess"]) and len(got["sess"])
+
+    # 1.14g's table is a SUPERSET (placebo-only rows), so align on the key
+    def key(t):
+        return (t["sess"].astype(np.int64) * 10_000
+                + t["name"].astype(np.int64) * 100 + t["bi"].astype(np.int64))
+    kr, kg = key(ref), key(got)
+    assert len(np.unique(kr)) == len(kr) and len(np.unique(kg)) == len(kg)
+    assert set(kr.tolist()) <= set(kg.tolist())
+    pos = {int(k): i for i, k in enumerate(kg)}
+    idx = np.array([pos[int(k)] for k in kr])
+    for col in ("pool", "fired", "excl"):
+        assert np.array_equal(ref[col], got[col][idx]), col
+    assert np.allclose(ref["norm"], got["norm"][idx], equal_nan=True)
+
+    # ...and the cell tables the gate compares agree exactly
+    ref_cells = {(c["component"], c["W"], c["H"]): c
+                 for c in mi.analyse(ref, sessions, None, mi.SEED)["cells"]}
+    assert len(ref_cells) == 36
+    for c in g.screen_cells(got):
+        r = ref_cells[(c["component"], c["W"], c["H"])]
+        assert (c["n_fired"], c["n_complement"]) == (r["n_fired"],
+                                                     r["n_complement"]), c
+        for k in ("median_fired", "median_complement", "diff"):
+            assert c[k] == r.get(k), (c["component"], c["W"], c["H"], k)
 
 
 # ---------------------------------------------------------------------------
@@ -1388,22 +1796,28 @@ def e2e(tmp_path, monkeypatch):
     monkeypatch.setattr(g, "MIN_ASSIGN_ROWS", 4)
     monkeypatch.setattr(g, "MIN_ASSIGN_DISTINCT", 2)
     return {"db": db, "bars": bars, "names": names, "dates": dates,
-            "corpus": corpus, "tmp": tmp_path}
+            "corpus": corpus, "tmp": tmp_path, "mp": monkeypatch}
 
 
-def _e2e_locked(e2e) -> Path:
+def _e2e_locked(e2e, monkeypatch=None) -> Path:
     """Build the locked-1.14f stand-in from the SAME inputs main() will use, via
     the shared `build_inputs` — a hand-rebuilt setup would be testing its own
-    copy of main."""
+    copy of main. Also points POOLED_114F at this fixture so the gate's orphan
+    guard has something true to check."""
     inp = g.build_inputs(e2e["db"], mi.TRAIN_END)
     med_pmax, cnt_pmax = inp["pmax_panels"]
     table = g.run_sessions_114g(inp["sessions"], inp["universe"], inp["dates"],
                                 inp["quint"], med_pmax, cnt_pmax, e2e["bars"],
                                 g.new_na_114g())
     assert len(table["sess"]), "the e2e fixture produced no rows"
+    if monkeypatch is not None:
+        _pin_pooled(monkeypatch, table)
+    else:
+        e2e["mp"].setattr(g, "POOLED_114F",
+                          {f: r["diff"] for r in g.primary_screen(table)
+                           for f in [r["component"]] if f in g.COMPONENTS})
     path = e2e["tmp"] / "locked_114f.json"
-    path.write_text(json.dumps(_locked(g.primary_screen(table),
-                                       len(inp["sessions"]))))
+    path.write_text(json.dumps(_locked(table, len(inp["sessions"]))))
     return path
 
 
@@ -1427,6 +1841,9 @@ def test_the_whole_registered_run_end_to_end(e2e):
     assert p["meta"]["environment"]["platform"]
     assert p["meta"]["wall_seconds"] is not None
     assert p["meta"]["seed"] == 20260809
+    assert p["meta"]["roadmap"].endswith("v3.1")       # the amended law
+    assert p["meta"]["fire_set_provenance"].startswith("aggregate-only")
+    assert p["meta"]["reproduce_gate"]["provenance"]["n_cells_compared"] == 36
     assert p["meta"]["multiplicity_budget"] == list(g.COMPONENTS)
     assert p["meta"]["ambiguities"]["bootstrap_stratum_weights"]
 
@@ -1527,6 +1944,47 @@ def test_the_whole_registered_run_end_to_end(e2e):
     # Arm 2b is evaluable here, so the (d) machinery ran with a real benchmark
     assert any("delta" in r for r in arm["arm2b_split_sample_placebo"])
 
+    # Arm 2a's reconciliation is reported on every cell: the registered pool is
+    # NOT filtered by the rv-quintile LABEL, and the difference is visible
+    for r in arm["arm2a_machinery_placebo"]:
+        assert {"n_rows_registered_pool", "n_rows_with_an_rv_label",
+                "n_rows_label_less_kept"} <= set(r)
+        assert r["n_rows_registered_pool"] >= r["n_rows_with_an_rv_label"]
+        assert (r["n_rows_label_less_kept"]
+                == r["n_rows_registered_pool"] - r["n_rows_with_an_rv_label"])
+
+    # the min-weighted variant is compared to the primary at every cell
+    assert len(arm["arm1_min_weighted_secondary"]) == 27
+    assert set(arm["min_weighted_disagreement"]) == set(g.COMPONENTS)
+    for f in g.COMPONENTS:
+        rec = arm["min_weighted_disagreement"][f]
+        assert rec["disagrees_at_any_cell"] == bool(rec["cells"])
+        assert arm["verdicts"][f]["min_variant_disagrees"] == \
+            rec["disagrees_at_any_cell"]
+        if rec["disagrees_at_any_cell"] and not blocked:
+            assert "MIN-WEIGHTED VARIANT DISAGREES" in arm["verdicts"][f]["product"]
+
+    # the coarsening override is computed over EVERY component with a ratio,
+    # not only the (d)-available ones
+    co = arm["coarsening_override"]
+    assert set(co["component_attenuation_ratios"]) == set(g.COMPONENTS)
+    assert co["n_components_with_a_ratio"] == sum(
+        v is not None for v in co["component_attenuation_ratios"].values())
+    assert "not only the (d)-available ones" in co["scope_note"]
+
+    # the v3.1 ceiling is reported next to every (d) row and in the arm
+    rf = arm["reliability_floor"]
+    assert rf["ceiling"] == g.RELIABILITY_CEILING
+    assert rf["arm2b_non_conservative"] == (
+        rf["primary_cell_correlation"] is not None
+        and rf["primary_cell_correlation"] > g.RELIABILITY_CEILING)
+    for d in arm["benchmark_test_d"]:
+        assert d["reliability_ceiling"] == g.RELIABILITY_CEILING
+        assert d["odd_even_reliability_correlation"] == \
+            rf["primary_cell_correlation"]
+        if rf["arm2b_non_conservative"]:
+            assert d["available"] is False and d["arm2b_non_conservative"]
+
 
 def test_the_vectorized_bootstrap_reproduces_the_registered_run_exactly(e2e):
     """The implementation lock's real claim: with the proof in hand, the
@@ -1557,7 +2015,10 @@ def test_the_vectorized_bootstrap_reproduces_the_registered_run_exactly(e2e):
 def test_main_aborts_and_writes_nothing_when_the_screen_does_not_reproduce(e2e):
     """The abort path, end to end: exit 3, no output file, no key artifact."""
     locked = json.loads(_e2e_locked(e2e).read_text())
-    locked["arms"]["all_train"]["primary"][0]["n_complement"] += 7
+    # a NON-primary cell: the gate covers all 36, so this must still abort
+    victim = next(c for c in locked["arms"]["all_train"]["cells"]
+                  if not (c["W"] == mi.PRIMARY_W and c["H"] == mi.PRIMARY_H))
+    victim["n_complement"] += 7
     bad = e2e["tmp"] / "bad_locked.json"
     bad.write_text(json.dumps(locked))
     out = e2e["tmp"] / "never.json"
@@ -1604,7 +2065,48 @@ def test_the_join98_mirror_is_the_registered_reduced_battery(e2e):
     assert all(c["primary_cell"] for c in mirror["arm1_contemporaneous"])
     assert len(mirror["arm2a_machinery_placebo"]) == 1
     assert "reading_rule" not in mirror                      # no authority
+    assert "verdicts" not in mirror and "calibration_gates" not in mirror
+    assert "benchmark_test_d" not in mirror
     assert "trailing rings" in mirror["mirror_note"]
+    # the extra coarse baselines the estimator computes on the same pass are
+    # labelled reported CONTROLS rather than left to look like a result
+    assert "control" in mirror["arm1_coarse_baseline_note"]
+    assert "join_mirror_extra_controls" in mirror["arm1_coarse_baseline_note"]
+    # Arm 2a in the mirror is the PRIMARY cell, not whatever came first
+    assert mirror["arm2a_machinery_placebo"][0]["primary_cell"] is True
+
+
+def test_the_console_puts_the_gates_before_any_number_and_hides_blocked_stars(
+        e2e, capsys):
+    """Output honesty: a reader must meet the gates and the read-blocked state
+    BEFORE any component number, a star they are forbidden to read must not look
+    like a finding, and an attenuation ratio never appears without its paired
+    result beside it."""
+    out = e2e["tmp"] / "out.json"
+    rc = g.main(["--corpus-db", str(e2e["db"]), "--bars-dir", str(e2e["bars"]),
+                 "--earnings-db", str(e2e["tmp"] / "missing.db"),
+                 "--join-ledger", str(e2e["tmp"] / "missing.json"),
+                 "--locked-114f", str(_e2e_locked(e2e)),
+                 "--out", str(out), "--keys-out", str(e2e["tmp"] / "k4.npz")])
+    assert rc == 0
+    text = capsys.readouterr().out
+    arm = json.loads(out.read_text())["arms"]["all_train"]
+
+    i_gates = text.index("calibration gates (evaluated BEFORE")
+    i_cells = text.index("Arm 1 stratified PRIMARY")
+    assert i_gates < i_cells, "a cell table printed before its gate"
+    assert "RUN INCONCLUSIVE:" in text and "read_blocked=" in text
+    # the v3.1 ceiling is stated in the same block
+    assert "Arm 2b validity: primary odd-even corr=" in text
+    assert "NON-CONSERVATIVE=" in text
+    if arm["calibration_gates"]["run_inconclusive"]:
+        assert "stars are SUPPRESSED" in text
+        body = text[i_cells:text.index("criterion (d)")]
+        assert " *" not in body, "a blocked run printed a star glyph"
+    # every (d) line carries its availability and its result, never a bare ratio
+    for line in text.splitlines():
+        if "R_comp=" in line or "R_2b=" in line:
+            assert "available=" in line and "passed=" in line, line
 
 
 def test_the_smoke_verify_mode_only_proves_the_vectorizer(e2e, monkeypatch):

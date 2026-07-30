@@ -1,6 +1,7 @@
 """Roadmap 1.14g: the vol-clustering fork — RV-nested controls + placebos.
 
-PRE-REGISTERED 2026-07-30 (`References/FLOW_ROADMAP.md` §1.14g, v3) BEFORE any
+PRE-REGISTERED 2026-07-30 (`References/FLOW_ROADMAP.md` §1.14g, v3 + the v3.1
+pre-run amendment: the Arm 2b benchmark-validity ceiling) BEFORE any
 RV-stratified or placebo statistic existed anywhere. This file implements that
 registration LITERALLY. Every point where the registered text admitted more than
 one reading is recorded in `AMBIGUITIES` below and shipped in the output — the
@@ -39,10 +40,16 @@ The registered structure, and where it lands below:
   * SEED=20260809, circular moving-block bootstrap over SESSIONS, block=5,
     10,000 draws, ONE shared resampling per arm.
 
-Implementation lock (registered): this file IMPORTS the 1.14f machinery from
-`tools.mover_intraday` — tape/window/component/firing/cell-mask/Ring/bootstrap
-— there is NO copied firing path, and it gates on REPRODUCING 1.14f's four
-primary cells against the locked JSON before emitting anything.
+Implementation lock (registered): every tape/window/component/firing/cell-mask/
+Ring/bootstrap PRIMITIVE is imported from `tools.mover_intraday` — no firing
+rule, window aggregate or component formula is restated here. What IS duplicated
+is the session loop's scaffolding (`run_sessions_114g` re-walks 1.14f's
+chronological pass to add the RV panels alongside it), so "no copied firing path"
+is true of the primitives and NOT of the pass around them — see
+AMBIGUITIES['duplicated_pass_scaffolding']. The mitigation is the gate: nothing
+is emitted until the recomputed screen matches the locked 1.14f JSON at ALL 36
+cells, and a cross-implementation test drives `mi.run_sessions` and this pass over
+one shared fixture and asserts exact agreement.
 
     python tools/mover_intraday_114g.py                    # registered run
     python tools/mover_intraday_114g.py --smoke-verify     # vectorizer proof
@@ -111,6 +118,11 @@ D_DROP_MAX = 0.05               # >5% dropped draws => (d) UNAVAILABLE
 BAND_FLOOR = 0.01               # negligible band = max(0.01, 0.25 x |pooled 1.14f delta|)
 BAND_FRACTION = 0.25
 RELIABILITY_FLOOR_FRAC = 0.80   # W=120's odd-even correlation vs the primary cell's
+# v3.1 pre-run amendment: above this primary-cell odd-vs-even correlation the
+# Arm 2b benchmark's stratifier approaches a copy of its own firing variable, its
+# retention collapses toward zero and (d) becomes trivially passable
+RELIABILITY_CEILING = 0.85
+BALANCE_MIN_BOUNDARIES = 6      # ">=1 included stratum at >=6 of 8 boundaries"
 
 # The three component primaries are THE multiplicity budget. `short_dte_share`
 # is parked by the registration, not retested as a primary here.
@@ -266,6 +278,29 @@ AMBIGUITIES = {
         "registration fixes the tolerance at +-0.02 ABSOLUTE 'by design', so the "
         "floor is not corrected for; all 10 deviations and each permutation's "
         "included-stratum count are reported so the floor is visible."),
+    "duplicated_pass_scaffolding": (
+        "the registration's lock says the tool IMPORTS the 1.14f machinery with "
+        "'no copied firing path'. Every PRIMITIVE is imported — window_stats, "
+        "components, fire_p90, Ring, outcome_measures, cell_mask, block_weights, "
+        "boot_medians, tape_bins, session_last_bin — so no firing rule, window "
+        "aggregate or component formula is restated. But the session LOOP around "
+        "them is duplicated: `run_sessions_114g` re-walks 1.14f's chronological "
+        "pass because the RV panels have to be built inside it, between the same "
+        "ring read and the same ring push. That duplication could drift from "
+        "1.14f without any imported function changing, so it is declared rather "
+        "than claimed away. Mitigations, both mandatory: the reproduce gate pins "
+        "ALL 36 (W, component, H) cells of the locked run — including the W=30 "
+        "and W=120 cells reading rule (c) depends on — and a hermetic "
+        "cross-implementation test runs `mi.run_sessions` + `mi.analyse` and this "
+        "pass over ONE shared fixture and asserts exact agreement on "
+        "n_fired/n_complement/medians/diff at every cell."),
+    "reproduce_gate_is_aggregate": (
+        "the locked 1.14f JSON carries counts and medians, never the fired ROW "
+        "KEYS, so the gate reproduces the screen's AGGREGATE signature (36 cells "
+        "x counts + medians + diff), not a row-level identity. Stamped as "
+        "`fire_set_provenance: aggregate-only` so no later phase can cite it as "
+        "proof that the same ROWS fired. 1.14g persists its own fired row keys "
+        "with a hash precisely so 1.14h can have the stronger check."),
     "extra_rows_from_the_placebo_pools": (
         "the emitted row table keeps rows that are in Arm 2a's or Arm 2b's pool "
         "but in NO component pool (rv defined where every component is NA). They "
@@ -304,16 +339,16 @@ AMBIGUITIES = {
         "cell's included rows. Fired-weighting matches the estimand's own "
         "weighting, so the gate measures the imbalance the estimate actually "
         "carries."),
-    "balance_evaluability_folds_coverage": (
-        "'an rv-quintile with no included stratum is NOT-EVALUABLE' plus 'each "
-        "evaluable quintile must hold >=1 included stratum at >=6 of 8 "
-        "primary-cell boundaries' are read as ONE evaluability test: a "
-        "quintile is evaluable iff it has an included stratum at >=6 of the "
-        "primary cell's boundaries. The alternative (coverage as a separate "
-        "hard fail) would make 'evaluable' mean two different things in the "
-        "same paragraph. The 8 boundaries are derived mechanically — at "
-        "(W=60, H=2h) exactly 8 boundaries have both a full window and a "
-        "reachable horizon — never hard-coded."),
+    "balance_boundary_count_is_derived": (
+        "the balance gate's '8 primary-cell boundaries' is DERIVED, not "
+        "hard-coded: at (W=60, H=2h) exactly 8 boundaries have both a full "
+        "60-minute window and a reachable 2-hour horizon, and the tool computes "
+        "that set from the geometry. The 6-of-8 requirement itself is pinned by "
+        "the registration and is not generalized to other cells — the gate is "
+        "registered at the primary cell only. (Evaluability, coverage and the "
+        "gap are three SEPARATE tests, per the registered text; the earlier "
+        "reading that folded coverage into evaluability was an override of a "
+        "definition, not the curing of a silence, and is gone.)"),
     "reliability_primary_reference": (
         "'W=120's odd-even correlation ... below the floor (odd-even "
         "correlation >=80% of the primary cell's)' needs ONE number per cell, "
@@ -333,12 +368,65 @@ AMBIGUITIES = {
         "defines neither the peer nor 'above', so: peer = the row's own 1.14f "
         "peer cell (session x boundary x $-vol quintile) and 'above' = "
         "strictly greater than that cell's MEDIAN over the component's pool "
-        "rows. The feature-window |cum return| is |log(close at b-1) - "
-        "log(close at the bar before the window's first bin)| — the same price "
-        "convention 1.14f's outcome uses at its own base — and is NA (excluded "
-        "from the share's denominator) when either of those two bars is absent. "
-        "A window starting at the open has no prior bar, so bin 0's close is the "
-        "base there."),
+        "rows. Concretely, and this is what the code does: the peer group is "
+        "built from the ANALYSIS CELL's rows sharing that (session, boundary, "
+        "$-vol quintile) — not from the full name grid — because the diagnostic "
+        "describes the fired rows of THIS cell against the peers they were "
+        "contrasted with, and a grid-wide median would compare them against a "
+        "population the cell never saw. The feature-window |cum return| is "
+        "|log(close at b-1) - log(close at the bar before the window's first "
+        "bin)| — the same price convention 1.14f's outcome uses at its own base "
+        "— and is NA (excluded from the share's denominator) when either of "
+        "those two bars is absent. A window starting at the open has no prior "
+        "bar, so bin 0's close is the base there."),
+    "flow_angle_adjudication_inputs": (
+        "'lagged-null TOO' presupposes a status for the thing the lag is being "
+        "compared TO, and the registration says the adjudication runs 'on the "
+        "boundary-matched restriction'. So the adjudication reads the PAIR "
+        "(boundary-matched Arm 1 status, Arm 1b status) at the primary cell, "
+        "exactly: BOTH null => clustering strengthens and 'thermometer' is "
+        "licensed for the adjudicated subpopulation only; Arm 1b stars => 'not "
+        "RV-orthogonal at this grain', the angle stays alive and 'costume' is "
+        "FORBIDDEN; boundary-matched Arm 1 stars while Arm 1b is null => MIXED, "
+        "the 'too' premise fails and NO thermometer language is licensed (the "
+        "demotion rests on the unrestricted primary, not on the subpopulation "
+        "the lag can speak for); either side unavailable => UN-ADJUDICATED."),
+    "per_draw_dropped_mass_denominator": (
+        "the per-draw dropped-fired-mass share is measured against the fired "
+        "mass of the strata the POINT ESTIMATE included, not against the cell's "
+        "whole fired set. That is the harsher of the two readings: strata already "
+        "dropped by the occupancy floor are excluded from the denominator, so a "
+        "cell that has already lost mass is judged on what remains rather than "
+        "having its per-draw losses diluted by mass it never used. The "
+        "registration names the distribution but not its base."),
+    "min_variant_disagreement_scope": (
+        "'if it disagrees with the primary in sign or star' — a disagreement is "
+        "recorded per (W, H) cell, and a disagreement at ANY cell sets the "
+        "component's flag, because the registered consequence ('no product "
+        "sentence may cite the primary alone') is about the component's product "
+        "sentence, not about one cell. A cell where either side has no delta is "
+        "recorded as NOT COMPARABLE rather than as agreement — silence is not "
+        "agreement."),
+    "earnings_split_scope": (
+        "the registered earnings split is attached to 'every starred finding' of "
+        "the COMPONENT arms (Arm 1's cells). The placebo arms are controls, not "
+        "findings, so a starred Arm 2a/2b cell gets no split — a split there "
+        "would read as a finding about a placebo. Labelled an unstratified "
+        "diagnostic wherever it appears."),
+    "inside_band_is_strict": (
+        "'CI entirely inside the component's band' is implemented with a STRICT "
+        "comparison (|lo| < band AND |hi| < band), so an interval whose endpoint "
+        "sits exactly ON the band is NOT demoted. The registration says "
+        "'entirely inside', and an endpoint on the boundary is not strictly "
+        "inside it; the strict reading is also the one that does not demote on "
+        "a tie."),
+    "join_mirror_extra_controls": (
+        "the join>=98 mirror is registered as 'the three component primaries "
+        "(stratified) + Arm 2a (unstratified)'. It also emits the primary cells' "
+        "COARSE baselines, because the stratified estimator computes them on the "
+        "same pass and suppressing them would hide the mirror's own attenuation "
+        "context. They are reported CONTROLS with no reading rule attached — the "
+        "mirror carries no verdicts, no gates and no (d)."),
     "raw_outcome_row_universe": (
         "the denominator-inflation diagnostics (the same estimand on the RAW "
         "unnormalized forward max |log return|, and on outcome / same-window "
@@ -869,33 +957,53 @@ def environment() -> dict:
             "platform": platform.platform()}
 
 
-def primary_screen(table) -> list[dict]:
-    """The four 1.14f primary cells recomputed from THIS run's row table.
+def screen_cells(table, primary_only: bool = False) -> list[dict]:
+    """The 1.14f screen recomputed from THIS run's row table, cell by cell.
 
-    Shaped exactly like the locked JSON's `arms.all_train.primary` rows so the
-    gate is a field-by-field comparison, not a re-derivation. `mi.cell_mask` is
+    ALL 36 (W, component, H) cells by default — not just the four primary ones.
+    That breadth is the point: `run_sessions_114g` re-walks the session loop
+    (see AMBIGUITIES['duplicated_pass_scaffolding']), and W=30/W=120 firing is
+    exactly where reading rule (c) looks, so pinning only the primary cell would
+    leave the replication window unguarded.
+
+    Shaped exactly like the locked JSON's `arms.all_train.cells` rows so the gate
+    is a field-by-field comparison, not a re-derivation. `mi.cell_mask` is
     imported, so the fired/complement definition cannot drift.
     """
-    wi = mi.WINDOWS.index(mi.PRIMARY_W)
-    hi = mi.HORIZONS.index(mi.PRIMARY_H)
     out = []
-    for fi, f in enumerate(mi.FEATS):
-        keep = mi.cell_mask(table, wi, fi, hi) if len(table["sess"]) \
-            else np.zeros(0, bool)
-        fr = table["fired"][keep][:, wi, fi] if keep.any() else np.zeros(0, bool)
-        v = table["norm"][keep][:, hi] if keep.any() else np.zeros(0)
-        row = {"component": f, "W": mi.PRIMARY_W, "H": mi.PRIMARY_H,
-               "n_fired": int(fr.sum()), "n_complement": int((~fr).sum())}
-        row["median_fired"] = (round(float(np.median(v[fr])), 5)
-                               if fr.any() else None)
-        row["median_complement"] = (round(float(np.median(v[~fr])), 5)
-                                    if (~fr).any() else None)
-        row["diff"] = (None if row["median_fired"] is None
-                       or row["median_complement"] is None
-                       else round(row["median_fired"]
-                                  - row["median_complement"], 5))
-        out.append(row)
+    for wi, W in enumerate(mi.WINDOWS):
+        for hi, H in enumerate(mi.HORIZONS):
+            for fi, f in enumerate(mi.FEATS):
+                if primary_only and not (W == mi.PRIMARY_W
+                                         and H == mi.PRIMARY_H):
+                    continue
+                keep = mi.cell_mask(table, wi, fi, hi) if len(table["sess"]) \
+                    else np.zeros(0, bool)
+                fr = (table["fired"][keep][:, wi, fi] if keep.any()
+                      else np.zeros(0, bool))
+                v = table["norm"][keep][:, hi] if keep.any() else np.zeros(0)
+                row = {"component": f, "W": W, "H": H,
+                       "n_fired": int(fr.sum()),
+                       "n_complement": int((~fr).sum())}
+                # mirror `mi.analyse`'s own lean-row semantics EXACTLY: a cell
+                # with no fired or no complement rows is "empty pool" there and
+                # carries no medians, so it must carry none here either — the
+                # gate has to compare like with like on a degenerate cell too
+                degenerate = not fr.any() or not (~fr).any()
+                row["median_fired"] = (None if degenerate else
+                                       round(float(np.median(v[fr])), 5))
+                row["median_complement"] = (None if degenerate else
+                                            round(float(np.median(v[~fr])), 5))
+                row["diff"] = (None if degenerate else
+                               round(row["median_fired"]
+                                     - row["median_complement"], 5))
+                out.append(row)
     return out
+
+
+def primary_screen(table) -> list[dict]:
+    """The four primary cells, in the locked JSON's `primary` shape."""
+    return screen_cells(table, primary_only=True)
 
 
 class ReproduceGateFailure(RuntimeError):
@@ -905,43 +1013,107 @@ class ReproduceGateFailure(RuntimeError):
 def reproduce_114f(table, locked: dict) -> dict:
     """Gate: the recomputed screen must MATCH the locked 1.14f JSON.
 
-    n_fired and n_complement integer-exact, medians and diffs to 5 decimals, at
-    all four primary cells. On mismatch: raise, reporting the per-cell delta and
-    the environment diff. Never proceed on a loosened tolerance — a screen that
-    does not reproduce is not the screen the stars were found with, and every
+    ALL 36 cells — n_fired and n_complement integer-exact, medians and diffs to
+    5 decimals. On mismatch: raise, reporting the per-cell delta and the
+    environment diff. Never proceed on a loosened tolerance — a screen that does
+    not reproduce is not the screen the stars were found with, and every
     stratified number below inherits it.
+
+    Three provenance checks ride along, because a gate that compares against the
+    wrong file passes for the wrong reason:
+      * the locked run's SEED and train mask are the registered ones;
+      * the locked run's four primary diffs ARE the POOLED_114F constants this
+        file hardcodes (the negligible bands and the registered signs are built
+        from those constants — an orphaned constant would silently redefine the
+        product verdict);
+      * the fired SETS themselves are not in the locked JSON, so what is being
+        reproduced is aggregate: counts and medians, stamped as such.
     """
-    want = {r["component"]: r for r in
-            locked.get("arms", {}).get("all_train", {}).get("primary", [])}
-    got = {r["component"]: r for r in primary_screen(table)}
+    arm = locked.get("arms", {}).get("all_train", {})
+    want = {(r["component"], r["W"], r["H"]): r for r in arm.get("cells", [])}
+    got = screen_cells(table)
     deltas, ok = [], True
-    for f in mi.FEATS:
-        w, g = want.get(f), got.get(f)
+    problems: list[str] = []
+    for g_row in got:
+        key = (g_row["component"], g_row["W"], g_row["H"])
+        w = want.get(key)
         if w is None:
             ok = False
-            deltas.append({"component": f, "problem": "absent from locked JSON"})
+            problems.append(f"cell {key} ABSENT from the locked JSON (a "
+                            f"missing cell is not a mismatch — the locked file "
+                            f"does not describe this study)")
+            deltas.append({"component": key[0], "W": key[1], "H": key[2],
+                           "problem": "absent from locked JSON"})
             continue
-        d = {"component": f}
-        for key in ("n_fired", "n_complement"):
-            d[key] = {"locked": w.get(key), "recomputed": g[key],
-                      "match": w.get(key) == g[key]}
-            ok &= bool(d[key]["match"])
-        for key in ("median_fired", "median_complement", "diff"):
-            lv, gv = w.get(key), g[key]
+        d = {"component": key[0], "W": key[1], "H": key[2],
+             "primary_cell": (key[1] == mi.PRIMARY_W and key[2] == mi.PRIMARY_H)}
+        for k in ("n_fired", "n_complement"):
+            d[k] = {"locked": w.get(k), "recomputed": g_row[k],
+                    "match": w.get(k) == g_row[k]}
+            ok &= bool(d[k]["match"])
+        for k in ("median_fired", "median_complement", "diff"):
+            lv, gv = w.get(k), g_row[k]
             match = (lv is None and gv is None) or (
                 lv is not None and gv is not None and abs(lv - gv) < 5e-6)
-            d[key] = {"locked": lv, "recomputed": gv, "match": bool(match),
-                      "delta": (None if lv is None or gv is None
-                                else round(gv - lv, 8))}
+            d[k] = {"locked": lv, "recomputed": gv, "match": bool(match),
+                    "delta": (None if lv is None or gv is None
+                              else round(gv - lv, 8))}
             ok &= bool(match)
         deltas.append(d)
-    report = {"passed": bool(ok), "cells": deltas,
+
+    meta = locked.get("meta", {})
+    provenance = {
+        "locked_seed": meta.get("seed"), "locked_seed_expected": 20260808,
+        "locked_train_end": meta.get("train_end"),
+        "locked_train_end_expected": TRAIN_END,
+        "n_cells_compared": len(deltas),
+        "n_cells_expected": len(mi.WINDOWS) * len(mi.HORIZONS) * len(mi.FEATS),
+    }
+    if meta.get("seed") != 20260808:
+        ok = False
+        problems.append(f"locked JSON SEED is {meta.get('seed')}, not 1.14f's "
+                        f"registered 20260808")
+    if meta.get("train_end") != TRAIN_END:
+        ok = False
+        problems.append(f"locked JSON train_end is {meta.get('train_end')}, not "
+                        f"the registered {TRAIN_END}")
+    if len(deltas) != provenance["n_cells_expected"]:
+        ok = False
+        problems.append(f"compared {len(deltas)} cells, expected "
+                        f"{provenance['n_cells_expected']}")
+    # orphan guard: the hardcoded pooled effects must BE the locked ones
+    pooled = []
+    locked_primary = {r["component"]: r for r in arm.get("primary", [])}
+    for f, want_delta in POOLED_114F.items():
+        lv = (locked_primary.get(f) or {}).get("diff")
+        match = ((lv is None and want_delta is None)
+                 or (lv is not None and want_delta is not None
+                     and abs(lv - want_delta) < 5e-6))
+        pooled.append({"component": f, "hardcoded": want_delta, "locked": lv,
+                       "match": bool(match)})
+        if not match:
+            ok = False
+            problems.append(
+                f"POOLED_114F[{f}] = {want_delta} does not equal the locked "
+                f"pooled diff {lv} — the negligible band and the registered "
+                f"sign are derived from that constant")
+    provenance["pooled_114f_constants"] = pooled
+
+    report = {"passed": bool(ok), "cells": deltas, "problems": problems,
+              "provenance": provenance,
+              "fire_set_provenance": "aggregate-only",
+              "fire_set_note": "the locked 1.14f JSON carries counts and medians, "
+                               "never the fired ROW KEYS, so what this gate "
+                               "reproduces is the screen's aggregate signature at "
+                               "every one of the 36 cells — not a row-level "
+                               "identity proof. 1.14g persists its own fired row "
+                               "keys so a 1.14h can have the stronger check.",
               "environment_this_run": environment(),
               "environment_locked_run": locked.get("meta", {}).get(
                   "environment", "NOT STAMPED — 1.14f recorded no environment; "
                                  "this run's stamp fixes it retroactively"),
-              "tolerance": "n_fired/n_complement integer-exact; medians and "
-                           "diff to 5 decimals"}
+              "tolerance": "all 36 cells: n_fired/n_complement integer-exact; "
+                           "median_fired/median_complement/diff to 5 decimals"}
     if not ok:
         raise ReproduceGateFailure(json.dumps(report, indent=1))
     return report
@@ -1031,6 +1203,8 @@ def prove_vectorized(table, sessions, n_subset: int = 10,
     hi = mi.HORIZONS.index(mi.PRIMARY_H)
     compared = 0
     for f in COMPONENTS:
+        if compared >= max_arrays:
+            break                       # the cap bounds the WHOLE proof
         fi = mi.FEATS.index(f)
         sel = select_cell(rows, sess_map, wi, fi, hi)
         if sel["vals"] is None:
@@ -1038,6 +1212,8 @@ def prove_vectorized(table, sessions, n_subset: int = 10,
         strat, fired, vals, sv = (sel["strat"], sel["fired"], sel["vals"],
                                   sel["sess"])
         for s in np.unique(strat):
+            if compared >= max_arrays:
+                break
             for side in (fired, ~fired):
                 if compared >= max_arrays:
                     break
@@ -1094,8 +1270,13 @@ def _values(rows, wi, hi, value):
     if value == "raw":
         return rows["raw"][:, hi]
     if value == "raw_over_rv":
+        # rvp == 0 is a real measurement (a wholly zero-range window), but the
+        # quotient is +-inf and would be dropped by isfinite WITHOUT a count.
+        # NaN it explicitly so the loss shows up in n_zero_rv_denominator.
         with np.errstate(invalid="ignore", divide="ignore"):
-            return rows["raw"][:, hi] / rows["rvp"][:, wi]
+            rvp = rows["rvp"][:, wi]
+            return np.where(rvp > 0, rows["raw"][:, hi] / np.where(rvp > 0, rvp,
+                                                                  1.0), np.nan)
     raise ValueError(value)
 
 
@@ -1109,9 +1290,17 @@ def select_cell(rows, sess_map, wi, fi, hi, *, arm="comp", qcol="rvq",
     sides and counted. `coarse=True` gives the locked coarse baseline's strata
     (boundary x $-vol quintile) over the SAME row universe — NA composition can
     never move the denominator between the two.
+
+    `qcol=None` is the UNSTRATIFIED path (Arm 2a). It must exist: Arm 2a's
+    registered pool is `eligibility AND isfinite(rv_ratio) AND q >= 0`, which
+    says nothing about the rv-QUINTILE LABEL, and a peer cell that failed
+    assignment (<25 rows or <5 distinct values) has no label while its rows are
+    still in the pool. Filtering on the label would hand mandatory calibration
+    gate 2 a non-registered subpopulation. No stratum ids are built on this path.
     """
     if not len(rows["sess"]):
-        return {"vals": None, "n_rows": 0, "n_na_stratifier": 0}
+        return {"vals": None, "n_rows": 0, "n_na_stratifier": 0,
+                "n_rows_before_label_filter": 0}
     pool, fired, excl = _arm_masks(rows, wi, fi, arm)
     v = _values(rows, wi, hi, value)
     keep = pool & ~excl & np.isfinite(v)
@@ -1121,20 +1310,35 @@ def select_cell(rows, sess_map, wi, fi, hi, *, arm="comp", qcol="rvq",
         keep = pool & np.isfinite(v) & (fired | ~rows["prev"][:, wi, fi])
     if restrict is not None:
         keep = keep & restrict
-    q = rows[qcol][:, wi]
-    n_na = int((keep & (q < 0)).sum())
-    keep = keep & (q >= 0)
+    n_pool = int(keep.sum())
+    n_zero_rv = 0
+    if value == "raw_over_rv":
+        n_zero_rv = int((pool & ~excl & np.isfinite(rows["raw"][:, hi])
+                         & ~(rows["rvp"][:, wi] > 0)).sum())
+    if qcol is None:
+        q, n_na = None, 0
+    else:
+        q = rows[qcol][:, wi]
+        n_na = int((keep & (q < 0)).sum())
+        keep = keep & (q >= 0)
+    base = {"n_rows": int(keep.sum()), "n_na_stratifier": n_na,
+            "n_rows_before_label_filter": n_pool,
+            "n_zero_rv_denominator": n_zero_rv}
     if not keep.any() or not fired[keep].any() or not (~fired[keep]).any():
-        return {"vals": None, "n_rows": int(keep.sum()), "n_na_stratifier": n_na,
+        return {**base, "vals": None,
                 "n_fired": int((keep & fired).sum()),
                 "n_complement": int((keep & ~fired).sum())}
-    coarse_id = rows["bi"][keep].astype(np.int64) * N_QUINT + rows["qvol"][keep]
-    strat = coarse_id if coarse else coarse_id * N_QUINT + q[keep]
-    return {"vals": v[keep].astype(np.float64),
+    strat = None
+    if q is not None:
+        coarse_id = (rows["bi"][keep].astype(np.int64) * N_QUINT
+                     + rows["qvol"][keep])
+        strat = coarse_id if coarse else coarse_id * N_QUINT + q[keep]
+    return {**base, "vals": v[keep].astype(np.float64),
             "sess": sess_map[rows["sess"][keep]],
             "fired": fired[keep], "strat": strat,
-            "n_strata_space": N_COARSE if coarse else N_STRATA,
-            "keep": keep, "n_na_stratifier": n_na, "n_rows": int(keep.sum())}
+            "n_strata_space": None if strat is None else
+            (N_COARSE if coarse else N_STRATA),
+            "keep": keep}
 
 
 def _group_slices(strat, n_strata):
@@ -1376,6 +1580,17 @@ def band(component: str) -> float:
     return NEGLIGIBLE_BAND[component]
 
 
+def _ratio(num, den) -> float | None:
+    """Attenuation ratio, None where the denominator is exactly 0.
+
+    A coarse delta of exactly 0.0 is reachable (every included stratum's two
+    medians equal) and is not a reason to crash a whole run.
+    """
+    if num is None or den in (None, 0) or not np.isfinite(den) or den == 0.0:
+        return None
+    return round(float(num) / float(den), 5)
+
+
 def coarse_available(coarse: dict, component: str) -> str | None:
     """Why (d) is UNAVAILABLE from the coarse side, or None if it is evaluable.
 
@@ -1397,7 +1612,7 @@ def coarse_available(coarse: dict, component: str) -> str | None:
 
 
 def benchmark_test(comp_strat, comp_coarse, b2_strat, b2_coarse,
-                   component) -> dict:
+                   component, reliability_corr=None) -> dict:
     """(d): does the component RETAIN more than the split-sample placebo does?
 
     Per draw d, R_x(d) = delta_strat,x(d) / delta_coarse,x(d) using the SAME draw
@@ -1406,8 +1621,30 @@ def benchmark_test(comp_strat, comp_coarse, b2_strat, b2_coarse,
     pure-clustering null: components retain ~43-47% of their raw effect with
     ZERO flow information, the split-sample placebo ~57% — so "CI clear of zero"
     alone is NOT diagnostic, and this test is what survival means.
+
+    v3.1 BENCHMARK-VALIDITY CEILING, checked FIRST: the conservatism argument
+    assumes the odd/even measures carry independent noise. If the primary-cell
+    odd-vs-even reliability correlation EXCEEDS 0.85 the benchmark's stratifier
+    approaches a copy of its own firing variable, its retention collapses toward
+    zero and (d) becomes trivially passable — Arm 2b is then NON-CONSERVATIVE,
+    (d) is UNAVAILABLE for every component, and science claims are INCONCLUSIVE.
+    The correlation is reported next to every (d) row either way.
     """
-    out = {"component": component}
+    out = {"component": component,
+           "odd_even_reliability_correlation": reliability_corr,
+           "reliability_ceiling": RELIABILITY_CEILING}
+    if reliability_corr is not None and reliability_corr > RELIABILITY_CEILING:
+        return {**out, "available": False, "passed": None,
+                "arm2b_non_conservative": True,
+                "unavailable": f"Arm 2b NON-CONSERVATIVE: the primary-cell "
+                               f"odd-vs-even reliability correlation "
+                               f"{reliability_corr} exceeds the v3.1 ceiling "
+                               f"{RELIABILITY_CEILING}, so the benchmark's "
+                               f"stratifier approaches a copy of its own firing "
+                               f"variable and (d) is trivially passable — (d) "
+                               f"UNAVAILABLE for EVERY component and science "
+                               f"claims INCONCLUSIVE"}
+    out["arm2b_non_conservative"] = False
     why = coarse_available(comp_coarse, component)
     if why:
         return {**out, "available": False,
@@ -1444,7 +1681,7 @@ def benchmark_test(comp_strat, comp_coarse, b2_strat, b2_coarse,
         "available": True,
         "attenuation_ratio_component": round(
             comp_strat["delta"] / comp_coarse["delta"], 5),
-        "attenuation_ratio_arm2b": round(b2_strat["delta"] / b2_coarse["delta"], 5),
+        "attenuation_ratio_arm2b": _ratio(b2_strat["delta"], b2_coarse["delta"]),
         "paired_statistic_p2_5": round(p025, 5),
         "paired_statistic_median": round(float(np.median(stat)), 5),
         "passed": bool(p025 > 0),
@@ -1465,16 +1702,66 @@ def primary_boundaries(wi: int, hi: int) -> list[int]:
             and mi.horizon_end_bin(bb, H) is not None]
 
 
+def balance_verdict(quints: list[dict], n_bounds: int, need_bounds: int) -> dict:
+    """The adequacy decision, as a pure function of the quintile rows.
+
+    Three SEPARATE registered tests, applied in order — see `balance_table`'s
+    docstring. Split out so each clause can be exercised on hand-built quintiles
+    instead of on whatever a fixture happens to produce.
+    """
+    ev = [x for x in quints if x["evaluable"]]
+    n_ev = len(ev)
+    passing = [x for x in ev if x["gap_within_limit"]]
+    coverage_failures = [x["rv_quintile"] for x in ev
+                         if not x["boundary_coverage_ok"]]
+    # NO evaluability qualifier on the heavy clause — registered as written
+    heavy_failures = [x["rv_quintile"] for x in quints
+                      if x["heavy"] and not x["gap_within_limit"]]
+    if n_ev < 4:
+        verdict, adequate = "INADEQUATE", False
+        reason = f"only {n_ev} evaluable rv-quintiles (<4)"
+    elif coverage_failures:
+        verdict, adequate = "INADEQUATE", False
+        reason = (f"evaluable rv-quintile(s) {coverage_failures} hold an "
+                  f"included stratum at fewer than {need_bounds} of "
+                  f"{n_bounds} primary-cell boundaries")
+    else:
+        need = n_ev if n_ev == 4 else 4
+        heavy_ok = not heavy_failures
+        adequate = len(passing) >= need and heavy_ok
+        verdict = "ADEQUATE" if adequate else "INADEQUATE"
+        reason = (f"{len(passing)}/{n_ev} evaluable quintiles within 10% of the "
+                  f"unstratified gap (need {need}); heavy-quintile gap ok="
+                  f"{heavy_ok}"
+                  + (f" (failing heavy quintiles {heavy_failures})"
+                     if heavy_failures else ""))
+    return {"n_evaluable": n_ev,
+            "boundary_coverage_failures": coverage_failures,
+            "heavy_quintile_failures": heavy_failures,
+            "adequate": adequate, "verdict": verdict, "reason": reason}
+
+
 def balance_table(rows, sess_map, S, wmat, component, wi, hi) -> dict:
     """The stratification-adequacy gate (SURVIVAL AUTHORITY).
 
     Within-stratum median rv_ratio, fired vs complement, per included stratum.
-    An rv-quintile with no included stratum at >=6 of the primary cell's 8
-    boundaries is NOT-EVALUABLE (distinct from failing). >=4 evaluable quintiles
-    required. Adequate iff the quintile gap is <10% of the unstratified gap in
-    ALL evaluable quintiles when 4 are evaluable, or >=4 of 5 when all 5 are,
-    AND in every quintile holding >=25% of the component's included fired mass
-    (in practice the top quintile — the pile-up the matching exists to control).
+    The registered text, taken as three SEPARATE tests, in order:
+
+      1. EVALUABILITY, defined by the registration itself: "an rv-quintile with
+         no included stratum is NOT-EVALUABLE". Nothing else enters this
+         definition. Fewer than 4 evaluable => INADEQUATE.
+      2. BOUNDARY COVERAGE, a REQUIREMENT on each evaluable quintile: "each
+         evaluable quintile must hold >=1 included stratum at >=6 of 8
+         primary-cell boundaries". A violation is a FAILURE of the gate, not a
+         downgrade to not-evaluable — folding it into evaluability is the
+         permissive reading and can grant survival authority the law denies.
+      3. THE GAP: <10% of the unstratified gap in ALL evaluable quintiles when 4
+         are evaluable, or >=4 of 5 when all 5 are, AND in EVERY quintile holding
+         >=25% of the component's included fired mass. The heavy-quintile clause
+         carries NO evaluability qualifier in the registered text, so it is
+         applied to every heavy quintile — the pile-up the matching exists to
+         control does not stop mattering because its quintile is thin.
+
     A component failing balance has NO survival authority: the matching failed,
     not the hypothesis.
     """
@@ -1493,7 +1780,7 @@ def balance_table(rows, sess_map, S, wmat, component, wi, hi) -> dict:
     unstrat_gap = abs(float(np.median(rvr[f_inc]) - np.median(rvr[c_inc])))
     limit = 0.10 * unstrat_gap
     n_bounds = len(primary_boundaries(wi, hi))
-    need_bounds = int(np.ceil(0.75 * n_bounds)) if n_bounds != 8 else 6
+    need_bounds = BALANCE_MIN_BOUNDARIES        # the registration pins 6 of 8
 
     fired_total = sum(p["n_fired"] for p in res["per_stratum"])
     quints = []
@@ -1506,35 +1793,22 @@ def balance_table(rows, sess_map, S, wmat, component, wi, hi) -> dict:
                        for p in mem) / wsum) if wsum > 0 else None)
         fired_share = (sum(p["n_fired"] for p in mem) / fired_total
                        if fired_total else 0.0)
-        evaluable = bool(mem) and len(bounds) >= need_bounds
         quints.append({
             "rv_quintile": qq, "n_included_strata": len(mem),
             "boundaries_covered": len(bounds), "boundaries_needed": need_bounds,
-            "evaluable": evaluable,
+            # the registration's OWN definition, and nothing else
+            "evaluable": bool(mem),
+            "boundary_coverage_ok": len(bounds) >= need_bounds,
             "fired_mass_share": round(fired_share, 5),
             "gap": None if gap is None else round(gap, 5),
             "gap_within_limit": bool(gap is not None and gap < limit),
             "heavy": bool(fired_share >= 0.25)})
-    ev = [x for x in quints if x["evaluable"]]
-    n_ev = len(ev)
-    passing = [x for x in ev if x["gap_within_limit"]]
-    if n_ev < 4:
-        verdict, adequate = "INADEQUATE", False
-        reason = f"only {n_ev} evaluable rv-quintiles (<4)"
-    else:
-        need = n_ev if n_ev == 4 else 4
-        heavy_ok = all(x["gap_within_limit"] for x in ev if x["heavy"])
-        adequate = len(passing) >= need and heavy_ok
-        verdict = "ADEQUATE" if adequate else "INADEQUATE"
-        reason = (f"{len(passing)}/{n_ev} evaluable quintiles within 10% of the "
-                  f"unstratified gap (need {need}); heavy-quintile gap ok="
-                  f"{heavy_ok}")
+    v = balance_verdict(quints, n_bounds, need_bounds)
     return {"component": component, "W": mi.WINDOWS[wi], "H": mi.HORIZONS[hi],
             "unstratified_rv_gap": round(unstrat_gap, 5),
             "limit_10pct": round(limit, 6),
             "n_primary_boundaries": n_bounds,
-            "quintiles": quints, "n_evaluable": n_ev,
-            "adequate": adequate, "verdict": verdict, "reason": reason,
+            "quintiles": quints, **v,
             "fired_mass_by_rv_quintile_included": {
                 str(qq): round(sum(p["n_fired"] for p in res["per_stratum"]
                                    if p["rv_quintile"] == qq)
@@ -1574,6 +1848,39 @@ def reliability(rows, wi, hi) -> dict:
 # the arm battery
 # --------------------------------------------------------------------------
 
+def by_cell_of(cells, component, W, H) -> dict:
+    """The Arm 1 cell for one (component, W, H), or an empty dict."""
+    for c in cells:
+        if (c.get("component") == component and c.get("W") == W
+                and c.get("H") == H):
+            return c
+    return {}
+
+
+def weighting_disagreement(primary_row: dict, variant_row: dict) -> dict:
+    """Does the min(n_f, n_c)-weighted variant disagree in SIGN or STAR?
+
+    Registered: "if it disagrees with the primary in sign or star, the
+    disagreement is recorded and no product sentence may cite the primary
+    alone." A cell where either side is unavailable is recorded as
+    not-comparable rather than as agreement — silence is not agreement.
+    """
+    pd_, vd = primary_row.get("delta"), variant_row.get("delta")
+    if pd_ is None or vd is None:
+        return {"disagrees": False, "comparable": False,
+                "disagrees_why": None,
+                "not_comparable_reason": "one side has no delta"}
+    why = []
+    if np.sign(pd_) != np.sign(vd):
+        why.append(f"sign {np.sign(pd_):+.0f} vs {np.sign(vd):+.0f}")
+    if bool(primary_row.get("star")) != bool(variant_row.get("star")):
+        why.append(f"star {bool(primary_row.get('star'))} vs "
+                   f"{bool(variant_row.get('star'))}")
+    return {"disagrees": bool(why), "comparable": True,
+            "primary_delta": pd_, "variant_delta": vd,
+            "disagrees_why": "; ".join(why) if why else None}
+
+
 def _cell_label(wi, hi, extra=None):
     d = {"W": mi.WINDOWS[wi], "H": mi.HORIZONS[hi]}
     if extra:
@@ -1610,16 +1917,25 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
     h_range = list(range(len(mi.HORIZONS))) if full else [hi_p]
 
     # ---- Arm 2a: the machinery placebo (control, outside the budget) --------
+    # qcol=None: Arm 2a's registered pool is `eligibility AND isfinite(rv_ratio)
+    # AND q >= 0` and is reported UNSTRATIFIED, so a peer cell that failed
+    # ASSIGNMENT (<25 rows / <5 distinct) keeps its rows here. Filtering them out
+    # would feed mandatory gate 2 a non-registered subpopulation.
     arm2a = []
     for wi in w_range:
         for hi in h_range:
-            sel = select_cell(rows, sess_map, wi, 0, hi, arm="2a", qcol="rvq")
+            sel = select_cell(rows, sess_map, wi, 0, hi, arm="2a", qcol=None)
+            lab = select_cell(rows, sess_map, wi, 0, hi, arm="2a", qcol="rvq")
             row = _cell_label(wi, hi, {"arm": "2a", "stratified": False})
             if sel["vals"] is None:
                 row["unavailable"] = "empty pool"
             else:
                 row.update(unstratified(sel["vals"], sel["sess"], sel["fired"],
                                         S, wmat))
+            # the reconciliation the registered pool demands be visible
+            row["n_rows_registered_pool"] = sel["n_rows"]
+            row["n_rows_with_an_rv_label"] = lab["n_rows"]
+            row["n_rows_label_less_kept"] = sel["n_rows"] - lab["n_rows"]
             row["primary_cell"] = (wi == wi_p and hi == hi_p)
             arm2a.append(row)
     res["arm2a_machinery_placebo"] = arm2a
@@ -1666,23 +1982,55 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
         res["mirror_note"] = ("join>=98 MIRROR: the three component primaries "
                               "(stratified) + Arm 2a (unstratified) only, with "
                               "all trailing rings and the rv-quintile "
-                              "assignment built from every train session")
+                              "assignment built from every train session. The "
+                              "primary cells' COARSE baselines ride along as "
+                              "reported CONTROLS (the estimator computes them on "
+                              "the same pass) — the mirror carries no reading "
+                              "rule, no verdicts, no calibration gates and no "
+                              "criterion (d).")
+        res["arm1_coarse_baseline_note"] = ("reported control, no authority — "
+                                            "see AMBIGUITIES["
+                                            "'join_mirror_extra_controls']")
         return res
 
     # ---- Arm 1 secondary: min(n_f, n_c) weighting ---------------------------
+    # Registered: "if it disagrees with the primary in sign or star, the
+    # disagreement is recorded and no product sentence may cite the primary
+    # alone." So the disagreement is COMPUTED here, per cell, and the flag it
+    # sets rides into the product sentence.
     minw = []
+    min_disagrees = dict.fromkeys(COMPONENTS, False)
     for f in COMPONENTS:
         fi = mi.FEATS.index(f)
-        sel = select_cell(rows, sess_map, wi_p, fi, hi_p)
-        row = _cell_label(wi_p, hi_p, {"component": f, "arm": "1-min-weighted"})
-        if sel["vals"] is None:
-            row["unavailable"] = "empty pool"
-        else:
-            row.update(stratified(sel["vals"], sel["sess"], sel["fired"],
-                                  sel["strat"], N_STRATA, S, wmat,
-                                  weight="min", use_vector=use_vector))
-        minw.append(row)
+        for wi in w_range:
+            for hi in h_range:
+                sel = select_cell(rows, sess_map, wi, fi, hi)
+                row = _cell_label(wi, hi, {"component": f,
+                                           "arm": "1-min-weighted"})
+                row["primary_cell"] = (wi == wi_p and hi == hi_p)
+                prim_row = by_cell_of(cells, f, mi.WINDOWS[wi], mi.HORIZONS[hi])
+                if sel["vals"] is None:
+                    row["unavailable"] = "empty pool"
+                else:
+                    row.update(stratified(sel["vals"], sel["sess"], sel["fired"],
+                                          sel["strat"], N_STRATA, S, wmat,
+                                          weight="min", use_vector=use_vector))
+                row.update(weighting_disagreement(prim_row, row))
+                if row.get("disagrees"):
+                    min_disagrees[f] = True
+                minw.append(row)
     res["arm1_min_weighted_secondary"] = minw
+    res["min_weighted_disagreement"] = {
+        f: {"disagrees_at_any_cell": bool(min_disagrees[f]),
+            "cells": [{"W": r["W"], "H": r["H"], "reason": r.get("disagrees_why")}
+                      for r in minw
+                      if r["component"] == f and r.get("disagrees")]}
+        for f in COMPONENTS}
+    res["min_weighted_note"] = (
+        "the registered min(n_f, n_c)-weighted secondary. Where it disagrees "
+        "with the primary in SIGN or STAR, no product sentence may cite the "
+        "primary alone — the caveat is carried in the component's product "
+        "verdict, not left for a reader to assemble.")
 
     # ---- Arm 1 boundary-matched restriction + Arm 1b (the adjudicator) ------
     matched, arm1b = [], []
@@ -1784,6 +2132,17 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
                 "gapped bins: 3 even / 2 odd); this table is that advance "
                 "justification made checkable, not a runtime gate"}
 
+    # v3.1: the benchmark-validity ceiling, read at the PRIMARY cell
+    res["reliability_floor"]["ceiling"] = RELIABILITY_CEILING
+    res["reliability_floor"]["arm2b_non_conservative"] = bool(
+        prim_corr is not None and prim_corr > RELIABILITY_CEILING)
+    res["reliability_floor"]["ceiling_note"] = (
+        "v3.1 pre-run amendment: a primary-cell odd-vs-even correlation above "
+        f"{RELIABILITY_CEILING} makes Arm 2b NON-CONSERVATIVE — its stratifier "
+        "approaches a copy of its own firing variable, its retention collapses "
+        "toward zero and (d) becomes trivially passable, so (d) is UNAVAILABLE "
+        "for every component and science claims are INCONCLUSIVE")
+
     # ---- criterion (d) and the reading rule --------------------------------
     by_cell = {(r["component"], r["W"], r["H"]): r
                for r in cells if "component" in r}
@@ -1793,7 +2152,7 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
             cs = by_cell.get((f, mi.WINDOWS[wi], mi.PRIMARY_H), {})
             dtests[(f, wi)] = benchmark_test(
                 cs, coarse_cells.get((f, wi, hi_p), {}), arm2b[wi],
-                arm2b_coarse[wi], f)
+                arm2b_coarse[wi], f, reliability_corr=prim_corr)
     res["benchmark_test_d"] = [
         {**v, "W": mi.WINDOWS[wi], "H": mi.PRIMARY_H}
         for (f, wi), v in dtests.items()]
@@ -1801,30 +2160,49 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
     balance_by = {b["component"]: b for b in res["balance"]}
     res["reading_rule"] = {}
     res["verdicts"] = {}
-    # "Arm 2b's attenuation ratio >= every component's AND its own stratified CI
-    # clear of zero => coarsening alone explains all residuals"
-    r2b = [dtests[(f, wi_p)].get("attenuation_ratio_arm2b")
-           for f in COMPONENTS if dtests[(f, wi_p)].get("available")]
-    rcomp = [dtests[(f, wi_p)].get("attenuation_ratio_component")
-             for f in COMPONENTS if dtests[(f, wi_p)].get("available")]
+    # "Arm 2b's attenuation ratio >= EVERY component's AND its own stratified CI
+    # clear of zero => coarsening alone explains all residuals". EVERY means
+    # every component, not just the (d)-available ones: an attenuation ratio is
+    # defined wherever both deltas exist, and (d) can be unavailable for reasons
+    # (band, coarse CI, draw drops) that say nothing about retention.
+    r2b_ratio = _ratio(arm2b[wi_p].get("delta"),
+                       arm2b_coarse[wi_p].get("delta"))
+    rcomp = {}
+    for f in COMPONENTS:
+        rcomp[f] = _ratio(by_cell.get((f, mi.PRIMARY_W, mi.PRIMARY_H), {})
+                          .get("delta"),
+                          coarse_cells.get((f, wi_p, hi_p), {}).get("delta"))
+    # the Arm 2b ratio is one number shared by every component's (d) row
+    seen_2b = {d.get("attenuation_ratio_arm2b") for d in dtests.values()
+               if d.get("available")}
+    assert len(seen_2b) <= 1, f"Arm 2b attenuation ratio is not common: {seen_2b}"
+    have = [v for v in rcomp.values() if v is not None]
     coarsening_override = bool(
-        r2b and rcomp and arm2b[wi_p].get("star")
-        and all(r2b[0] >= c for c in rcomp))
+        r2b_ratio is not None and have and len(have) == len(COMPONENTS)
+        and arm2b[wi_p].get("star")
+        and all(r2b_ratio >= v for v in have))
     res["coarsening_override"] = {
         "triggered": coarsening_override,
-        "arm2b_attenuation_ratio": r2b[0] if r2b else None,
+        "arm2b_attenuation_ratio": r2b_ratio,
         "component_attenuation_ratios": rcomp,
+        "n_components_with_a_ratio": len(have),
         "arm2b_stratified_star": bool(arm2b[wi_p].get("star")),
+        "scope_note": "computed over EVERY component with both deltas present, "
+                      "not only the (d)-available ones — (d) can be unavailable "
+                      "for reasons that say nothing about retention",
         "meaning": "coarsening alone explains all residuals => INCONCLUSIVE for "
                    "all science claims"}
 
     arm1b_by = {r["component"]: r for r in arm1b
                 if r["W"] == mi.PRIMARY_W and r["H"] == mi.PRIMARY_H}
+    matched_by = {r["component"]: r for r in matched
+                  if r["W"] == mi.PRIMARY_W and r["H"] == mi.PRIMARY_H}
     for f in COMPONENTS:
         res["reading_rule"][f], res["verdicts"][f] = verdict_for(
             f, by_cell, dtests, balance_by.get(f, {}), arm2b[wi_p],
             res["reliability_floor"], blocked, coarsening_override,
-            arm1b_by.get(f, {}))
+            arm1b_by.get(f, {}), matched_by.get(f, {}),
+            min_disagrees.get(f, False))
 
     # ---- the secondary battery (reported, no survival authority) ------------
     res["secondary"] = secondary_battery(rows, sess_map, S, wmat, cells,
@@ -1843,7 +2221,8 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
 
 
 def verdict_for(component, by_cell, dtests, balance, arm2b_primary,
-                rel_floor, blocked, coarsening_override, arm1b_primary=None):
+                rel_floor, blocked, coarsening_override, arm1b_primary=None,
+                boundary_matched_primary=None, min_variant_disagrees=False):
     """Reading rules (a)-(d), then the SEPARATE science and product verdicts.
 
     Precedence, pinned: a failed calibration gate makes the run INCONCLUSIVE and
@@ -1853,6 +2232,11 @@ def verdict_for(component, by_cell, dtests, balance, arm2b_primary,
     not pass"; the PRODUCT verdict governs any ship decision; and the
     unqualified word SURVIVES is reserved for science-positive AND not
     product-demoted.
+
+    Two registered caveats are CARRIED IN the product sentence rather than left
+    for a reader to assemble: the min(n_f, n_c)-weighted variant's disagreement
+    ("no product sentence may cite the primary alone") and an active coarsening
+    override.
     """
     W_P, H_P = mi.PRIMARY_W, mi.PRIMARY_H
     prim = by_cell.get((component, W_P, H_P), {})
@@ -1889,7 +2273,10 @@ def verdict_for(component, by_cell, dtests, balance, arm2b_primary,
         "all_four": bool(a_ok and b_n >= 2 and c_ok and d_ok),
     }
 
-    v = {"read_blocked": bool(blocked)}
+    # facts about the run are recorded whatever the gates did — "the
+    # disagreement IS recorded" is not conditional on a readable verdict
+    v = {"read_blocked": bool(blocked),
+         "min_variant_disagrees": bool(min_variant_disagrees)}
     star_opposite = bool(prim.get("star") and prim.get("delta") is not None
                          and np.sign(prim["delta"]) == -sign)
     v["sign_flip_vs_114f"] = star_opposite
@@ -1946,6 +2333,19 @@ def verdict_for(component, by_cell, dtests, balance, arm2b_primary,
         v["product"] = "NOT DEMOTED — stratified CI clear of the negligible band"
     v["survives"] = bool(v["science"].startswith("RV-ORTHOGONAL")
                          and not v["product"].startswith("PRODUCT-DEMOTED"))
+
+    # ---- caveats the registration attaches to the SENTENCE, not a footnote --
+    if min_variant_disagrees:
+        v["product"] += (" — MIN-WEIGHTED VARIANT DISAGREES in sign or star: "
+                         "this sentence may not be cited without the variant")
+    if coarsening_override:
+        v["product"] += " — coarsening override in effect"
+    # a product-demoted component's science reading is science ONLY
+    if v["product"].startswith("PRODUCT-DEMOTED") \
+            and not v["science"].startswith("INCONCLUSIVE"):
+        v["science"] = "SCIENCE-ONLY — " + v["science"]
+    if rule["c_reliability_caveated"]:
+        v["science"] += " — REPLICATION-CAVEATED"
     v["precedence"] = ("the PRODUCT verdict governs any perception/ship "
                        "decision; 'SURVIVES' unqualified = science-positive AND "
                        "not product-demoted")
@@ -1955,23 +2355,47 @@ def verdict_for(component, by_cell, dtests, balance, arm2b_primary,
     # outcome, so the record states which words are allowed.
     if v["product"].startswith("PRODUCT-DEMOTED") and not blocked:
         lag = arm1b_primary or {}
-        lag_star = bool(lag.get("star") and not lag.get("unavailable"))
-        if lag.get("delta") is None or lag.get("unavailable"):
+        matched = boundary_matched_primary or {}
+        lag_ok = lag.get("delta") is not None and not lag.get("unavailable")
+        matched_ok = (matched.get("delta") is not None
+                      and not matched.get("unavailable"))
+        lag_star = bool(lag.get("star") and lag_ok)
+        matched_star = bool(matched.get("star") and matched_ok)
+        v["adjudication_inputs"] = {
+            "boundary_matched_arm1_star": matched_star if matched_ok else None,
+            "boundary_matched_arm1_delta": matched.get("delta"),
+            "arm1b_star": lag_star if lag_ok else None,
+            "arm1b_delta": lag.get("delta")}
+        if not lag_ok or not matched_ok:
             v["flow_angle_adjudication"] = (
-                "UN-ADJUDICATED — Arm 1b is unavailable at the primary cell "
-                f"({lag.get('unavailable', 'no lagged cell')}); neither "
-                "'thermometer' nor 'costume' language is licensed")
+                "UN-ADJUDICATED — the adjudication needs BOTH the "
+                "boundary-matched Arm 1 and Arm 1b at the primary cell "
+                f"(matched: {matched.get('unavailable', 'ok' if matched_ok else 'absent')}; "
+                f"lagged: {lag.get('unavailable', 'ok' if lag_ok else 'absent')}); "
+                "neither 'thermometer' nor 'costume' language is licensed")
         elif lag_star:
             v["flow_angle_adjudication"] = (
                 "NOT RV-ORTHOGONAL AT THIS GRAIN — the lagged panel stars, so "
                 "the angle stays alive for other constructions and 'costume' "
                 "language is FORBIDDEN")
+        elif matched_star:
+            # "lagged-null TOO" presupposes the boundary-matched Arm 1 is null.
+            # It stars here, so the premise fails and no thermometer language is
+            # licensed: on the very subpopulation Arm 1b can speak for, the
+            # screen is NOT null.
+            v["flow_angle_adjudication"] = (
+                "MIXED — the boundary-matched Arm 1 STARS while the lagged panel "
+                "is null, so the registered 'lagged-null TOO' premise does not "
+                "hold: 'thermometer' language is NOT licensed, and the demotion "
+                "rests on the unrestricted primary rather than on the "
+                "adjudicated subpopulation")
         else:
             v["flow_angle_adjudication"] = (
-                "CLUSTERING STORY STRENGTHENS — the lagged panel is null too, "
-                "so 'thermometer' language is licensed FOR THE ADJUDICATED "
-                "SUBPOPULATION ONLY (b >= the first lagged-valid boundary); the "
-                "early-boundary fired mass is UN-ADJUDICATED")
+                "CLUSTERING STORY STRENGTHENS — the boundary-matched Arm 1 is "
+                "null and the lagged panel is null TOO, so 'thermometer' "
+                "language is licensed FOR THE ADJUDICATED SUBPOPULATION ONLY "
+                "(b >= the first lagged-valid boundary); the early-boundary "
+                "fired mass is UN-ADJUDICATED")
         v["arm1b_note"] = ("Arm 1b adjudicates ONLY the boundary-matched "
                            "restriction of Arm 1 and carries NO survival "
                            "authority")
@@ -2393,7 +2817,12 @@ def main(argv=None) -> int:
                             Path(a.keys_out))
     payload = {
         "meta": {
-            "registered": "2026-07-30", "roadmap": "FLOW_ROADMAP.md 1.14g v3",
+            "registered": "2026-07-30",
+            "roadmap": "FLOW_ROADMAP.md 1.14g v3.1",
+            "fire_set_provenance": "aggregate-only — the reproduce gate compares "
+                                   "counts and medians at 36 cells, never fired "
+                                   "row identities (the locked 1.14f JSON has "
+                                   "none)",
             "not_a_backtest": "distributions only — no entry/exit/P&L/hit-rate",
             "seed": SEED, "n_boot": N_BOOT,
             "bootstrap": f"circular moving-block over SESSIONS, block={BLOCK}, "
@@ -2448,12 +2877,21 @@ def main(argv=None) -> int:
 
 
 def _print_tables(payload: dict) -> None:
+    """Console output ordered so a reader cannot meet a number before its gate.
+
+    The gates and the read-blocked state print BEFORE any cell table; star
+    glyphs are suppressed while a run is blocked (a star a reader is forbidden to
+    read must not look like a finding); and no attenuation ratio is ever printed
+    without its paired result beside it.
+    """
     m = payload["meta"]
     print(f"\n== 1.14g the vol-clustering fork — {m['sessions_analysed']} "
           f"sessions, {m['universe_size']} names, train_end={m['train_end']} ==")
     print("NOT a backtest: stratified medians of normalized moves, fired vs "
           "vol-matched complement.")
     print(f"reproduce gate: {'PASSED' if m['reproduce_gate']['passed'] else 'FAILED'}"
+          f" over {m['reproduce_gate']['provenance']['n_cells_compared']} cells "
+          f"({m['reproduce_gate']['fire_set_provenance']})"
           f"   env: numpy {m['environment']['numpy']} / python "
           f"{m['environment']['python']}")
     for arm, res in payload["arms"].items():
@@ -2461,19 +2899,36 @@ def _print_tables(payload: dict) -> None:
         if "arm1_contemporaneous" not in res:
             print(f"  unavailable: {res.get('unavailable')}")
             continue
+
+        # ---- gates FIRST, before any component number appears --------------
         cg = res.get("calibration_gates")
+        blocked = bool(cg and cg.get("run_inconclusive"))
         if cg:
-            print(f"  calibration gate 1 (permuted null): "
-                  f"{cg['gate1_permuted_label_null']['passed']}   "
-                  f"gate 2 (Arm 2a positive): "
-                  f"{cg['gate2_machinery_control']['passed']}   "
-                  f"=> run INCONCLUSIVE: {cg['run_inconclusive']}")
+            print("\n  == calibration gates (evaluated BEFORE any component "
+                  "result is read) ==")
+            print(f"    gate 1 permuted-label null : "
+                  f"{cg['gate1_permuted_label_null']['passed']}")
+            print(f"    gate 2 machinery control   : "
+                  f"{cg['gate2_machinery_control']['passed']}")
+            print(f"    => RUN INCONCLUSIVE: {cg['run_inconclusive']}"
+                  f"   read_blocked={blocked}")
+        rf = res.get("reliability_floor", {})
+        if rf:
+            print(f"    Arm 2b validity: primary odd-even corr="
+                  f"{rf.get('primary_cell_correlation')} "
+                  f"ceiling={rf.get('ceiling')} "
+                  f"NON-CONSERVATIVE={rf.get('arm2b_non_conservative')}")
+        if blocked:
+            print("    (stars are SUPPRESSED below: a blocked run has no "
+                  "readable finding)")
+
         print("\n  == Arm 1 stratified PRIMARY (W=60, H=2h) ==")
         for r in res["arm1_contemporaneous"]:
             if not r.get("primary_cell"):
                 continue
+            glyph = "" if blocked else (" *" if r.get("star") else "")
             print(f"    {r['component']:<20} delta={r.get('delta')} "
-                  f"ci={r.get('ci')}{' *' if r.get('star') else ''} "
+                  f"ci={r.get('ci')}{glyph} "
                   f"n_f={r.get('n_fired')} n_c={r.get('n_complement')} "
                   f"strata={r.get('n_strata_included')} "
                   f"dropped_mass={r.get('dropped_fired_share')} "
@@ -2482,13 +2937,24 @@ def _print_tables(payload: dict) -> None:
             print(f"\n    {f}")
             print(f"      science : {v['science']}")
             print(f"      product : {v['product']}")
-            print(f"      balance : {v['balance']}   survives={v['survives']}")
+            print(f"      balance : {v['balance']}   survives={v['survives']}"
+                  f"   min-variant disagrees={v.get('min_variant_disagrees')}")
+            if v.get("flow_angle_adjudication"):
+                print(f"      angle   : {v['flow_angle_adjudication']}")
+        co = res.get("coarsening_override", {})
+        if co.get("triggered"):
+            print(f"\n    COARSENING OVERRIDE in effect: Arm 2b R="
+                  f"{co.get('arm2b_attenuation_ratio')} >= every component's "
+                  f"{co.get('component_attenuation_ratios')}")
         print("\n  == criterion (d): retention vs the split-sample placebo ==")
+        print("     (a ratio never prints without its paired result beside it)")
         for d in res.get("benchmark_test_d", []):
             print(f"    {d['component']:<20} W={d['W']:>3} "
                   f"available={d.get('available')} passed={d.get('passed')} "
                   f"R_comp={d.get('attenuation_ratio_component')} "
                   f"R_2b={d.get('attenuation_ratio_arm2b')} "
+                  f"p2.5={d.get('paired_statistic_p2_5')} "
+                  f"odd_even_corr={d.get('odd_even_reliability_correlation')} "
                   f"{d.get('unavailable') or ''}")
     print("\n== NA accounting (nothing is silently dropped) ==")
     for k, v in payload["na_accounting"].items():
