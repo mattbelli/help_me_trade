@@ -21,13 +21,13 @@
   },
   {
    "id": "classification-lab-scorer",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "research",
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "BUILT + adversarially verified 07-30 (8 blockers found and fixed, each with a regression test; clocks verified clear against capture files; Addendum A registered pre-run: pooled sign-agreement unit + UNMEASURED != FAILED). tools/classification_lab_scorer.py + tools/underlying_trades_fetch.py merged, 62 tests. REMAINING: fetcher live smoke -> 8-session tape fetch -> the SINGLE registered scoring run -> founder readout. Greeks coverage caveat: delta-adjusted method rests on SPY/QQQ/IWM only (disclosed in-report). BUILD_LOG 07-30.",
-   "title": "Classification-lab scorer \u2014 built + verified; tape fetch + the single registered run remain"
+   "notes": "REGISTERED RUN COMPLETE 07-30 (BUILD_LOG row): 8 ordinary sessions, ZERO viable cells across all 10 method x variant combos. Back-pairing at 15-60s: median spike agreement 36-43%, bias 25-46pp (bars: >=85% / <=5pp); even the 5s bound fails (79-81%, 7-8pp); naive tick 32%; delta-adjusted 3% on the 3 names with greeks. Pooled net-sign agreement ~ coin flip at realistic rates. Per the prereg's own conclusion clause the paid paired feed is justified by this record \u2014 the 07-26 Databento tcbbo subscription is now validated by pre-registered measurement. Report: data/research/classification_lab/. Built + adversarially verified same day (8 blockers fixed; Addendum A registered pre-run).",
+   "title": "Classification-lab scorer \u2014 registered run COMPLETE: no free method viable; the paired feed stands validated"
   },
   {
    "id": "addendum-g-judging-rules",

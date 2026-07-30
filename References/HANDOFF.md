@@ -230,16 +230,12 @@ on our 37 names). Open:
 - the capped-payoff gate is UNTOUCHED by all measurement so far (seller keeps ≤ premium, left tail
   uncapped; C4 band 29.7% negative, p05 −0.3105) — nothing may open a selling lane past it.
 
-## ▶ Options flow classification scorer — BUILT + adversarially verified; the registered run is next
+## ▶ Options flow classification scorer — ✅ REGISTERED RUN COMPLETE 07-30, thread closed
 
-Scorer + tape fetcher merged 07-30 (BUILD_LOG row; clocks verified clear against captures;
-Addendum A registered pre-run — pooled sign-agreement unit, UNMEASURED ≠ FAILED). Open, in order:
-- ⏳ live smoke `tools/underlying_trades_fetch.py` on one session, then fetch all 8 captured
-  sessions (07-17 OpEx + 07-20…07-24 + 07-27…07-29) — method 2 has no input until this lands.
-- ⏳ the SINGLE registered scoring run (`tools/classification_lab_scorer.py`), then the founder
-  readout — greeks coverage means the delta-adjusted headline rests on SPY/QQQ/IWM only
-  (disclosed in-report). Deferred audit findings F3/F4/F8 still ride
-  `index-0dte-concentration-study` / gauge cards.
+Zero viable cells across all 10 method×variants; per the prereg's conclusion clause the paid
+paired feed is justified — the 07-26 Databento tcbbo subscription stands validated by
+pre-registered measurement (BUILD_LOG row; card `classification-lab-scorer`, done). Deferred
+audit findings F3/F4/F8 still ride `index-0dte-concentration-study` / gauge cards.
 
 ## ▶ Backend composition — Rank-2 open
 
