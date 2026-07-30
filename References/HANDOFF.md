@@ -116,16 +116,14 @@ snapshot per sweep). Open threads only:
   `alerts.flow_perception_alerts_enabled` (recommend ≥3 components or top-N — ≥2 yields ~451
   candidates/session); UI widget; watchlist fundamentals panel still shows confirmed dates only
   (surfacing estimates there needs a UI label first).
-- **⏳ 1.14g vol-clustering fork — REGISTERED 07-30 (FLOW_ROADMAP.md 1.14g, v3), not yet
-  built/run.** The registration survived a two-round adversarial gauntlet (2× Opus split-mandate
-  + Grok, 6+4 blockers fixed pre-run; v1's stratum design was shown by simulation to fabricate
-  ~64% of the 1.14f effect under a true null — never run). Next: build
-  `tools/mover_intraday_114g.py` to the registration (imports 1.14f machinery, reproduce-gate,
-  SEED=20260809), review, single registered run. Remaining 1.14f follow-ups ride on its result:
-  (a) Addendum F registration of the three 1.14f findings before anything touches the test
-  window (2026-06-01→07-25); (b) founder decision on surfacing labelled perception — now
-  explicitly gated on 1.14g's product verdict; (c) `short_dte_share` grain contradiction stays
-  parked (one secondary cell starred +0.014, disclosed in the RESULT section).
+- **⏳ 1.14g verdict LANDED 07-30 (BUILD_LOG row) — follow-ups unblocked:** PRODUCT = NOT
+  DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
+  no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
+  disguise"). Open: (a) **Addendum F registration** of the three 1.14f findings before anything
+  touches the test window (2026-06-01→07-25); (b) **founder decision — surface labelled flow
+  perception?** (founder list below) — honest framing must carry the RV context: a free equity-RV
+  screen's raw signal is 3–4× the components' stratified residual; (c) `short_dte_share` grain
+  contradiction stays parked.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.
@@ -211,6 +209,10 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 
 ## ▶ Waiting on founder
 
+- **Surface labelled flow perception?** 1.14g product verdict = NOT DEMOTED, so the gate is
+  cleared — but any surface must be labelled perception with the RV caveat (the screen's residual
+  beyond choppiness is unproven and a free RV screen's raw signal is 3–4× larger). Arming lives on
+  `flow-perception-ship` (`alerts.flow_perception_alerts_enabled`).
 - ⚠ global `allow_short_selling=true` in prod settings — broader than the per-strategy book
   authorization (any approved sell with no held long can short-to-open on paper; books + stops
   excluded, chat/manual not). Confirm or narrow when increment 5 builds the per-strategy flag.

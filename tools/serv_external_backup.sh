@@ -47,7 +47,23 @@ for db in "$SRC"/data/*.db; do
   fi
   out="$DST/db/$name.$TODAY.db"
   echo "sqlite backup: $name ($((size / 1024 / 1024)) MB)"
-  if sqlite3 "$db" ".backup '$out.part'" && mv "$out.part" "$out"; then
+  # trading.db is written constantly: an online .backup of it restarts on every
+  # WAL checkpoint and can spin forever against this slow drive. Prefer the
+  # static, already-integrity-checked 03:00 snapshot (deploy/backup-db.sh)
+  # when one is fresh (<48h); fall back to a live .backup if it isn't.
+  snap=""
+  if [ "$name" = "trading" ]; then
+    snap="$(find /home/mbelli/backups -maxdepth 1 -name 'trading-*.db' \
+            -mmin -2880 2>/dev/null | sort | tail -1)"
+  fi
+  ok=true
+  if [ -n "$snap" ]; then
+    echo "  (copying static snapshot $(basename "$snap"))"
+    cp "$snap" "$out.part" || ok=false
+  else
+    sqlite3 "$db" ".backup '$out.part'" || ok=false
+  fi
+  if $ok && mv "$out.part" "$out"; then
     ls -1 "$DST/db/$name".[0-9]*.db 2>/dev/null | sort | head -n -"$keep" | xargs -r rm -f
   else
     rm -f "$out.part"; echo "ERROR: sqlite backup failed for $name"; errors=$((errors + 1))
