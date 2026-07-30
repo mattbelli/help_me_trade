@@ -1614,6 +1614,28 @@ def test_diff_comes_from_the_unrounded_medians_like_the_114f_writer():
         assert cell["diff"] == round(mf - mc, 5)
 
 
+def test_arm2b_ratio_commonality_is_per_window_not_pooled():
+    """The second real run died at THIS check: on the real tape (d) was
+    available at both windows with ratios {0.84844, 0.82442} — one per Arm 2b
+    cell — and the old assert pooled the two windows into one set and demanded
+    a single value. Distinct ratios ACROSS windows are legitimate; divergence
+    WITHIN a window is the corruption the guard exists for."""
+    ok = {("vol_max_ratio", 1): {"available": True,
+                                 "attenuation_ratio_arm2b": 0.84844},
+          ("concentration", 1): {"available": True,
+                                 "attenuation_ratio_arm2b": 0.84844},
+          ("vol_max_ratio", 2): {"available": True,
+                                 "attenuation_ratio_arm2b": 0.82442},
+          ("concentration", 2): {"available": False,
+                                 "attenuation_ratio_arm2b": None}}
+    g.check_arm2b_ratio_common(ok)   # must not raise
+    bad = dict(ok)
+    bad[("concentration", 1)] = {"available": True,
+                                 "attenuation_ratio_arm2b": 0.5}
+    with pytest.raises(AssertionError, match="not common"):
+        g.check_arm2b_ratio_common(bad)
+
+
 def test_the_gate_refuses_a_locked_file_from_the_wrong_run(
         tmp_path, monkeypatch):
     """Provenance, not just agreement: the locked file must be 1.14f's own —

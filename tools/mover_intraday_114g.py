@@ -1695,6 +1695,20 @@ def benchmark_test(comp_strat, comp_coarse, b2_strat, b2_coarse,
     return out
 
 
+def check_arm2b_ratio_common(dtests: dict) -> None:
+    """The Arm 2b attenuation ratio is one number shared by every component's
+    (d) row WITHIN a window — every component at a window reads the same Arm 2b
+    cell. ACROSS windows the ratios legitimately differ (W=60 and W=120 read
+    different Arm 2b cells), so commonality is asserted per window, never
+    pooled."""
+    for wj in sorted({wk for (_, wk) in dtests}):
+        seen = {d.get("attenuation_ratio_arm2b")
+                for (fk, wk), d in dtests.items()
+                if wk == wj and d.get("available")}
+        assert len(seen) <= 1, (f"Arm 2b attenuation ratio is not common "
+                                f"at window index {wj}: {seen}")
+
+
 # --------------------------------------------------------------------------
 # balance / adequacy and reliability
 # --------------------------------------------------------------------------
@@ -2178,10 +2192,7 @@ def analyse_114g(table, sessions, arm_sessions, *, use_vector=False,
         rcomp[f] = _ratio(by_cell.get((f, mi.PRIMARY_W, mi.PRIMARY_H), {})
                           .get("delta"),
                           coarse_cells.get((f, wi_p, hi_p), {}).get("delta"))
-    # the Arm 2b ratio is one number shared by every component's (d) row
-    seen_2b = {d.get("attenuation_ratio_arm2b") for d in dtests.values()
-               if d.get("available")}
-    assert len(seen_2b) <= 1, f"Arm 2b attenuation ratio is not common: {seen_2b}"
+    check_arm2b_ratio_common(dtests)
     have = [v for v in rcomp.values() if v is not None]
     coarsening_override = bool(
         r2b_ratio is not None and have and len(have) == len(COMPONENTS)
