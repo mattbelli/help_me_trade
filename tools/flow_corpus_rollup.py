@@ -44,6 +44,7 @@ import logging
 import sys
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -199,6 +200,137 @@ def _order_stats(inv: np.ndarray, gid: np.ndarray, premium: np.ndarray,
     return orders, prem_sq
 
 
+class Fenced(NamedTuple):
+    """One session's prints after the v7 quote fence + side classification."""
+
+    price: np.ndarray      # dollars per contract-unit (DBN fixed-point undone)
+    size: np.ndarray
+    q_ok: np.ndarray       # a two-sided, positive, non-crossed quote exists
+    wide_q: np.ndarray     # quoted but wider than SPREAD_MAX_FRAC of the mid
+    good_q: np.ndarray     # q_ok & ~wide_q — the only rows that get a side
+    u: np.ndarray          # (price - mid) / half, 0 where unquoted
+    side: np.ndarray       # 0 buy 1 sell 2 unclassified 3 wide_spread
+    strict: np.ndarray     # same alphabet, at-the-quote rule
+    premium: np.ndarray    # USD
+
+
+def fence_and_classify(arr: np.ndarray) -> Fenced:
+    """The v7 fence + side rule, on a raw tcbbo structured array.
+
+    Extracted from `rollup_session` unchanged so the corpus roller and the
+    intraday screen (`tools/mover_intraday.py`, roadmap 1.14f) share ONE
+    implementation. Before this there were four hand-copied versions in the
+    probe tools, two of which predate `wide_q` and silently classify prints the
+    corpus fences out — which is exactly how a "fenced" reading stops meaning
+    what the corpus means by it.
+
+    `arr` needs the tcbbo fields `price`, `size`, `bid_px_00`, `ask_px_00`.
+    Nothing is dropped: rows that fail the gate fall through to a `side` label,
+    so the caller keeps the discarded volume auditable.
+    """
+    price = arr["price"].astype(np.float64)
+    size = arr["size"].astype(np.float64)
+    bid = arr["bid_px_00"].astype(np.float64)
+    ask = arr["ask_px_00"].astype(np.float64)
+
+    q_ok = (arr["bid_px_00"] != UNDEF) & (arr["ask_px_00"] != UNDEF) \
+        & (bid > 0) & (ask > 0) & (ask > bid)
+    # Prereg clause 1 (prereg:60), registered 2026-07-26, implemented 2026-07-29
+    # after the audit found it absent. A spread wider than half the mid makes the
+    # midpoint side close to a coin flip. Measured before implementing: these are
+    # 5.7-7.6% of classified prints but only 0.32-0.43% of premium, and removing
+    # them flips a name-day's bull/bear sign on 2.2-4.0% of name-days -- the same
+    # order as the detector's own firing rate. Rows are KEPT and fall through to
+    # side = unclassified rather than being deleted: the tilt denominator is
+    # bull + bear either way, and keeping them leaves the discarded volume
+    # auditable and clause 2 computable from this same pass.
+    wide_q = q_ok & ((ask - bid) > SPREAD_MAX_FRAC * (bid + ask) / 2.0)
+    good_q = q_ok & ~wide_q
+    mid = np.where(good_q, (bid + ask) / 2.0, np.nan)
+    half = np.where(good_q, (ask - bid) / 2.0, np.nan)
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        u = (price - mid) / half
+    u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
+
+    side = np.full(len(arr), 2, dtype=np.int8)              # unclassified
+    side[good_q & (price > mid)] = 0                        # buy
+    side[good_q & (price < mid)] = 1                        # sell
+    # v7: clause-1 casualties get their own label rather than being pooled into
+    # `unclassified` with no-quote prints, so the wide-spread volume per name-day
+    # stays recoverable as a covariate. They are excluded from bull/bear either way.
+    side[wide_q] = 3                                        # wide_spread
+
+    strict = np.full(len(arr), 2, dtype=np.int8)
+    strict[good_q & (price >= ask)] = 0
+    strict[good_q & (price <= bid)] = 1
+    strict[wide_q] = 3
+
+    premium = price / PX * size * 100.0
+    return Fenced(price, size, q_ok, wide_q, good_q, u, side, strict, premium)
+
+
+def multileg_flags(
+    session: date, ts_ev: np.ndarray, iid: np.ndarray,
+    price: np.ndarray, size: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, str, float | None, float | None]:
+    """`(multileg, cond, source, join_rate, coverage)` — Addendum E/F semantics.
+
+    `cond` is the per-print raw condition code (`''` where nothing joined); the
+    rollup carries it as a row-key grain, the intraday screen only needs `ml`.
+
+    Extracted from `rollup_session` unchanged, for the same one-code-path reason
+    as `fence_and_classify`. The flag comes from the joined Alpaca condition code
+    (package family = multi-leg packages + stock-option combos), with the
+    registered fallback hierarchy: an unmatched PRINT falls back to the
+    ns-collision heuristic; a SESSION with no completed capture stays wholly on
+    the heuristic. Addendum F (2026-07-28) made the 98% floor a REPORTING gate,
+    not a rejection: below-floor sessions still adopt their labels and are
+    flagged, because mixed provenance would be worse than an honestly-heuristic
+    session.
+
+    `price` is the fenced float price (DBN fixed-point undone by dividing PX);
+    `size` must be the integer contract size the capture was keyed on.
+    """
+    ml_heur = _multileg(ts_ev, iid)
+    cond = np.full(len(ts_ev), "", dtype="U1")
+    ml_source, join_rate, coverage = "heuristic", None, None
+    if LABELED:
+        cents = np.round(price / PX * 100.0).astype(np.int64)
+        res = join_condition_codes(session, ts_ev, iid, cents, size,
+                                   data_dir=TCBBO_DIR.parent,
+                                   npz_dir=LABELS_DIR)
+        if res is None:
+            logger.warning("%s: no completed label capture — heuristic multileg",
+                           session)
+        else:
+            cond_j, lstats = res
+            join_rate = lstats["join_rate_dbn"]
+            # Addendum F (2026-07-28): adoption is per-print, always — joined
+            # codes where they exist, the registered heuristic fallback where
+            # they don't. The floor no longer rejects a session's labels; it is
+            # a measurement/reporting gate (below-floor sessions are flagged
+            # here and excluded from the ≥98% robustness subset by ledger).
+            cond = cond_j
+            labeled = cond != ""
+            coverage = float(labeled.mean())
+            ml_source = "codes"
+            if join_rate < JOIN_FLOOR:
+                logger.warning(
+                    "%s: label coverage %.2f%% below the %.0f%% reporting "
+                    "floor — labels adopted per Addendum F, session flagged "
+                    "for the robustness subset", session,
+                    join_rate * 100, JOIN_FLOOR * 100)
+    if ml_source == "codes":
+        ml = np.where(cond != "", np.isin(cond, list(PACKAGE_CODES)),
+                      ml_heur).astype(np.int64)
+    else:
+        # no completed capture for this session — cond stays all-'', rows are
+        # honestly all-heuristic (the coverage=0 endpoint of the same scale)
+        ml = ml_heur.astype(np.int64)
+    return ml, cond, ml_source, join_rate, coverage
+
+
 def _bucket_dte(dte: np.ndarray) -> np.ndarray:
     b = np.full(dte.shape, 3, dtype=np.int8)          # 90+
     b[dte <= 90] = 2                                   # 31-90
@@ -290,92 +422,15 @@ def rollup_session(session: date, db_path: Path | None = None) -> dict | None:
     dte = d_dte[idx]
 
     # --- classify -----------------------------------------------------------
-    price = arr["price"].astype(np.float64)
-    size = arr["size"].astype(np.float64)
-    bid = arr["bid_px_00"].astype(np.float64)
-    ask = arr["ask_px_00"].astype(np.float64)
-
-    q_ok = (arr["bid_px_00"] != UNDEF) & (arr["ask_px_00"] != UNDEF) \
-        & (bid > 0) & (ask > 0) & (ask > bid)
-    # Prereg clause 1 (prereg:60), registered 2026-07-26, implemented 2026-07-29
-    # after the audit found it absent. A spread wider than half the mid makes the
-    # midpoint side close to a coin flip. Measured before implementing: these are
-    # 5.7-7.6% of classified prints but only 0.32-0.43% of premium, and removing
-    # them flips a name-day's bull/bear sign on 2.2-4.0% of name-days -- the same
-    # order as the detector's own firing rate. Rows are KEPT and fall through to
-    # side = unclassified rather than being deleted: the tilt denominator is
-    # bull + bear either way, and keeping them leaves the discarded volume
-    # auditable and clause 2 computable from this same pass.
-    wide_q = q_ok & ((ask - bid) > SPREAD_MAX_FRAC * (bid + ask) / 2.0)
-    good_q = q_ok & ~wide_q
-    mid = np.where(good_q, (bid + ask) / 2.0, np.nan)
-    half = np.where(good_q, (ask - bid) / 2.0, np.nan)
-
-    with np.errstate(invalid="ignore", divide="ignore"):
-        u = (price - mid) / half
-    u = np.nan_to_num(u, nan=0.0, posinf=0.0, neginf=0.0)
-
-    side = np.full(len(arr), 2, dtype=np.int8)              # unclassified
-    side[good_q & (price > mid)] = 0                        # buy
-    side[good_q & (price < mid)] = 1                        # sell
-    # v7: clause-1 casualties get their own label rather than being pooled into
-    # `unclassified` with no-quote prints, so the wide-spread volume per name-day
-    # stays recoverable as a covariate. They are excluded from bull/bear either way.
-    side[wide_q] = 3                                        # wide_spread
-
-    strict = np.full(len(arr), 2, dtype=np.int8)
-    strict[good_q & (price >= ask)] = 0
-    strict[good_q & (price <= bid)] = 1
-    strict[wide_q] = 3
-
-    premium = price / PX * size * 100.0
+    fx = fence_and_classify(arr)
+    price, size, premium = fx.price, fx.size, fx.premium
+    q_ok, wide_q, u, side, strict = fx.q_ok, fx.wide_q, fx.u, fx.side, fx.strict
 
     # --- multileg: Addendum E at v6, ns-collision heuristic at v5 ------------
-    # At v6 the flag comes from the joined Alpaca condition code (package
-    # family = multi-leg packages + stock-option combos), with the registered
-    # fallback hierarchy: an unmatched PRINT falls back to the heuristic; a
-    # SESSION whose join rate misses the 98% floor (or has no completed
-    # capture) stays wholly on the heuristic with the reason logged — mixed
-    # provenance would be worse than an honestly-heuristic session.
     ts_ev = arr["ts_event"].astype(np.int64)
     iid = arr["instrument_id"].astype(np.int64)
-    ml_heur = _multileg(ts_ev, iid)
-    cond = np.full(len(arr), "", dtype="U1")
-    ml_source, join_rate, coverage = "heuristic", None, None
-    if LABELED:
-        cents = np.round(price / PX * 100.0).astype(np.int64)
-        res = join_condition_codes(session, ts_ev, iid, cents,
-                                   arr["size"].astype(np.int64),
-                                   data_dir=TCBBO_DIR.parent,
-                                   npz_dir=LABELS_DIR)
-        if res is None:
-            logger.warning("%s: no completed label capture — heuristic multileg",
-                           session)
-        else:
-            cond_j, lstats = res
-            join_rate = lstats["join_rate_dbn"]
-            # Addendum F (2026-07-28): adoption is per-print, always — joined
-            # codes where they exist, the registered heuristic fallback where
-            # they don't. The floor no longer rejects a session's labels; it is
-            # a measurement/reporting gate (below-floor sessions are flagged
-            # here and excluded from the ≥98% robustness subset by ledger).
-            cond = cond_j
-            labeled = cond != ""
-            coverage = float(labeled.mean())
-            ml_source = "codes"
-            if join_rate < JOIN_FLOOR:
-                logger.warning(
-                    "%s: label coverage %.2f%% below the %.0f%% reporting "
-                    "floor — labels adopted per Addendum F, session flagged "
-                    "for the robustness subset", session,
-                    join_rate * 100, JOIN_FLOOR * 100)
-    if ml_source == "codes":
-        ml = np.where(cond != "", np.isin(cond, list(PACKAGE_CODES)),
-                      ml_heur).astype(np.int64)
-    else:
-        # no completed capture for this session — cond stays all-'', rows are
-        # honestly all-heuristic (the coverage=0 endpoint of the same scale)
-        ml = ml_heur.astype(np.int64)
+    ml, cond, ml_source, join_rate, coverage = multileg_flags(
+        session, ts_ev, iid, price, arr["size"].astype(np.int64))
 
     # --- moneyness against the PRIOR session's close -------------------------
     # Addendum B registers the prior close, and using this session's own close was
