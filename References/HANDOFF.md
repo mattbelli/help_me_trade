@@ -1,549 +1,198 @@
-# Handoff — open threads (2026-07-29)
+# Handoff — open threads (pruned 2026-07-28)
 
 *Bootstrap for a fresh session: read this, then `CLAUDE.md` (auto-loaded), `AGENTS.md` (module map),
 `References/INDEX.md` (which doc is current).*
 
-*Contract (tense rule, adopted 2026-07-17): this file holds ONLY what is **open right now** — pending
-verifies, armed experiments, decisions in flight. PAST tense lives in `BUILD_LOG.md` (one dense row per
-round — grep it) and git; don't re-narrate shipped work here beyond one line + a pointer. When a thread
-closes, **delete its entry** — there is no archive. In-flight build work lives on `board.json`, not here.*
+*Contract (tense rule 2026-07-17; anti-bloat rules 2026-07-28): this file holds ONLY what is **open
+right now** — pending verifies, armed experiments, decisions in flight. PAST tense lives in
+`BUILD_LOG.md` (grep it) and git; when a thread closes, **delete its entry** — no archive. In-flight
+build work lives on `board.json`, not here. Anti-bloat (the growth cycle happens when these are
+skipped): (1) every ⏳/▶ item is an ACTION with a date — durable facts/doctrine/warnings go to a
+memory, a design doc, or the BUILD_LOG row, never here; (2) any session that touches this file
+first DELETES what it can prove closed (BUILD_LOG row or a live check) before adding its own; (3)
+a dated verify whose date has passed is either closed out or re-dated — never left; (4) soft
+budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 2026-07-29 Fusion mechanical lane — TWO DEPLOYS DUE, and they must NOT share a cohort boundary
+## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
-Both rounds are BUILT, adversarially reviewed, and green (rows in `BUILD_LOG.md` 07-28: news dots; rvol
-dots; CI flake). Cards: `news-catalyst-dots`, `fusion-unminted-dots`. What is OPEN is the *deploy
-sequencing* and the verifies.
-
-- **⚠️⚠️ THE COHORT RULE — the reason this is two deploys, not one.** News moves catalyst *reach* UP
-  (~215–381 open-episode symbols/day gain a headline dot); the attention frozen-peak fix moves legacy
-  scores **DOWN by up to −3.5**. Ship them together and a score step is uninterpretable — you cannot tell
-  correction from signal. So: **news deploys 07-29 pre-open (own cohort), rvol+attention 07-30 pre-open
-  (own cohort).** Any trailing-percentile baseline must not straddle either date.
-- **▶ 07-29 pre-open: deploy news.** Already on main (`8cf8008`, PR #134 merged 07-28). `bash
-  tools/serv-deploy.sh backend` from the dev tree after pulling main; VERIFY `newMainPID` changed.
-- **⚠️ BLOCKER on that deploy, known and trivial — clear it BEFORE pulling.** The dev tree
-  (`/home/mbelli/dev/help_me_trade`, where deploys pull from) sits on main at `205346a`, *behind* main,
-  with 3 files locally modified: `db/flow_corpus.py`, `tools/flow_corpus_rollup.py`,
-  `tools/opra_tcbbo_backfill.py`. All three were diffed 07-28 and are **byte-identical to what main now
-  carries** (they are leftover copies of already-merged FLOW work — nothing is lost by discarding them),
-  but `git pull` still refuses with "local changes would be overwritten". Fix = `git checkout --` those
-  three paths, then pull. Founder was asked and had not greenlit it as of 07-28 EOD. Do NOT touch the
-  many untracked files in that tree (PDFs, mockups, research logs).
-- **⏳ PR #135 (rvol + attention fix) is OPEN and green — HOLD until the news deploy is out.** Head
-  `54ca197`, `MERGEABLE/CLEAN`, carries the CI-flake fix. Merge it AFTER 07-29's deploy, deploy 07-30.
-- **⏳ News verify, after the 07-29 deploy (RTH):** counters `news_dot_minted`, `news_backfill_minted`,
-  `news_roundup_zeroed`, `news_no_open_episode`; catalyst-group share should rise materially. Nothing
-  should touch direction/agreement/decayed-z — those are arithmetically pinned by test.
-- **⏳ rvol verify, day-2 after 07-30:** the `rvol_dots` counter; a per-pass write-cost measurement (the
-  review asked for the spot-flush-style benchmark, still not done); and attention scores stepping DOWN —
-  **that step is the correction, never signal.** Watch the one-time attention migration: it full-scans
-  ~591k `evidence_dots` rows, so avoid the 07-27 lock-starve path.
-- **⏳ Day-1 brand-new-symbol rvol gap (founder decision, recorded not blocking):** a symbol with no
-  profile and no premarket offset is honestly unavailable until day 2 — i.e. quiet for exactly the
-  fresh-burst population. Accepted for now.
-- **⏳ Next in this lane (not started): filings → fusion dots.** `db/filings.py` is feed-only today (no
-  `ingest_seq` ⇒ not bus-capable). Needs that column, plus a founder call on insider-buy direction
-  (`direction='none'` like news, or a deliberate exception). Congress-trades rows are stale since 07-02
-  (STOCK Act allows 45d, but worth a source check).
-
-**⚠️ Two CI traps learned 07-28 the hard way — both cost hours:**
-1. **A conflicting PR dispatches NO workflow at all.** GitHub can't build `refs/pull/N/merge`, so
-   `pull_request` runs never fire — no queued run, no red X, just silence. That silence reads exactly
-   like an Actions outage and was misdiagnosed as one. **Check `gh pr view N --json mergeable` FIRST.**
-   Also: the CI is `paths-ignore`-filtered, so an empty "retrigger" commit can never trigger it.
-2. **A re-run that greens is evidence of a RACE, not permission to stop looking** — see the CI-flake
-   BUILD_LOG row (07-28) and memory `ci-flake-shared-test-db-path`.
-
-**Housekeeping:** `board.json` canon is `indent=2` + `ensure_ascii=True` (restored 07-28) — a
-`json.dump(indent=1)` round-trip renormalizes all ~4,700 lines and makes every future merge a whole-file
-conflict. Resolve board conflicts **card-by-card** (three-way by `id`), never as text. Also: leaked
-watcher PID 4165097 (from the FLOW session) waits on `pgrep -f "flow_corpus_rollup.py --start"` but its
-own command line contains that string, so it self-matches and will never exit — harmless 60s sleeps.
-
----
+- ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
+  ET run; backfilled rows carry `close_oi IS NULL`.
+- ⏳ (was Mon 07-27) IV corpus first live cron run: `iv_daily` row per universe symbol + sane
+  `bars_current`; then 07-28: OI backfill lands on 07-27's rows (OI publishes a session late).
+- ⏳ (was Mon 07-27+) re-run `tools/option_spread_probe.py` INTRADAY before recording the spread
+  gate (prereg fixed: Saturday-close CHEAP would be decisive, PROHIBITIVE not; the ~3.2× cohort
+  ratio is the robust part).
+- ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
+  Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
+  submit-at-the-open. Then confirm stop_guard placed the resting GTC within a poll tick.
+- ⏳ chart prewarm: `/health` bars_prewarm `lag_s` stays well under the shortest TTL across a few
+  sessions (`chart-bars-prewarm-storms`).
 
 ## ▶ 2026-07-27 Postgres migration — design BANKED, execution PAUSED on trigger
 
-Founder decided migrate 07-27, then same day returned it to a **trigger-based wait** with the design
-banked: hold a few days, and if **another multi-writer incident** appears, execute the doc as
-written — no re-litigating. Trigger (crisp, all instrumented today): dropped sweep cycles attributed
-`db_error`, `database is locked` in logs, or slow-txn logger showing sustained multi-second write
-queuing. **The governing design stays `References/POSTGRES_MIGRATION_2026-07-27.md`** (adversarially
-hardened, merged PR #122 — §5 danger register + §9 gates are the checklist when triggered; start at
-§12 Round 0). Card: `postgres-migration-decision` (backlog, trigger-armed). Open items:
-- **Pull forward regardless of Postgres**: backup watchdog fails OPEN on unreadable backup age
-  (`api/jobs.py:189-190` — guards today's SQLite backups; must fail closed) + `.env` chmod 600.
-- Slow-txn logger + SQLite health instrumentation stay live — they ARE the trigger sensor.
-- When triggered, open the two pre-cutover fix cards: `daily_bars` schema leak
-  (`trading/proposals.py:704`) and the `rule_events` 10,831-FK-orphan decision.
+Trigger (instrumented): db_error-attributed dropped sweeps, `database is locked`, or sustained
+multi-second slow-txn queuing → execute `References/POSTGRES_MIGRATION_2026-07-27.md` as written
+(§12 Round 0 first), no re-litigating. Card `postgres-migration-decision` (backlog). Open:
+- Pull forward regardless: backup watchdog fails OPEN on unreadable backup age
+  (`api/jobs.py:189-190` — must fail closed) + `.env` chmod 600.
+- When triggered: open the `daily_bars` schema-leak and `rule_events` FK-orphan pre-cutover cards.
 
-## ▶ 2026-07-26 whole-market flow corpus — backfill IN FLIGHT, deadline is real
+## ▶ Whole-market flow corpus — v6 landed; discovery + live builds open
 
-Databento Standard is live; whole-market OPRA `tcbbo` is $0.00 inside a **12-month window that rolls
-daily**. Detail is on the `whole-market-flow-corpus` card and the BUILD_LOG row — only the open items live here.
+Corpus state: 251/251 sessions at v6 (`multileg_source=codes`), doctrine recorded in ROADMAP 1.8,
+Addendum D–F, and memories (multileg fence reaches single names; orders-not-prints for N; one BBO
+snapshot per sweep). Open threads only:
+- **⏳ Live package-awareness build** (board notes 28s/28u) — priors now measured at v6;
+  1.7/1.10 and the 1.11+ discovery program are unblocked on trustworthy labels.
+- **⏳ Phase 2 OI backfill running** (launched 07-28, `opra-oi-backfill.service`, ~9.5 h): check
+  07-29 that `data/databento/opra_oi/` holds ~251 npz files and the log shows no cost-gate abort;
+  then build 2.3 (reconcile prints vs OI deltas — aggregate open-vs-close, never per-print) and
+  2.4 (re-grade the Phase 1 signal on the split). 2.1 facts recorded in ROADMAP §2.1. Also 07-29:
+  cross-check `2026-07-17.npz` vs `options_flow_daily.close_oi` date 07-17 (both = 07-16 close
+  positions; broker chain pipe vs statistics pipe — same OCC number, validates both decodes).
+  NOT runnable today: no concurrent ALL_SYMBOLS pulls while the backfill grinds.
+- **⏳ 2.3 running across the corpus** (`oi-reconcile.service`, log `data/oi_reconcile.log`, ~8s
+  per session): confirm 07-29 it covered every consecutive OI pair and the flag rates stayed near
+  the smoke (clean ~98.6%). Numbers + the three bugs are recorded in ROADMAP §2.3 and the
+  BUILD_LOG row. THEN 2.4 — which needs its OWN pre-registered pass/fail before it runs, and may
+  use `f_open` **cross-sectionally only** (its >0.5 level is an artifact of OI decaying via
+  exercise/assignment/expiry, not a finding).
+- **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
+  feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
+  grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
+- **⏳ Live flow pairing Inc 2 — SHADOW IS LIVE since 2026-07-28 21:02 UTC** (dev tree pulled to
+  `8cf8008`; the code was already on main via PR #133. `OPTIONS_FLOW_PAIRING_SHADOW=1` in dev-tree
+  `.env`; collector PID 1186654; wildcard ack `wide=True`, no warnings, RSS 406 MB at start).
+  ⏳ NEXT (07-29, after a full session): read shadow stats — wire lag both sides, enrich ≤1s
+  fraction, per-root d-vs-a coverage, RSS across the open burst (measured ceiling ~1 GB at
+  MAX_PENDING 2M) — plus a full-day session replay for open-burst RSS. Watch for the matcher-reset
+  epoch lines on any Alpaca re-subscribe (keepalive flaps are 40–48/day on this account).
+  Inc 3 cutover still needs the standing-NBBO consumer audit. No code-family scoring before
+  1.8-on-truth conclusions are folded in.
+  ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
+  is a clean restart (interactive sudo is unavailable to agents on serv).
+- **⏳ Flow perception surface — SCHEDULED (nightly cron live), alerts unarmed, no UI widget** (BUILD_LOG
+  07-29 rows; card `flow-perception-ship`). `tools/flow_perception_nightly.sh` (cron 04:30 UTC Tue–Sat)
+  now rolls the corpus + runs the scan after the capture chain; live dry-run smoke done (4,060 rows /
+  2,366 symbols on 2026-07-24). Open: founder arms `alerts.flow_perception_alerts_enabled` (recommend
+  ≥3 components or top-N — ≥2 yields ~451 candidates/session), UI widget, and earnings-calendar
+  coverage widening (own thread, agent dispatched 07-29).
+- **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
+  abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
+  finding, not a reason to retune; report the three abstain states separately.
+- **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
+  can rank the three weightings ordinally.
+- **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window
+  unmonitored (equity `is_market_open` flips False at 16:00; ~31% of premium settles there);
+  truncation detection is size-only with a hard ceiling — durable fix = assert last record ~16:15 ET.
+- **⏳ Equity-bar coverage gaps** feed ROADMAP 1.4/1.5: live names (CMA/PSTG/MMC/CTRA/CFLT/MPW/AZN)
+  have no bars → no moneyness; adjusted contracts (WOLF1 etc.) inflate `no_spot_$` via the
+  hardcoded 100 multiplier. 1.4 must read the per-root breakdown, not the bucket.
 
-- **⏳ v6 re-roll RUNNING (Addendum F blessed 07-28, migration FIRED)** — F blessed by founder
-  the same morning it was drafted; executed immediately: rollup adoption gate rewritten to
-  per-print (below-floor sessions adopt labels + get flagged for the ≥98% robustness subset),
-  `SCHEMA_VERSION` default flipped to 6, 47 corpus tests green, files synced to the dev tree,
-  and the full 251-session re-roll launched niced+ionice with a 500MB-available memory guard
-  (ntfy on kill; **resumable — relaunch without `--force`**). Log:
-  `data/flow_corpus_reroll_v6.log`; estimate ~10–17h (init spends several silent minutes
-  dropping the 49M-row v5 table before per-session lines appear). **When it lands: verify
-  session count = 251 at v6 + `multileg_source` census, then re-run 1.8 on code-labeled arms —
-  full corpus AND the ≥98% subset (115 sessions) per F's registered robustness arm.** Then the
-  live package-awareness build (board notes 28s/28u) with measured priors.
-- **⏳ Live flow pairing — Inc 1 DONE 07-28, Inc 2 (live shadow) open** — spec
-  `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md` (founder replaced the ≥5-session parallel run with
-  replay validation: both live inputs already exist on disk for all 251 sessions). Shipped:
-  `signals/options_flow/live_pairing.py` (streaming frozen join) + `tools/live_pairing_replay.py`
-  + tests. Measured on 2025-12-24: 315k events/s, **stream-miss=0 vs batch** (strict superset,
-  +48.5k labels recovered from k-rank cascades, 273 code-clashes of 4M), 300s-lag stress clean.
-  Inc 2 shadow BUILT 07-28 (see BUILD_LOG row): `ShadowPairing` inside hmt-flow-collector
-  behind `OPTIONS_FLOW_PAIRING_SHADOW` (default OFF), metrics only, shadow task excluded from
-  the collector's exit wait. **Open:** (1) deploy = flip the flag in the dev-tree `.env` +
-  restart hmt-flow-collector after the close — ⚠️ kill the standalone recorder FIRST (it holds
-  the OPRA socket until 21:00 UTC self-stop; one ws per account); (2) read 1–2 sessions of
-  shadow stats (wire lag both sides, enrich ≤1s fraction, per-root d-vs-a coverage, RSS);
-  (3) full-day session replay after the re-roll frees the box (open-burst RSS);
-  (4) Inc 3 cutover needs the standing-NBBO consumer audit. No code-family scoring before
-  1.8-on-truth.
-- **✅ Forward capture automated (§6b thin, 07-28)** — cron `30 2 * * 2-6` UTC runs
-  `tools/nightly_flow_capture.sh` (dev tree): tcbbo+defs download (`--max-cost 0.0` =
-  deny-by-default on spend; the free 12-mo window ROLLS DAILY so an uncaptured session becomes a
-  purchase) → condition capture → `--sweep` into the join ledger. Idempotent, 7-day lookback
-  self-heals missed nights; pgrep guard defers to any running manual backfill; failures page the
-  ntfy dead-man topic; log = `data/alpaca_conditions/nightly.log`. Decision recorded 07-28: the
-  §6b wildcard-WS live daemon is NOT built — REST-after-close is complete-by-construction (no gap
-  accounting) and no intraday condition-code consumer exists (all gated behind roadmap 1.9).
-  Holiday sessions print FAILED forever in the capture log — expected, harmless. ⚠️ A below-floor
-  NEW session does not page — it shows in nightly.log + the ledger and blocks that session's v6
-  labels (heuristic fallback with reason logged at rollup).
-- **⚠️ Sweeps get ONE quote, not one per leg** (measured 07-26, see BUILD_LOG). The BBO is a single
-  pre-sweep snapshot per `(instrument_id, ts_event)`: 99.4% of multi-print groups carry an identical
-  quote. Right reference for signing direction, but **N legs are not N independent quote observations**
-  and book-walking depth cannot be read off the attached BBO. Anything that weights by print count
-  across a sweep needs to know this.
-- **✅ Classifier audited** (`tools/flow_classifier_audit.py`, post-join). Midpoint rule signs **87.83%**
-  (buy 42.29% / sell 45.54%); 10.06% print exactly at mid and stay unsigned; the strict/touch rule signs
-  only 61.9%. Premium is clean at $26,310,928,243.
-- **✅ Direction rule REGISTERED + CORRECTED** — Addendum C, corrected by **Addendum D** (C left in the
-  record deliberately; D is appended, not an in-place edit). The rule and the 20–35% band are
-  **unchanged**; what changed is why they are trusted. ⚠️ **The three measures are NOT three votes** —
-  `sign(u)` equals the midpoint side by construction (`half > 0` under `good_q`), so all three share
-  every print's sign and differ only in weight (`w=1` / `min(|u|,1)` / `|u|`). Their agreement tests
-  **only** that direction survives the weighting choice. **A 2-of-3 majority is incoherent here**, not
-  merely unregistered — it counts one opinion twice; the majority-vote `dissenters()` helper is deleted.
-  Abstains now carry a state: `no_opinion` / `weighting_unstable` / `contested`, reported by premium
-  share and **never pooled**. ⚠️ Robustness checks stay **premium-weighted**; raw-vs-clip disagreement is
-  0.24% of buckets but 15.8% of premium. **`u_premium` is pre-registered — add measures beside it, never
-  redefine it.**
-- **⚠️⚠️ MULTI-LEG CONTAMINATION — the biggest live caveat on this corpus.** A spread leg is priced off
-  the package, not its own NBBO, so its midpoint side is unreliable — and unreliable in **all three**
-  measures, since they share one sign. Measured 2025-07-28: **12.96% of prints, 33.33% of premium**, and
-  excluding them **flips the session sign of every measure** (net +$553.6M → −$219.3M, clip +$95.4M →
-  −$84.3M, raw +$366.4M → −$176.5M). Now a **grain** (`multileg` in the rollup PK, `schema_version=3`),
-  so both arms are stored and neither can be chosen after seeing the answer. **No bucket-level reading —
-  directional or abstain — may be presented without both arms.** The flag is a heuristic (shared
-  `ts_event`, different instrument): OPRA `flags` is constant 194 across all 6.95M prints and marks
-  nothing (`tools/tcbbo_flags_probe.py`), but `ts_event` is true-ns so ~1 coincidence is expected per
-  session.
-  **▸ DE-ESCALATED 07-27 by roadmap 1.8 — it is an index/ETF artifact.** Split three ways
-  (`tools/multileg_arm_probe.py`): **single names flip 0/3** measures (10.9% of prints / 19.5% of
-  premium multi-leg), **index roots + ETFs flip 3/3** (16.5% / 48.5%). Institutional hedging is
-  overwhelmingly spread structures; single-name flow is not. The both-arms presentation rule above
-  **still stands** — but the alarm does not reach the single-name flow the 3–45 day thesis targets.
-  ⚠️ One session, in-sample; re-run across the corpus. Related, and it matters for the Phase 4
-  aggregate's denominator: single names were net **short** (−$354M) while index/ETF was net **long**
-  (+$908M) the same session, so pooling them cancels two opposite signals.
-- **⚠️ `orders`, NEVER `prints`, is the N for any z-score or standard error** (`schema_version=4`).
-  A sweep arrives as N prints of one order; counting it N times inflates √N by up to 1.051× at p90,
-  worst in thin heavily-swept names (TLRY 16.0%, SNAP 15.0%) — the exact tier measurement 1.7 is
-  about. `prints` is retained unchanged because it is pre-registered. Do **not** sum `orders` across
-  buckets for a session total: a sweep whose legs disagree on side is counted in each bucket it
-  touches, so the sum runs 0.13% above the true group count. Correct per bucket, which is the grain
-  every statistic uses.
-- **⏳ CONFIRMATORY, once the backfill lands:** the rule was chosen after seeing 2025-07-28, so that
-  session is in-sample. Re-measure abstention across the ~258 unexamined sessions and report where it
-  falls against the 20–35% band — **outside the band is a finding, not a reason to retune.** Report the
-  three abstain states separately; no sub-bands are declared and none may be invented from 07-28.
-- **⏳ Study round owns one follow-up:** wire `by_measure` calls into the idea ledger so grading can rank
-  the three weightings ordinally — deliberately not built now (no consumer yet; a hook into nothing is
-  dead code), but the calls are emitted from the start because the comparison cannot be run
-  retroactively.
-- **Minor, before the 260-session run:** line 123 `to_ndarray()` does **no chunking** — it materializes a
-  whole session (~1.87 GB peak RSS) per iteration, and the 260-session run is unattended.
-- **⏳ Rollup not yet run across the corpus** — verified on 2025-07-28 only (13s/session, 186,750 rows
-  at `schema_version=4`). Run `tools/flow_corpus_rollup.py` once the files land, then re-run
-  `tools/flow_corpus_bars.py` so the full universe (not just one session's) has spot.
-  **The schema is FROZEN at v4** — 1.1/1.2/1.3 were the schema-affecting fixes and all three have
-  landed, so this is one pass (~1 hour for 260 sessions), not two. Adding a column after this point
-  costs a second full re-roll.
-  **Watch `no_spot_$` in the log during the unattended run.** It counts only the `no_spot_missing`
-  arm — ordinary names that should have had an equity bar. **Measured over 37 sessions: $54M–$574M,
-  median $123M** (the one-session ~$65M figure was not representative). An index root missing from
-  `INDEX_ROOTS` would read **billions** — index flow is ~$10B/session — so the alarm line is orders
-  of magnitude clear of normal variation.
-  ⚠️ **BOTH SENTENCES ABOVE WERE WRONG AND ARE CORRECTED — 2026-07-27 review.** Measured over 138
-  sessions the bucket runs **$41.3M–$7,196.6M, mean $256.0M**, so the "billions ⇒ missed index root"
-  discriminator is **already saturated and cannot identify a missed root**: the covered roots are
-  VIX $89.8M / XSP $31.9M / RUT $94.9M / NDX $234M per session, all well inside the bucket's own swing,
-  and only SPX ($9,891M) would clear it. The tail is **adjusted contracts** inflated by the hardcoded
-  100 multiplier (roadmap 1.5) — WOLF1 alone is $7,082M on 2025-12-19.
-  ⚠️ **It is also NOT a clean delisting list** — calling it a "corporate-action detector" was an
-  overclaim. It mixes four unrelated causes: adjusted contracts (WOLF1, OPEN1, BABA2), ticker-format
-  breaks (BRKB, $3.8B over 110 sessions), genuine corporate actions (WBA, PARA, SATS), and **plain
-  equity-bar coverage gaps on live, actively traded names** — CMA, PSTG, MMC, CTRA, CFLT, MPW appear in
-  **all 110** of their sessions and AZN has no bars in range at all. **Those live names currently get
-  no moneyness whatsoever in the corpus**, which is a data gap to close, not a corporate action.
-  **Roadmap 1.4 must read the per-root breakdown**, not treat this bucket as its list.
-- **⏳ ONE KNOWN BACKFILL GAP: `2025-09-02`.** Checked 07-27 at 89/260 — every other processed
-  session is on disk, and the two 0-byte files (`2025-09-01` Labor Day, `2025-11-27` Thanksgiving)
-  are correct recorded holidays. **Remedy: re-run `tools/opra_tcbbo_backfill.py` over the same range
-  after the current pass finishes** — the skip guard is `exists() and size > 0`, so a second pass
-  fetches only what is absent. Cause was a leftover `.part` from a 502-storm process death: the
-  Databento client validates the write path before contacting the server, so a stale partial made
-  the day fail forever for a reason unrelated to the download. Fixed 07-27 (the `.part` is now
-  cleared *before* the request, not only after a caught failure), but the running process predates
-  the fix, **so verify the gap set again when it lands.**
-- **⏳ THREE SESSIONS HAVE NO DEFINITION FILE: `2025-08-07`, `2026-04-28`, `2026-07-09`.** Found by
-  the new gap check, 07-27 — the defs pass reported "258/260 done" and this was invisible behind it.
-  **A session without definitions cannot be rolled at all** (`_load_definitions` returns None and the
-  rollup logs *"no definitions — cannot attribute prints"*), so all three would have silently never
-  entered the corpus. All three causes are **transient, not systematic**: a stale `.part`
-  (2025-08-07, now fixed), `BentoError: Response ended prematurely` (2026-04-28) and a failed
-  `get_cost` call (2026-07-09). **The backfill has no retry — one blip drops a session permanently**,
-  3 lost out of ~520 pulls. Remedy is a second pass (definitions are L0/free, $0.00, and unlike
-  tcbbo they carry **no rolling deadline**); deliberately NOT run concurrently with the in-flight
-  tcbbo pass, because two simultaneous ALL_SYMBOLS streams are what swamped the box on 07-26.
-- **✅ ROADMAP 0.1 SHIPPED 07-27 — the live lane can now tell a dead feed from a quiet market.**
-  `FeedLiveness` in `dbn_stream.py`, judged on **records, not `is_connected()`** — the failure that
-  matters is a socket that still reports healthy while nothing arrives. Three faults kept separate
-  because they need different responses: **subscription never acked** (raises; the only check valid
-  outside RTH, since Databento sends symbol mappings on subscribe regardless of market activity),
-  **transport dead** (no records for 90s during RTH → raises `FeedDead`, well inside the roadmap's
-  2-minute budget), and **pipeline dead** (records arriving, no prints for 300s → logs loudly but
-  does **not** raise, because tearing down a healthy socket is the wrong fix for a symbology/meta
-  problem). Plus a prints/min counter so a feed dying is visible before any threshold trips. RTH
-  comes from the existing holiday- and half-day-aware `trading.market_hours.is_market_open` (15 tests).
-  ⚠️ A closed-market tick **resets** the silence clocks — without that the first tick after the
-  opening bell compares against last session's timestamp and reports a dead feed on a healthy one.
-  ⚠️ **Corrected same day by review, and the correction matters more than the feature.** The first
-  version judged silence on `msgs`, which databento increments for **gateway heartbeats too** (every
-  30s), so it could never fire — a watchdog that manufactured confidence. Liveness now runs on
-  `data_msgs` (records carrying a book level). Also: a hard socket kill is already caught at ~41s by
-  databento's own monitor flipping `is_connected()`, so this clock's unique value is narrower —
-  gateway-side data stalls and wedged callback threads.
-  ✅ **The ack premise is SETTLED against the real gateway (07-27, 00:07 ET) and the check was rewritten.**
-  Two halves, one true and one false: the gateway **acks in ~17ms off-hours**, but `symbology_map` stays
-  **empty**, because mappings are only emitted for instruments that trade. The check was inferring the
-  ack from `len(symbology_map)`, so it fired a *false* "never acked" on a healthy subscription — the
-  RTH-only hedge was the only thing preventing a 60-second collector restart loop all weekend. It now
-  keys on `SystemCode.SUBSCRIPTION_ACK` and **raises at any hour**. Do not reintroduce `mapped` as an
-  ack signal.
-- **`databento` is in `requirements.txt` as of 2026-07-27** — arming the lane made it a hard runtime
-  dependency of the collector, and leaving it hand-installed meant a venv rebuild would break the live
-  flow lane at startup. Both use sites still import it lazily; that costs nothing and keeps the pure
-  bucketing/grouping helpers importable on a partial install.
-  ⚠️ The `requires_dbn` marker on the 5 control-plane tests in `test_dbn_stream.py` **stays** — it is
-  now a no-op in CI, but it is what keeps the suite honest anywhere the package is absent. To check a
-  change the way a package-less environment sees it, hide the package rather than trusting the marker:
-  a `sitecustomize.py` returning `None` from `find_spec` for `databento*` and raising on real import
-  reproduces it exactly.
-- **▶ `tools/dbn_live_probe.py` is how you exercise the live lane without deploying anything.** It runs
-  the real `DatabentoFlowStream` with the real `runner.meta_for` in its own process — it does not read
-  `options_flow.provider`, does not touch `hmt-flow-collector`, and writes nothing, so it is safe to run
-  while the Alpaca lane is live. `--replay-from <ISO>` uses the live API's **intraday replay**.
-  ⚠️ **The replay floor is real and the gateway names it** — measured 07-27: asking for Friday returned
-  `Invalid start time. Must be 2026-07-26T00:00:00+00:00 or later,` **and closed the connection**. It
-  snaps to a UTC midnight rather than rolling strictly, so the window runs 24-48h back depending on the
-  hour; a Friday session is gone by Sunday night regardless. The usable slot is **a weekday after the
-  close, replaying that day's open** (Monday's session stays reachable through Tuesday morning).
-  ⚠️ **Never enable reconnect on a replay session.** databento re-subscribes with `start=None` hardcoded
-  (`session.py:762-769`), so a dropped replay comes back LIVE and the run keeps reporting as if it were
-  still replaying — the only trace is `reconnects`. `run()` forces `reconnect_policy="none"` whenever
-  `replay_from` is set; do not "simplify" that back to one policy.
-  Replay is also the only way to exercise the slow-reader path without a market, since it arrives as
-  fast as the gateway will push it.
-  ⏳ **Not yet done: the replay run itself** — 09:30→16:00 ET on the real flow watchlist. That is the
-  first test of symbology at scale, of print production, of the 89%/92.7% classification claim against
-  live plumbing rather than the corpus, and of throughput. It gates arming; nothing needs deploying
-  first.
-- **⚠️ `reconnect_policy="reconnect"` is ON, and it changed what `is_connected()` means.** With a policy
-  set, `is_disconnected()` returns `_reconnect_task.done()` (`session.py:452-458`), so **`is_connected()`
-  reads True right through an outage of any length.** Do not treat it as a health signal — the 90s data
-  silence clock is now the *only* detector of a session that never comes back, which is why the
-  heartbeat fix had to land first. The `is_connected()` branch in `run()` is the terminal case only:
-  databento has stopped trying. Reconnects and cumulative gap seconds are counted and logged.
-  ⏳ **Known, bounded, not fixed:** a sweep cluster straddling a reconnect gap closes with legs missing
-  and understates. Strictly smaller than the status quo it replaced (a restart discarded every buffered
-  cluster plus `RollingFlow` and the gauges), so it was not worth speculative cross-module plumbing —
-  but if reconnects turn out to be common in practice, dropping the `SweepBuffer` on `_on_reconnect` is
-  the fix. The pressure gauge is already gap-honest: `window_stats()` counts only minutes that have
-  cells, so a wholly-missed minute never enters `minutes_observed`.
-- **▶ Four gateway conditions are now counted** (`subscription_acks`, `slow_reader_warnings`,
-  `skipped_by_gateway`, `symbol_resolution_failures`, plus `callback_errors`) and appear in the periodic
-  rate line. They exist because each one **makes the tape wrong without making it stop**, which is the
-  one failure class the liveness clocks structurally cannot see. `run()` passes
-  `slow_reader_behavior="warn"` **explicitly** — Databento flipped that default to `skip` for the
-  stateless schemas on 2026-04-26 and tcbbo escaped only by not being on the list.
-- **The Databento lane has no quote store at all any more** (fixed 07-27, see the BUILD_LOG row) — the
-  NBBO rides on the print as `nbbo`, and `sweep_loop` reads `p["nbbo"] or stream.quote_at(...)`. Keep it
-  that way: `dbn_stream.quote_at` returns `None` by design and re-growing a store re-opens a thread race,
-  a false `quote_basis="dbn_nbbo"` label on same-millisecond prints, and an unevicted ring. The Alpaca
-  lane is unchanged and still classifies through `quote_at`.
-- **⚠️ Two known holes in the new guards, both deliberate and both worth closing later.** (1) The
-  16:00–16:15 ET index-settlement window is **unmonitored** — `is_market_open()` is the equity session
-  and flips False at 16:00, so `idle()` resets the clocks, yet the backfill deliberately captures to
-  16:15 because index options settle there and carry ~31% of corpus premium. (2) Truncation detection
-  is size-only and **has a hard ceiling**: real median 264.8 MB, smallest legitimate session Christmas
-  Eve at 0.469×, so the 0.35 fraction cannot rise past ~0.44 and the 0.35–0.47 band is invisible at any
-  threshold. The durable fix is temporal — assert the file's last record reaches ~16:15 ET.
-- **▶ `tools/flow_corpus_gaps.py` (roadmap 0.2, shipped 07-27) is how you check any of this.**
-  Exits 1 on any gap so it can be a cron. Three checks: absent files, files present but not rolled at
-  the current `SCHEMA_VERSION`, and **truncated pulls** — a partial download passes the backfill's
-  `exists() and size > 0` skip guard and is skipped forever, which has now bitten this project twice
-  (the eight 7 KB definition files from the UTC-window bug, and 2025-09-02's 64.5 MB against a
-  ~270 MB median). The trading calendar is derived from `equity_bars`, not hardcoded, so it cannot
-  drift out of sync with the corpus it checks.
-- **✅ CLOSED — the unresolved prints are one index instrument.** 0.35% of prints (24,298 on 2025-07-28)
-  are all `instrument_id` 5930, `raw_symbol` BBX, `instrument_class` 'K' (INDEX), UNDEF strike/expiry.
-  `_load_definitions` keeps only 'C'/'P', so they never reach `d_ids` and the join drops them. Correct —
-  they are not options. ⚠️ They also carry `size == UINT32_MAX`, so the C/P filter is the **only** thing
-  stopping `premium = price/PX * size * 100` from inflating a session ~918,000,000x ($26.3B → $24.2
-  quintillion). Do **not** relax the join to "recover" unresolved prints without a size-sentinel guard.
-- **Index roots have no spot by construction** (SPX/SPXW/NDX/VIX/RUT = 30.8% of premium, `mny_bucket`
-  = 'unknown'). The prereg's secondary arm excludes index roots, so this is acceptable — but it is a
-  decision, not an oversight, and a SPY×10-style proxy is the option if that changes.
-- **Do NOT build** the anchor-seeding / hot-pool / promotion tuning for the 1,000-sub cap. It was queued
-  before the subscription and is now dead work.
+## ▶ 2026-07-26 audit round — remaining open cards
 
-## ▶ 2026-07-26 audit round — four Opus investigators; findings are ON THE BOARD, not here
+Findings live on cards; six of nine closed. Still open: `chat-dead-ts-surface` (dead TS brain incl.
+an unguarded `propose_order` endpoint) · `copilot-memory-store-empty` (0 active memories, embeddings
+backfill never ran) · `fusion-unminted-dots` (4 of 4 BUILT 07-28; `rvol_ex_prints` awaits its deploy —
+see fusion section).
+REASON/DECIDE wall-down was proven live Monday (TSLA/XLE admissions); the `REASON_EMIT_ENABLED`
+flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 
-Four parallel audits (perception layer, idea engine + fusion, AI chat, all 64 non-done cards) ran against
-**live serv state**, not just code. Every load-bearing claim below was re-verified by the orchestrator
-before being written down. **Nine new cards carry the findings** — this section exists only so the
-threads are not lost; read the cards for detail, and delete this section once they are worked.
+## ▶ Fusion — Horizon Redesign Round 5 + measurement follow-ups
 
-**★ The structural finding — the wall is down; ⏳ the live proof is Monday.** REASON/DECIDE had never
-executed once (`reason_runs` = 0 all-time) because a dead gate ran ahead of its replacement, not because
-of `REASON_EMIT_ENABLED`. Removed 07-26 (see the BUILD_LOG row); the offline replay puts **1–3
-investigations/session against a budget of 5**. **Open:** confirm on the Monday **2026-07-27** tape that
-`fusion_investigations` takes new rows and the `fusion_would_investigate` counter moves — the fix ships
-on unit tests plus a historical replay, and the tape closed Friday 16:04 ET. **Then it is the founder's
-call whether to flip `REASON_EMIT_ENABLED`** (a queue with members is the precondition, not the
-decision). The four dead subsystems downstream (dossier — `idea_dossiers` does not exist live; the REASON
-lane; idea arming — `lifecycle_state` NULL on all 1,400 rows; attention idea-tiers) stay dark until that
-flip.
+**⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
+attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
+uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
+- ▶ **07-30 pre-open: deploy news dots** — on main since `8cf8008` (PR #134). ⚠️ the code is ALREADY in
+  the dev tree while the backend has not restarted since 07-28 12:33 UTC, so the *next restart of any
+  kind* starts the news cohort — restart deliberately pre-open, never mid-session.
+- ▶ **07-30, after that deploy: PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main
+  in, re-verify, merge, then deploy **07-31 pre-open**. Never the same cohort date as news.
+- ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
+  `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
+- ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
+  for (never done); attention scores stepping DOWN = **the correction, not signal**. Watch the one-time
+  attention migration — it full-scans ~591k `evidence_dots`, so keep it off the lock-starve path.
+- ⏳ next in this lane: filings → fusion dots — needs `ingest_seq` on `filings_events` plus a founder call
+  on insider-buy direction (`none` like news, or a deliberate exception). Congress rows stale since 07-02.
 
-✅ **DEPLOYED 2026-07-26** — `BeerBelly69/clear-the-board` ff-merged to `main` at `9e39914`, frontend
-rebuilt in the main checkout (`BUILD_ID` mtime moved, served `/api/version` buildId matches), all four
-units restarted with new MainPIDs, backend booted with zero tracebacks. Live-verified on the new
-process: SearXNG → 8586, pacing 1.5s, and `fetch_url` extracting the article ("Record quarterly revenue
-of $22.1 billion…") on a content page while correctly falling back to the tag strip on a link-list page.
-So the Monday checks below now exercise the new code.
+Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
+- ⏳ ≈2026-08-05: T=3.5 revisit (recount T tables on print-price-era + flow-list-era dots) AND the
+  z-vs-outcome audit from the 07-28 integrity round — together they feed the REASON_EMIT decision.
+- founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — changes land as
+  founder-visible diffs, never silent.
+- NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
+- ⚠ full pytest suite live-fires outbound HTTPS (suite-hang + WAF risk) — needs a network-marking
+  round.
+- wider-stop sibling lane + index-underlying spot (SPX/NDX/RUT/VIX unstampable) deferred on the
+  `fusion-mech-measurement-integrity` card.
 
-**Live bugs still open, all verified, each with a card:**
-`chat-dead-ts-surface` (dead TS brain, incl. an endpoint that runs `propose_order` with no approval
-ledger) · `copilot-memory-store-empty` (P0–P3 shipped, **0 active memories**, embeddings backfill never
-ran) · `fusion-unminted-dots` (4 registered components minted by nothing). *(Six of the nine are closed
-— snapshot account mismatch, the win% honesty leak, setup-scan idempotency, the contested wall, the
-frozen flow baseline, and the web-blind copilot; see the 2026-07-26 BUILD_LOG rows.)*
+## ▶ Chart load perf — founder eyeballs open
 
-✅ **The copilot's web arm is live again** — our own `hmt-searxng` on **8586** (`deploy/searxng/`),
-backend restarted, `.env` *and* `data/settings.json` both repointed, end-to-end verified: 30 results
-across startpage/bing/duckduckgo/mojeek. Odysseus's dead 8585 was deliberately left untouched — that
-project waits on its healthcheck. **Open, founder's call only:** the `braveapi` engine is the
-sanctioned path to brave (it throttles this IP and always will), but it needs a signup and attaches
-queries to an account — likely unnecessary at 30 results without it.
-
-⏳ **Monday 2026-07-27, flow-EOD:** confirm the 16:xx ET run lands an `options_flow_daily` row for
-07-27 and that no 00:1x ET run appears. The 5 missing sessions are backfilled, but backfilled rows are
-a **different measurement** than native ones (~7% of native summed volume; `close_oi IS NULL` marks
-them) — the baseline window self-heals to all-native ~20 sessions after deploy.
-
-**Chat safety invariant re-verified INTACT** — no broker toolset in the registry, the loop returns
-without executing on `APPROVAL_TOOLS`, web executes only after an atomic single-consume hash-bound
-claim, mobile diverts to a PENDING phone proposal, chat cannot arm a trade rule. The one side door is
-the dead endpoint on `chat-dead-ts-surface`.
-
-⚠️ **Two memories were corrected by this round** — pushes are NOT dead (75 sent in 3 days; the budget
-gates one lane, not the phone), and SearXNG has a third failure mode (container DNS).
-
-⏳ **Watch, do not yet conclude:** `fusion_mech` measures **11 won / 107 lost** vs a 33.3% breakeven,
-`llm_conviction` 0/8. n=118 resolved against **977 still open**, over one rough week for longs — which
-is exactly the tape that produces "0 of 107 losses reached target". Re-read on a fuller sample.
-
----
-
-## ▶ Fusion Horizon Redesign — Rounds 1–4 live dark; verifies + Round 5 open
-
-Direction blessed 07-21, Rounds 1–4 shipped 07-22 (`FUSION_HORIZON_REDESIGN_2026-07-21.md` — header
-amendments override its body; detail: BUILD_LOG 2026-07-21/22 rows). Lane stays DARK
-(`REASON_EMIT_ENABLED=False`) until Round 5. **Open:**
-- ⏳ next trading session (07-23): Round-3 migration rebuilds the live table clean on the
-  deploy-restart (legacy episodes → closed/migrated; `fusion_lifecycle` + `fusion_lifecycle_eod` in
-  /health; first sweep closes nothing wrongly) · Desk shows Z+Net, radar ranks by z · collector polls
-  exactly the flow list + hot lane (pre-pickup stragglers CBOE/NTSK washed out of day-state overnight;
-  SPY/TSLA carry real intraday flow all session) · weekly PWH/PWL present in the levels cache
-  (spot-check, 07-21 producer add)
-- ⏳ ≈2026-08-05: T=3.5 revisit — recount the T tables on print-price-era + flow-list-era dots before
-  moving the dial (`FUSION_Z_GATE_T`)
-- founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — every change lands as
-  a founder-visible diff, never silent
-- NEXT round: **position-watch** (entry-snapshot divergence alerts — reversal / contested / evaporated /
-  continuation — surfacing in Desk needs-you; notify-never-act) → then **Round 5 ARM** (ARMING
-  CHECKLIST rewrite, T-gate rewiring, push-restore = founder decision there)
-- ⚠ the full pytest suite live-fires outbound HTTPS from tests (incl. Akamai-fronted hosts) — the
-  suite-hang class AND a WAF risk; needs a network-marking round
-- REASON v2 A/B stays founder-gated (multi-angle, below)
-- acceptance drills when convenient: rejected proposal → `user_action='skipped'` + still grades;
-  broken parser pages within one cycle; sub-gate idea renders "unproven" (no number) on phone
-
-## ▶ Chart load perf — PR #102 DEPLOYED + machine-verified; founder eyeballs open
-
-Merged (double adversarial pass, 3 review fixes) + deployed 07-23 16:07 ET; machine verify green
-(bars_prewarm lag 5.5s on the 15s interval, WAF journal quiet, futures 1Week + SPY 1Day zero dupes).
-Detail: BUILD_LOG 2026-07-23 rows; deferred LOWs on card `chart-bars-incremental-refresh`. **Open:**
-- founder verifies charts in-browser (timeframe switches on not-yet-viewed symbols should paint warm)
-- ⏳ next few sessions: `/health` bars_prewarm `lag_s` stays well under the shortest TTL (storm
-  invariant, `chart-bars-prewarm-storms`); `_BARS_HOT_SPECS_MAX` / `_BARS_PREWARM_MAX_ENTRIES` are the dials.
-- ETH-off charts still paint pre/post (4am–8pm) — `extended=false` only skips the boats leg, so an
-  ETH-off chart mimics ETH-on until it freezes at 7:55pm (misled the founder 07-23 as "no overnight
-  candles"). Make ext=false actually RTH-only in `_build_bars_response` (mind half-days); next UI round.
+PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (warm paints on
+timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
+`_build_bars_response` (mind half-days), next UI round.
 
 ## ▶ Per-symbol vol model — shipped disabled; ARMING is the open thread
 
-v1 EWMA estimator + vol-targeted sizing landed 07-25 (BUILD_LOG row; card `per-symbol-volatility`).
-Double-gated off: global `volatility_enabled` **and** per-strategy `strategies.vol_target`, resizing
-needs both. **Open:**
-- ⚠ the mandated **two split-mandate Opus reviewers** are owed **before arming**, not before commit —
-  the multiplier lands in `signals/strategy_scan.py` on the notional before `trading/` sees it, so no
-  code under `trading/` changed this round and nothing can move an order until two switches flip.
-  Point them at the clamp/fail-soft paths and the halt guard, not at the estimator math (measured).
-- rollout order is fixed: shadow (master ON, every strategy OFF → logs `vol_regime`/`size_multiplier`,
-  resizes nothing) → paper opt-in on ONE strategy → perception dot in the UI (own card, not this one).
-- shadow output is calibration fuel — grade the logged multipliers against outcomes before arming
-  anything for real (`calibration-counts-everything`).
+Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
+- ⚠ two split-mandate Opus reviewers owed BEFORE arming (not before commit) — point them at the
+  clamp/fail-soft paths and halt guard, not estimator math.
+- rollout order fixed: shadow → paper opt-in on ONE strategy → perception dot (own card).
+- shadow output graded against outcomes before arming anything (`calibration-counts-everything`).
 
-## ▶ LLM paper books — ARMED + LIVE (07-23 late); shorts unlock open
+## ▶ LLM paper books — ARMED + LIVE; increments open
 
-Spec + amendments: `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body — see
-amendment 4, the arming-night execution round); card `llm-books-program`; detail in BUILD_LOG
-2026-07-23 rows. Founder ordered all three books armed + analysts rerun + Lab wired 07-23 evening.
-Live now: after-hours `entry_style="moo"` proposals (TTL = next session close), **paper MOOs use a
-queued market DAY order** (Alpaca paper can't fill `opg` — no opening auction; fixed 07-24, see that
-BUILD_LOG row; live still uses opg), `trading/stop_guard.py` resting GTC stops after entry fills
-(advanced picks REQUIRE numeric stop + self-sized notional), Lab book pages (lanes + per-seat + report).
-**Open:**
-- ⏳ VERIFY at the NEXT close→open (paper-TIF fix unproven end-to-end): the 07-24 opening MOOs
-  (GOOGL/deepseek, MU/fable) both **expired unfilled** — sent `opg`, which Alpaca paper never fills.
-  Fix routes paper MOOs to market `day`; tests assert only the TIF string, so confirm a real overnight
-  book MOO actually **fills at the open** and stop_guard then places the resting GTC stop within a poll
-  tick (`journalctl -u hmt-backend | grep "stop guard"`). (Book accounts are cap-exempt now — the old
-  "$65k GOOGL should risk_block" expectation is dead; founder removed per-trade caps for books 07-23.)
-  PR #106 merged + backend deployed 07-25 01:15 UTC. A **controlled probe is already resting** for
-  the Monday open, so the answer does not depend on a book proposing anything: `exec_e22a1bd20a39`
-  (F, 1 sh, STRAT1, broker `34a1b38c`) fired through the real chokepoint with `entry_style="moo"` and
-  sits `type=market, tif=day, status=accepted`. Filled at the open ⇒ the queued-DAY assumption holds;
-  expired ⇒ the fix is wrong and paper MOO needs submit-at-the-open instead of overnight queueing.
-  No history proved this before: all 19 prior paper fills were submitted *during* RTH.
-- ⏳ tomorrow 17:05/17:20/17:40 ET: first fully-armed nightly cycles end-to-end (proposals fire
-  straight from the cycle, no replay)
-- increment 5 (shorts unlock — own adversarially-reviewed round; `allow_short_selling` toggle is
-  ON but `_propose_advanced` hard-blocks shorts until the round ships); session-book research
-  depth v2 (read-only API access beyond the pack); Lab book positions section still honest-empty
-  (per-account positions endpoint — consider mobile agent's `source=snapshots` history for charts)
-- ⚠ NEXT INCREMENT (before analysts lean on GTC styles): **order-management verbs** — the
-  decision block needs cancel/replace for standing GTC entry orders AND resting stops (stop
-  lifecycle v2 folds in here). Until it ships: analysts request cancels in `holds_review`,
-  founder acts manually; a GTC limit nobody re-affirms can fill days later on a stale thesis —
-  the nightly pack's open-orders section is the review surface
-- entry-type choice live 07-24 (moo | limit GTC | ext GTC+extended_hours incl. 24/5 overnight);
-  ext fills can land at 3am — stop guard places the resting stop then, but stops only EXECUTE
-  in regular hours (gap exposure stated in the prompts; the analysts own that trade-off)
+Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
+- ⏳ first fully-armed nightly cycles end-to-end at 17:05/17:20/17:40 ET (proposals straight from
+  the cycle, no replay).
+- MOO probe outcome — see overdue list.
+- increment 5: shorts unlock (own adversarially-reviewed round; `_propose_advanced` hard-blocks
+  shorts until it ships).
+- ⚠ NEXT increment before analysts lean on GTC styles: order-management verbs (cancel/replace for
+  standing GTC entries + resting stops); until then analysts request cancels in `holds_review`,
+  founder acts manually — the nightly pack's open-orders section is the review surface.
+- Lab book positions section honest-empty (per-account positions endpoint); session-book research
+  depth v2.
 
 ## ▶ Waiting on founder
 
-- ⚠ **global `allow_short_selling=true` in prod settings** (surfaced by the 07-23 arming-night
-  review): predates tonight and is BROADER than the per-strategy book authorization — any approved
-  sell with no held long can short-to-open on paper (books + protective stops are now excluded;
-  chat/manual proposals are not). Confirm it stays, or narrow to the per-strategy flag when
-  increment 5 builds it
-- **Multi-angle reasoning A/B go/no-go** — design ready + double-audited
-  (`MULTI_ANGLE_REASONING_AB_2026-07-19.md`, board `multi-angle-reasoning-ab`). On go: one focused
-  build round + review
-- ⚠ **subscribe to the ntfy dead-man topic** (topic string in crontab): the check itself is proven —
-  canary receipts "Idea Engine alive" 07-20/21/22 in `data/deadman.log` — but a failure page goes
-  nowhere until the phone subscribes
-- **Overnight 07-18 harvest** (`research/overnight_2026-07-18/`, map `NIGHT_LEDGER.md`): Strategy Lab
-  duel synthesis + roadmap designs await judgment; that round's tree edits are parked UNREVIEWED on
-  draft **PR #100** — judge together
-- **Classification-lab addenda sign-off**: proposed DTE-cut addendum + F3 direction-semantics stamp
+- ⚠ global `allow_short_selling=true` in prod settings — broader than the per-strategy book
+  authorization (any approved sell with no held long can short-to-open on paper; books + stops
+  excluded, chat/manual not). Confirm or narrow when increment 5 builds the per-strategy flag.
+- Multi-angle reasoning A/B go/no-go (`MULTI_ANGLE_REASONING_AB_2026-07-19.md`).
+- ⚠ subscribe the phone to the ntfy dead-man topic (topic string in crontab) — pages go nowhere
+  until then.
+- Overnight 07-18 harvest + draft PR #100 — judge together.
+- Classification-lab addenda sign-off (DTE-cut addendum + F3 direction-semantics stamp).
+- `braveapi` engine signup for SearXNG (likely unnecessary at 30 results without it).
 
-## ▶ Options IV corpus — sampler shipped; first live run + the IV-rank study are open
+## ▶ Options IV corpus — verifies + the two premium-selling gates
 
-Forward arm built 07-25 (BUILD_LOG row; `dolthub-options-history` card). Cron installed on serv at
-20:50 UTC weekdays, file-guarded so it no-ops until this branch lands in the main tree. **Open:**
-- ⏳ **first live run Mon 07-27**: confirm `data/options_chain_history.db` gets an `iv_daily` row per
-  universe symbol and a sane `bars_current` (a sweep firing before the vendor rolls its daily bars
-  shows volume collapsing to zero everywhere — that's what the counter is there to distinguish).
-  Then ⏳ **07-28**: confirm the OI backfill lands on 07-27's rows, since OI publishes a session late.
-- SPX/SPXW will never carry OI here (index roots aren't tradable on Alpaca ⇒ no contracts API). The
-  Databento OPRA statistics purchase covers them; don't "fix" it by inventing a substitute.
-**Studies A, B and C all RAN 07-25 and are closed** — three BUILD_LOG rows, three preregs in
-`References/` (`IV_RANK_BASELINE_*`, `IV_LEVEL_*`, `IV_HORIZON_BREADTH_*`). Settled, do not
-re-litigate: an **IV-rank entry gate is not supported** (rank is a level effect in costume; holding
-level fixed it vanishes and *reverses* in low-vol names); the **level** effect is real and survives
-every control thrown at it (Spearman +1.000, band +0.0445 at the corrected horizon); and on the
-**37 names we would actually trade there is no VRP at all** (−0.0012, unchanged across both
-horizons). What is still OPEN from that work:
-- **Two gates stand between us and any premium selling. One is now measured, one is untouched.**
-  - ⏳ **The spread gate — probed 07-25, but NOT yet a finding, and the rule that says so is
-    pre-registered.** `OPTION_SPREAD_GATE_PREREG_2026-07-25.md` + BUILD_LOG row. Band names cost
-    **0.0870 vol pts** to cross once — **195% of the +0.0445 edge** — against **0.0292** for our own
-    names; i.e. the premium-carrying names are **~3.2× more expensive to trade** (31.2% vs 9.8% of
-    premium), confirming the competition hypothesis in direction. **But it ran Saturday on Friday's
-    closing book, and the prereg fixed in advance that CHEAP would be decisive while PROHIBITIVE
-    would not.** ⏳ **Re-run `tools/option_spread_probe.py` intraday (Mon 07-27+)** before recording
-    anything. The *ratio* between cohorts survives the caveat better than the absolute levels — both
-    were measured in the same instant.
-  - **The capped payoff — untouched by any of this.** A seller keeps at most the premium while the
-    left tail is uncapped, so mean-VRP in vol points overstates capture however it is trimmed. In
-    the C4 band 29.7% of observations are negative with p05 −0.3105. Nothing measured so far speaks
-    to this, and a tight spread would not have opened the lane either.
-- ⚠️ Do NOT reuse Study B's **B5** as written — it removed 31.6% of the top decile, not 5%, because
-  VRP correlates with the sort axis; outlier-robustness is **untested, not disproven** (a symmetric
-  trim leaves +0.0586).
-- ⚠️ Study C's **C6 flag is recorded but hollow** — its premise ("a live bar API cannot serve a
-  delisted ticker") is false; BBBY/WOLF/FRC/SIVB all have full bar history. It rests on 5 symbols
-  and points the *safe* way. Don't spend effort "fixing" survivorship on the strength of that flag.
+Settled science lives in the three preregs + memories (rank gate unsupported; level real but absent
+on our 37 names). Open:
+- cron + OI verifies — see overdue list.
+- spread gate: intraday re-run — see overdue list.
+- the capped-payoff gate is UNTOUCHED by all measurement so far (seller keeps ≤ premium, left tail
+  uncapped; C4 band 29.7% negative, p05 −0.3105) — nothing may open a selling lane past it.
 
-## ▶ Options flow — classification scorer unbuilt; gates clocking
+## ▶ Options flow classification scorer — gates likely cleared, scorer unbuilt
 
-Prereg = LAW (`CLASSIFICATION_LAB_PREREG_2026-07-16.md` — never improvise metrics on the data). The
-chain sampler's per-expiry fix first runs on the 07-23 cron (BUILD_LOG 2026-07-22) — ⏳ verify 07-23:
-per-root composition sane, SPXW dailies actually captured. Gate clocks: SPY/QQQ/IWM legs reach ≥5
-ordinary sessions ≈07-24; SPX complex restarted at zero ≈07-29. Scorer gets built once gates clear.
-Deferred audit findings F3/F4/F8 ride the `index-0dte-concentration-study` / gauge cards.
+Prereg = LAW (`CLASSIFICATION_LAB_PREREG_2026-07-16.md`). SPY/QQQ/IWM legs cleared ≥5 ordinary
+sessions ≈07-24; SPX complex ≈07-29. Build the scorer once clocks are confirmed clear. Deferred
+audit findings F3/F4/F8 ride the `index-0dte-concentration-study` / gauge cards.
 
 ## ▶ Backend composition — Rank-2 open
 
-Audit + step-1 fixes: BUILD_LOG 2026-07-18. R1a extraction live/inert; the R1b worker split was
-CANCELLED by founder 07-23 (BUILD_LOG row) — backend keeps owning the jobs. **Open:** Rank-2
-**exit-engine own cadence** — in-process, off the `_poll_once` tail; `trading/`-adjacent → max depth +
-adversarial review; NOTE the audit argues AGAINST extracting the order path out-of-process (conflicts
-with the old rung-3 "extract trading loops" note — resolve at design time). Schwab jobs stay
-in-process behind config gates (Rank-3, no action).
+Rank-2 = exit-engine own cadence (in-process, off the `_poll_once` tail); `trading/`-adjacent →
+max depth + two-reviewer adversarial review. NOTE: the audit argues AGAINST extracting the order
+path out-of-process — resolve against the old rung-3 note at design time.
 
 ## ▶ Exit engine — first real proof 2026-07-29
 
-Fix detail: BUILD_LOG 2026-07-16. **Open:** 7 earnings_drift positions must auto-sell on 2026-07-29;
-sibling unguarded fallbacks tracked on `data-correctness-m-tail`. P1 (07-22 half-day review —
-pre-existing, no regression): the amc `td==1` docstring claims the after-close day-TIF order "queues
-to the report-day open", but RiskEngine's no-live-quote gate REJECTS after-close submissions — the
-fill really lands via next-cycle retries once the open has a quote. Same destination, different
-mechanism; verify against the 07-29 proof (throttle marks at `exit_engine.py:390` must not delay the
-open fill), then fix the docstring to match reality.
+7 earnings_drift positions must auto-sell 2026-07-29. Verify throttle marks (`exit_engine.py:390`)
+don't delay the open fill; then fix the amc `td==1` docstring (order fills via next-cycle retries
+after the open, not after-close queueing — RiskEngine's no-live-quote gate rejects after-close).
+Sibling unguarded fallbacks tracked on `data-correctness-m-tail`.
