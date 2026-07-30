@@ -23,6 +23,7 @@ from tools.classification_lab_scorer import (
     Sample,
     _fold,
     _net_sign,
+    _report,
     _viable,
     _window_of,
     backpair_labels,
@@ -34,6 +35,7 @@ from tools.classification_lab_scorer import (
     method_measurable,
     method_variants,
     net_fidelity,
+    pool_net_observations,
     score,
     spike_minutes,
     summarize,
@@ -588,7 +590,12 @@ ORDINARY = ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24"
 OPEX = "2026-07-17"
 
 
-def _write_session(research, day: str, *, names=("SPY",), tape=True, chain=True) -> None:
+def _write_session(
+    research, day: str, *, names=("SPY",), tape=True, chain=True, flat_prices=False
+) -> None:
+    """``flat_prices`` makes every print the same price — the tick test then claims
+    nothing anywhere, while the chain sampler's off-centre quotes keep back-pairing
+    working, which isolates a method that CANNOT label from a method that labels badly."""
     prints = []
     chain_rows = []
     tape_rows = []
@@ -597,7 +604,7 @@ def _write_session(research, day: str, *, names=("SPY",), tape=True, chain=True)
         base = ms(day, 9, 31)
         for i in range(6):
             ts = base + i * 60_000
-            price = 1.00 + 0.10 * i
+            price = 1.00 if flat_prices else 1.00 + 0.10 * i
             prints.append(
                 {
                     "ts_ms": ts,
@@ -620,8 +627,9 @@ def _write_session(research, day: str, *, names=("SPY",), tape=True, chain=True)
                     "q_ts": stamp,
                     "u": name,
                     "occ": occ,
-                    "bid": price - 0.10,
-                    "ask": price + 0.10,
+                    # off-centre in flat mode so the quote rule decides without the tick
+                    "bid": price - (0.15 if flat_prices else 0.10),
+                    "ask": price + (0.05 if flat_prices else 0.10),
                     "iv": 0.20,
                     "delta": 0.5,
                     "gamma": 0.01,
@@ -635,7 +643,7 @@ def _write_session(research, day: str, *, names=("SPY",), tape=True, chain=True)
                 "ts_ms": base + 7 * 60_000,
                 "occ": occ,
                 "u": name,
-                "price": 1.55,
+                "price": 1.00 if flat_prices else 1.55,
                 "size": BIG,
                 "dir": "undetermined",
                 "basis": "none",
@@ -828,6 +836,9 @@ def test_report_carries_the_registered_caveats_and_measured_labels(tmp_path):
     assert bound["is_bound"] is True
     assert bound["gate_population"] == "excl_self_paired"
     assert bound["nominal_interval_s"] == 5
+    # the bound's timeline is the print lab, not the chain sampler — its cadence is
+    # unrelated to the sampler's measured spacing, so the label is omitted
+    assert "measured_spacing_s" not in bound
     interp = pick(report, variant="interp_30s")
     assert interp["non_causal"] is True
     assert interp["nominal_interval_s"] == 30
@@ -836,3 +847,114 @@ def test_report_carries_the_registered_caveats_and_measured_labels(tmp_path):
     assert coverage["SPY"]["samples"] == 6
     assert coverage["SPY"]["greek_samples"] == 6
     assert report["inputs"]["2026-07-20"]["median_inter_sample_spacing_s"] == pytest.approx(60.0)
+
+
+def test_report_names_both_the_base_prereg_and_the_registered_addendum(tmp_path):
+    research = tmp_path / "research"
+    for day in ORDINARY:
+        _write_session(research, day)
+    report = _score(research, ORDINARY)
+    assert report["prereg"] == "References/CLASSIFICATION_LAB_PREREG_2026-07-16.md"
+    assert report["addenda"] == ["References/CLASSIFICATION_LAB_PREREG_2026-07-16_ADDENDUM_A.md"]
+    note = report["thresholds"]["net_sign_unit_note"]
+    assert note.startswith("References/CLASSIFICATION_LAB_PREREG_2026-07-16_ADDENDUM_A.md")
+    assert "pending" not in note
+    assert report["thresholds"]["net_sign_agreement"] == 0.95  # value still unchanged
+
+
+def _cell_key(method, variant, name, conditioning):
+    return ("ordinary", method, variant, name, "open", conditioning)
+
+
+def _perfect_acc(dates) -> Acc:
+    """A cell the method labelled perfectly: agreement 1.0, zero bias, nets identical."""
+    acc = Acc()
+    for i, day in enumerate(dates):
+        call = mk_print(ms(day, 9, 31), 1.0, size=BIG, truth="buy_side")
+        put = mk_print(ms(day, 9, 32), 1.0, occ=OCC_PUT, size=BIG, truth="sell_side")
+        _fold(acc, call, "buy_side", day, False)
+        _fold(acc, put, "sell_side", day, False)
+        assert i >= 0
+    return acc
+
+
+def test_proxy_observations_never_enter_the_real_pool():
+    dates = ["2026-07-20", "2026-07-21", "2026-07-22"]
+    cells = {
+        _cell_key("delta_tick", "residual", "SPY", "all"): _perfect_acc(dates),
+        _cell_key("delta_tick", "residual", "SPXW", "all"): _perfect_acc(dates),
+        _cell_key("backpair", "strict_15s", "SPXW", "all"): _perfect_acc(dates),
+    }
+    real, proxy = pool_net_observations(cells)
+    # SPY's three sessions only — SPXW's proxied nets pool on their own
+    assert real[("ordinary", "delta_tick", "residual", "all")]["n_observations"] == 3
+    assert proxy[("ordinary", "delta_tick", "residual", "all")]["n_observations"] == 3
+    # back-pairing on SPXW is a real measurement, so it stays in the real pool
+    assert ("ordinary", "backpair", "strict_15s", "all") in real
+    assert ("ordinary", "backpair", "strict_15s", "all") not in proxy
+
+
+def test_a_proxy_row_is_judged_even_when_the_real_pool_is_empty():
+    # The only delta-adjusted cells are proxied, so the real pool has nothing in it.
+    # Borrowing that empty pool would score the proxy row False on a missing number.
+    dates = ["2026-07-20", "2026-07-21", "2026-07-22"]
+    cells = {
+        _cell_key("delta_tick", "residual", "SPXW", cond): _perfect_acc(dates)
+        for cond in ("all", "spike")
+    }
+    real, proxy = pool_net_observations(cells)
+    assert ("ordinary", "delta_tick", "residual", "spike") not in real
+    assert proxy[("ordinary", "delta_tick", "residual", "spike")]["sign_agreement"] == 1.0
+
+    report = _report(
+        cells,
+        {("ordinary", "delta_tick", "residual", "SPXW"): 3},
+        dict.fromkeys([*dates, "2026-07-23", "2026-07-24"], "ordinary"),
+        {},
+        5,
+        frozenset({"SPXW"}),
+    )
+    row = next(c for c in report["cells"] if c["window"] == "open")
+    assert row["underlying_proxy"] == "SPY x10"
+    assert row["unmeasured"] is False
+    assert row["viable"] is True  # judged on the proxy pool, not on an absent one
+    verdict = report["verdicts"][0]
+    assert verdict["net_sign_pooled"] == {}  # the real pool stayed empty
+    assert verdict["proxy_cells_viable"] == 1
+    assert verdict["viable_all_cells"] is None  # no real cell to decide the method on
+
+
+def test_verdicts_carry_the_claim_rate_behind_every_agreement_figure(tmp_path):
+    research = tmp_path / "research"
+    for day in ORDINARY:
+        _write_session(research, day)
+    report = _score(research, ORDINARY)
+    verdict = next(v for v in report["verdicts"] if v["variant"] == "naive")
+    # the tick test cannot label the first print of each contract (no predecessor):
+    # 25 of 30 truth prints claimed
+    assert verdict["claim_rate_all"] == {
+        "claimed": 25,
+        "n_truth": 30,
+        "rate": pytest.approx(25 / 30),
+    }
+    assert verdict["claim_rate_spike"]["n_truth"] > 0
+    assert " ".join(report["caveats"]).count("claim_rate") == 1
+
+
+def test_a_gate_slice_the_method_labelled_nothing_in_is_unmeasured_not_failed(tmp_path):
+    research = tmp_path / "research"
+    for day in ORDINARY:
+        _write_session(research, day, flat_prices=True)
+    report = _score(research, ORDINARY)
+    # every price is identical, so the tick test is a zero tick on every print after the
+    # first — it claims nothing anywhere, which is a coverage gap, not a failed threshold
+    tick = pick(report, method="tick")
+    assert tick["metrics"]["spike"]["n_truth"] > 0
+    assert tick["metrics"]["spike"]["n_agree"] + tick["metrics"]["spike"]["n_disagree"] == 0
+    assert tick["unmeasured_reason"] == "no_scored_prints"
+    assert tick["viable"] is None
+    verdict = next(v for v in report["verdicts"] if v["variant"] == "naive")
+    assert verdict["cells_gating"] == 0
+    assert verdict["viable_all_cells"] is None
+    # back-pairing still has quotes to work with, so it stays measured on the same data
+    assert pick(report, variant="strict_15s")["unmeasured"] is False

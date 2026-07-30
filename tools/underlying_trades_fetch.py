@@ -141,6 +141,8 @@ def fetch_day(
     symbols: list[str],
     feed: str | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
+    # Accumulates the whole day in memory before writing — peaks at a few hundred MB on a
+    # busy session across the full symbol list, which is fine for a one-shot research run.
     rows: list[dict] = []
     counts: dict[str, int] = {}
     for symbol in symbols:

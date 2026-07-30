@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Classification-lab scorer — grades the cheap classification methods vs DIR-1 truth.
 
-Implements `References/CLASSIFICATION_LAB_PREREG_2026-07-16.md` exactly. That document
-is LAW: the three methods, their variants, every metric, the conditioning slices and the
-success thresholds were fixed before the first ground-truth day accrued, so this script
-computes what was pre-registered and nothing else. Anything useful but unregistered is
-reported under an ``unregistered_diagnostics`` key and never gates a verdict.
+Implements `References/CLASSIFICATION_LAB_PREREG_2026-07-16.md` plus its
+`_ADDENDUM_A` exactly. Those documents are LAW: the three methods, their variants, every
+metric, the conditioning slices and the success thresholds were fixed before the first
+ground-truth day accrued, so this script computes what was pre-registered and nothing
+else. Anything useful but unregistered is reported under an ``unregistered_diagnostics``
+key and never gates a verdict.
 
     uv run python tools/classification_lab_scorer.py                 # every complete session
     uv run python tools/classification_lab_scorer.py --dates 2026-07-20,2026-07-21
@@ -82,18 +83,19 @@ THRESH_NET_SIGN = 0.95
 THRESH_NET_MAG_ERR = 0.15
 MIN_ORDINARY_SESSIONS = 5
 
-# The prereg fixes the net-sign THRESHOLD (>=95%) but not the unit it is measured over.
-# Read per cell, a 5-session cell can only realize 0/20/40/60/80/100%, so 95% is
-# unreachable by construction. This constant implements a pending dated addendum
-# (registered before any scoring run): the evaluation unit is the POOLED set of
+# The base prereg fixes the net-sign THRESHOLD (>=95%) but not the unit it is measured
+# over. Read per cell, a 5-session cell can only realize 0/20/40/60/80/100%, so 95% is
+# unreachable by construction. ADDENDUM A registers the unit: the POOLED set of
 # (session x name x window) net observations within method x variant x session class;
 # the threshold VALUE is unchanged. Per-cell nets are still reported as before, and
 # every sign-agreement figure carries its realized N and achievable resolution 1/N.
+BASE_PREREG = "References/CLASSIFICATION_LAB_PREREG_2026-07-16.md"
+ADDENDUM_A = "References/CLASSIFICATION_LAB_PREREG_2026-07-16_ADDENDUM_A.md"
 NET_SIGN_UNIT = "pooled_session_name_window"
 NET_SIGN_UNIT_NOTE = (
-    "pending dated addendum to CLASSIFICATION_LAB_PREREG_2026-07-16: sign agreement is "
-    "evaluated on pooled (session x name x window) net observations within method x "
-    "variant x session class; threshold value unchanged at >=95%"
+    f"{ADDENDUM_A}: sign agreement is evaluated on pooled (session x name x window) net "
+    "observations within method x variant x session class; threshold value unchanged at "
+    ">=95%"
 )
 
 
@@ -959,6 +961,54 @@ def _fold_core(core: Core, p: Print, claim: str | None, date_iso: str) -> None:
             core.method_net[date_iso] += _net_sign(p.right, claim) * p.premium
 
 
+def pool_net_observations(
+    cells: dict[tuple[str, str, str, str, str, str], Acc],
+) -> tuple[dict[tuple[str, str, str, str], dict], dict[tuple[str, str, str, str], dict]]:
+    """The Addendum-A pooled net-sign unit: (real pool, proxy pool).
+
+    Every (session x name x window) net in the method x variant x class, keyed
+    (class, method, variant, conditioning). Proxy cells pool SEPARATELY — they must not
+    move a real method's gate, and they must not be judged against a pool they were
+    excluded from either. Unmeasured cells contribute nothing by construction.
+    """
+    real_obs: dict[tuple[str, str, str, str], list[tuple[float, float]]] = defaultdict(list)
+    proxy_obs: dict[tuple[str, str, str, str], list[tuple[float, float]]] = defaultdict(list)
+    for (klass, method, variant, name, window, conditioning), acc in cells.items():
+        core = acc.excl_self if is_bound_variant(variant) else acc.full
+        target = proxy_obs if is_proxy_cell(method, name) else real_obs
+        target[(klass, method, variant, conditioning)].extend(net_observations(core))
+    return (
+        {key: net_fidelity(obs) for key, obs in real_obs.items()},
+        {key: net_fidelity(obs) for key, obs in proxy_obs.items()},
+    )
+
+
+def _claimed(metrics: dict | None, *, is_bound: bool) -> int:
+    """Truth prints the method actually put a side on, in its gating population."""
+    if not metrics:
+        return 0
+    core = gating_core(metrics, is_bound=is_bound)
+    return core["n_agree"] + core["n_disagree"]
+
+
+def _claim_rate(rows: list[dict], conditioning: str) -> dict:
+    """Coverage behind a verdict: how much of the truth population the method labelled.
+
+    Method 2 only has greeks on a few roots, so a verdict can rest on a quarter of the
+    prints without saying so. This number must sit next to any verdict that quotes an
+    agreement figure — a coverage-starved cell is not a failed threshold.
+    """
+    claimed = truth = 0
+    for row in rows:
+        metrics = row["metrics"].get(conditioning)
+        if not metrics:
+            continue
+        core = gating_core(metrics, is_bound=bool(row.get("is_bound")))
+        claimed += core["n_agree"] + core["n_disagree"]
+        truth += core["n_truth"]
+    return {"claimed": claimed, "n_truth": truth, "rate": _rate(claimed, truth)}
+
+
 def _report(
     cells: dict[tuple[str, str, str, str, str, str], Acc],
     measured: dict[tuple[str, str, str, str], int],
@@ -973,16 +1023,7 @@ def _report(
             acc, is_bound=is_bound_variant(variant)
         )
 
-    # Pooled net observations (NET_SIGN_UNIT): every (session x name x window) net in the
-    # method x variant x class, excluding proxy cells so a proxied underlying can never
-    # move a real method's gate. Unmeasured cells contribute nothing by construction.
-    pooled_obs: dict[tuple[str, str, str, str], list[tuple[float, float]]] = defaultdict(list)
-    for (klass, method, variant, name, window, conditioning), acc in cells.items():
-        if is_proxy_cell(method, name):
-            continue
-        core = acc.excl_self if is_bound_variant(variant) else acc.full
-        pooled_obs[(klass, method, variant, conditioning)].extend(net_observations(core))
-    pooled = {key: net_fidelity(obs) for key, obs in pooled_obs.items()}
+    pooled, pooled_proxy = pool_net_observations(cells)
 
     keys = set(grouped) | {(k, m, v, n, w) for (k, m, v, n) in measured for w in WINDOWS}
     rows: list[dict] = []
@@ -991,17 +1032,23 @@ def _report(
         by_cond = grouped.get(key, {})
         sessions_measured = measured.get((klass, method, variant, name), 0)
         is_bound = is_bound_variant(variant)
+        is_proxy = is_proxy_cell(method, name)
         spike = by_cond.get("spike")
         overall = by_cond.get("all")
-        pooled_spike = pooled.get((klass, method, variant, "spike"), {}).get("sign_agreement")
-        pooled_all = pooled.get((klass, method, variant, "all"), {}).get("sign_agreement")
+        # A proxy row is judged against the PROXY pool it belongs to, never the real one.
+        pool = pooled_proxy if is_proxy else pooled
+        pooled_spike = pool.get((klass, method, variant, "spike"), {}).get("sign_agreement")
+        pooled_all = pool.get((klass, method, variant, "all"), {}).get("sign_agreement")
         viable_spike = bool(spike and _viable(spike, is_bound=is_bound, pooled_sign=pooled_spike))
         viable_all = bool(overall and _viable(overall, is_bound=is_bound, pooled_sign=pooled_all))
-        # An absent input, or a window the capture holds no truth prints for, is
-        # UNMEASURED — never a failed threshold. Both are structural gaps, not results.
+        # An absent input, a window the capture holds no truth prints for, and a gate
+        # slice the method could not label a single print in are all UNMEASURED — never
+        # a failed threshold. All three are structural gaps, not results (Addendum A.3).
         if sessions_measured == 0:
             unmeasured_reason = "no_input"
         elif not overall or overall["n_truth"] == 0:
+            unmeasured_reason = "no_scored_prints"
+        elif _claimed(spike, is_bound=is_bound) == 0:
             unmeasured_reason = "no_scored_prints"
         else:
             unmeasured_reason = None
@@ -1028,8 +1075,11 @@ def _report(
         interval = variant_interval_s(variant)
         if interval is not None:
             row["nominal_interval_s"] = interval
-            row["measured_spacing_s"] = _median_spacing(inputs, klass, sessions)
-        if is_proxy_cell(method, name):
+            if not is_bound:
+                # Only the sampler-fed variants rest on the chain sampler's cadence; the
+                # bound's timeline comes from the print lab, so its spacing is unrelated.
+                row["measured_spacing_s"] = _median_spacing(inputs, klass, sessions)
+        if is_proxy:
             row["underlying_proxy"] = SPX_PROXY_LABEL
         rows.append(row)
 
@@ -1057,11 +1107,16 @@ def _report(
                 ),
                 "proxy_cells_viable": sum(1 for r in proxy_rows if r["viable"]),
                 "net_sign_pooled": pooled.get(("ordinary", method, variant, "spike"), {}),
+                # Read every agreement figure against this: a method that labelled a
+                # quarter of the prints has a quarter of a verdict.
+                "claim_rate_spike": _claim_rate(gating, "spike"),
+                "claim_rate_all": _claim_rate(gating, "all"),
             }
         )
 
     return {
-        "prereg": "References/CLASSIFICATION_LAB_PREREG_2026-07-16.md",
+        "prereg": BASE_PREREG,
+        "addenda": [ADDENDUM_A],
         "generated_at": datetime.now(tz=_ET).isoformat(timespec="seconds"),
         "thresholds": {
             "agreement_premium_weighted": THRESH_AGREEMENT_PW,
@@ -1111,7 +1166,11 @@ def _caveats(names: frozenset[str]) -> list[str]:
         "interpolated back-pairing is NON-CAUSAL — it reads a quote sample after the "
         "trade; it bounds what a denser sampler could do, it is not a live-usable rule",
         "delta-adjusted cells for SPX/SPXW ride the registered SPY x10 proxy; they are "
-        "reported separately and excluded from the all-cells verdict and pooled gate",
+        "reported separately, excluded from the all-cells verdict, and judged against a "
+        "pooled net-sign figure built from proxy cells only",
+        "every agreement figure must be read against its verdict's claim_rate: a method "
+        "the captures only cover a fraction of has a fraction of a verdict, which is a "
+        "coverage fact, not a failed threshold",
         "net-gauge fidelity applies the gauge's own print filters (spread legs, hygiene "
         "conditions, the CLUSTER_PRINT_MIN_USD dust floor) to BOTH nets, on the matched "
         "truth-labelled population; the spread flag only exists in the capture from "
@@ -1152,14 +1211,17 @@ def _print_summary(report: dict) -> None:
     )
     print(
         f"{'method':<11} {'variant':<17} {'gate':>5} {'unmeas':>6} {'proxy':>5} "
-        f"{'viable':>6} {'danger':>6} {'poolN':>6} {'all-cells':>9}"
+        f"{'viable':>6} {'danger':>6} {'poolN':>6} {'claim%':>7} {'all-cells':>9}"
     )
     for v in report["verdicts"]:
         pooled = v["net_sign_pooled"].get("n_observations", 0)
+        claim = v["claim_rate_spike"]["rate"]
+        claim_text = "-" if claim is None else f"{claim * 100:.1f}"
         print(
             f"{v['method']:<11} {v['variant']:<17} {v['cells_gating']:>5} "
             f"{v['cells_unmeasured']:>6} {v['cells_proxy']:>5} {v['cells_viable']:>6} "
-            f"{v['cells_rejected_danger_zone']:>6} {pooled:>6} {str(v['viable_all_cells']):>9}"
+            f"{v['cells_rejected_danger_zone']:>6} {pooled:>6} {claim_text:>7} "
+            f"{str(v['viable_all_cells']):>9}"
         )
 
 
