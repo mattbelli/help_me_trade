@@ -35,6 +35,12 @@ class Book:
     # None for Matt + LLM: no strategy record, no machine ideas, snapshot only.
     strategy_id: str | None
     seats: tuple[str, ...] = ()
+    # Not running nightly right now. The book stays fully registered — its lanes,
+    # origins and ledger history are untouched — so pausing is one flag and one
+    # commented cron line, and unpausing is the same two edits back. The
+    # dead-man skips paused books; without that a pause means a warning push
+    # every night for a report nobody expects.
+    paused: bool = False
 
     @property
     def headline_origin(self) -> str | None:
@@ -51,8 +57,17 @@ class Book:
 BOOKS: dict[str, Book] = {
     "deepseek": Book("deepseek", "Deep Seek", "acct_alpaca_deepseek", "book_deepseek"),
     "fable": Book("fable", "Fable", "acct_alpaca_fable", "book_fable"),
-    "panel": Book("panel", "Claude Panel", "acct_alpaca_open", "book_panel", PANEL_SEATS),
-    "matt": Book("matt", "Matt + LLM", "acct_fc78907f4bda", None),
+    # PAUSED 2026-07-30 (founder): the panel's four Opus seats cost 8-10x the solo
+    # books (07-29: 84 min, 35M tokens) and it is being held while the solo books
+    # forward-test. Its crontab line is commented out to match.
+    "panel": Book(
+        "panel", "Claude Panel", "acct_alpaca_open", "book_panel", PANEL_SEATS, paused=True
+    ),
+    # PAUSED 2026-07-30 (founder): the account holds nothing, so a nightly
+    # advisory pass reviews an empty book — and the co-managed idea belongs in
+    # CHAT, where the founder can actually go back and forth, not in an
+    # unprompted once-a-night report. See card matt-llm-belongs-in-chat.
+    "matt": Book("matt", "Matt + LLM", "acct_fc78907f4bda", None, paused=True),
 }
 
 # Every lane this program writes — config/idea_engine.py cooldowns and the

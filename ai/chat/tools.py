@@ -8,15 +8,10 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
-
-from ai.llm.base import LLMMessage
-from ai.llm.factory import get_llm
-from ai.llm.structured import complete_for_extraction, parse_json_object
 from ai.memories import get_memory_service
+from ai.perception.resources import list_resources
 from ai.perf_context import format_perf_insights_for_llm, sanitize_trade_history_stats
 from ai.research.jobs import submit_research_job
-from ai.utils.symbols import extract_symbol
 from db.account_scope import resolve_perf_scope
 from db.accounts import (
     account_is_execution_capable,
@@ -72,6 +67,14 @@ def _quote_save_over_cap(session_id: str | None) -> bool:
     return False
 
 
+# The queryable resources, DERIVED from the perception registry so registering a new
+# source reaches the agent the moment it lands — never hand-copied. Four hand-written
+# copies of this list had rotted to the same stale 9 of 19, which is why fundamentals,
+# options flow, the equity tape and the user's real Schwab accounts were unreachable in
+# chat: nothing in the prompt told the model they existed. Guarded by
+# tests/test_perception_resources.py::test_every_resource_is_named_to_the_agent.
+_QUERY_RESOURCES = ", ".join(sorted(list_resources()))
+
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_portfolio_snapshot": {
         "title": "Portfolio snapshot",
@@ -120,8 +123,7 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "query": {
         "title": "App data query",
         "description": (
-            "List app data across resources: watchlists, strategies, screener, "
-            "market regime, news, calibration, price_alerts, proposals, reports. "
+            "List app data across resources: " + _QUERY_RESOURCES + ". "
             "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
             "use get_context instead."
         ),
@@ -270,78 +272,6 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         ),
     },
 }
-
-_TOOL_PLANNER_PROMPT = """You are a tool planner for a trading copilot.
-Return JSON only: {"tools": [{"name": "<tool>", "arguments": {...}}]}
-
-Available tools:
-- get_portfolio_snapshot — arguments: {}
-- get_agent_status — arguments: {}
-- get_earnings_dates — arguments: {"symbol": string}
-- get_context — arguments: {"symbol": string}
-- query — arguments: {"resource": string, "filters": object|null}
-- list_capabilities — arguments: {}
-- search_memories — arguments: {"query": string, "limit": number}
-- save_memory — arguments: {"content": string, "type": "directive"|"preference"|"fact"|"lesson"|"thesis", "quote": string|null, "symbols": string[]|null, "valid_until": string|null}
-- forget_memory — arguments: {"id": number, "reason": string}
-- start_research — arguments: {"topic": string, "symbol": string|null, "depth": "quick"|"standard"|"deep"|"exhaustive" (optional)}
-- get_trade_history — arguments: {"symbol": string|null, "from_date": string|null, "to_date": string|null, "limit": number, "account_id": string|null}
-- get_performance_insights — arguments: {"period": "day"|"week"|"month"|"quarter"|"year"|"all", "account_id": string|null}
-- web_search — arguments: {"query": string, "limit": number, "time_range": "day"|"week"|"month"|"year"|null, "sites": string[]|null}
-- get_option_quote — arguments: {"occ_symbol": string|null, "underlying": string|null, "expiration": string|null, "strike": number|null, "right": "C"|"P"|null}
-- create_rule — arguments: {"spec": {"name": string, "condition": object, "action": object|null}}
-- create_price_alert — arguments: {"symbol": string, "price": number, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
-- update_price_alert — arguments: {"id": number, "price": number|null, "direction": "above"|"below"|"cross"|null, "note": string|null, "repeat": boolean|null}
-- delete_price_alert — arguments: {"id": number}
-- create_watchlist — arguments: {"name": string, "symbols": string[]|null}
-- add_watchlist_symbols — arguments: {"symbols": string[], "list": string|null}
-- remove_watchlist_symbols — arguments: {"symbols": string[], "list": string|null}
-- rename_watchlist — arguments: {"list": string, "name": string}
-
-Rules:
-- Return {"tools": []} when no tool is needed (greetings, thanks, small talk).
-- Do NOT call start_research for general chat, risk opinions, or the word "analyze" alone.
-- Only call start_research when the user explicitly asks for a deep research report or written report.
-- Use get_context FIRST for symbol prices, RVOL, session-node levels, technicals, fundamentals, earnings, decision scores, or active alerts — never web_search for our own app data.
-- Use query for watchlists, strategies, screener, market regime, news, calibration, price alerts, pending proposals, or stored reports (not single-symbol snapshots).
-- Use web_search for news, social buzz, trending stocks, X/Reddit chatter, or current events.
-- Use get_option_quote for option bid/ask or contract pricing — never web_search for quotes.
-- Use get_trade_history for specific trade lookups; get_performance_insights for win rate, patterns, or overall P&L.
-- Never call get_portfolio_snapshot or get_performance_insights on greetings (hi, hello, hey).
-- When the user describes an alert/signal/rule, call create_rule with a validated spec (confirm parameters first — it arms immediately).
-- When the user asks to set/create an alert, call create_price_alert directly (it's safe — a notification). If they reference a level (VAL/POC/VAH/PDH/PDL/200-DMA), call get_context first to get the price.
-- Use delete_price_alert / update_price_alert to remove or change an existing alert (get its id via query('price_alerts') or get_context).
-- When the user says "remember this/that ..." call save_memory with quote = their exact words. Do NOT save risk/config limits (those live in Settings) or one-off requests.
-- When the user says "forget that" / "that's no longer true", call forget_memory with the id (find it first via search_memories).
-- When the user asks to add/remove watchlist symbols or create/rename a list, call the watchlist tools ('list' takes the list's NAME or id; omit for the active list). Only symbols the user named or just discussed.
-"""
-
-
-# Appended to the planner prompt ONLY when allow_propose_order=True (the mobile copilot).
-# The mobile path intercepts propose_order into a PENDING phone proposal — it never executes.
-_PROPOSE_ORDER_PLANNER_ADDENDUM = """
-- propose_order — arguments: {"symbol": string, "side": "buy"|"sell", "qty": number, "order_type": "market"|"limit", "limit_price": number|null, "account_id": string|null}
-Rules for propose_order:
-- When the user asks to BUY or SELL a stock, call propose_order. It creates a PENDING proposal the user approves on their phone (Face ID) — it does NOT execute directly.
-- Long-only: a sell only reduces a held long (no shorting). Default order_type "market".
-- Only on an explicit buy/sell instruction — never for opinions, analysis, or "should I".
-"""
-
-
-class PlannedToolCall(BaseModel):
-    name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-
-
-class ToolPlan(BaseModel):
-    tools: list[PlannedToolCall] = Field(default_factory=list)
-
-
-# Includes `propose_order`. The base planner prompt omits it (so a plan_tools→execute_tool
-# caller can never auto-EXECUTE a trade); it's offered only when plan_tools is called with
-# allow_propose_order=True (the mobile path), which intercepts it into a PENDING phone
-# proposal via create_phone_proposal — never execute_tool.
-_ALLOWED_TOOLS = frozenset(TOOL_DEFINITIONS.keys())
 
 _MULTI_ACCOUNT_NOTE = (
     "Per-position `unrealized_pl` is CUMULATIVE since entry — NOT today. "
@@ -499,58 +429,6 @@ def _account_label_map(*, db_path: Path | None = None) -> dict[str, str]:
         a["id"]: str(a.get("label") or a["id"])
         for a in list_accounts(db_path=resolved)
     }
-
-
-def plan_tools(
-    user_text: str,
-    *,
-    model: str | None = None,
-    allow_propose_order: bool = False,
-) -> list[tuple[str, dict[str, Any]]]:
-    """LLM JSON planner — replaces keyword matching.
-
-    `allow_propose_order` adds `propose_order` to the planner's menu. Default False so
-    the planner can NEVER plan a trade for any caller that routes its output through
-    `execute_tool` (which would EXECUTE). Only the mobile path sets it True — and that
-    path intercepts `propose_order` into a PENDING phone proposal, never execute_tool.
-    """
-    text = user_text.strip()
-    if not text:
-        return []
-
-    system_prompt = _TOOL_PLANNER_PROMPT
-    if allow_propose_order:
-        system_prompt += _PROPOSE_ORDER_PLANNER_ADDENDUM
-
-    llm = get_llm(model=model)
-    messages = [
-        LLMMessage(role="system", content=system_prompt),
-        LLMMessage(role="user", content=text),
-    ]
-    try:
-        raw = complete_for_extraction(llm, messages, max_tokens=400)
-        parsed = parse_json_object(raw)
-        if not parsed:
-            logger.warning("Tool plan JSON parse failed for: %r", text[:120])
-            return []
-        plan = ToolPlan.model_validate(parsed)
-    except Exception:
-        logger.exception("Tool planning failed")
-        return []
-
-    planned: list[tuple[str, dict[str, Any]]] = []
-    for item in plan.tools:
-        name = item.name.strip()
-        if name not in _ALLOWED_TOOLS:
-            logger.warning("Ignoring unknown planned tool: %s", name)
-            continue
-        args = dict(item.arguments or {})
-        if name == "start_research" and not args.get("symbol"):
-            sym = extract_symbol(text)
-            if sym:
-                args["symbol"] = sym
-        planned.append((name, args))
-    return planned
 
 
 async def execute_tool(name: str, args: dict[str, Any]) -> Any:

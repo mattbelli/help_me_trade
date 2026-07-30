@@ -501,6 +501,51 @@ def _regime_label(term_spread: float, vix: float) -> str:
     return f"{yc}_{vol}"
 
 
+def _macro_block() -> dict[str, Any] | None:
+    """The macro substrate (data/macro.db) — credit spreads, the full Treasury
+    curve, the 10y real yield, breakevens and the broad dollar.
+
+    Rides ``regime_report`` rather than re-deriving buckets: it already carries
+    the honesty fence's reference-depth disclosure (``history``), which matters
+    because ICE truncates the OAS series to a rolling window, so a credit
+    percentile is shallow-by-construction and must say so. Buckets are the
+    house 33/80 REPORTING cuts, never calibrated signals.
+    """
+    from datetime import date as _date
+
+    from signals.macro_substrate import macro_snapshot, regime_report
+
+    today = _date.today().isoformat()
+    report = regime_report([today])
+    axes: dict[str, Any] = {}
+    for axis, block in report.get("axes", {}).items():
+        observed = block.get("per_date", {}).get(today) or {}
+        if observed.get("value") is None:
+            continue
+        axes[axis] = {
+            "series": block.get("series"),
+            "value": observed["value"],
+            "as_of": observed.get("date_used"),
+            "pctile": observed.get("pctile"),
+            "bucket": observed.get("bucket"),
+            "history_n": (block.get("history") or {}).get("n"),
+            "history_since": (block.get("history") or {}).get("first"),
+        }
+    if not axes:
+        return None
+    return {
+        "axes": axes,
+        # The raw latest observation per stored series — the whole curve, so a
+        # reader can build any spread rather than only the ones we picked.
+        "series": macro_snapshot(),
+        "note": (
+            "percentiles are self-relative against this store's own history "
+            "(see history_since — credit is vendor-truncated to a rolling "
+            "window); reporting context, not a calibrated signal"
+        ),
+    }
+
+
 def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del filters
     from db.regime import recent_observations
@@ -525,7 +570,49 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
         values = [val for _, val in vix_hist]
         at_or_below = sum(1 for val in values if val <= vix)
         row["vix_percentile"] = round(100 * at_or_below / len(values), 1)
+    # Fail-soft: term_spread + VIX are the contract; the substrate is enrichment
+    # and its own store being absent must never sink the regime read.
+    try:
+        macro = _macro_block()
+    except Exception:
+        logger.debug("Macro substrate read failed", exc_info=True)
+        macro = None
+    if macro is not None:
+        row["macro"] = macro
     return [row]
+
+
+def _read_fundamentals(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # EDGAR statements live in their own research store
+    from research.fundamentals import latest_financials
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        return [{"error": "symbol is required"}]
+    try:
+        periods = max(1, min(int(filters.get("periods") or 4), 8))
+    except (TypeError, ValueError):
+        periods = 4
+    as_of = str(filters.get("as_of") or "").strip() or None
+
+    out = latest_financials(symbol, as_of=as_of, periods=periods)
+    if out is None:
+        return [
+            {
+                "symbol": symbol,
+                "unavailable": True,
+                "note": (
+                    "not in the EDGAR cache — build it with "
+                    f"`python -m research.fundamentals --build-financials {symbol}`"
+                ),
+            }
+        ]
+    out["source"] = "SEC EDGAR XBRL companyfacts"
+    out["note"] = (
+        "as-reported filing values, not vendor-adjusted; `filed` is when each "
+        "number became public, so pass as_of=YYYY-MM-DD for a point-in-time read"
+    )
+    return [out]
 
 
 def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
@@ -845,10 +932,29 @@ RESOURCES: dict[str, dict[str, Any]] = {
     "market": {
         "description": (
             "Current market regime (yield-curve term spread + VIX) — condition "
-            "every trade idea on it."
+            "every trade idea on it. Includes a `macro` block: HY and IG credit "
+            "spreads (OAS), the full Treasury curve, the 10y real yield, "
+            "breakevens and the broad dollar, each with a self-relative "
+            "percentile and low/mid/high bucket."
         ),
         "filters": {},
         "read": _read_market,
+    },
+    "fundamentals": {
+        "description": (
+            "Company financial statements from SEC EDGAR (XBRL companyfacts) — "
+            "revenue, gross profit, operating income, net income, diluted EPS, "
+            "assets, liabilities, equity, cash, long-term debt, R&D and "
+            "operating cash flow, as recent annual and quarterly series with "
+            "the sector/SIC. As-reported, free and keyless. Every value carries "
+            "its `filed` date, so `as_of` gives a true point-in-time read."
+        ),
+        "filters": {
+            "symbol": "REQUIRED — ticker",
+            "periods": "optional int — periods per bucket, default 4, max 8",
+            "as_of": "optional YYYY-MM-DD — only what had been FILED by then",
+        },
+        "read": _read_fundamentals,
     },
     "news": {
         "description": (
@@ -1001,6 +1107,8 @@ _RESOURCE_ALIASES = {
     "chain": "options_chain",
     "option_chain": "options_chain",
     "greeks": "options_chain",
+    "financials": "fundamentals",
+    "earnings_financials": "fundamentals",
     "tape": "equity_tape",
     "dark_pool": "equity_tape",
     "blocks": "equity_tape",

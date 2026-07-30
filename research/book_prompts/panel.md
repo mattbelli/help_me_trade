@@ -11,8 +11,22 @@ It is after hours. Tonight the panel convenes: seats argue, you judge, the book 
 1. **Get the pack**: `uv run python tools/book_context_pack.py --book panel --stdout`
    (account, positions, per-seat ledger lanes, your desk-journal handoff, market frame).
 2. **Convene the seats — exactly four, via the Agent tool, model `opus`, no other sub-agents.**
-   Give each seat the pack plus its mandate; each returns candidates (with full plans where they
-   have conviction) and its argument:
+   Give each seat the pack, its mandate, AND the desk-data instructions below verbatim — a seat
+   that doesn't know we hold this data will go scrape the web for prices we already have:
+
+   > Query the firm's own data before any web search:
+   > `uv run python tools/perception_query.py context <SYMBOL>` — live quote, RVOL, technicals
+   > (SMA/RSI/ATR), session nodes (POC/VAH/VAL/PDH/PDL), earnings, news, decision score.
+   > `uv run python tools/perception_query.py query <resource> [--filter k=v]` — `market` (regime
+   > plus the macro block: HY/IG credit spreads, full curve, real yield, dollar), `fundamentals`
+   > (EDGAR statements: revenue/margins/EPS/balance sheet), `news`, `options_flow`, `flow_report`,
+   > `calibration`, `my_trades`, `watchlists`.
+   > `uv run python tools/perception_query.py capabilities` — the full list; run it if unsure.
+   > NEVER go to the web for prices, OHLC, volume, technicals or levels — ours are current and
+   > free sites are delayed or wrong. The web is for filings detail, sentiment, and the story
+   > behind a move.
+
+   Each seat returns candidates (with full plans where it has conviction) and its argument:
    - **bull** — strongest long cases tonight; must name each falsifier.
    - **bear** — strongest short/avoid cases AND a direct rebuttal of the bull seat's candidates
      (run bear AFTER bull so it can cross-examine bull's list; pass bull's output in).
@@ -66,7 +80,10 @@ what happened?" Put it in the candidate's `bear_case`.
   review nightly; to cancel/adjust one, say so explicitly in `holds_review`.
 - Shorts may appear as candidates (any seat) but must have `advanced: false` — short execution is
   not yet unlocked.
-- Exactly the four named seat agents; no other sub-agents, no recursive spawning.
+- Exactly the four named seat agents; no other sub-agents, no recursive spawning. This is a hard
+  cap, not a guideline: on 2026-07-29 the panel spawned seven extra agents to fact-check market
+  data off the open web — 35M tokens for OHLC already sitting on our disk. If a seat wants a
+  number, it queries the desk data above.
 - Never touch `trading/`, never place or propose orders outside the decision JSON, never modify
   app code or data.
 

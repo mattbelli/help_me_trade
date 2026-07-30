@@ -12,9 +12,21 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
 1. **Get your context pack** (account, positions, your ledger lanes, your desk-journal handoff
    from last cycle, market frame):
    `uv run python tools/book_context_pack.py --book fable --stdout`
-2. **Research.** Pressure-test anything you're considering: WebSearch/WebFetch for outside data
-   (news, filings, sentiment); Read the repo's `References/` research docs when relevant. Your
-   ledger lanes in the pack are your track record — read them honestly.
+2. **Research — the firm's own data FIRST, the web only for what we don't hold.**
+   - `uv run python tools/perception_query.py context <SYMBOL>` — everything we know about one
+     name: live quote, RVOL, technicals (SMA/RSI/ATR), session nodes (POC/VAH/VAL/PDH/PDL),
+     earnings, news, decision score, active alerts.
+   - `uv run python tools/perception_query.py query <resource> [--filter k=v]` — across the desk:
+     `market` (regime + the macro block: HY/IG credit spreads, the full curve, real yield,
+     dollar), `fundamentals` (EDGAR statements: revenue/margins/EPS/balance sheet, annual and
+     quarterly), `news`, `options_flow`, `flow_report`, `calibration`, `my_trades`, `watchlists`.
+   - `uv run python tools/perception_query.py capabilities` — the full list. **Run this first if
+     you are unsure what we have.**
+   Do NOT go to the web for prices, OHLC, volume, technicals or levels — we hold them, they are
+   current, and scraped free sites are delayed or wrong. WebSearch/WebFetch are for what we
+   genuinely lack: filings detail, sentiment, and the story behind a move. Read the repo's
+   `References/` research docs when relevant. Your ledger lanes in the pack are your track
+   record — read them honestly.
 3. **Write your two output files** (the directory is gitignored):
    - `data/book_sessions/work/fable_report.md` — the nightly report in markdown: what you see,
      what you dug into, your hold/trim review of existing positions, your conclusions.

@@ -116,6 +116,16 @@ Bias toward caution over speed on non-trivial work; use judgment on trivial edit
   pre-existing dead code, don't delete it. Every changed line should trace to the request.
 - **Goal-driven execution.** Turn the task into a verifiable goal and loop until met ("fix the bug" → write a
   failing test, then make it pass). For multi-step work, state a brief plan with a verify step per item.
+- **★ WIRE IT EVERYWHERE — a data source is NOT done when the UI can see it** (founder directive 2026-07-30).
+  New data/perception work must land on **every** consumer surface, and the one silently skipped is always the
+  **agents**: register it in `ai/perception/resources.py` (`RESOURCES` entry + reader), then confirm the analyst
+  toolsets actually reach it (`research/book_tools.py` for the in-process books; `tools/book_session.sh`
+  `--allowedTools` for headless Claude sessions — those had NO perception access at all). Measured cost of
+  skipping it: the macro substrate (`signals/macro_substrate.py` — full curve, DFII10, HY/IG OAS) shipped to a
+  UI card only, so `query("market")` still returns term-spread+VIX and no agent can see credit spreads; and the
+  blind book sessions burned 7 Opus sub-agents in ONE night (35M tokens, 84 min) scraping stockanalysis.com for
+  OHLC already sitting on disk. An agent that can't query our data will go buy worse data from the internet.
+  **Definition of done for data work: the UI surface + the agent surface + the doc that names it.**
 
 ## Safety — non-negotiable (this trades real money)
 - **The execution chokepoint is sacred.** `trading/execution_service.submit()` is the ONLY path to a broker;

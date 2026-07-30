@@ -27,12 +27,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai.chat.agent import _system_prompt
+from ai.chat.alert_intent import alert_intent_prompt_block
 from ai.chat.context import (
     format_journal_context_block,
     format_memory_context_block,
     turn_journal_context,
     turn_memory_context,
 )
+from ai.chat.intent import order_intent_prompt_block
 from ai.chat.tool_specs import APPROVAL_TOOLS, chat_tool_specs
 from ai.llm.base import (
     LLMMessage,
@@ -124,10 +126,18 @@ def assemble_system_prompt(
     inject_memories: bool = True,
     inject_journal: bool = True,
 ) -> AssembledPrompt:
-    """Build the turn's system prompt once (web parity: memories + journal).
+    """Build the turn's system prompt once (memories + journal + intent blocks).
 
     Fail-soft: a failure in the memory/journal retrieval never blocks the chat —
     the turn proceeds with the base prompt.
+
+    The two intent blocks are per-turn supplements the retired TS route had and
+    this loop silently lost when it took over: they carry the options long-only
+    rules and the MOO limitation on an order turn, the valid metric/operator
+    vocabulary for ``create_rule`` on an alert turn, and — in both — the "do NOT
+    narrate the tool or write fake calls like [Calling propose_order...]"
+    instruction. Without them the model has to invent metric names and is free
+    to describe a tool call instead of making one.
     """
     memories: list[dict[str, Any]] = []
     journal: dict[str, Any] = {}
@@ -143,6 +153,8 @@ def assemble_system_prompt(
             logger.debug("turn_journal_context failed", exc_info=True)
     system = (
         _system_prompt()
+        + order_intent_prompt_block(user_text)
+        + alert_intent_prompt_block(user_text)
         + format_memory_context_block(memories)
         + format_journal_context_block(journal)
     )

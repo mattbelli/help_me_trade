@@ -67,6 +67,7 @@ def test_list_resources_catalog() -> None:
         "schwab_accounts",
         "screener",
         "market",
+        "fundamentals",
         "news",
         "calibration",
         "options_flow",
@@ -351,3 +352,110 @@ async def test_query_options_chain_aliases(
     for alias in ("chain", "option_chain", "greeks"):
         result = await query(alias, {"symbol": "SPY"}, db_path=tmp_path / "c.db")
         assert result.get("resource") == "options_chain", alias
+
+
+# --- macro substrate reaches the agents (wire-it-everywhere) --------------------
+
+
+def _fake_report(today: str) -> dict:
+    return {
+        "dates": 1,
+        "axes": {
+            "credit": {
+                "series": "BAMLH0A0HYM2",
+                "history": {"n": 1309, "first": "2021-07-29", "last": today},
+                "composition": {"low": 1, "mid": 0, "high": 0, "missing": 0},
+                "per_date": {
+                    today: {
+                        "value": 2.84,
+                        "date_used": "2026-07-28",
+                        "pctile": 16.2,
+                        "bucket": "low",
+                    }
+                },
+            },
+            "dollar": {  # no observation in range — must be omitted, not None-filled
+                "series": "DTWEXBGS",
+                "history": {"n": 0, "first": None, "last": None},
+                "composition": {"low": 0, "mid": 0, "high": 0, "missing": 1},
+                "per_date": {today: {"value": None, "date_used": None}},
+            },
+        },
+    }
+
+
+def test_macro_block_carries_value_bucket_and_reference_depth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Credit spreads reach the agent WITH the vendor-truncation disclosure — a
+    16th-percentile OAS off 4 years of history is not the same claim as off 30."""
+    from datetime import date as _date
+
+    import signals.macro_substrate as macro
+    from ai.perception.resources import _macro_block
+
+    today = _date.today().isoformat()
+    monkeypatch.setattr(macro, "regime_report", lambda dates: _fake_report(today))
+    monkeypatch.setattr(macro, "macro_snapshot", lambda: {"DGS10": {"axis": "curve", "value": 4.61}})
+
+    block = _macro_block()
+    assert block is not None
+    credit = block["axes"]["credit"]
+    assert credit["value"] == 2.84 and credit["bucket"] == "low"
+    assert credit["history_since"] == "2021-07-29" and credit["history_n"] == 1309
+    assert "dollar" not in block["axes"]  # missing observation dropped, not surfaced as null
+    assert block["series"]["DGS10"]["value"] == 4.61  # full curve, not just our picked axes
+    assert "not a calibrated signal" in block["note"]
+
+
+@pytest.mark.asyncio
+async def test_market_read_includes_macro_and_survives_its_absence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """term_spread + VIX are the contract; the substrate is enrichment. A missing
+    macro.db must not sink the regime read the whole app conditions on."""
+    import signals.regime as regime_mod
+    from db import regime as db_regime
+
+    monkeypatch.setattr(
+        regime_mod, "market_regime", lambda **kw: {"as_of": "2026-07-28", "term_spread": 0.35, "vix": 18.21}
+    )
+    monkeypatch.setattr(regime_mod, "regime_is_fresh", lambda **kw: True)
+    monkeypatch.setattr(db_regime, "recent_observations", lambda *a, **k: [])
+
+    monkeypatch.setattr("ai.perception.resources._macro_block", lambda: {"axes": {"credit": {"value": 2.84}}})
+    row = (await query("market", db_path=tmp_path / "m.db"))["rows"][0]
+    assert row["term_spread"] == 0.35 and row["macro"]["axes"]["credit"]["value"] == 2.84
+
+    def _boom() -> dict:
+        raise FileNotFoundError("no macro.db")
+
+    monkeypatch.setattr("ai.perception.resources._macro_block", _boom)
+    row = (await query("market", db_path=tmp_path / "m.db"))["rows"][0]
+    assert row["term_spread"] == 0.35 and "macro" not in row
+
+
+# --- the registry is the ONE list every agent surface quotes (2026-07-30) ----------
+
+
+def test_every_resource_is_named_to_the_agent() -> None:
+    """A resource the model is never told about is unreachable in practice: it has
+    no reason to guess the key. Hand-copied lists had rotted to the same stale
+    9 of 19 — fundamentals, options_flow, equity_tape, my_trades and schwab_accounts
+    among the invisible. Every surface must DERIVE its list from RESOURCES, so this
+    fails the moment someone hand-writes one again."""
+    from ai.chat.tools import _QUERY_RESOURCES, TOOL_DEFINITIONS
+    from ai.perception.context import list_capabilities
+
+    names = set(list_resources())
+    assert len(names) >= 19  # non-vacuous: an empty registry must not pass trivially
+
+    for surface, text in (
+        ("query tool description", TOOL_DEFINITIONS["query"]["description"]),
+        ("perception manifest notes", list_capabilities()["notes"]),
+    ):
+        missing = sorted(n for n in names if n not in text)
+        assert not missing, f"{surface} never names: {missing}"
+        # ...verbatim, not by coincidence: short keys like `news` and `market` appear
+        # in unrelated prose, so a name-by-name check alone could pass a stale list.
+        assert _QUERY_RESOURCES in text, f"{surface} does not carry the derived list"

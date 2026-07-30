@@ -1,4 +1,9 @@
-/** Server-side fetch to the Python API (Next.js route handlers only). */
+/** Server-side fetch to the Python API (Next.js route handlers only).
+ *
+ * The chat-brain helpers that lived here (fetchLlmRuntime, fetchChatContext,
+ * executePythonTool, finalizeChatTurn) were deleted with the TS chat brain on
+ * 2026-07-30 — chat is one Python call now.
+ */
 
 const PYTHON_API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -21,80 +26,6 @@ export async function pythonFetch(
   return fetch(url, { ...init, headers, cache: "no-store" });
 }
 
-export type LlmRuntime = {
-  provider: string;
-  api_key: string;
-  base_url: string;
-  model: string;
-  openai_compatible: boolean;
-};
-
-export async function fetchLlmRuntime(model?: string): Promise<LlmRuntime> {
-  const params = model ? `?model=${encodeURIComponent(model)}` : "";
-  const res = await pythonFetch(`/api/chat/llm-runtime${params}`);
-  if (!res.ok) {
-    throw new Error(`LLM runtime error ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function fetchChatContext(
-  userText: string,
-  injectMemories = false,
-  injectJournal = true,
-): Promise<{
-  system: string;
-  memories: unknown[];
-}> {
-  const res = await pythonFetch("/api/chat/context", {
-    method: "POST",
-    body: JSON.stringify({ userText, injectMemories, injectJournal }),
-  });
-  if (!res.ok) {
-    throw new Error(`Chat context error ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function executePythonTool(
-  name: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  const res = await pythonFetch("/api/chat/tools/execute", {
-    method: "POST",
-    body: JSON.stringify({ name, arguments: args }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? `Tool execute error ${res.status}`,
-    );
-  }
-  const data = await res.json();
-  return data.result;
-}
-
-export async function finalizeChatTurn(payload: {
-  messages: unknown[];
-  assistantText: string;
-  assistantMessage?: unknown;
-  sessionId?: string | null;
-  mode: string;
-  model?: string;
-}): Promise<void> {
-  await pythonFetch("/api/chat/finalize", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-/**
- * Proxy a chat turn to the ONE Python brain (`POST /api/chat`), streaming its
- * AI-SDK UIMessageStream bytes straight through. Used both as the default
- * `CHAT_BRAIN=python` path (forwarding the full request body, incl. enabledTools
- * + autoInjectMemories) and as the `CHAT_BRAIN=ts` non-native fallback. The
- * Python endpoint owns the loop, tools, approval HITL, and session persistence.
- */
 export async function proxyPythonChat(body: unknown): Promise<Response> {
   const res = await pythonFetch("/api/chat", {
     method: "POST",

@@ -1325,7 +1325,8 @@ async def _book_deadman_once() -> None:
     missing = [
         b.name
         for b in BOOKS.values()
-        if not report_exists_for_day(
+        if not b.paused
+        and not report_exists_for_day(
             f"book_{b.book_id}", today, dedup_key=f"book_{b.book_id}"
         )
     ]

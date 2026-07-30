@@ -41,6 +41,13 @@ only the actions are here.
 
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
 
+- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` is FLAKY, not broken** —
+  it failed (grades `lost=0`) during the data-wiring round and passes now both in isolation and in a
+  full 3,036-test run. Intermittent means shared state leaks between tests, which is *worse* than a
+  hard failure: the GRADING_TIEBREAK law (a bar touching stop AND target grades LOST) is only
+  sometimes guarded, and a green suite is no longer proof. ⏳ Find the leak (suspect a shared DB path
+  or module-level cache, cf. the two known CI shared-DB flakes) — do not close on a passing run.
+
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
 - ⏳ (was Mon 07-27) IV corpus first live cron run: `iv_daily` row per universe symbol + sane
@@ -195,6 +202,16 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 
 ## ▶ LLM paper books — ARMED + LIVE; increments open
 
+- ⏸ **2026-07-30 Matt + LLM PAUSED** — account verified empty (0 positions). Founder wants this as a
+  CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
+  `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).
+- ⏸ **2026-07-30 Claude Panel PAUSED** (cron line commented + `BOOKS['panel'].paused=True`). Solo books still run.
+  - ⏳ **Needs a deploy**: the dead-man skip is code, so until the backend restarts the founder gets one
+    "Book dead-man: 1 report(s) missing" warning push at 20:00 ET each night naming Claude Panel.
+  - ⚠ `acct_alpaca_open` positions now get NO nightly hold/trim review. Resting GTC stops still cap
+    downside; nothing trims winners or reacts to a broken thesis. Decide: review manually, let the exit
+    engine own it, or resume the panel.
+
 Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
 - ⏳ first fully-armed nightly cycles end-to-end at 17:05/17:20/17:40 ET (proposals straight from
   the cycle, no replay).
@@ -206,6 +223,26 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
   founder acts manually — the nightly pack's open-orders section is the review surface.
 - Lab book positions section honest-empty (per-account positions endpoint); session-book research
   depth v2.
+- ⏳ **2026-07-30 tonight: confirm the seats actually USE the perception CLI.** The books were
+  blind (no perception access at all) until `tools/perception_query.py` was wired into
+  `book_session.sh --allowedTools` + both prompts. This assumes Agent-spawned seats inherit the
+  session allowlist — likely (the 07-29 scrapers used session-level WebFetch/WebSearch) but
+  UNVERIFIED. Check tonight's transcripts for `perception_query.py` calls and for a drop in
+  web-scrape sub-agents; if seats can't run it, the pack must carry the data instead.
+- ⏳ **2026-07-30 needs a deploy: chat/mobile still name 9 of 19 resources.** The queryable-resource
+  list is now DERIVED from `RESOURCES` (card `agent-capability-drift`), but the running backend holds
+  the stale strings until it restarts — so `fundamentals`, `options_flow`, `my_trades` and
+  `schwab_accounts` stay unnamed to the live copilot. Books already pick it up on their next session.
+- ⚠ **2026-07-30 the same deploy CLOSES a live side door** (card `chat-dead-ts-surface`, done):
+  `POST /api/chat/tools/execute` runs `propose_order` with no allowlist and no approval ledger, and
+  `GET /api/chat/llm-runtime` hands back the raw provider API key — both gated only by the
+  browser-visible `NEXT_PUBLIC_API_TOKEN`. They are deleted in code and **still live on serv until the
+  restart**. Treat that restart as the fix, not the commit.
+- ⏳ **2026-07-30 forced tool-choice was NOT ported and is now gone from the code.** The retired TS
+  route forced `toolChoice: propose_order` on an order turn; `ai/chat/loop.py` is `tool_choice="auto"`
+  throughout. The intent prompt block says the same thing in prose, so this is belt-and-braces — but if
+  "[Calling propose_order...]" narration reappears in chat, this is the first suspect. Porting it needs
+  per-provider handling (DeepSeek thinking models 400 on `tool_choice`).
 
 ## ▶ Waiting on founder
 
