@@ -95,10 +95,6 @@ snapshot per sweep). Open threads only:
   (3) build `tools/mover_intraday.py` per the registered spec; (4) single run, result recorded
   whatever it shows. Geometry probe (07-24 session, counts only) justified eligibility ≥20
   fenced prints/window and the boundary-of-day peer cell — recorded in the registration.
-- **⏳ serv RAM upgrade 07-30 (+32 GB, 2 sticks now, 2 more later)** — post-boot verify, then
-  DELETE this thread: `hmt-backend`, `hmt-flow-collector` (system unit, auto-starts; shadow flag
-  stays on in dev-tree `.env`), frontend :3001, tailnet up, `crontab -l` intact (02:30 capture /
-  04:30 perception nightly), `free -h` shows the new total. Nothing needs manual restart.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.
