@@ -13,7 +13,6 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
-from db.schema_helpers import _add_column_if_missing
 
 _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("expires_at", "TEXT"),
@@ -26,6 +25,7 @@ _NEW_COLUMNS: tuple[tuple[str, str], ...] = (
     ("rule_id", "TEXT"),
     ("score_json", "TEXT"),
     ("thesis", "TEXT"),
+    ("account_id", "TEXT"),
 )
 
 
@@ -64,7 +64,6 @@ def init_paper_order_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             except sqlite3.OperationalError as exc:
                 if "duplicate column" not in str(exc).lower():
                     raise
-        _add_column_if_missing(conn, "paper_order_proposals", "account_id", "TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_proposals_account_status
@@ -266,6 +265,7 @@ def list_pending_proposals(
                 "symbol": parsed["symbol"],
                 "side": parsed["side"],
                 "qty": parsed["qty"],
+                "account_id": parsed.get("account_id"),
                 "expires_at": parsed.get("expires_at"),
                 "payload_hash": parsed.get("payload_hash"),
                 "score": parsed.get("score"),
