@@ -62,23 +62,43 @@ snapshot per sweep). Open threads only:
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
-- **⏳ Live flow pairing Inc 2 — SHADOW IS LIVE since 2026-07-28 21:02 UTC** (dev tree pulled to
-  `8cf8008`; the code was already on main via PR #133. `OPTIONS_FLOW_PAIRING_SHADOW=1` in dev-tree
-  `.env`; collector PID 1186654; wildcard ack `wide=True`, no warnings, RSS 406 MB at start).
-  ⏳ NEXT (07-29, after a full session): read shadow stats — wire lag both sides, enrich ≤1s
-  fraction, per-root d-vs-a coverage, RSS across the open burst (measured ceiling ~1 GB at
-  MAX_PENDING 2M) — plus a full-day session replay for open-burst RSS. Watch for the matcher-reset
-  epoch lines on any Alpaca re-subscribe (keepalive flaps are 40–48/day on this account).
-  Inc 3 cutover still needs the standing-NBBO consumer audit. No code-family scoring before
+- **⏳ Live flow pairing Inc 2 — shadow session #1 (2026-07-29) CLEAN; Inc 3 gates remain.**
+  Full-day numbers (60s stats line, end of day): dbn=11.71M prints, **matched 98.0%**, expired
+  0.89% (no twin ever), orphans 20,063 (0.17%); **enrich ≤100ms = 86.6%, ≤1s = 98.6%** (the
+  match-first answer); pending drained to 0, keys_peak 476k of the 2M cap, evicted 0; wire lag
+  p50=p95=0ms both sides; **1 reconnect/reset all day** (ping_timeout 60s tamed the 40–48/day
+  keepalive flaps); tee_err=alp_err=0; RSS 1,653 MB end-of-day, unit peak 1.9 GB (above the
+  ~1 GB estimate — fine, but check against unit limits before cutover).
+  **Inc 3 cutover gates, in order:** (1) shadow session #2 rides 07-30 free; (2) the
+  **standing-NBBO consumer audit** — NOT run yet, the real blocker (everything that silently
+  reads the Alpaca quote lane's standing NBBO must be found before that lane turns off);
+  (3) explain the **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the known
+  ~4-min meta-cold open blind; confirm, don't assume). No code-family scoring before
   1.8-on-truth conclusions are folded in.
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).
-- **⏳ Flow perception surface — SCHEDULED (nightly cron live), alerts unarmed, no UI widget** (BUILD_LOG
-  07-29 rows; card `flow-perception-ship`). `tools/flow_perception_nightly.sh` (cron 04:30 UTC Tue–Sat)
-  now rolls the corpus + runs the scan after the capture chain; live dry-run smoke done (4,060 rows /
-  2,366 symbols on 2026-07-24). Open: founder arms `alerts.flow_perception_alerts_enabled` (recommend
-  ≥3 components or top-N — ≥2 yields ~451 candidates/session), UI widget, and earnings-calendar
-  coverage widening (own thread, agent dispatched 07-29).
+- **⏳ Flow perception surface — SCHEDULED (cron 04:30 UTC Tue–Sat), earnings coverage SHIPPED,
+  alerts unarmed, no UI widget** (BUILD_LOG 07-29/07-30 rows; card `flow-perception-ship`).
+  Nightly wrapper = corpus roll → earnings coverage refresh (non-fatal) → scan. Earnings estimates
+  land as `estimated=1`/`edgar_estimate` — money-path readers (`next_earnings_date`) stay
+  confirmed-only BY DESIGN; `earnings_phrase()` renders the estimate caveat on every surface.
+  ⏳ Open: **first full ~3.9k-name coverage sweep** on serv (wrapper does it incrementally at
+  04:30, or run `tools/earnings_coverage_refresh.py` manually — ~9 min); founder arms
+  `alerts.flow_perception_alerts_enabled` (recommend ≥3 components or top-N — ≥2 yields ~451
+  candidates/session); UI widget; watchlist fundamentals panel still shows confirmed dates only
+  (surfacing estimates there needs a UI label first).
+- **⏳ 1.14f intraday screen — REGISTERED (46b1049, SEED=20260808), outcome store not yet
+  fetched.** Sequence is LAW (fetch-to-the-spec): (1) bars backfill TOOL (agent building
+  `tools/equity_bars_5min_backfill.py` on a worktree branch, 07-30 — review + merge like the
+  earnings round); (2) run the FULL backfill (Alpaca SIP 5-min RTH, ~4.5–6.3k names, full corpus
+  span, ~10–15 GB) — **deliberately AFTER the 07-30 serv RAM upgrade**, nice'd, off market hours;
+  (3) build `tools/mover_intraday.py` per the registered spec; (4) single run, result recorded
+  whatever it shows. Geometry probe (07-24 session, counts only) justified eligibility ≥20
+  fenced prints/window and the boundary-of-day peer cell — recorded in the registration.
+- **⏳ serv RAM upgrade 07-30 (+32 GB, 2 sticks now, 2 more later)** — post-boot verify, then
+  DELETE this thread: `hmt-backend`, `hmt-flow-collector` (system unit, auto-starts; shadow flag
+  stays on in dev-tree `.env`), frontend :3001, tailnet up, `crontab -l` intact (02:30 capture /
+  04:30 perception nightly), `free -h` shows the new total. Nothing needs manual restart.
 - **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
   abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
   finding, not a reason to retune; report the three abstain states separately.

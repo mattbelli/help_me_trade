@@ -14,7 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from db.earnings_calendar import upsert_earnings
+from db.earnings_calendar import (
+    STATE_DATED,
+    STATE_NON_FILER,
+    STATE_UNKNOWN,
+    set_estimated_next_earnings,
+    upsert_coverage,
+    upsert_earnings,
+)
 from db.flow_corpus import SCHEMA_VERSION, init_db, upsert_bars, upsert_rollup
 from db.flow_perception import rows_for_session, upsert_rows
 from signals.flow_perception import (
@@ -22,6 +29,7 @@ from signals.flow_perception import (
     REGIME_EARNINGS,
     REGIME_NO_CATALYST,
     _rank_within_cells,
+    earnings_phrase,
     emit_alerts,
     run_scan,
     scan_session,
@@ -178,7 +186,38 @@ def test_missing_earnings_is_flagged_not_assumed_quiet(
     row = next(r for r in rows if r["symbol"] == SPIKE)
     assert row["days_to_earnings"] is None
     assert row["earnings_coverage"] == 0  # no data != no catalyst
+    assert row["earnings_state"] == STATE_UNKNOWN  # ...and neither is "never looked"
     assert row["regime"] == REGIME_NO_CATALYST
+
+
+def test_a_non_filer_is_recorded_as_a_fact_not_a_hole(
+    corpus: tuple[Path, list[str], list[str]], tmp_path: Path
+) -> None:
+    """An ETF has no earnings — that is the right answer, not missing data."""
+    app_db = tmp_path / "app.db"
+    upsert_coverage([{"symbol": SPIKE, "state": STATE_NON_FILER}], db_path=app_db)
+    rows = scan_session(corpus_db=corpus[0], db_path=app_db, today=SCAN_DAY)
+    row = next(r for r in rows if r["symbol"] == SPIKE)
+    assert row["earnings_state"] == STATE_NON_FILER
+    assert row["days_to_earnings"] is None
+
+
+def test_an_estimated_date_drives_the_regime_but_stays_labelled(
+    corpus: tuple[Path, list[str], list[str]], tmp_path: Path
+) -> None:
+    """The coverage widening's whole point: a projected date is good enough to tag
+    the row earnings-adjacent, and never good enough to present as confirmed."""
+    path, _names, sessions = corpus
+    app_db = tmp_path / "app.db"
+    when = date.fromisoformat(sessions[-1]) + timedelta(days=4)
+    set_estimated_next_earnings(SPIKE, when.isoformat(), db_path=app_db)
+    rows = scan_session(corpus_db=path, db_path=app_db, today=SCAN_DAY)
+    row = next(r for r in rows if r["symbol"] == SPIKE)
+    assert row["days_to_earnings"] == 4
+    assert row["regime"] == REGIME_EARNINGS
+    assert row["earnings_estimated"] == 1
+    assert row["earnings_state"] == STATE_DATED
+    assert "ESTIMATED" in earnings_phrase(row)
 
 
 @pytest.mark.parametrize(

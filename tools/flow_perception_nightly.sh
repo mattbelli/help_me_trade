@@ -61,6 +61,15 @@ log "corpus rollup $START..$END"
 nice -n 10 "$PY" tools/flow_corpus_rollup.py --start "$START" --end "$END" \
   || alarm "corpus rollup failed"
 
+# Forward earnings dates for the corpus universe (exact where a vendor has one,
+# EDGAR-cadence estimate otherwise). Incremental — only stale/missing names cost
+# a request. NON-FATAL on purpose: a bad EDGAR night degrades a card's earnings
+# line to what we already knew, which is nothing like a dead scan reading as
+# "nothing unusual today", so it must not skip the scan below.
+log "earnings coverage refresh"
+nice -n 10 "$PY" tools/earnings_coverage_refresh.py \
+  || log "WARN: earnings coverage refresh failed — scan continues on existing coverage"
+
 log "perception scan"
 nice -n 10 "$PY" tools/flow_perception_scan.py --top 10 \
   || alarm "perception scan failed"
