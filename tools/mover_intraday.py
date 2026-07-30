@@ -241,9 +241,10 @@ AMBIGUITIES = {
         "reading-B diagnostic."),
     "universe_is_the_corpus": (
         "the universe is every underlying in `flow_rollup` (i.e. observed "
-        "anywhere across the corpus sessions), minus the fence — NOT a "
-        "per-session defs universe. A name enters the peer cell on a session "
-        "only via the eligibility and quintile gates."),
+        "anywhere across the corpus sessions) — the registered universe, no "
+        "fence, NOT a per-session defs universe. Under --universe-fence (a "
+        "NON-REGISTERED arm) index/ETF roots are removed. A name enters the "
+        "peer cell on a session only via the eligibility and quintile gates."),
 }
 
 
@@ -814,9 +815,10 @@ def tape_bins(session: date, name_index: dict[str, int], n_names: int, na: dict)
     ni = np.array([name_index.get(str(u), -1) for u in uniq_und],
                   dtype=np.int64)[d_und[idx]]
     # prints that clear the fence but whose underlying is outside the analysis
-    # universe (index/ETF roots, ~31% of premium) are their OWN bucket: pooling
-    # them into `prints_fenced_out` would hide them under a heading that claims
-    # nothing is silently dropped
+    # universe (names absent from flow_rollup; under --universe-fence also the
+    # removed index/ETF roots) are their OWN bucket: pooling them into
+    # `prints_fenced_out` would hide them under a heading that claims nothing
+    # is silently dropped
     in_universe = ni >= 0
     na["prints_outside_universe"] += int((fenced & ~in_universe).sum())
     keep = fenced & in_universe
