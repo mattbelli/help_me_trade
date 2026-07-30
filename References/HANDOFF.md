@@ -200,6 +200,13 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 
 ## ▶ LLM paper books — ARMED + LIVE; increments open
 
+- ⏸ **2026-07-30 Claude Panel PAUSED** (cron line commented + `BOOKS['panel'].paused=True`). Solo books still run.
+  - ⏳ **Needs a deploy**: the dead-man skip is code, so until the backend restarts the founder gets one
+    "Book dead-man: 1 report(s) missing" warning push at 20:00 ET each night naming Claude Panel.
+  - ⚠ `acct_alpaca_open` positions now get NO nightly hold/trim review. Resting GTC stops still cap
+    downside; nothing trims winners or reacts to a broken thesis. Decide: review manually, let the exit
+    engine own it, or resume the panel.
+
 Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
 - ⏳ first fully-armed nightly cycles end-to-end at 17:05/17:20/17:40 ET (proposals straight from
   the cycle, no replay).
