@@ -45,6 +45,8 @@ _ROW_COLUMNS = (
     "fired_components",
     "days_to_earnings",
     "earnings_coverage",
+    "earnings_estimated",
+    "earnings_state",
     "regime",
     "session_age_days",
     "disclaimer",
@@ -80,6 +82,12 @@ def init_flow_perception_table(db_path: Path = DEFAULT_DB_PATH) -> None:
                 fired_components TEXT,            -- csv, display order = COMPONENT_COLUMNS
                 days_to_earnings INTEGER,         -- calendar days; NULL = no known date
                 earnings_coverage INTEGER NOT NULL DEFAULT 0,
+                -- 1 = the date is PROJECTED from the name's own 8-K filing cadence,
+                -- not confirmed by anybody. Rides on the row because honesty flags
+                -- have been stripped at transports before (07-08 red-team).
+                earnings_estimated INTEGER NOT NULL DEFAULT 0,
+                -- 'dated' | 'non_filer' (an ETF: no earnings is CORRECT) | 'unknown'
+                earnings_state TEXT,
                 regime TEXT NOT NULL,
                 -- weekday sessions between `session` and the scan: a stale corpus
                 -- must read as stale, never as "nothing unusual today"
@@ -94,6 +102,14 @@ def init_flow_perception_table(db_path: Path = DEFAULT_DB_PATH) -> None:
             "CREATE INDEX IF NOT EXISTS idx_flow_perception_symbol "
             "ON flow_perception_daily (symbol, session DESC)"
         )
+        # Additive columns for tables created before earnings estimates existed.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(flow_perception_daily)")}
+        for col, decl in (
+            ("earnings_estimated", "INTEGER NOT NULL DEFAULT 0"),
+            ("earnings_state", "TEXT"),
+        ):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE flow_perception_daily ADD COLUMN {col} {decl}")
         conn.commit()
 
 
@@ -118,7 +134,8 @@ def upsert_rows(rows: list[dict[str, Any]], *, db_path: Path = DEFAULT_DB_PATH) 
         # NOT NULL counters: a missing flag means "did not fire", and an explicit
         # NULL bind would defeat the column default.
         for col in (*(f"{c}_fired" for c in COMPONENT_COLUMNS),
-                    "n_fired", "earnings_coverage", "session_age_days"):
+                    "n_fired", "earnings_coverage", "earnings_estimated",
+                    "session_age_days"):
             r[col] = int(r[col] or 0)
         payload.append(r)
     with _connect(db_path) as conn:
