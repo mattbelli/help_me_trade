@@ -36,7 +36,7 @@
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "The roadmap-1d prereg amendment (1.15-1.23 + 1.4 terminal-value + 1.5 multiplier bound), renamed G (F consumed 07-28). DRAFT v4 in References/FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_G.md \u2014 NOT LAW. Gauntlet: 2 split-mandate fresh reviewers per round; 45 blockers fixed across rounds 1-3 (incl. a measured ~10% type-I at the textbook critical value -> size-calibrated cutoff; f/f0 universe mismatch -> fenced+floored judgment-window re-emission; ETN classification; mechanical Q5 tier rule with outcome-data disclosure). Round 4 verdicts pending. When law: commit + INDEX row update + the ordered pre-run obligations (G.10) begin; 1.14f findings registration (FLOW_1_14F_FINDINGS_REGISTRATION.md) still owed and gates the scoring run; earliest run = close of 2026-08-07.",
+   "notes": "v7 drafted 07-30: round 6 returned 7 blockers (67\u219274 fixed). Headline: the successor map is now SOURCED from Alpaca corporate-actions name_change records (106 corpus-relevant renames, date-scoped \u2014 symbol reuse is real; 4 of 9 seam-inferred reviewer pairs were refuted by the authoritative records), merged at event grain; primary cell registered EQUITY-universe-only (cash-index roots = 37.1% of window premium, structurally bar-less); baseline universe + truncation symmetry pinned; calibration window dated; dilution-gate bootstrap parameterized. Round 7 dispatched.",
    "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
   },
   {

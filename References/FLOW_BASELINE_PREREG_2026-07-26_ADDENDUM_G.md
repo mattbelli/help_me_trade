@@ -1,7 +1,8 @@
 # Addendum G — the judging-rules amendment (roadmap 1.15–1.23, hosting 1.4 and 1.5)
 
-*⚠️ DRAFT v6 — NOT LAW until the gauntlet converges. Blockers by round: v1 18, v2 16, v3 11,
-v4 13, v5 9 (4 methodology + 5 record). All resolved below. Orchestrator, 2026-07-30.*
+*⚠️ DRAFT v7 — NOT LAW until the gauntlet converges. Blockers by round: v1 18, v2 16, v3 11,
+v4 13, v5 9, v6 7 (6 methodology + 2 record, 1 shared). All resolved below. Orchestrator,
+2026-07-30.*
 
 *Dated addendum to `FLOW_BASELINE_PREREG_2026-07-26.md`. This is the amendment roadmap §1d
 reserved as "Addendum F"; that letter was consumed 07-28, so this is G (`INDEX.md`'s Addendum E
@@ -62,6 +63,16 @@ operative base now, matching the implemented precedent), the ≥15-of-20 presenc
   **designating ALL as the kill-authority arm is a registration decision made here, now,
   pre-outcome** — SHORT_OTM's Q1/Q2 have no usable null (G.9d) and its Q3–Q5 cells grade as
   labelled exploratory).
+- **Root universe: EQUITY-classified roots only (G.8 fence, mapping applied) — a registered
+  coordinate, previously implicit.** The metric requires underlying bars; cash-index roots are
+  structurally bar-less (`no_spot_index` — measured at drafting: **37.1% of judgment-window
+  premium, $687.2B of $1,852.8B**) and would otherwise route silently to UNGRADEABLE — they,
+  not corporate actions, are the dominant would-be-ungradeable mass, and the census instrument
+  for them is `no_spot_index`, a different bucket from `no_spot_missing` (the 1.2 split exists
+  precisely to separate them). ETF roots grade as a labelled exploratory arm — G.7's measured
+  sign-flip (index/ETF pooled net flips ex-multileg; single names hold) is the recorded reason
+  they carry no kill authority. The null table, `f`, `f₀`, the tier census, and the baseline
+  all live on this same equity universe.
 - **Axis:** registered call/put tilt (`dir`), base prereg 68-72.
 - **Tilt variant: RAW** (demeaned variant exploratory per Addendum A:70; kill authority may not
   depend on the unimplemented 1.25-clause-3 transform). Acknowledged: A registered demeaning
@@ -116,26 +127,45 @@ operative base now, matching the implemented precedent), the ≥15-of-20 presenc
   mid-horizon stays in the cohort, flagged `truncated_horizon`, graded at last available close
   over the truncated window, SPY same-window, pre-event ATR14 (disclosed bias: ~√(d/10) shrink
   toward zero — conservative on the winners; count + premium share reported). (ii) UNGRADEABLE
-  applies only when the root, **its registered successor listing, and its dotted class-share
-  form ALL return zero bars.** Measured correction (v5 got this wrong): most "zero-bar" roots
-  are ticker RENAMES with full windows under the successor — SATS→ECHO, FI→FISV, PARA→PSKY,
-  MMC→MRSH, MPW→MPT all carry complete judgment-window bars — so G.8's mapping layer gains a
-  **registered successor map** (frozen in the snapshot; those five are the observed instances)
-  and grading follows it. BRKB has 0 bars under BOTH forms today, so obligation 2 includes a
-  **bar backfill for the dotted class-share forms (BRK.B, BF.B, HEI.A, PBR.A) and any mapped
+  applies only when the root, **its registered successor identity, and its dotted class-share
+  form ALL return zero bars.** **The successor map is SOURCED, not inferred — v6's frozen
+  five-pair hand list is superseded** (measured at drafting: **106 renames whose old root
+  carries ≥ $250k of corpus flow premium**, not five). Registered source: **Alpaca
+  corporate-actions `name_change` records** (`data.alpaca.markets/v1/corporate-actions`,
+  `types=name_change`, span 2025-07-25 → the obligation-2 run date), filtered to plain
+  alphabetic old/new roots with corpus flow on the old side, **date-scoped by `process_date`**
+  — symbol reuse is real inside the corpus span (ARIS and GOLD were each vacated by one issuer
+  and re-occupied by another), so a global symbol→symbol dict is forbidden — plus one
+  merger-sourced continuation absent from the name-change feed (PARA→PSKY, corpus-seam
+  verified). **Adjacency/seam inference is FORBIDDEN as a map source:** cross-checking the
+  authoritative records refuted four of nine seam-inferred candidate pairs proposed in review
+  (ERJ→EMBJ, not RKLX; HOND→IMSR, not NUAI; COMM→VISN and MNMD→DFTX — two renames one day
+  apart, cross-paired; BYON→BBBY, not RR). v6's five instances all reconfirm under the
+  authoritative source. **Map grain, registered: an identity MERGE at event grain** — 
+  predecessor and successor are ONE underlying identity in G.8's mapping layer; presence
+  (15-of-20), trailing-60 quintile ranks, z-scores, and grading all run on the merged series
+  (old rows before `process_date`, new rows after; seams verified non-overlapping), so a
+  mid-window rename manufactures no warm-up hole (unmerged, SATS→ECHO — $946M of predecessor
+  premium in-window, handoff 06-23/24 — would zero ECHO's eligibility for the rest of the
+  window; merged, it events from 06-24). Bankruptcy renames (Q-suffix successors, mostly
+  bar-less) map and then fail the bar test honestly — they stay in the ungradeable census by
+  the normal rule. BRKB has 0 bars under BOTH forms today, so obligation 2 includes a **bar
+  backfill for the dotted class-share forms (BRK.B, BF.B, HEI.A, PBR.A) and any mapped
   successor still bar-less** — data acquisition, not a touch. What remains after mapping +
   backfill (e.g. WBA, taken private) is the true ungradeable set: excluded, counted per session
-  with premium via the per-root `no_spot_missing` breakdown — **per-root, never the bucket**
-  (the bucket range is $41.3M–$7,196.6M/session, mean $256M over 138 sessions, and its tail is
-  adjusted contracts the digit-strip removes; the earlier $54M–$574M/37-session figure is
-  retracted in the record) — recorded pre-run (obligation 5).
+  with premium via the per-root `no_spot_missing` AND `no_spot_index` breakdowns — **per-root,
+  never the bucket** (the `no_spot_missing` bucket range is $41.3M–$7,196.6M/session, mean
+  $256M over 138 sessions, and its tail is adjusted contracts the digit-strip removes; the
+  earlier $54M–$574M/37-session figure is retracted in the record) — recorded pre-run
+  (obligation 5).
 - **Data vintage:** v7 corpus of record; Addendum F's ≥98% subset = robustness arm.
 
 **Verdict — ordered checklist; every input combination lands exactly once:**
 
 1. **Evaluability:** ≥ 20 distinct complete-or-terminated event dates AND ≥ 30 events in the
-   cell; the null tier usable — **registered criterion: across-draw SE ≤ 0.5pt (the 1.7 B3
-   rule) AND ≥ 1,000 tested name-days in the tier**, both evaluated at obligation 3; the
+   cell; the null tier usable — **registered criterion: across-draw SE ≤ 0.5pt (a NEW
+   registered criterion, numerically equal to the 1.7 B3 reporting threshold, per obligation
+   3) AND ≥ 1,000 DISTINCT tested name-days in the tier**, both evaluated at obligation 3; the
    dilution gate resolvable (G.9b — pre-run precision record; a gate unable to resolve
    `f − f₀ = 1.0pt` at its 99% bound routes here, not to DEAD); the regime-span rule met —
    **measured on the cell's evaluable event dates** (operationalizing base prereg 128's
@@ -151,14 +181,18 @@ operative base now, matching the implemented precedent), the ≥15-of-20 presenc
    one-sided cutoff — pass ⇒ **ALIVE**; fail ⇒ **DEAD**.
 
 Everything else is exploratory, labelled, FDR reported, no survival authority (172-173). No
-partial rescue.
+partial rescue. **Every DEAD verdict prints the recorded MDE beside the observed effect** — a
+DEAD at MDE near the ceiling mostly reflects power, and the record must show it on its face.
+And the verdict label carries its contrast: the baseline is signed sub-threshold days, so
+**DEAD reads "no dose-response over sub-threshold days," never "events carry no alpha."**
 
 ## G.3 (1.17) Horizon of record = 10 trading days
 
 Grid 3/10/21/45 frozen and fully reported; only 10td confirms or kills (21/45d ≈ 2–4
 independent observations — reported, non-authoritative; 3d likewise). **At the earliest
-permitted scoring date (close of 2026-08-07) the 21/45-day windows are largely incomplete
-(~1 of 37 dates has a full 45d window): the 21/45 columns are reported TRUNCATED AT THE RUN
+permitted scoring date (close of 2026-08-07), completeness differs sharply by column — 10d:
+37 of 37 dates complete; 21d: 27 of 37 (73%); 45d: 3 of 37 (v6's "~1" corrected against the
+real calendar): the 21/45 columns are reported TRUNCATED AT THE RUN
 DATE with the truncation share disclosed per column** — they are not graded under the
 `truncated_horizon` rule (that rule is for bars that stop, not horizons that have not
 elapsed), and no later re-computation touches the split a second time.
@@ -172,16 +206,35 @@ registration). **Registered, one estimator, one parameterization:**
 
 - **Estimand:** difference of equal-weighted per-event-date means — event cohort minus the
   no-signal baseline (117), baseline on the SAME judgment window, same date series — of the
-  G.2 metric. Uncorrected by dilution.
+  G.2 metric. Uncorrected by dilution. **The baseline's universe is pinned (117's "same
+  names" reads three ways; registered here as one):** per date, ALL eligible name-days in the
+  SELECTED tier (obligation-3b census) — same registered pipeline and fence, same equity
+  universe, same G.8 mapping — that do NOT clear `|z| ≥ 2.0`, each signed by its own sign(z)
+  (exact-zero-z excluded and counted, per G.2). **The terminal-value rule applies IDENTICALLY
+  on both sides:** a truncated name-day grades `truncated_horizon` and an ungradeable one is
+  excluded by the same three-way test whether it sits in the event cohort or the baseline —
+  delisting/M&A moves enter both arms or neither. Named plainly: an asymmetric truncation rule
+  was the one channel in this design that could carry a null to ALIVE, leaking in exactly the
+  direction flow is supposed to predict; symmetry closes it.
 - **Inference:** collapse to the recorded date series; **Newey-West HAC, 9 lags** (≡
   Driscoll-Kraay on a scalar equal-weighted series; 9 = H−1), autocovariances by **calendar
   session gap**. If the Bartlett sum returns a non-positive variance on the irregular series,
   the registered fallback is the equal-weighted long-run variance from the calibration
-  bootstrap itself (always positive; same dependence model).
+  bootstrap itself (always positive; same dependence model). **Units pinned:** the fallback is
+  the long-run VARIANCE `LRV` of the per-date series; the test statistic's denominator is
+  `sqrt(LRV / G)` — identical inside replicates and in the real run.
 - **Critical value — size-calibrated:** tabulated `t_{0.99, G−1}` is INVALID at this bandwidth
   (type-I ~4–10%, measured by simulation during this addendum's review; the recorded
   calibration supersedes that estimate). **Registered procedure, every parameter fixed: the
-  TRAINING-window per-date difference series is DEMEANED TO ZERO, then moving-block
+  TRAINING-window — dated: 2025-07-28 → 2026-03-31, base prereg 134's registered train split
+  (corpus starts 07-28; the validation span 2026-04-01 → 2026-05-29 and the test split are
+  excluded). Disclosure: roadmap 2.4 used a different "training" span (through 2026-05-31) —
+  two conventions were live in the record, and this pin is made with training-window outcomes
+  already seen (no calibration window exists whose outcomes were unseen; the ORIGINAL
+  registered split is the narrower, pre-existing choice). The calibration series is built at
+  the SAME registered coordinates as the cell — pipeline, equity universe, selected tier, ALL
+  arm, RAW, midpoint, fenced — as per-date event-minus-baseline differences per the estimand
+  above. That** per-date difference series is DEMEANED TO ZERO, then moving-block
   bootstrapped — block length 10, 100,000 replications, seed 20260810 — at the RECORDED
   complete-or-terminated date count and calendar-gap vector (obligation 5 precedes obligation
   6); each replicate's statistic is `mean_b / NW_SE_b` at 9 lags on the assigned gap vector;
@@ -240,14 +293,23 @@ Replaces the three incompatible lists. **{index, etf, equity}, in that precedenc
 fence any tool may use:**
 
 - **Mapping first:** strip trailing digits from the OCC root (WOLF1 → WOLF; 0 of 13,074
-  directory symbols contain a digit), normalize `.`/`$` suffixes in BOTH directions (OCC
-  `BRKB` ↔ directory `BRK.B` — the roadmap §1.2/§1.4 known offender), and apply the
-  **registered successor map** for renamed listings (observed instances frozen in the
-  snapshot: SATS→ECHO, FI→FISV, PARA→PSKY, MMC→MRSH, MPW→MPT).
-- **index** (checked first) = the 18-root `INDEX_ROOTS` (`db/flow_corpus.py:91-94`); supersedes
+  directory symbols contain a digit; **a stripped form matching NO directory row stays
+  `unclassified` — never guessed toward a near-miss row**: CMCS1 strips to CMCS, which matches
+  nothing, not CMCSA), normalize `.`/`$` suffixes in BOTH directions (OCC `BRKB` ↔ directory
+  `BRK.B` — the roadmap §1.2/§1.4 known offender), and apply the **registered successor map**
+  per G.2's terminal-value rule (Alpaca corporate-actions `name_change` records + the one
+  merger-sourced continuation, date-scoped by `process_date`, an identity MERGE at event
+  grain; generated and frozen into the snapshot at obligation 2 — never hand-listed, never
+  seam-inferred).
+- **index** (checked first) = the 18-root `INDEX_ROOTS` (`db/flow_corpus.py:91-94`) **∪ a
+  registered index-addition list frozen in the snapshot**; supersedes
   Addendum B's 9-root list and (with etf) replaces base prereg 163-164's arm list. **Pre-run
-  check, recorded: top-20 equity-classified roots by corpus premium reviewed against
-  index-product naming; misses added by dated amendment before the scoring run.**
+  check, recorded, TWO instruments (the top-20 check alone cannot see small index roots —
+  census review at drafting surfaces XAU, NANOS, DJXW as sub-top-20 index-product candidates):
+  (1) top-20 equity-classified roots by corpus premium reviewed against index-product naming;
+  (2) the full zero-bar census (roots with premium and no bars under root, dotted form, or
+  successor) reviewed the same way. Confirmed additions land in the snapshot's index-addition
+  list at obligation 2; later misses are a dated amendment.**
 - **etf** = `ETF = Y` in the **Nasdaq Trader symbol directory** — registered snapshot:
   **`signals/options_flow/nasdaqtraded_20260730.txt`, committed** (vintage `File Creation
   Time: 0730202618:02`; 13,074 symbols, 5,563 Y; source URL
@@ -257,7 +319,11 @@ fence any tool may use:**
   ATMP BDCZ DGP DGZ DJP DZZ FNGD FNGO GRN MLPB PFFL SMHB UCIB VXX VXZ**, enumerated in the
   snapshot). FNGU/FNGD land in the same arm.
 - **equity, two registered layers:** (layer 1) a normalized root matching a directory row with
-  `ETF = N` and no ETN match; (layer 2) **delisted/corporate-action roots from the
+  `ETF = N`, **`Test Issue = N`** (the snapshot carries 33 `Test Issue = Y` rows, all ETF = N,
+  and test roots DO print premium in the corpus — they are excluded from every arm and every
+  universe; OPRA-only test roots absent from the directory, e.g. ZTST, are enumerated into the
+  snapshot as a frozen `test_roots` list at obligation 2), and no ETN match; (layer 2)
+  **delisted/corporate-action roots from the
   `no_spot_missing` census — frozen as a dated list inside the snapshot** (the equity-bars
   store CANNOT serve this layer: delisting is why a live bars API returns nothing — verified:
   WBA/PARA/SATS/FI have 0 `equity_bars` rows; the repo fixed this same conflation once already,
@@ -275,8 +341,13 @@ fence any tool may use:**
   registered fence.
 - **The 1.5 multiplier bound:** `premium = price × size × 100` hardcodes the multiplier; no
   OPRA definition field can correct it (all UNDEF on 1,592,395 contracts). Digit-suffix
-  detectable; measured exposure 225 roots / 1,897 prints / $7.2M = 0.028% of session premium —
-  bounded, closed.
+  detectable; the census session's exposure is 225 roots / 1,897 prints / $7.2M = 0.028% of
+  session premium. **v6's "bounded, closed" was a one-session claim over-generalized —
+  corpus-wide the tail is NOT small: WOLF1 alone is $6.99B = 10.61% of session premium on
+  2025-12-19 and $2.54B on 2026-01-16, OPEN1 $1.72B on 2025-11-21, and digit roots exceed 1%
+  of session premium on 4 sessions (`db/flow_corpus.py:57-64` records the same). All four are
+  outside the judgment window, so "bounded" is a JUDGMENT-WINDOW statement; every table
+  reports its own digit-root premium share.**
 
 ## G.9 (1.23) The noise floor is a curve; grading divides by it, per tier
 
@@ -287,9 +358,14 @@ fence any tool may use:**
   point estimate and its reported interval only. q̂ is an upper bound on the noise share (true
   share = (1−π)·f₀/f), so `lift_real` is an **upper bound in magnitude — reporting-only; it
   enters no gate.** Uncertainty enters at ONE place: **the dilution gate's
-  lower 99% confidence bound on `(f − f₀)` from a joint bootstrap — f resampled over event
-  dates, f₀ resampled over BOTH null draws and tested name-days — both on the judgment window.
-  Pre-run precision record (obligation 3): the gate's minimum resolvable difference; unable to
+  lower 99% confidence bound on `(f − f₀)` from a joint bootstrap — parameterized, since this
+  gate carries DEAD authority on its own: 100,000 replications, seed 20260812, percentile
+  interval, LCB = the 1st percentile of the resampled `(f − f₀)` (one-sided 99%); `f`
+  resampled by moving block (length 10, matching G.4's dependence model) over the
+  judgment-window event-date series; `f₀` by a two-stage resample — the 20 null draws with
+  replacement, then tested name-days iid within each draw — both on the judgment window.
+  Pre-run precision record (obligation 3): the gate's minimum resolvable difference at these
+  exact parameters; unable to
   resolve 1.0pt ⇒ the gate routes to UNEVALUABLE (G.2 step 1), never DEAD.** Assumptions:
   fired name-days partition into f₀ noise + (f − f₀) real; noise fires behave like the
   no-signal baseline (117).
@@ -299,14 +375,17 @@ fence any tool may use:**
   (`tools/condition_labels.py` via the `flow_corpus_rollup.py` wrapper), apply the §1.25
   clause-1 spread gate (`SPREAD_MAX_FRAC = 0.50` — ABSENT from the current extractor's
   `good_q`, so the existing table is **v6-fence semantics** and is relabelled as such), mask
-  package-coded prints, THEN re-group orders — **the exact per-ORDER ±1 shuffle is retained**
+  package-coded prints, restrict the panel to the cell's registered EQUITY universe (G.8
+  classification + mapping, per G.2's universe coordinate), THEN re-group orders — **the exact per-ORDER ±1 shuffle is retained**
   (an aggregate/normal draw is the approximation A2 measured ~4× wrong in Q1 — forbidden);
   order-level package exclusion = drop package-coded PRINTS per F.1's per-print adoption, then
   re-group the surviving legs. The $250k floor lands in `base_rate_table.py` (`eligible`,
   :208 — currently deliberately no-floor). Extract cache versioned to a NEW directory so the
   fenced re-emission can never silently reuse unfenced npz. **Panel lead-in registered: the
   panel spans ≥ 60 sessions before 2026-06-01 (quintile + presence warm-up), tallies MASKED to
-  the 38 judgment dates** (the existing `masks` machinery). Same construction otherwise:
+  the 37 judgment dates — the same window as G.2, 2026-07-23 excluded** (the existing `masks`
+  machinery; v6's "38" was the stale pre-exclusion count, and because this mask defines the
+  universe `f` and `f₀` live on, it is a registered quantity, not prose). Same construction otherwise:
   trailing-60 quintiles on classified premium, ddof=0, seed 20260729, 20 draws, one run, first
   run governs. Full-corpus v6-fence table = context only (Q1 1.961% … Q5 8.629%, pooled
   6.612%; stationarity v6 ALL 0.29pt / v7-line 0.63pt arm-unnamed). Expectation pre-stated:
@@ -331,9 +410,19 @@ than the close of 2026-08-07):**
 1. `FLOW_1_14F_FINDINGS_REGISTRATION.md` committed law.
 2. The G.8 snapshot generated from the COMMITTED directory copy
    (`signals/options_flow/nasdaqtraded_20260730.txt` — the registered vintage; the URL is
-   provenance only) — ETN list + delisted census list + **successor map** + LEGACY_ETF_SET —
-   plus the top-20 index-miss check recorded, plus the **bar backfill for dotted class-share
-   forms and mapped successors still bar-less** (data acquisition, not a touch).
+   provenance only) — ETN list + delisted census list + **successor map (the registered
+   Alpaca corporate-actions pull per G.2's terminal-value rule, date-scoped, frozen as part
+   of the snapshot JSON)** + **test-root list (directory `Test Issue = Y` rows + OPRA-only
+   test roots the census surfaces)** + **index-addition list (both index-miss instruments
+   recorded, per G.8)** + LEGACY_ETF_SET — plus the **bar backfill for dotted class-share
+   forms and mapped successors still bar-less** (data acquisition, not a touch). **Tooling
+   note, recorded so this obligation is not misread as pure data acquisition:**
+   `tools/flow_corpus_bars.py` derives its universe from OPRA definition files and its
+   `isalnum()` filter (`:57`) drops dotted forms, with no symbol-list override — the backfill
+   needs a small tool extension, and the READ side needs the three-way lookup (root → dotted
+   form → date-scoped successor) or bars stored under `BRK.B` stay unreachable. Measured
+   scope at drafting: the five v6-mapped successors already carry full bars; the mechanical
+   work is the four dotted forms plus whatever the full sourced map adds.
 3. The G.9c re-emission built and run (fenced extractor — `fence_and_classify()` +
    `multileg_flags()` from `tools/flow_corpus_rollup.py`, the tested v7 functions, never a
    fifth hand-copy — versioned cache, floored, masked to the judgment window) + per-tier `f` +
@@ -341,7 +430,12 @@ than the close of 2026-08-07):**
    numerically equal to the 1.7 B3 reporting threshold — and ≥ 1,000 DISTINCT tested
    name-days) + the dilution gate's PER-TIER precision record. **3b: the 2.4 census counting
    stage re-run on the registered pipeline, logging the f_open-ranked share — the tier is what
-   the registered rule selects (expectation: Q5).**
+   the registered rule selects (expectation: Q5). Pinned so no choice is made at run time: the
+   re-count runs on the same event span 2.4's census used (2025-07-28 → 2026-05-29 —
+   outcome-blind either way); ties in the max-per-quintile-min rule break toward the HIGHER
+   quintile. Disclosed: the rule's min-of-open/close-sides form is inherited from 2.4 even
+   though the primary cell uses no open/close split — kept because changing the rule's form
+   now would be a post-hoc selection-rule edit.**
 4. *(reserved — merged into 5/6 ordering below)*
 5. The G.2 step-1 input-property records: complete-or-terminated date count + calendar-gap
    vector, event count, regime-span composition on the cell's dates, truncated/ungradeable
