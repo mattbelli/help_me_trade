@@ -95,11 +95,28 @@ snapshot per sweep). Open threads only:
 
 Findings live on cards; six of nine closed. Still open: `chat-dead-ts-surface` (dead TS brain incl.
 an unguarded `propose_order` endpoint) · `copilot-memory-store-empty` (0 active memories, embeddings
-backfill never ran) · `fusion-unminted-dots` (3 of 4 minted 07-28; `rvol_ex_prints` remains).
+backfill never ran) · `fusion-unminted-dots` (4 of 4 BUILT 07-28; `rvol_ex_prints` awaits its deploy —
+see fusion section).
 REASON/DECIDE wall-down was proven live Monday (TSLA/XLE admissions); the `REASON_EMIT_ENABLED`
 flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 
 ## ▶ Fusion — Horizon Redesign Round 5 + measurement follow-ups
+
+**⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
+attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
+uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
+- ▶ **07-30 pre-open: deploy news dots** — on main since `8cf8008` (PR #134). ⚠️ the code is ALREADY in
+  the dev tree while the backend has not restarted since 07-28 12:33 UTC, so the *next restart of any
+  kind* starts the news cohort — restart deliberately pre-open, never mid-session.
+- ▶ **07-30, after that deploy: PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main
+  in, re-verify, merge, then deploy **07-31 pre-open**. Never the same cohort date as news.
+- ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
+  `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
+- ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
+  for (never done); attention scores stepping DOWN = **the correction, not signal**. Watch the one-time
+  attention migration — it full-scans ~591k `evidence_dots`, so keep it off the lock-starve path.
+- ⏳ next in this lane: filings → fusion dots — needs `ingest_seq` on `filings_events` plus a founder call
+  on insider-buy direction (`none` like news, or a deliberate exception). Congress rows stale since 07-02.
 
 Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - ⏳ ≈2026-08-05: T=3.5 revisit (recount T tables on print-price-era + flow-list-era dots) AND the
