@@ -119,14 +119,16 @@ snapshot per sweep). Open threads only:
 - **⏳ 1.14g verdict LANDED 07-30 (BUILD_LOG row) — follow-ups unblocked:** PRODUCT = NOT
   DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
   no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
-  disguise"). Open: (a) **Addendum F registration** of the three 1.14f findings before anything
-  touches the test window (2026-06-01→07-25); (b) RESOLVED 07-30 — founder PARKED the flow
-  perception surface (card `flow-perception-ship`, backlog); a vol/volume abnormality scanner is
-  carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain contradiction
-  stays parked.
-- **⏳ Confirmatory abstention run** (now unblocked — corpus rolled): re-measure direction-rule
-  abstention across the ~250 unexamined sessions vs the 20–35% band; outside the band is a
-  finding, not a reason to retune; report the three abstain states separately.
+  disguise"). Open: (a) the letter "F" was consumed 07-28 — the judging-rules amendment is now
+  **Addendum G (DRAFT v4, gauntlet round 4 in flight**, 45 blockers fixed over 3 rounds; card
+  `addendum-g-judging-rules`), and the three 1.14f findings register separately in
+  `FLOW_1_14F_FINDINGS_REGISTRATION.md` (**not yet written — gates the G.2 scoring run**, which
+  itself cannot start before the close of 2026-08-07); (b) RESOLVED 07-30 — founder PARKED the
+  flow perception surface (card `flow-perception-ship`, backlog); a vol/volume abnormality
+  scanner is carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain
+  contradiction stays parked.
+- ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
+  the band, recorded as the registered finding. Thread closed.
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window
@@ -228,11 +230,16 @@ on our 37 names). Open:
 - the capped-payoff gate is UNTOUCHED by all measurement so far (seller keeps ≤ premium, left tail
   uncapped; C4 band 29.7% negative, p05 −0.3105) — nothing may open a selling lane past it.
 
-## ▶ Options flow classification scorer — gates likely cleared, scorer unbuilt
+## ▶ Options flow classification scorer — BUILT + adversarially verified; the registered run is next
 
-Prereg = LAW (`CLASSIFICATION_LAB_PREREG_2026-07-16.md`). SPY/QQQ/IWM legs cleared ≥5 ordinary
-sessions ≈07-24; SPX complex ≈07-29. Build the scorer once clocks are confirmed clear. Deferred
-audit findings F3/F4/F8 ride the `index-0dte-concentration-study` / gauge cards.
+Scorer + tape fetcher merged 07-30 (BUILD_LOG row; clocks verified clear against captures;
+Addendum A registered pre-run — pooled sign-agreement unit, UNMEASURED ≠ FAILED). Open, in order:
+- ⏳ live smoke `tools/underlying_trades_fetch.py` on one session, then fetch all 8 captured
+  sessions (07-17 OpEx + 07-20…07-24 + 07-27…07-29) — method 2 has no input until this lands.
+- ⏳ the SINGLE registered scoring run (`tools/classification_lab_scorer.py`), then the founder
+  readout — greeks coverage means the delta-adjusted headline rests on SPY/QQQ/IWM only
+  (disclosed in-report). Deferred audit findings F3/F4/F8 still ride
+  `index-0dte-concentration-study` / gauge cards.
 
 ## ▶ Backend composition — Rank-2 open
 
