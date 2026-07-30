@@ -1754,7 +1754,15 @@ it is a description of the market. No exceptions.
         Simulation under a pure-clustering null: components retain ~43–47% of their
         raw effect after quintile stratification with ZERO flow information; the
         split-sample placebo retains ~57%. "CI clear of zero" alone is therefore NOT
-        diagnostic — survival requires beating this benchmark.
+        diagnostic — survival requires beating this benchmark. **Benchmark-validity
+        ceiling (v3.1, pre-run amendment from the implementation review):** the
+        conservatism argument assumes the odd/even measures carry independent noise;
+        if the primary-cell odd-vs-even reliability correlation EXCEEDS 0.85, the
+        benchmark's stratifier approaches a copy of its own firing variable, its
+        retention collapses toward zero, and (d) becomes trivially passable — Arm 2b
+        is then declared NON-CONSERVATIVE, criterion (d) is UNAVAILABLE for every
+        component, and science claims are INCONCLUSIVE. The correlation is reported
+        next to every (d) row either way.
       - **Calibration gates (mandatory, evaluated BEFORE any component result is
         read; failing either makes the run INCONCLUSIVE):**
         1. *Permuted-label null:* per component, rv-quintile labels randomly permuted
@@ -1910,7 +1918,8 @@ it is a description of the market. No exceptions.
         on the observed 1.14f result; registered before any RV-stratified or placebo
         number existed; v1→v3 changes were driven entirely by pre-run adversarial
         review and simulation against 1.14f's published distributions, never by any
-        1.14g outcome. Stratum occupancy, balance, reliability, evaluability, and
+        1.14g outcome. v3.1 adds ONE clause (the Arm 2b reliability ceiling), from
+        the three-auditor review of the IMPLEMENTATION — still before any run. Stratum occupancy, balance, reliability, evaluability, and
         every NA count reported in full. Output: `data/research/mover_intraday_114g.json`.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
