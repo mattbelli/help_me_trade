@@ -210,6 +210,37 @@ def test_reporting_axes_sort_above_incidental_ones(
     assert axes[0]["facts"] < axes[1]["facts"]
 
 
+def test_already_loaded_quarters_are_skipped(facts_db: Path, monkeypatch) -> None:
+    """The weekly cron must not re-ingest cached zips: SEC publishes a new set
+    ~4x a year, so ~48 runs out of 52 would otherwise rewrite 80M rows against a
+    live DB for nothing."""
+    from research import edgar_dera
+
+    conn = connect(facts_db)
+    try:
+        ensure_dera_schema(conn)
+        conn.execute(
+            "INSERT INTO dera_quarters (quarter, ingested_at, segment_facts) "
+            "VALUES ('2026q1', '2026-07-31', 10)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    downloads: list[str] = []
+    monkeypatch.setattr(
+        edgar_dera, "download_quarter", lambda q, **kw: downloads.append(q) or None
+    )
+    totals = edgar_dera.backfill(["2026q1"], db_path=facts_db)
+    assert totals["already_loaded"] == 1
+    assert totals["quarters"] == 0
+    assert downloads == []  # not even the existence check runs
+
+    # ...and --force overrides it
+    edgar_dera.backfill(["2026q1"], db_path=facts_db, force=True)
+    assert downloads == ["2026q1"]
+
+
 def test_unknown_symbol_returns_none(cache_db: Path, facts_db: Path) -> None:
     assert segment_series("NOSUCH", cache_db=cache_db, facts_db=facts_db) is None
     assert segment_axes("NOSUCH", cache_db=cache_db, facts_db=facts_db) is None

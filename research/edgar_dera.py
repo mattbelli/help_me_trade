@@ -74,6 +74,17 @@ _CREATE_FILINGS_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_filings_cik ON filings (cik)
 """
 
+# Which quarters are already loaded. Without this the weekly top-up re-ingests
+# every cached zip on every run — 80M pointless rewrites against a live DB for
+# the ~48 weeks a year when SEC has published nothing new.
+_CREATE_QUARTERS = """
+CREATE TABLE IF NOT EXISTS dera_quarters (
+    quarter TEXT NOT NULL PRIMARY KEY,
+    ingested_at TEXT NOT NULL,
+    segment_facts INTEGER NOT NULL DEFAULT 0
+)
+"""
+
 # `qtrs` is DERA's duration in quarters and it is a gift: 0 = instant (balance
 # sheet), 1 = one quarter, 2 = half, 3 = nine months, 4 = a year. The corpus has
 # to infer this from period length; here the filer states it.
@@ -112,6 +123,7 @@ def ensure_dera_schema(conn: sqlite3.Connection) -> None:
     conn.execute(_CREATE_FILINGS)
     conn.execute(_CREATE_FILINGS_INDEX)
     conn.execute(_CREATE_SEGMENT_FACTS)
+    conn.execute(_CREATE_QUARTERS)
     conn.commit()
 
 
@@ -358,9 +370,15 @@ def backfill(
     db_path: Path = DEFAULT_FACTS_DB_PATH,
     dest_dir: Path = DEFAULT_EDGAR_DIR,
     keep_zips: bool = True,
+    force: bool = False,
     today: date | None = None,
 ) -> dict:
-    """Download + ingest every DERA quarter, oldest first."""
+    """Download + ingest every DERA quarter, oldest first.
+
+    Quarters already recorded in `dera_quarters` are skipped, which is what
+    makes the weekly cron nearly free: SEC publishes a new set ~4x a year, so
+    ~48 runs out of 52 do nothing but check. Pass `force` to re-ingest.
+    """
     quarters = quarters or quarters_through(today or date.today())
     started = time.monotonic()
     conn = sqlite3.connect(db_path, timeout=60.0)
@@ -375,14 +393,28 @@ def backfill(
     conn.execute("PRAGMA cache_size=-262144")
     ensure_dera_schema(conn)
 
-    totals = {"quarters": 0, "filings": 0, "segment_facts": 0, "missing": 0}
+    done = {
+        row[0] for row in conn.execute("SELECT quarter FROM dera_quarters")
+    } if not force else set()
+    totals = {
+        "quarters": 0, "filings": 0, "segment_facts": 0, "missing": 0,
+        "already_loaded": 0,
+    }
     try:
         for quarter in quarters:
+            if quarter in done:
+                totals["already_loaded"] += 1
+                continue
             path = download_quarter(quarter, dest_dir=dest_dir)
             if path is None:
                 totals["missing"] += 1
                 continue
             summary = ingest_quarter(path, conn=conn)
+            conn.execute(
+                "INSERT OR REPLACE INTO dera_quarters (quarter, ingested_at, segment_facts) "
+                "VALUES (?, datetime('now'), ?)",
+                (quarter, summary["segment_facts"]),
+            )
             totals["quarters"] += 1
             totals["filings"] += summary["filings"]
             totals["segment_facts"] += summary["segment_facts"]
@@ -462,6 +494,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--quarter", action="append", help="Ingest specific quarter(s), e.g. 2026q1")
     parser.add_argument("--sync-sic", action="store_true", help="Backfill companies.sic from filings")
     parser.add_argument("--drop-zips", action="store_true", help="Delete each zip after ingest")
+    parser.add_argument("--force", action="store_true", help="Re-ingest quarters already loaded")
     parser.add_argument("--db", type=Path, default=DEFAULT_FACTS_DB_PATH)
     return parser.parse_args(argv)
 
@@ -475,12 +508,13 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.backfill or args.quarter:
         totals = backfill(
-            args.quarter, db_path=args.db, keep_zips=not args.drop_zips
+            args.quarter, db_path=args.db, keep_zips=not args.drop_zips, force=args.force
         )
         print(
-            f"{totals['segment_facts']:,} segment facts from {totals['quarters']} quarters "
-            f"({totals['filings']:,} filings, {totals['missing']} not published) "
-            f"in {totals['seconds']}s — DB now {totals['db_gb']} GB"
+            f"{totals['segment_facts']:,} segment facts from {totals['quarters']} new quarters "
+            f"({totals['filings']:,} filings, {totals['already_loaded']} already loaded, "
+            f"{totals['missing']} not published) in {totals['seconds']}s "
+            f"— DB now {totals['db_gb']} GB"
         )
 
     if args.sync_sic:
