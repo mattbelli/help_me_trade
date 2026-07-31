@@ -132,7 +132,8 @@ snapshot per sweep). Open threads only:
   scanner is carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain
   contradiction stays parked.
 - **⏳ H1 quiet-tape — implementation BUILT + FROZEN 07-31 (H1.6 #2 discharged both halves;
-  BUILD_LOG row has the full review record; freeze hash: recorded below post-commit).**
+  BUILD_LOG row has the full review record; FREEZE HASH `a2cf65f` — the registered
+  implementation; any later change to `tools/h1_quiet_tape.py` = dated addendum).**
   `tools/h1_quiet_tape.py` + 40 tests; oi_reconcile extended through 07-29 (07-24 coverage
   81.4% — judgment window keeps 37 dates). Open, in order: ⏳ ≥ 2026-08-08: `--stage record`
   (#3) then `--stage calibrate` (#4) on the frozen code — BOTH refuse earlier in code; SPY +
