@@ -131,6 +131,14 @@ snapshot per sweep). Open threads only:
   flow perception surface (card `flow-perception-ship`, backlog); a vol/volume abnormality
   scanner is carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain
   contradiction stays parked.
+- **⏳ H1 quiet-tape — implementation BUILT + FROZEN 07-31 (H1.6 #2 discharged both halves;
+  BUILD_LOG row has the full review record; freeze hash: recorded below post-commit).**
+  `tools/h1_quiet_tape.py` + 40 tests; oi_reconcile extended through 07-29 (07-24 coverage
+  81.4% — judgment window keeps 37 dates). Open, in order: ⏳ ≥ 2026-08-08: `--stage record`
+  (#3) then `--stage calibrate` (#4) on the frozen code — BOTH refuse earlier in code; SPY +
+  equity bars must be topped up through d+10 first (pure acquisition); ⏳ `--stage score`
+  (#5) STRICTLY AFTER the Addendum G verdict is recorded (pass the verdict artifact via
+  `--g-verdict`); any code change before #5 = dated addendum + re-freeze.
 - ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
   the band, recorded as the registered finding. Thread closed.
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading

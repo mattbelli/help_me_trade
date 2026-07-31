@@ -108,19 +108,18 @@ def _panels():
     return names, sessions, tilt, prem, present
 
 
-def _f_open_pct(dte_buckets: tuple[str, ...] | None = None,
-                right: str | None = None, resolve=None):
-    """(session, underlying) -> percentile of name-day f_open within that session.
+def f_open_by_identity(dte_buckets: tuple[str, ...] | None = None,
+                       right: str | None = None, resolve=None,
+                       ) -> dict[tuple[str, str], tuple[float, float]]:
+    """(session, identity) -> (contracts, f_open), VOL_FLOOR applied.
 
-    Optional restrictions implement robustness legs: `dte_buckets` for the
-    DTE-5-89 leg, `right` ('C'/'P') for the same-side leg. The percentile is
-    always taken within the correspondingly-restricted cross-section.
-
-    `resolve(root, session)` re-keys the cross-section onto G.2's resolved
-    identities (obligation 3b). The OI table stores the PRINTED root, so without
-    it every renamed name-day would read as unmatched against a panel keyed by
-    identity. Volume and volume-weighted f_open are summed per identity BEFORE
-    the percentile, so a seam session cannot rank one identity twice.
+    The aggregation half of `_f_open_pct`, extracted as a seam so H1
+    (tools/h1_quiet_tape.py) consumes the identical re-key + sum-before-rank
+    convention while ranking on its own registered population. Volume and
+    volume-weighted f_open are summed per identity BEFORE anything downstream,
+    so a seam session cannot rank one identity twice; entries below VOL_FLOOR
+    (1,000 identity-aggregated contracts) are dropped here — below it f_open is
+    denominator noise (§2.4's registered floor).
     """
     where = "volume > 0 AND vol_weighted_f_open IS NOT NULL"
     if dte_buckets:
@@ -139,10 +138,24 @@ def _f_open_pct(dte_buckets: tuple[str, ...] | None = None,
         a = agg.setdefault((s, resolve(u, s) if resolve else u), [0.0, 0.0])
         a[0] += v
         a[1] += wf
+    return {(s, u): (v, wf / v) for (s, u), (v, wf) in agg.items()
+            if v >= VOL_FLOOR}
+
+
+def _f_open_pct(dte_buckets: tuple[str, ...] | None = None,
+                right: str | None = None, resolve=None):
+    """(session, underlying) -> percentile of name-day f_open within that session.
+
+    Optional restrictions implement robustness legs: `dte_buckets` for the
+    DTE-5-89 leg, `right` ('C'/'P') for the same-side leg. The percentile is
+    always taken within the correspondingly-restricted cross-section.
+
+    `resolve(root, session)` re-keys the cross-section onto G.2's resolved
+    identities (obligation 3b); see `f_open_by_identity`.
+    """
     by_s: dict[str, list[tuple[str, float]]] = {}
-    for (s, u), (v, wf) in agg.items():
-        if v >= VOL_FLOOR:
-            by_s.setdefault(s, []).append((u, wf / v))
+    for (s, u), (v, f) in f_open_by_identity(dte_buckets, right, resolve).items():
+        by_s.setdefault(s, []).append((u, f))
     pct: dict[tuple[str, str], float] = {}
     for s, pairs in by_s.items():
         f = np.asarray([p[1] for p in pairs])
