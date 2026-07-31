@@ -27,6 +27,18 @@ Two departures from `tools/order_grain_null.py`, both forced and both registered
   This changes the random stream, so this is a fresh run and not a reproduction.
 
   python tools/base_rate_table.py            # needs order_grain_null.py --extract first
+
+**Addendum G §G.9c — the table of record.** The run above is the v6-fence,
+no-floor, full-corpus table and is relabelled as such. The registered re-emission
+runs the same machinery over the FENCED cache on a registered panel, and the
+registration pins four things this module now implements: the $250k day floor
+lands in `eligible` on CLASSIFIED premium; the panel starts EXACTLY 60 sessions
+before 2026-06-01 (`_build` seeds per session by POSITIONAL index, so the panel
+start defines the whole random stream) and runs through 2026-07-24; the 37-date
+judgment mask is the OPERATIVE mask — the one that feeds the across-draw SE, not
+a mask added beside `full`; and `f` (the real rate) is measured on the identical
+panel, floor, quintiles and `_fire` as `f₀`, off the bull premium the same npz
+carries. `tools/flow_obligation3.py` is the registered runner that drives it.
 """
 
 from __future__ import annotations
@@ -35,6 +47,7 @@ import argparse
 import json
 import logging
 import sys
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -42,13 +55,28 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.order_grain_null import OUT_DIR, _fire, _sessions  # noqa: E402
+from tools.order_grain_null import (  # noqa: E402
+    FENCED_OUT_DIR,
+    OUT_DIR,
+    PREMIUM_FLOOR,
+    _fire,
+    _sessions,
+)
 
 N_DRAWS = 20
 SEED = 20260729
 QUINT_LOOKBACK = 60       # prereg:149 — trailing-60-day median daily premium
-SE_REPORT_PT = 0.5        # B3: quintiles noisier than this carry their SE
+SE_REPORT_PT = 0.5        # B3 reporting threshold; G.2 step 1's null-usability bar
 STATIONARITY_PT = 2.0     # B2: half-vs-half gap that declares non-stationarity
+DISTINCT_TESTED_BAR = 1000  # G.2 step 1: >=1,000 DISTINCT tested name-days per tier
+
+# G.9c's registered panel. The lead-in is EXACTLY 60 sessions, not >=60.
+PANEL_ANCHOR = "2026-06-01"
+JUDGMENT_END = "2026-07-24"
+JUDGMENT_EXCLUDE = frozenset({"2026-07-23"})   # G.2: midpoint rule set on its data
+JUDGMENT_DATES = 37                            # the registered count, guarded below
+LEAD_IN_SESSIONS = 60
+ARMS = ("ALL", "SHORT_OTM")
 
 logger = logging.getLogger("base_rate_table")
 
@@ -68,16 +96,23 @@ def _name_index(files: list[Path]) -> tuple[np.ndarray, dict[str, int]]:
     return names, {n: i for i, n in enumerate(names.tolist())}
 
 
-def _build(files: list[Path], n_names: int, ni: dict[str, int]) -> tuple:
-    """One pass over sessions: day totals, N_eff inputs, and every draw's tilt."""
+def _build(files: list[Path], n_names: int, ni: dict[str, int],
+           draws: int = N_DRAWS) -> tuple:
+    """One pass over sessions: day totals, N_eff inputs, and every draw's tilt.
+
+    `B` is the BULL premium panel — populated only from a FENCED npz, which is
+    the only cache that carries it. It is what makes the real rate `f` and the
+    null rate `f₀` one implementation: same orders, same fence, same universe,
+    with the ±1 shuffle as the only difference between them.
+    """
     n_days = len(files)
-    P = {a: np.zeros((n_names, n_days)) for a in ("ALL", "SHORT_OTM")}
-    Q = {a: np.zeros((n_names, n_days)) for a in ("ALL", "SHORT_OTM")}
+    P = {a: np.zeros((n_names, n_days)) for a in ARMS}
+    Q = {a: np.zeros((n_names, n_days)) for a in ARMS}
+    B = {a: np.zeros((n_names, n_days)) for a in ARMS}
     # float32: 20 draws x ~8k names x 251 days x 2 arms is ~320 MB here and would
     # be 640 MB at float64. The panel feeds a mean/std over 20 values; 1e-7 of
     # relative error cannot move a 2-sigma threshold.
-    T = {a: np.zeros((N_DRAWS, n_names, n_days), np.float32)
-         for a in ("ALL", "SHORT_OTM")}
+    T = {a: np.zeros((draws, n_names, n_days), np.float32) for a in ARMS}
 
     for d, f in enumerate(files):
         if not f.exists():
@@ -88,22 +123,71 @@ def _build(files: list[Path], n_names: int, ni: dict[str, int]) -> tuple:
             rows = lut[z["und"]]
             p = {"ALL": z["p_all"].astype(np.float64),
                  "SHORT_OTM": z["p_so"].astype(np.float64)}
-        for a in ("ALL", "SHORT_OTM"):
+            b = ({"ALL": z["b_all"].astype(np.float64),
+                  "SHORT_OTM": z["b_so"].astype(np.float64)}
+                 if "b_all" in z.files else None)
+        for a in ARMS:
             P[a][:, d] = np.bincount(rows, weights=p[a], minlength=n_names)
             Q[a][:, d] = np.bincount(rows, weights=p[a] ** 2, minlength=n_names)
+            if b is not None:
+                B[a][:, d] = np.bincount(rows, weights=b[a], minlength=n_names)
         # Seeded per SESSION so the stream does not depend on loop order.
         rng = np.random.default_rng([SEED, d])
-        for k in range(N_DRAWS):
+        for k in range(draws):
             # One flip per ORDER, shared by both arms: a sweep is one decision,
             # so its short-OTM legs cannot take a different sign from its others.
             eps = (rng.integers(0, 2, size=len(rows), dtype=np.int8) * 2 - 1).astype(np.float64)
-            for a in ("ALL", "SHORT_OTM"):
+            for a in ARMS:
                 num = np.bincount(rows, weights=eps * p[a], minlength=n_names)
                 with np.errstate(invalid="ignore", divide="ignore"):
                     T[a][k, :, d] = np.where(P[a][:, d] > 0, num / P[a][:, d], 0.0)
         if (d + 1) % 25 == 0:
             logger.info("session %d/%d", d + 1, n_days)
-    return P, Q, T
+    return P, Q, B, T
+
+
+def require_cache(files: list[Path], cache_dir: Path) -> None:
+    """A missing npz is a BLOCKING fault on any registered panel, never a skip.
+
+    `_build` warns and leaves that session's columns at zero, which looks like a
+    quiet session — but the slot still occupies a trailing-60/presence window AND
+    still consumes `default_rng([SEED, d])`, so the draw stream shifts for every
+    later session. The live trigger is running `--extract --fenced` without
+    `--sessions 0`: the panel then reads clean while resting on a different
+    random stream and a different presence history. First-run-governs makes that
+    unrecoverable, so it stops the run here.
+    """
+    missing = [f.name for f in files if not f.exists()]
+    if missing:
+        raise SystemExit(
+            f"{len(missing)} of {len(files)} panel sessions missing from {cache_dir}: "
+            f"{', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''} — "
+            "extract the full span first "
+            "(`order_grain_null.py --extract --fenced --sessions 0`)")
+
+
+def registered_panel(sessions: list[date]) -> tuple[list[date], np.ndarray]:
+    """G.9c's panel: EXACTLY 60 lead-in sessions, tallies masked to the 37 dates.
+
+    EXACTLY, not >=: `_build` seeds per session by POSITIONAL index
+    (`default_rng([SEED, d])`), so the panel start defines the entire random
+    stream and a different lead-in silently changes every draw.
+    """
+    iso = [s.isoformat() for s in sessions]
+    first = next((i for i, s in enumerate(iso) if s >= PANEL_ANCHOR), None)
+    last = max((i for i, s in enumerate(iso) if s <= JUDGMENT_END), default=None)
+    if first is None or last is None or last < first:
+        raise SystemExit(f"no sessions on the registered window {PANEL_ANCHOR}..{JUDGMENT_END}")
+    if first < LEAD_IN_SESSIONS:
+        raise SystemExit(f"panel lead-in short: {first} sessions before {PANEL_ANCHOR}, "
+                         f"the registration pins EXACTLY {LEAD_IN_SESSIONS}")
+    panel = sessions[first - LEAD_IN_SESSIONS:last + 1]
+    mask = np.array([PANEL_ANCHOR <= s.isoformat() <= JUDGMENT_END
+                     and s.isoformat() not in JUDGMENT_EXCLUDE for s in panel])
+    if int(mask.sum()) != JUDGMENT_DATES:
+        raise SystemExit(f"judgment mask selects {int(mask.sum())} dates, "
+                         f"the registration pins {JUDGMENT_DATES} — check the session list")
+    return panel, mask
 
 
 def _trailing_quintiles(p_all: np.ndarray) -> np.ndarray:
@@ -158,6 +242,65 @@ def _rates(fq, tq):
         return np.where(tq > 0, fq / np.maximum(tq, 1), np.nan)
 
 
+def real_tilt(p: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """The registered tilt from the fenced panel: (bull - bear) / (bull + bear).
+
+    `b` is bull premium and `p` is bull + bear, so this is `(2b - p) / p` — the
+    same arrays the null's ±1 shuffle flips, which is the point.
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(p > 0, (2.0 * b - p) / np.where(p > 0, p, 1.0), 0.0)
+
+
+def null_table(tilts, present, eligible, quint, masks, operative, draws) -> dict:
+    """The exact-shuffle tally over `draws` draws, on ONE operative mask.
+
+    `operative` is the mask whose per-draw rates feed f₀ and the across-draw SE.
+    G.9c pins that this must BE the registered mask rather than a mask added
+    beside `full` — a mask added beside it would leave the SE on the wrong
+    window while the tallies looked right.
+    """
+    per_f = np.zeros((draws, 5), np.int64)
+    per_t = np.zeros((draws, 5), np.int64)
+    acc = {m: [np.zeros(5, np.int64), np.zeros(5, np.int64)] for m in masks}
+    union = np.zeros(present.shape, bool)
+    for k in range(draws):
+        f, t = _fire(tilts[k].astype(np.float64), present, eligible)
+        for m, dm in masks.items():
+            fq, tq = _tally(f, t, quint, dm[None, :])
+            acc[m][0] += fq
+            acc[m][1] += tq
+            if m == operative:
+                per_f[k], per_t[k] = fq, tq
+        # G.2 step 1: DISTINCT tested name-days = the UNION across draws
+        # (`tested` varies slightly by draw), not the per-draw count.
+        union |= t
+    rate = np.array([_rates(per_f[k], per_t[k]) for k in range(draws)])
+    dm = masks[operative][None, :]
+    distinct = np.array([int((union & (quint == i) & dm).sum()) for i in range(5)])
+    return {"acc": acc, "per_draw_fired": per_f, "per_draw_tested": per_t,
+            "per_draw_rate": rate,
+            # f₀ = the mean of the draw-level rates; SE = their sd (ddof=0), with
+            # NO ÷sqrt(20) — B3's implemented quantity, pinned by G.2 step 1.
+            "f0": np.nanmean(rate, axis=0), "se": np.nanstd(rate, axis=0),
+            "distinct_tested": distinct}
+
+
+def real_table(tilt, present, eligible, quint, masks, operative) -> dict:
+    """`f` on the identical panel, floor, quintiles and `_fire` as `f₀`.
+
+    Also returns the per-DATE fired/tested series per tier — the series G.9b's
+    moving-block bootstrap resamples.
+    """
+    f, t = _fire(tilt, present, eligible)
+    dm = masks[operative]
+    fq, tq = _tally(f, t, quint, dm[None, :])
+    per_date_f = np.stack([(f & (quint == i)).sum(0) for i in range(5)])
+    per_date_t = np.stack([(t & (quint == i)).sum(0) for i in range(5)])
+    return {"fired": fq, "tested": tq, "rate": _rates(fq, tq),
+            "per_date_fired": per_date_f[:, dm], "per_date_tested": per_date_t[:, dm]}
+
+
 def _print(label, fq, tq, se=None) -> None:
     print(f"\n=== {label} ===")
     print("  quintile           tested        fired      rate" + ("      SE" if se is not None else ""))
@@ -172,6 +315,94 @@ def _print(label, fq, tq, se=None) -> None:
         print(f"  Q1/Q5 = {r[0]/r[4]:.2f}x")
 
 
+def _cache_provenance(files: list[Path]) -> dict:
+    """The fenced cache's own stamps, summarised for the record.
+
+    Addendum F's >=98% subset is selected on `join_rate`, and a pre-backfill
+    extract is only detectable from `bars_max_date` — so both travel with the
+    table rather than living in a log nobody keeps.
+    """
+    jr, cov, bars, src, masked, orphan_p = [], [], set(), set(), 0, 0.0
+    orphan_roots: set[str] = set()
+    for f in files:
+        with np.load(f, allow_pickle=False) as z:
+            if "ml_source" not in z.files:
+                continue
+            jr.append(float(z["join_rate"]))
+            cov.append(float(z["label_coverage"]))
+            bars.add(str(z["bars_max_date"]))
+            src.add(str(z["ml_source"]))
+            masked += int(z["package_masked_prints"])
+            orphan_p += float(z["orphan_premium"])
+            orphan_roots.update(z["orphan_roots"].tolist())
+    if not jr:
+        return {"stamped_sessions": 0}
+    jr_a, cov_a = np.array(jr), np.array(cov)
+    return {
+        "stamped_sessions": len(jr), "multileg_sources": sorted(src),
+        "join_rate_min": float(np.nanmin(jr_a)), "join_rate_mean": float(np.nanmean(jr_a)),
+        "sessions_below_join_floor": int((jr_a < 0.98).sum()),
+        "label_coverage_mean": float(np.nanmean(cov_a)),
+        "package_masked_prints": masked,
+        "orphan_premium_usd": orphan_p, "orphan_roots": sorted(orphan_roots),
+        "bars_max_dates": sorted(bars),
+    }
+
+
+def registered_run(cache_dir: Path = FENCED_OUT_DIR, draws: int = N_DRAWS,
+                   arms: tuple[str, ...] = ARMS,
+                   sessions: list[date] | None = None,
+                   panel: tuple[list[date], np.ndarray] | None = None,
+                   day_floor: float = PREMIUM_FLOOR) -> dict:
+    """G.9c's table of record: f₀, across-draw SE, distinct tested name-days, f.
+
+    Everything registered is a constant here, not a flag: the fenced cache, the
+    exactly-60-session lead-in, the 37-date judgment mask as the OPERATIVE mask,
+    the $250k classified floor on the event day, ddof = 0 via `_fire`, seed
+    20260729, 20 draws. `panel` is an injection seam for the tests only.
+    """
+    p, jmask = panel or registered_panel(sessions or _sessions(0))
+    files = [cache_dir / f"{s.isoformat()}.npz" for s in p]
+    require_cache(files, cache_dir)
+    names, ni = _name_index(files)
+    logger.info("registered panel: %s .. %s (%d sessions, %d judgment dates), "
+                "%d identities", p[0], p[-1], len(p), int(jmask.sum()), len(names))
+
+    P, Q, B, T = _build(files, len(names), ni, draws)
+    quint = _trailing_quintiles(P["ALL"])
+    # G.2's single-implementation pin: presence counts ANY classified-premium day
+    # (`P > 0`), the floor gates only the EVENT day (`eligible`). Applying the
+    # floor to presence too would silently put the cohort and f₀ on different
+    # universes.
+    eligible = P["ALL"] >= day_floor if day_floor else P["ALL"] > 0
+    masks = {"judgment": jmask, "full": np.ones(len(p), bool)}
+
+    out: dict = {
+        "panel": [str(p[0]), str(p[-1])], "panel_sessions": len(p),
+        # the FULL panel, lead-in included: those 60 dates define the random
+        # stream (`default_rng([SEED, d])` is positional), so a record that
+        # named only the judgment dates would not identify the run it describes.
+        "panel_dates": [str(s) for s in p],
+        "judgment_dates": [str(s) for s, m in zip(p, jmask) if m],
+        "lead_in_sessions": LEAD_IN_SESSIONS, "draws": draws, "seed": SEED,
+        "day_floor_usd": day_floor, "cache_dir": str(cache_dir),
+        "identities": len(names),
+        "quintile_rule": f"trailing-{QUINT_LOOKBACK}d median (prereg:149)",
+        "provenance": _cache_provenance(files),
+        "arms": {},
+    }
+    for arm in arms:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            n_eff = np.where(Q[arm] > 0, P[arm] ** 2 / Q[arm], np.nan)
+        sigma = np.where(np.isfinite(n_eff) & (n_eff > 0), 1 / np.sqrt(n_eff), np.nan)
+        present = (P[arm] > 0) & np.isfinite(sigma)
+        nt = null_table(T[arm], present, eligible, quint, masks, "judgment", draws)
+        rt = real_table(real_tilt(P[arm], B[arm]), present, eligible, quint,
+                        masks, "judgment")
+        out["arms"][arm] = {"null": nt, "real": rt}
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--draws", type=int, default=N_DRAWS)
@@ -183,6 +414,9 @@ def main() -> None:
     ap.add_argument("--quintile-rule", default="trailing60",
                     choices=("trailing60", "whole"))
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "base_rate_table.json")
+    ap.add_argument("--day-floor", type=float, default=0.0,
+                    help="classified per-day premium floor on the EVENT day; "
+                         "0 = Addendum B's no-floor universe")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -194,7 +428,7 @@ def main() -> None:
     n_names, n_days = len(names), len(files)
     logger.info("panel: %d names x %d sessions", n_names, n_days)
 
-    P, Q, T = _build(files, n_names, ni)
+    P, Q, _B, T = _build(files, n_names, ni, args.draws)
     if args.quintile_rule == "trailing60":
         quint = _trailing_quintiles(P["ALL"])
     else:
@@ -204,8 +438,10 @@ def main() -> None:
 
     # Addendum B runs the A1-corrected no-floor universe: A1 measured that the
     # registered $250k DAY floor admits 0.105% of Q1 name-days, which is what made
-    # 1.7's illiquid bucket unaskable in the first place.
-    eligible = P["ALL"] > 0
+    # 1.7's illiquid bucket unaskable in the first place. G.9c's re-emission puts
+    # the floor back (`--day-floor 250000`, and `registered_run` below always
+    # does): the floor gates the EVENT day only, never presence.
+    eligible = P["ALL"] >= args.day_floor if args.day_floor else P["ALL"] > 0
     half = np.zeros(n_days, bool)
     half[:n_days // 2] = True
     masks = {"full": np.ones(n_days, bool), "H1": half, "H2": ~half}
@@ -221,17 +457,8 @@ def main() -> None:
         sigma = np.where(np.isfinite(n_eff) & (n_eff > 0), 1 / np.sqrt(n_eff), np.nan)
         present = (P[arm] > 0) & np.isfinite(sigma)
 
-        acc = {m: [np.zeros(5, np.int64), np.zeros(5, np.int64)] for m in masks}
-        per_draw = []
-        for k in range(args.draws):
-            f, t = _fire(T[arm][k].astype(np.float64), present, eligible)
-            for m, dm in masks.items():
-                fq, tq = _tally(f, t, quint, dm[None, :])
-                acc[m][0] += fq
-                acc[m][1] += tq
-                if m == "full":
-                    per_draw.append(_rates(fq, tq))
-        se = np.nanstd(np.array(per_draw), axis=0)
+        nt = null_table(T[arm], present, eligible, quint, masks, "full", args.draws)
+        acc, se = nt["acc"], nt["se"]
 
         # CONTEXT ONLY — the A2 agreement criterion is closed as FAIL, not re-tested.
         rng = np.random.default_rng(SEED)
