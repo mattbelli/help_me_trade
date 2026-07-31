@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-31T02:05:00+00:00",
+ "updated_at": "2026-07-31T14:55:00+00:00",
  "lanes": [
   "inbox",
   "founder",
@@ -62,12 +62,12 @@
   {
    "id": "ext-entry-sizing-decision",
    "title": "Founder call: should `ext` entries size smaller, given the overnight window is uninsurable?",
-   "lane": "founder",
+   "lane": "done",
    "type": "decision",
-   "priority": "high",
+   "priority": "low",
    "owner": "founder",
-   "updated_at": "2026-07-30",
-   "notes": "Surfaced 07-28. MEASURED: no stop of any kind can be live outside RTH (see ext-hours-soft-stop for the probe matrix). The `ext` style — your 07-24 choice, motivated by 'analysis is priced off the close, what if GOOGL jumps $10 by morning' — buys entry-price certainty and pays for it with a window nothing can insure. That is a real trade, not a bug. AND a stop barely helps across a gap anyway: 314.90 stop, GOOGL opens 300 -> triggers, becomes a MARKET order, fills near 300. You lose ~$27/sh instead of ~$12 — you get out, not at your price. (Stop-MARKET is correct here and is what we send: stop_guard.py:164 order_type='stop', limit_price=None, and RiskEngine won't permit stop_limit. A stop-LIMIT at 314.90 into a gap to 300 would never fill and you'd be stuck holding.) So the only levers that actually bound overnight risk are POSITION SIZE and whether to take `ext` at all. Today `ext` sizes identically to every other style — GOOGL went on at the full $20K notional. DECISION: leave `ext` at parity and accept the window, or give it a smaller notional? Risk-appetite call, yours."
+   "updated_at": "2026-07-31",
+   "notes": "Surfaced 07-28. MEASURED: no stop of any kind can be live outside RTH (see ext-hours-soft-stop for the probe matrix). The `ext` style — your 07-24 choice, motivated by 'analysis is priced off the close, what if GOOGL jumps $10 by morning' — buys entry-price certainty and pays for it with a window nothing can insure. That is a real trade, not a bug. AND a stop barely helps across a gap anyway: 314.90 stop, GOOGL opens 300 -> triggers, becomes a MARKET order, fills near 300. You lose ~$27/sh instead of ~$12 — you get out, not at your price. (Stop-MARKET is correct here and is what we send: stop_guard.py:164 order_type='stop', limit_price=None, and RiskEngine won't permit stop_limit. A stop-LIMIT at 314.90 into a gap to 300 would never fill and you'd be stuck holding.) So the only levers that actually bound overnight risk are POSITION SIZE and whether to take `ext` at all. Today `ext` sizes identically to every other style — GOOGL went on at the full $20K notional. DECISION: leave `ext` at parity and accept the window, or give it a smaller notional? Risk-appetite call, yours.\n\n2026-07-31 — CLEARED from the founder queue by the founder without a sizing change. Status quo therefore STANDS: `ext` entries size identically to every other style (full notional), and the uninsurable overnight window is accepted as a known, deliberate cost. Nothing in code changed. Reopen as a new card if a gap loss makes the size question live again."
   },
   {
    "id": "ext-hours-soft-stop",
@@ -510,14 +510,14 @@
   {
    "id": "multi-angle-reasoning-ab",
    "title": "Greenlight: multi-angle reasoning A/B — bull/bear/judge panel vs the single veto-grade voice (design ready)",
-   "lane": "founder",
+   "lane": "done",
    "type": "decision",
-   "priority": "normal",
+   "priority": "low",
    "owner": "founder",
-   "notes": "Design captured + Opus-adversarially-reviewed 2026-07-19 (References/MULTI_ANGLE_REASONING_AB_2026-07-19.md). Your 07-19 ask: keep the single voice, add a multi-angle lane, measure which outperforms — with the honest 'it's bloat' outcome pre-defined (K1 kill rule). Shape: every structure candidate assessed by BOTH lanes (paired shadow); a deterministic hash picks which lane's verdict ships; origin NEVER forks (trade-path boundary untouched); disagreements adjudicated on alpha_pct (never raw won/lost — tape-bias fix from review); all metrics pre-registered, prereg = LAW. Cost bound: <=48 specialist calls/night worst case vs 12 today, nightly scan only, ships default-OFF behind MULTI_ANGLE_AB_ENABLED. Review verdict SHIP-WITH-FIXES; all 3 blocking fixes folded (alpha adjudication, honesty screen in register_ideas, bear-case surface = nightly paper not phone). DECISION: go / no-go on the one-round build. Selection committee (panel-picks-5) deliberately deferred to when fusion lanes arm (doc section 7). 07-19 later: founder-supplied Grok cross-audit verified first-hand + folded (verdict SHIP+1): B1 open-zone dedup-skip was silently dropping nightly pairs from M1 -> reasoning_meta.nights[] append on skip; adjudication unit = zone-episode never night (rejects the audit's own score-each-night suggestion - correlated pseudo-replicas); K1 absolute count = unique episodes; M3 gains theater fraction; bear_case attach-after-validate + paper-prompt mandate pinned. Design build-ready; go/no-go unchanged, still yours.",
+   "notes": "Design captured + Opus-adversarially-reviewed 2026-07-19 (References/MULTI_ANGLE_REASONING_AB_2026-07-19.md). Your 07-19 ask: keep the single voice, add a multi-angle lane, measure which outperforms — with the honest 'it's bloat' outcome pre-defined (K1 kill rule). Shape: every structure candidate assessed by BOTH lanes (paired shadow); a deterministic hash picks which lane's verdict ships; origin NEVER forks (trade-path boundary untouched); disagreements adjudicated on alpha_pct (never raw won/lost — tape-bias fix from review); all metrics pre-registered, prereg = LAW. Cost bound: <=48 specialist calls/night worst case vs 12 today, nightly scan only, ships default-OFF behind MULTI_ANGLE_AB_ENABLED. Review verdict SHIP-WITH-FIXES; all 3 blocking fixes folded (alpha adjudication, honesty screen in register_ideas, bear-case surface = nightly paper not phone). DECISION: go / no-go on the one-round build. Selection committee (panel-picks-5) deliberately deferred to when fusion lanes arm (doc section 7). 07-19 later: founder-supplied Grok cross-audit verified first-hand + folded (verdict SHIP+1): B1 open-zone dedup-skip was silently dropping nightly pairs from M1 -> reasoning_meta.nights[] append on skip; adjudication unit = zone-episode never night (rejects the audit's own score-each-night suggestion - correlated pseudo-replicas); K1 absolute count = unique episodes; M3 gains theater fraction; bear_case attach-after-validate + paper-prompt mandate pinned. Design build-ready; go/no-go unchanged, still yours.\n\n2026-07-31 — CLEARED from the founder queue by the founder without a greenlight. NOT BUILT: no multi-angle lane exists, the single veto-grade voice remains the only reasoning path, and MULTI_ANGLE_AB_ENABLED was never added. The design + both audits survive in References/MULTI_ANGLE_REASONING_AB_2026-07-19.md and are build-ready if this is ever picked up again.",
    "created_at": "2026-07-19",
-   "updated_at": "2026-07-19",
-   "updated": "2026-07-19"
+   "updated_at": "2026-07-31",
+   "updated": "2026-07-31"
   },
   {
    "id": "rank1-research-worker-design",
@@ -2204,12 +2204,12 @@
   {
    "id": "fr-1783787092",
    "title": "options chain not updating live during market hours",
-   "lane": "inbox",
+   "lane": "next",
    "type": "bug",
    "priority": "normal",
-   "notes": "2026-07-11 founder: watched the options chain during live hours and it didn't appear to update, unlike charts/watchlist which tick live. Suspect it's not wired to the WebSocket stream (may be poll-only or stale-cached). Needs investigation.",
+   "notes": "2026-07-11 founder: watched the options chain during live hours and it didn't appear to update, unlike charts/watchlist which tick live. Suspect it's not wired to the WebSocket stream (may be poll-only or stale-cached). Needs investigation.\n\n2026-07-31 DIAGNOSED (measured on the live process during RTH, SPY). Not a websocket problem — a latency-budget problem, and the biggest cost is a call we make for data that changes once a day.\n\nWHY IT LOOKS FROZEN. Two 30s stages stack: options-chain-widget.tsx POLL_MS = 30_000, and api/main.py _OPTIONS_CHAIN_TTL_S = 30.0. Worst case is ~60s between visible changes, and only the EXPANDED expiry polls at all. Charts/watchlist tick because they are WS-pushed (brokers/market_stream.py -> /ws/market) at up to ~10 Hz. So the founder's read was right about the symptom and wrong about the cause: it is poll-only, but the cache/poll cadence is what kills it, not the absence of a socket.\n\nTHE DATA IS NOT STALE. Alpaca OPRA REST snapshots come back sub-second fresh: latestQuote t=14:41:24.657Z on a call issued at 14:41:24. We are throwing away live data by caching it for 30s.\n\nWHERE THE 2.36s GOES (cold /api/options-chain, decomposed against the adapter):\n  get_option_contracts   2.15 s  (14,398 SPY contracts, ~15 pages)  <- 91% of the build\n  get_option_chain_snapshot 0.16 s cold / 0.07 s warm (500 contracts, one expiry)\n  get_stock_snapshot_fields 0.04 s\nThe contracts call exists only to supply open interest + the expirations list. OI is published by OCC overnight and does not move intraday. Cache it per (symbol, trading day) and a chain rebuild drops to ~0.1-0.2s, which is a 1-2s poll comfortably — i.e. the fix for \"not live\" is mostly deleting work, not adding a transport.\n\nDELIVERABLE (fast-poll lane, one process, no new sockets):\n  1. Per-day contracts cache (expirations + OI map) keyed (symbol, ET date).\n  2. _OPTIONS_CHAIN_TTL_S 30 -> ~1s; widget POLL_MS 30_000 -> 1-2s, expanded expiry only, still page-gated via usePageActive.\n  3. Keep the silent-refresh path (loadExpiry {silent:true}) so rows update without a spinner.\n\nSECOND DEFECT FOUND, not previously carded: the `iv` and `δ` columns are permanently blank. Measured 0 of 500 SPY snapshots carry `greeks` or `impliedVolatility` — Alpaca does not serve them on our plan, so brokers/options_chain.py::_build_chain_side always writes null and the widget renders \"—\" in 2 of its 7 columns per side. Either compute Black-Scholes ourselves from mid + underlying + a rate (labeled as computed, never as vendor data) or drop the columns. Do not ship a column that can only ever be a dash.\n\nWHY NOT WEBSOCKET (yet). Checked live, and the assumption \"the Alpaca OPRA socket is free now that options_flow.provider=databento\" is FALSE. runner.py:654 does skip OptionsFlowStream, but hmt-flow-collector (PID 3325302) holds an ESTABLISHED connection to stream.data.alpaca.markets anyway: signals/options_flow/shadow_pairing.py subscribes trades=[\"*\"] on it under OPTIONS_FLOW_PAIRING_SHADOW=1. Alpaca allows ONE OPRA socket per account, so a chain-quote socket opened from hmt-backend would connection-limit-fight the pairing shadow. (It also updates the `no-wildcard-trades-lane` claim — a wildcard trades lane IS live, in the shadow sidecar.) The 1,000 quote slots on that socket ARE idle (the shadow subscribes trades only), so the WS path is available — but only by multiplexing a `quotes` subscribe onto the collector's existing connection and relaying collector -> backend -> browser. And WS carries bid/ask/last only: no OI, no volume, no greeks, so it is an overlay on the REST base, never a replacement. Revisit only if 1-2s polling still does not feel live.",
    "owner": "founder",
-   "updated_at": "2026-07-11"
+   "updated_at": "2026-07-31"
   },
   {
    "id": "fr-1783787093",
