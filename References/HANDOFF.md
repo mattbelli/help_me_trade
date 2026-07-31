@@ -15,6 +15,15 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 2026-07-31 Options-chain rounds committed, NOT deployed
+
+Two rounds on `feat/wire-data-everywhere` (`f430490` fast-poll, `deb5020` Black-76 IV/greeks) are
+verified against live Alpaca but still need one `hmt-backend` restart to reach the browser —
+deliberately deferred, the paper books were armed and it was RTH. Details in the two 07-31
+BUILD_LOG rows. Founder's call when to run `tools/serv-deploy.sh`; delete this entry once shipped.
+
+---
+
 ## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
 
 DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with
