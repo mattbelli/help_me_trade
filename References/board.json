@@ -36,7 +36,7 @@
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "v10 drafted 07-31: round 9 returned 6 blockers (93\u219299), ALL text fixes \u2014 methodology verdict 'converged, modulo one clause'. v10: HAC pair set pinned (t>s \u2014 a factor-of-2 ambiguity in the test denominator), store-fault list corrected to vendor-verified BLD only (TMHC/NUVL are genuine terminations per the vendor), every premium figure base-labelled (classified vs all-sides), layer-2 residual derivation written out ($1,300.2M\u2192$127.9M\u2192$25.8M), case order (ii)\u2192(iii)\u2192(iv)\u2192(i) + SPY-calendar d+k indexing, map topology collision check, single-implementation pin for fired/tested sets, and a pre-run disclosure that DEAD (dilution) is a realistic outcome (Q5 f\u22487.9% vs f\u2080\u22488.6% on approximation). Round 10 dispatched \u2014 convergence round.",
+   "notes": "v11 drafted 07-31: ROUND 10 CONVERGED \u2014 methodology 0 blockers ('Let it become law'; state-space enumerated, HAC reduces to textbook NW, ~2 dozen measurements reproduced to the digit, 'strongest record I have audited'); record 1 blocker = a v10-introduced digit ($161.6M\u2192$153.8M test-root classified sum). v11 = v10 + that digit + round-10 nit closures (SPY-session gap naming, interior-hole\u2192blocking-fault, (iii) no-bar-at-d pin, (iv) instance shapes stated precisely, residual $24.8M, SE attribution, G.9b assembly import, G.1 named-amendment tag). Targeted diff-verify pass dispatched; on clean return the header de-DRAFTs to LAW. Tally: 100 blockers over 10 rounds.",
    "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
   },
   {
