@@ -120,12 +120,14 @@ snapshot per sweep). Open threads only:
   DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
   no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
   disguise"). Open: (a) the letter "F" was consumed 07-28 — the judging-rules amendment is now
-  **Addendum G IS LAW (v12, 2026-07-31 — BUILD_LOG row has the gauntlet record**; obligation 1
-  DISCHARGED 07-31 (findings registration LAW, 17-blocker gauntlet — BUILD_LOG row); next =
-  ordered obligations 2→6, scoring run ≥ close of 2026-08-07; card
-  `addendum-g-judging-rules`), and the three 1.14f findings register separately in
-  `FLOW_1_14F_FINDINGS_REGISTRATION.md` (**not yet written — gates the G.2 scoring run**, which
-  itself cannot start before the close of 2026-08-07); (b) RESOLVED 07-30 — founder PARKED the
+  **Addendum G IS LAW (v12, 2026-07-31 — BUILD_LOG row has the gauntlet record**; card
+  `addendum-g-judging-rules`). **Pre-run obligations 1+2+3/3b ALL DISCHARGED 07-31** (BUILD_LOG
+  rows: `FLOW_1_14F_FINDINGS_REGISTRATION.md` IS LAW v5, 17-blocker gauntlet; G.8 root-
+  classification snapshot FROZEN + bar backfill; obligation-3 registered run COMPLETE — Q5 null
+  USABLE, f −0.87pt BELOW f₀, **DEAD (dilution) is the near-certain scoring-run verdict**).
+  Remaining obligations 5→6 are **calendar-blocked by G.10 itself** (they need bars through
+  d+10, so they inherit the ≥ close-of-2026-08-07 bound) — nothing on this path is runnable
+  before then; (b) RESOLVED 07-30 — founder PARKED the
   flow perception surface (card `flow-perception-ship`, backlog); a vol/volume abnormality
   scanner is carded instead (`vol-abnormality-scanner`, next); (c) `short_dte_share` grain
   contradiction stays parked.
