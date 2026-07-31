@@ -2598,6 +2598,16 @@
    "owner": "orchestrator",
    "updated_at": "2026-07-31",
    "notes": "SHIPPED 2026-07-31 (see BUILD_LOG 07-31). research/edgar_dera.py: 80,787,286 segment facts / 426,003 filings / 1,699,004 dimension strings across 69 quarters (2009q1-2026q1) in 30.6 min; edgar_facts.db now 16.5 GB. Verified AMZN AWS revenue 90.76->107.56->128.72B and AWS op income 24.63->39.83->45.61B. 8,304/10,433 mapped tickers (79.6%) have segments.\n⚠️ DERA publishes ~A QUARTER IN ARREARS (2026q2 404s) — BACKFILL source only. Fresh segments come from the 8-K exhibit reader as prose.\nTwo bugs caught during the build: (a) DERA dates are bare YYYYMMDD vs the corpus's ISO — unnormalised, every as_of read spanning both tables sorts wrong; (b) journal_mode=MEMORY locked out all readers, and since segment facts share a file with the 124M-fact corpus a recurring refresh would freeze live fundamentals reads — the DERA path now runs WAL + per-quarter checkpoint (cost hidden; the job is download-bound).\n★ Exposed the real gap: ai/research/ had ZERO perception, and fetch_fundamentals_source returned None whenever Finnhub was unconfigured — a vendor key gating our own free corpus. EDGAR now stands alone there; added fetch_segments_source to the fundamentals specialist. Surface audit: chat ✅, nightly books ✅, deep research ✅ now.\nOps: tools/dera_segments_refresh.sh (weekly, idempotent) also runs --sync-sic, which backfilled sector for 4,428 tickers free from sub.txt (no-sector 6,567 -> 2,139).\nWeekly cron INSTALLED on serv (Sun 08:00 UTC). ⚠️ Caught before it ever fired: download_quarter skipped cached zips but ingest_quarter re-processed them anyway, so every weekly run would have rewritten all 80M rows against a live DB — added a `dera_quarters` ledger, so a no-op run is now 0.3s (was ~12 min). --force overrides.\nFOLLOW-UP: 2,139 tickers still lack a sector (mostly ADR/OTC filers with no US filing)."
+  },
+  {
+   "id": "oi-walls-perception-resource",
+   "title": "Expose standing OI walls + the JPM collar to the agents — an `oi_walls` perception resource",
+   "lane": "next",
+   "type": "build",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-07-31",
+   "notes": "Founder 2026-07-31 (after the flash chat test): the agent read index_pressure fluently but is blind to the collar — 'my guess is the agent doesn't have access into the spx jpm collar' — confirmed, and 'its a card'. The data already exists offline: data/oi_walls.db (3.7GB condensed per-day/per-strike OI, 2013->2026-07, opra+sme, from tools/oi_condense.py) and the SME statistics files holding the actual collar legs (Sep: P7090/C7890/P5990 x 24.8k + monthly sister-fund triples). Build: a read-only `oi_walls` resource in ai/perception/resources.py — latest standing walls per index root (top strikes by OI + persistence), the known SME collar legs labeled as such, staleness disclosed (the condensed DB is refreshed manually; say the as-of date). The derived resource list (e8a306a) propagates it to every agent surface automatically. Keep it perception-honest: describe standing OI, never claim pin/magnet edge (that's the separate spx-structural-strikes-study). Follow-up: a small refresh path so the DB doesn't fossilize at 07-17."
   }
  ]
 }

@@ -125,7 +125,9 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "description": (
             "List app data across resources: " + _QUERY_RESOURCES + ". "
             "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
-            "use get_context instead."
+            "use get_context instead — but reported financials (fundamentals, "
+            "segments, earnings_release: SEC EDGAR primary source) live HERE, "
+            "with {filters: {symbol}}, even for one symbol."
         ),
     },
     "search_memories": {
