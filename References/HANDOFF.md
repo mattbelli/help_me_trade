@@ -206,8 +206,6 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
   CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
   `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).
 - ⏸ **2026-07-30 Claude Panel PAUSED** (cron line commented + `BOOKS['panel'].paused=True`). Solo books still run.
-  - ⏳ **Needs a deploy**: the dead-man skip is code, so until the backend restarts the founder gets one
-    "Book dead-man: 1 report(s) missing" warning push at 20:00 ET each night naming Claude Panel.
   - ⚠ `acct_alpaca_open` positions now get NO nightly hold/trim review. Resting GTC stops still cap
     downside; nothing trims winners or reacts to a broken thesis. Decide: review manually, let the exit
     engine own it, or resume the panel.
@@ -229,15 +227,6 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
   session allowlist — likely (the 07-29 scrapers used session-level WebFetch/WebSearch) but
   UNVERIFIED. Check tonight's transcripts for `perception_query.py` calls and for a drop in
   web-scrape sub-agents; if seats can't run it, the pack must carry the data instead.
-- ⏳ **2026-07-30 needs a deploy: chat/mobile still name 9 of 19 resources.** The queryable-resource
-  list is now DERIVED from `RESOURCES` (card `agent-capability-drift`), but the running backend holds
-  the stale strings until it restarts — so `fundamentals`, `options_flow`, `my_trades` and
-  `schwab_accounts` stay unnamed to the live copilot. Books already pick it up on their next session.
-- ⚠ **2026-07-30 the same deploy CLOSES a live side door** (card `chat-dead-ts-surface`, done):
-  `POST /api/chat/tools/execute` runs `propose_order` with no allowlist and no approval ledger, and
-  `GET /api/chat/llm-runtime` hands back the raw provider API key — both gated only by the
-  browser-visible `NEXT_PUBLIC_API_TOKEN`. They are deleted in code and **still live on serv until the
-  restart**. Treat that restart as the fix, not the commit.
 - ⏳ **2026-07-30 forced tool-choice was NOT ported and is now gone from the code.** The retired TS
   route forced `toolChoice: propose_order` on an order turn; `ai/chat/loop.py` is `tool_choice="auto"`
   throughout. The intent prompt block says the same thing in prose, so this is belt-and-braces — but if
