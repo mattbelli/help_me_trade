@@ -37,7 +37,7 @@ AI_PROVIDERS: dict[str, dict[str, Any]] = {
         "base_url_field": "deepseek_base_url",
         "model_field": "deepseek_model",
         "default_base_url": "https://api.deepseek.com",
-        "default_model": "deepseek-chat",
+        "default_model": "deepseek-v4-flash",
         "key_placeholder": "sk-…",
     },
     "openrouter": {
