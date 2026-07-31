@@ -603,6 +603,16 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
     return `as of ${formatAsOfEt(asOf!)} ET`;
   }, [asOf]);
 
+  // Alpaca serves no greeks at all on the expiry expiring today, and only the
+  // liquid strikes elsewhere, so those columns are ours more often than not.
+  // Say so — an iv the user reads as the vendor's when it is our model is the
+  // kind of quiet mislabel that makes every other number suspect.
+  const greeksNote = useMemo(() => {
+    const src = expandedData?.greeks_source;
+    if (!src || src === "vendor") return null;
+    return src === "mixed" ? "iv/δ partly computed" : "iv/δ computed";
+  }, [expandedData]);
+
   if (!symbol) {
     return <WidgetEmpty message="Enter a symbol" />;
   }
@@ -649,13 +659,10 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
             </option>
           ))}
         </select>
-        {staleNote ? (
-          <span className="ml-auto lowercase text-[var(--fg-faint)]">
-            {staleNote}
-          </span>
-        ) : (
-          <span className="ml-auto" />
-        )}
+        <span className="ml-auto flex items-center gap-2 lowercase text-[var(--fg-faint)]">
+          {greeksNote}
+          {staleNote}
+        </span>
       </div>
 
       {expirations.length === 0 ? (

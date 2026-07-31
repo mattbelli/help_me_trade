@@ -770,6 +770,10 @@ export type OptionsChainResult = {
   expiry: string | null;
   rows: OptionsChainRow[];
   as_of: string | null;
+  // Who produced the iv/greek columns. Alpaca publishes them on every expiry
+  // except the one expiring today, so a 0DTE board is entirely ours and a wide
+  // strike window is usually both — the user should never have to guess which.
+  greeks_source?: "vendor" | "black76" | "black76_spot" | "mixed";
 };
 
 export type OptionsChainStrikes = 6 | 10 | 20 | 40 | "all";
