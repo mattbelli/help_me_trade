@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-31",
+ "updated_at": "2026-07-31T15:50:00+00:00",
  "lanes": [
   "inbox",
   "founder",
@@ -58,16 +58,6 @@
    "owner": "agent",
    "updated_at": "2026-07-30",
    "notes": "Found by the adversarial review of the stop-guard fix (07-30), then re-verified independently. trading/risk_engine.py:374-386 computes available = held − pending_sell, and pending_sell sums ALL open sell orders for the symbol with NO order-type filter. stop_guard sizes the protective stop at the FULL filled qty, so once it rests, available == 0 and EVERY later sell for that symbol is rejected at the chokepoint — including the founder's own exit and any partial trim. Reviewer ran it against a live-shaped snapshot (GOOGL 61 @ acct_alpaca_deepseek, close 332.555): exit 61 passes with no resting stop, and is REJECTED ('sell qty exceeds available position, held 61.0, pending sells 61.0') with the stop resting. ⚠️ AND THERE IS NO WAY OUT IN-APP: acancel_order exists on both adapters (brokers/alpaca.py:435, brokers/schwab.py:185) with ZERO production callers — grepped. Books are buy-only with source book_*, so _strategy_id_from_source returns None and the exit engine never manages them either. Net: the founder must use Alpaca's own UI to free his own position — wrong failure mode for a cockpit whose thesis is propose → tap approve. BECOMES REACHABLE ON THE NEXT BACKEND RESTART, since that is when the guard first arms. Needs a design decision, not a one-liner: either a cancel-stop path behind the chokepoint (cancel-then-sell, with the stop re-placed if the sell is rejected), or exclude protective stops from pending_sell and let the broker arbitrate — the second is simpler but can oversell if the stop triggers mid-flight. Recommend the first."
-  },
-  {
-   "id": "ext-entry-sizing-decision",
-   "title": "Founder call: should `ext` entries size smaller, given the overnight window is uninsurable?",
-   "lane": "founder",
-   "type": "decision",
-   "priority": "high",
-   "owner": "founder",
-   "updated_at": "2026-07-30",
-   "notes": "Surfaced 07-28. MEASURED: no stop of any kind can be live outside RTH (see ext-hours-soft-stop for the probe matrix). The `ext` style — your 07-24 choice, motivated by 'analysis is priced off the close, what if GOOGL jumps $10 by morning' — buys entry-price certainty and pays for it with a window nothing can insure. That is a real trade, not a bug. AND a stop barely helps across a gap anyway: 314.90 stop, GOOGL opens 300 -> triggers, becomes a MARKET order, fills near 300. You lose ~$27/sh instead of ~$12 — you get out, not at your price. (Stop-MARKET is correct here and is what we send: stop_guard.py:164 order_type='stop', limit_price=None, and RiskEngine won't permit stop_limit. A stop-LIMIT at 314.90 into a gap to 300 would never fill and you'd be stuck holding.) So the only levers that actually bound overnight risk are POSITION SIZE and whether to take `ext` at all. Today `ext` sizes identically to every other style — GOOGL went on at the full $20K notional. DECISION: leave `ext` at parity and accept the window, or give it a smaller notional? Risk-appetite call, yours."
   },
   {
    "id": "ext-hours-soft-stop",
@@ -506,18 +496,6 @@
    "created_at": "2026-07-19",
    "updated_at": "2026-07-19",
    "updated": "2026-07-20"
-  },
-  {
-   "id": "multi-angle-reasoning-ab",
-   "title": "Greenlight: multi-angle reasoning A/B — bull/bear/judge panel vs the single veto-grade voice (design ready)",
-   "lane": "founder",
-   "type": "decision",
-   "priority": "normal",
-   "owner": "founder",
-   "notes": "Design captured + Opus-adversarially-reviewed 2026-07-19 (References/MULTI_ANGLE_REASONING_AB_2026-07-19.md). Your 07-19 ask: keep the single voice, add a multi-angle lane, measure which outperforms — with the honest 'it's bloat' outcome pre-defined (K1 kill rule). Shape: every structure candidate assessed by BOTH lanes (paired shadow); a deterministic hash picks which lane's verdict ships; origin NEVER forks (trade-path boundary untouched); disagreements adjudicated on alpha_pct (never raw won/lost — tape-bias fix from review); all metrics pre-registered, prereg = LAW. Cost bound: <=48 specialist calls/night worst case vs 12 today, nightly scan only, ships default-OFF behind MULTI_ANGLE_AB_ENABLED. Review verdict SHIP-WITH-FIXES; all 3 blocking fixes folded (alpha adjudication, honesty screen in register_ideas, bear-case surface = nightly paper not phone). DECISION: go / no-go on the one-round build. Selection committee (panel-picks-5) deliberately deferred to when fusion lanes arm (doc section 7). 07-19 later: founder-supplied Grok cross-audit verified first-hand + folded (verdict SHIP+1): B1 open-zone dedup-skip was silently dropping nightly pairs from M1 -> reasoning_meta.nights[] append on skip; adjudication unit = zone-episode never night (rejects the audit's own score-each-night suggestion - correlated pseudo-replicas); K1 absolute count = unique episodes; M3 gains theater fraction; bear_case attach-after-validate + paper-prompt mandate pinned. Design build-ready; go/no-go unchanged, still yours.",
-   "created_at": "2026-07-19",
-   "updated_at": "2026-07-19",
-   "updated": "2026-07-19"
   },
   {
    "id": "rank1-research-worker-design",
@@ -2198,16 +2176,6 @@
    "type": "idea",
    "priority": "normal",
    "notes": "2026-07-11 founder: wants the exact time shown next to the date on orders. Likely the same gap as [[fill-time-on-orders]] (fill time truncated to date-only at import) — check that card before scoping new work. || CLOSED 2026-07-22 as DUPLICATE of [[fill-time-on-orders]] (done): the 07-12 fix is on main — raw_json COALESCE($.time,$.transaction_time) -> fill_time -> orders-widget FilledTab renders the clock next to the date ('2:48p'). Verified in code: orders-widget.tsx formatFillClock(e.fill_time).",
-   "owner": "founder",
-   "updated_at": "2026-07-11"
-  },
-  {
-   "id": "fr-1783787092",
-   "title": "options chain not updating live during market hours",
-   "lane": "inbox",
-   "type": "bug",
-   "priority": "normal",
-   "notes": "2026-07-11 founder: watched the options chain during live hours and it didn't appear to update, unlike charts/watchlist which tick live. Suspect it's not wired to the WebSocket stream (may be poll-only or stale-cached). Needs investigation.",
    "owner": "founder",
    "updated_at": "2026-07-11"
   },
