@@ -120,7 +120,7 @@ snapshot per sweep). Open threads only:
   DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
   no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
   disguise"). Open: (a) the letter "F" was consumed 07-28 — the judging-rules amendment is now
-  **Addendum G (DRAFT v8, gauntlet round 8 in flight**, 83 blockers fixed over 7 rounds; card
+  **Addendum G (DRAFT v9, gauntlet round 9 in flight**, 93 blockers fixed over 8 rounds; card
   `addendum-g-judging-rules`), and the three 1.14f findings register separately in
   `FLOW_1_14F_FINDINGS_REGISTRATION.md` (**not yet written — gates the G.2 scoring run**, which
   itself cannot start before the close of 2026-08-07); (b) RESOLVED 07-30 — founder PARKED the

@@ -36,7 +36,7 @@
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "v8 drafted 07-31: round 7 returned 9 blockers (74\u219283 fixed). Round 7 validated the sourced map (106 renames + all 4 refutations independently reproduced) but broke the merge SEMANTICS: v8 registers two-direction identity (flow date-scoped at process_date; bars/ATR/classification read at the TERMINAL symbol), a reuse SPLIT list (ARIS/GOLD/SPCX), an `adjusted` class for digit-suffix roots and a `test` class (both excluded everywhere), vendor authority for truncated/ungradeable (store faults: BLD/TMHC/NUVL), ATR14 pinned with a <15-bar UNGRADEABLE rule, DEAD split into (dilution)/(test) wordings, and a written variance-fallback formula (LRV=Var(x,ddof=1) on the series in hand \u2014 never a training constant). Round 8 dispatched.",
+   "notes": "v9 drafted 07-31: round 8 returned 10 blockers (83\u219293) but the methodology verdict was 'fix these and I would call it law' \u2014 no re-architecting needed. v9: fourth terminal-value case (no bar at d+1 = the M&A/halt tail), split-before-overlap ordering (SPCX = $13.9B in-window, 12th-largest equity root), SPY named in the acquisition scope (benchmark gaps BLOCK the run, never truncate), delisted layer re-sourced to directory-absence (no_spot_missing can't see mid-window delistings with bars), per-date cohort-composition disclosure (last NULL\u2192ALIVE channel), written HAC formula, premium-base labels (classified vs all-sides), ATR named amendment with measured <1% harmless direction. Round 9 dispatched \u2014 convergence expected.",
    "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
   },
   {
