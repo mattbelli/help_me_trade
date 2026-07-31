@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -90,11 +91,21 @@ CORPUS_DATES = {
     "TINYN": _span("2026-06", "2026-07"),
     "PARA": {"2025-08-06"},
     "PSKY": _span("2025-09", "2026-07"),
+    # the CUK -> CCL shape: the successor never stops printing across the seam
+    "CUKX": _span("2025-08", "2026-04"),
+    "CCLX": _span("2025-08", "2026-07"),
 }
 
 PREMIUM = {s: 5_000_000.0 for s in CORPUS_DATES}
 PREMIUM["TINYO"] = 1_000.0        # under the floor
 PREMIUM["SAMEX"] = 9_000_000.0    # funded, but old == new
+# GAMB and ATHA are the two live corpus roots whose only directory match is a
+# `$` preferred row — the blocker-1 regression.
+PREMIUM["GAMB"] = 3_000_000.0
+PREMIUM["ATHA"] = 3_000_000.0
+PREMIUM["BRKB"] = 8_000_000_000.0
+
+SESSIONS = sorted({d for dates in CORPUS_DATES.values() for d in dates})
 
 
 def _dates_for(symbols):
@@ -113,9 +124,13 @@ def _build(**over):
         legacy_etf_set={"SPY", "QQQ", "GLD"},
         pull_date="2026-07-31",
         generated_at="2026-07-31T00:00:00+00:00",
-        test_roots=["ZTST", "PTEST"],
-        index_additions=["XAU", "NANOS"],
-        delisted={"WBA": "equity", "ALTS": "etf"},
+        sessions=SESSIONS,
+        test_roots={"ZTST": {"reason": "OPRA-only test root, zero-bar census"},
+                    "PTEST": {"reason": "test-shaped, directory-absent"}},
+        index_additions={"XAU": {"reason": "index product"},
+                         "NANOS": {"reason": "index product"}},
+        delisted={"WBA": {"class": "equity", "reason": "taken private"},
+                  "ALTS": {"class": "etf", "reason": "delisted fund"}},
         merger_continuations=MERGER_CONTINUATIONS,
     )
     kwargs.update(over)
@@ -232,6 +247,38 @@ def test_an_ambiguous_stripped_form_is_dropped_and_recorded(doc):
     assert dropped["ETI"]["reason"] == "ambiguous_multiple_directory_rows"
     assert dropped["ETI"]["directory_symbols"] == ["ET$I", "ETI$"]
     assert "ETI" not in doc["dotted_map"]
+
+
+# -- blocker 1: `$` forms are recorded, never mapped -----------------------
+
+
+@pytest.mark.parametrize("root,preferred_row", [("GAMB", "GAM$B"), ("ATHA", "ATH$A")])
+def test_a_dollar_form_never_assigns_a_class_or_a_symbol(fence, doc, root, preferred_row):
+    """The two live corpus roots whose only directory match is a preferred row.
+
+    Mapping them would classify a real equity off a preferred, hand `resolve()` a
+    symbol Alpaca cannot serve, and silently remove the root from the layer-2
+    directory-absent census G.8 exists to compute.
+    """
+    assert root not in doc["dotted_map"]
+    assert fence.classify(root) == "unclassified"       # reaches the layer-2 census
+    assert fence.resolve(root) == root                  # a symbol Alpaca can serve
+    assert doc["dollar_forms_not_mapped"][root] == preferred_row
+
+
+def test_the_dotted_map_is_built_from_dot_rows_only(doc):
+    assert all("." in sym for sym in doc["dotted_map"].values())
+    assert all("$" in sym for sym in doc["dollar_forms_not_mapped"].values())
+    # both directions stay ON THE RECORD, as G.8 words it
+    assert len(doc["dollar_forms_not_mapped"]) == 355
+
+
+def test_the_active_map_entries_are_listed_for_review(doc):
+    """The entries that actually do assignment work: a live corpus root with no
+    plain directory row of its own. All class shares, all `.`-derived."""
+    active = {e["occ_form"]: e["directory_symbol"] for e in doc["dotted_map_active"]}
+    assert active == {"BRKB": "BRK.B"}      # the only one funded in this fixture
+    assert all("." in sym for sym in active.values())
 
 
 # --------------------------------------------------------------------------
@@ -351,6 +398,106 @@ def test_a_clean_rename_needs_no_split(doc):
     assert "PSKY" not in doc["reuse_splits"]
 
 
+# -- nit 1: the old-symbol trigger is STRICTLY after the seam --------------
+
+
+def test_a_seam_day_straggler_does_not_split():
+    """G.2's word is "after", and the interval is closed on the successor side —
+    so a lone old-ticker print ON the seam day belongs to the successor identity.
+    Splitting on it would manufacture an earlier identity with no bars."""
+    doc = _build(
+        name_changes=[{"old_symbol": "STRAG", "new_symbol": "STRAGN",
+                       "process_date": "2026-03-01"}],
+        premium={"STRAG": 5e6, "STRAGN": 5e6},
+        dates_for=lambda syms: {s: set(d) for s, d in {
+            "STRAG": _span("2025-08", "2026-02") | {"2026-03-01"},
+            "STRAGN": _span("2026-03", "2026-07"),
+        }.items() if s in set(syms)},
+        merger_continuations=[],
+    )
+    assert doc["reuse_splits"] == {}
+    assert RootClassification(doc).resolve("STRAG", "2026-03-01") == "STRAGN"
+
+
+def test_a_print_strictly_after_the_seam_does_split():
+    doc = _build(
+        name_changes=[{"old_symbol": "STRAG", "new_symbol": "STRAGN",
+                       "process_date": "2026-03-01"}],
+        premium={"STRAG": 5e6, "STRAGN": 5e6},
+        dates_for=lambda syms: {s: set(d) for s, d in {
+            "STRAG": _span("2025-08", "2026-02") | {"2026-03-01", "2026-04-01"},
+            "STRAGN": _span("2026-03", "2026-07"),
+        }.items() if s in set(syms)},
+        merger_continuations=[],
+    )
+    assert doc["reuse_splits"] == {"STRAG": ["2026-03-01"]}
+
+
+# -- blocker 2: gap evidence and the exemption review ----------------------
+
+
+def test_every_split_carries_its_gap_evidence(doc):
+    by_symbol = {r["symbol"]: r for r in doc["reuse_split_reasons"]}
+    aris = by_symbol["SHARED"]
+    assert aris["last_before"] == "2025-10-01"
+    assert aris["first_at_or_after"] == "2026-03-01"
+    assert aris["gap_sessions"] == SESSIONS.index("2026-03-01") - SESSIONS.index("2025-10-01")
+    assert aris["gap_sessions"] > 1              # a real vacancy
+    assert set(by_symbol["KEEPO"]) >= {"last_before", "first_at_or_after", "gap_sessions"}
+
+
+def test_a_consolidation_reads_as_a_one_session_gap():
+    """The CUK -> CCL shape: the ticker never stopped trading, so the split's
+    premise ("one bar series, at most one issuer") is false for it."""
+    doc = _build(
+        name_changes=[{"old_symbol": "CUKX", "new_symbol": "CCLX",
+                       "process_date": "2026-05-01"}],
+        premium={"CUKX": 5e6, "CCLX": 5e6},
+        merger_continuations=[],
+    )
+    split = next(r for r in doc["reuse_split_reasons"] if r["symbol"] == "CCLX")
+    assert split["gap_sessions"] == 1
+    assert split["last_before"] == "2026-04-01" and split["first_at_or_after"] == "2026-05-01"
+
+
+def test_an_exempted_split_maps_as_a_plain_continuation():
+    """The orchestrator's review withdraws the split; the pair then merges."""
+    doc = _build(
+        name_changes=[{"old_symbol": "CUKX", "new_symbol": "CCLX",
+                       "process_date": "2026-05-01"}],
+        premium={"CUKX": 5e6, "CCLX": 5e6},
+        merger_continuations=[],
+        exempt_splits={"CCLX": {"reason": "dual-listing consolidation, 1-session gap"}},
+    )
+    assert doc["reuse_splits"] == {}
+    assert doc["excluded_overlaps"] == []
+    exempted = doc["exempted_splits"]
+    assert len(exempted) == 1
+    assert exempted[0]["symbol"] == "CCLX"
+    assert exempted[0]["gap_sessions"] == 1                      # evidence kept
+    assert exempted[0]["exemption"] == {"reason": "dual-listing consolidation, 1-session gap"}
+    assert doc["exempt_splits_review"] == {
+        "CCLX": {"reason": "dual-listing consolidation, 1-session gap"}}
+    # the continuous identity: pre-seam CUKX-shaped flow resolves through
+    fence = RootClassification(doc)
+    assert fence.resolve("CUKX", "2026-01-01") == "CCLX"
+    assert fence.resolve("CUKX") == "CCLX"
+    assert fence.resolve("CCLX", "2026-01-01") == "CCLX"
+
+
+def test_an_exemption_waives_the_overlap_exclusion_and_says_so():
+    doc = _build(
+        name_changes=[{"old_symbol": "CUKX", "new_symbol": "CCLX",
+                       "process_date": "2026-05-01"}],
+        premium={"CUKX": 5e6, "CCLX": 5e6},
+        merger_continuations=[],
+        exempt_splits={"CCLX": {"reason": "dual listing"}},
+    )
+    assert [e["old"] for e in doc["successor_map"]] == ["CUKX"]
+    waived = next(r for r in doc["overlap_rescued_by_split"] if r["old"] == "CUKX")
+    assert waived["waived_by_exemption"] is True
+
+
 # --------------------------------------------------------------------------
 # the overlap guard
 # --------------------------------------------------------------------------
@@ -380,6 +527,7 @@ def test_the_split_rescues_the_same_pair_and_the_rescue_is_recorded():
     assert kept == [pair]
     assert excluded == []
     assert rescued == [{"old": "AAA", "new": "BBB", "process_date": "2026-03-01",
+                        "waived_by_exemption": False,
                         "raw_overlapping_dates": ["2026-02-01"]}]
 
 
@@ -414,34 +562,6 @@ def test_two_old_roots_on_one_terminal_segment_fail_the_build():
     )
     assert doc["topology_collisions"] == [
         {"terminal_symbol": "TERM", "segment_start": None, "old_roots": ["COLA", "COLB"]}]
-
-
-def test_the_cli_refuses_to_freeze_a_colliding_map(tmp_path, monkeypatch, capsys):
-    """Recorded AND loud: the map is written to a `.collisions.json` sidecar and
-    the registered path is left untouched, with a non-zero exit code."""
-    from tools import root_classification_build as rcb
-
-    colliding = _build(
-        name_changes=[
-            {"old_symbol": "COLA", "new_symbol": "TERM", "process_date": "2026-01-01"},
-            {"old_symbol": "COLB", "new_symbol": "TERM", "process_date": "2026-01-01"},
-        ],
-        premium={"COLA": 5e6, "COLB": 5e6, "TERM": 5e6},
-        merger_continuations=[],
-    )
-    monkeypatch.setattr(rcb, "fetch_name_changes", lambda *a, **k: [])
-    monkeypatch.setattr(rcb, "corpus_premium", lambda p: {})
-    monkeypatch.setattr(rcb, "corpus_dates_for", lambda p: _dates_for)
-    monkeypatch.setattr(rcb, "build_snapshot", lambda **k: colliding)
-    monkeypatch.setenv("ALPACA_API_KEY", "k")
-    monkeypatch.setenv("ALPACA_API_SECRET", "s")
-
-    out = tmp_path / "root_classification.json"
-    rc = rcb.main(["--out", str(out), "--corpus-db", str(tmp_path / "nope.db")])
-    assert rc == 1
-    assert not out.exists()
-    sidecar = tmp_path / "root_classification.json.collisions.json"
-    assert json.loads(sidecar.read_text())["topology_collisions"]
 
 
 def test_a_sequential_reuse_of_one_ticker_is_not_a_collision():
@@ -581,6 +701,193 @@ def test_round_trips_through_the_loader(tmp_path, doc):
 
 
 # --------------------------------------------------------------------------
+# blocker 3: the pull guards
+# --------------------------------------------------------------------------
+
+
+def _mock_transport(pages):
+    """An httpx transport serving `pages` in order — no network, no monkeypatching."""
+    import httpx
+
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.params.get("page_token"))
+        return httpx.Response(200, json=pages[min(len(calls) - 1, len(pages) - 1)])
+
+    return httpx.MockTransport(handler), calls
+
+
+def test_the_pager_follows_a_two_page_response():
+    from tools.root_classification_build import fetch_name_changes
+
+    transport, calls = _mock_transport([
+        {"corporate_actions": {"name_changes": [{"old_symbol": "A", "new_symbol": "B",
+                                                 "process_date": "2026-01-01"}]},
+         "next_page_token": "tok2"},
+        {"corporate_actions": {"name_changes": [{"old_symbol": "C", "new_symbol": "D",
+                                                 "process_date": "2026-02-01"}]}},
+    ])
+    out = fetch_name_changes("2025-07-25", "2026-07-30", api_key="k", api_secret="s",
+                             transport=transport)
+    assert [r["old_symbol"] for r in out] == ["A", "C"]
+    assert calls == [None, "tok2"]
+
+
+def test_the_pager_aborts_on_a_repeated_token():
+    from tools.root_classification_build import fetch_name_changes
+
+    transport, _ = _mock_transport([
+        {"corporate_actions": {"name_changes": []}, "next_page_token": "same"},
+    ])
+    with pytest.raises(ValueError, match="repeated its token"):
+        fetch_name_changes("2025-07-25", "2026-07-30", api_key="k", api_secret="s",
+                           transport=transport)
+
+
+def test_an_unexpected_payload_shape_raises():
+    from tools.root_classification_build import fetch_name_changes
+
+    transport, _ = _mock_transport([{"message": "forbidden"}])
+    with pytest.raises(ValueError, match="no `corporate_actions` key"):
+        fetch_name_changes("2025-07-25", "2026-07-30", api_key="k", api_secret="s",
+                           transport=transport)
+
+
+def test_an_empty_page_still_terminates():
+    from tools.root_classification_build import fetch_name_changes
+
+    transport, _ = _mock_transport([{"corporate_actions": {"name_changes": []}}])
+    assert fetch_name_changes("2025-07-25", "2026-07-30", api_key="k", api_secret="s",
+                              transport=transport) == []
+
+
+def _cli(tmp_path, monkeypatch, doc, extra=(), name_changes=(("x",),)):
+    """Drive main() with the network and the DB stubbed out."""
+    from tools import root_classification_build as rcb
+
+    monkeypatch.setattr(rcb, "fetch_name_changes", lambda *a, **k: list(name_changes))
+    monkeypatch.setattr(rcb, "corpus_premium", lambda p: {})
+    monkeypatch.setattr(rcb, "corpus_dates_for", lambda p: _dates_for)
+    monkeypatch.setattr(rcb, "corpus_sessions", lambda p: SESSIONS)
+    monkeypatch.setattr(rcb, "build_snapshot", lambda **k: doc)
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_API_SECRET", "s")
+    out = tmp_path / "root_classification.json"
+    rc = rcb.main(["--out", str(out), "--pull-date", "2026-08-08",
+                   "--corpus-db", str(tmp_path / "nope.db"), *extra])
+    return rc, out
+
+
+def test_an_empty_pull_refuses_to_write(tmp_path, monkeypatch, doc):
+    rc, out = _cli(tmp_path, monkeypatch, doc, name_changes=())
+    assert rc == 1 and not out.exists()
+
+
+def test_a_mismatched_expected_count_refuses_to_write(tmp_path, monkeypatch, doc):
+    rc, out = _cli(tmp_path, monkeypatch, doc, extra=["--expect-pairs", "999"])
+    assert rc == 1 and not out.exists()
+
+    rc, out = _cli(tmp_path, monkeypatch, doc, extra=["--expect-after-floor", "999"])
+    assert rc == 1 and not out.exists()
+
+
+def test_matching_expected_counts_write(tmp_path, monkeypatch, doc):
+    rc, out = _cli(tmp_path, monkeypatch, doc, extra=[
+        "--expect-pairs", str(len(doc["successor_map"])),
+        "--expect-after-floor", str(doc["counts"]["after_old_side_premium_floor"])])
+    assert rc == 0 and out.exists()
+
+
+def test_pull_date_is_required(tmp_path):
+    from tools import root_classification_build as rcb
+    with pytest.raises(SystemExit):
+        rcb.main(["--out", str(tmp_path / "x.json")])
+
+
+def test_an_existing_out_is_never_silently_overwritten(tmp_path, monkeypatch, doc):
+    rc, out = _cli(tmp_path, monkeypatch, doc)
+    assert rc == 0
+    before = out.read_text()
+
+    rc, _ = _cli(tmp_path, monkeypatch, doc)
+    assert rc == 1 and out.read_text() == before
+
+    rc, _ = _cli(tmp_path, monkeypatch, doc, extra=["--force-new-addendum"])
+    assert rc == 0
+
+
+def test_the_collisions_sidecar_holds_only_the_collisions(tmp_path, monkeypatch):
+    colliding = _build(
+        name_changes=[
+            {"old_symbol": "COLA", "new_symbol": "TERM", "process_date": "2026-01-01"},
+            {"old_symbol": "COLB", "new_symbol": "TERM", "process_date": "2026-01-01"},
+        ],
+        premium={"COLA": 5e6, "COLB": 5e6, "TERM": 5e6},
+        merger_continuations=[],
+    )
+    rc, out = _cli(tmp_path, monkeypatch, colliding)
+    assert rc == 1 and not out.exists()
+    sidecar = json.loads(Path(f"{out}.collisions.json").read_text())
+    assert set(sidecar) == {"topology_collisions", "counts", "generated_at", "pull_date"}
+    assert sidecar["topology_collisions"][0]["terminal_symbol"] == "TERM"
+
+
+def test_a_stale_sidecar_is_removed_once_the_build_succeeds(tmp_path, monkeypatch, doc):
+    colliding = _build(
+        name_changes=[
+            {"old_symbol": "COLA", "new_symbol": "TERM", "process_date": "2026-01-01"},
+            {"old_symbol": "COLB", "new_symbol": "TERM", "process_date": "2026-01-01"},
+        ],
+        premium={"COLA": 5e6, "COLB": 5e6, "TERM": 5e6},
+        merger_continuations=[],
+    )
+    rc, out = _cli(tmp_path, monkeypatch, colliding)
+    sidecar = Path(f"{out}.collisions.json")
+    assert rc == 1 and sidecar.exists()
+
+    rc, out = _cli(tmp_path, monkeypatch, doc)
+    assert rc == 0 and not sidecar.exists()
+
+
+# --------------------------------------------------------------------------
+# review inputs are objects, stored verbatim
+# --------------------------------------------------------------------------
+
+
+def test_review_inputs_are_stored_verbatim(doc):
+    assert doc["test_list"]["opra_only"] == {
+        "ZTST": {"reason": "OPRA-only test root, zero-bar census"},
+        "PTEST": {"reason": "test-shaped, directory-absent"}}
+    assert doc["index_list"]["additions"] == {
+        "XAU": {"reason": "index product"}, "NANOS": {"reason": "index product"}}
+    assert doc["delisted"]["WBA"] == {"class": "equity", "reason": "taken private"}
+
+
+def test_a_bare_list_review_is_rejected():
+    with pytest.raises(TypeError, match="JSON OBJECTS"):
+        _build(delisted=["WBA", "ALTS"])
+
+
+def test_delisted_review_keys_are_occ_normalized():
+    """A census written with the dotted form must not become a second entry."""
+    doc = _build(delisted={"BRK.B": {"class": "equity", "reason": "hand-quoted dotted"}})
+    assert "BRKB" in doc["delisted"] and "BRK.B" not in doc["delisted"]
+
+
+def test_excluded_and_rescued_records_are_sorted(doc):
+    for key, field in (("excluded_overlaps", "old"), ("overlap_rescued_by_split", "old")):
+        rows = doc[key]
+        assert rows == sorted(rows, key=lambda e: (e["old"], e["new"], e["process_date"]))
+        assert [r[field] for r in rows] == sorted(r[field] for r in rows)
+
+
+def test_the_loader_refuses_a_foreign_schema_version(doc):
+    with pytest.raises(ValueError, match="schema_version"):
+        RootClassification({**doc, "schema_version": 99})
+
+
+# --------------------------------------------------------------------------
 # the bars-tool extension
 # --------------------------------------------------------------------------
 
@@ -591,6 +898,17 @@ def test_the_bars_universe_filter_keeps_dotted_class_share_forms():
     assert _ticker_ok("HEI.A") and _ticker_ok("PBR.A")
     assert _ticker_ok("AAPL") and _ticker_ok("BABA2")
     assert not _ticker_ok("") and not _ticker_ok("/CL") and not _ticker_ok("ABR$D")
+
+
+def test_explicit_symbols_reject_preferred_tickers_loudly(monkeypatch):
+    """A `$` here means the caller mapped a root off a preferred row."""
+    import tools.flow_corpus_bars as fcb
+
+    monkeypatch.setattr(fcb, "init_db", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["prog", "--start", "2025-07-28", "--end",
+                                      "2026-07-25", "--symbols", "BRK.B,GAM$B"])
+    with pytest.raises(SystemExit, match=r"GAM\$B"):
+        fcb.main()
 
 
 # --------------------------------------------------------------------------

@@ -18,24 +18,29 @@ corporate-actions `name_change` feed, and freezes:
   * `LEGACY_ETF_SET` (the retired hand-built `ETF_SET`, never deleted),
   * the dotted OCC ↔ directory normalization, both directions.
 
-The orchestrator's two naming reviews (index-addition, test-root) and the
-delisted census are INPUTS, passed verbatim as JSON files — this tool never
+The orchestrator's reviews (index-addition, test-root, delisted census, split
+exemptions) are INPUTS, passed verbatim as JSON objects — this tool never
 guesses them.
 
-Three things a reviewer should know about the mechanics, stated rather than
+Five things a reviewer should know about the mechanics, stated rather than
 buried:
 
-1. **`$` is NOT stripped toward a plain root.** G.8 says "normalize `.`/`$`
-   suffixes in BOTH directions". Measured on the registered snapshot, blind
-   stripping is unsafe: 387 symbols carry `$` (Nasdaq Trader's PREFERRED-share
-   marker) and 31 of their stripped forms collide with a real listed symbol —
-   `GL$D` → `GLD`, `MET$A` → `META`, `F$B` → `FB`, `GS$C` → `GSC`. So the
-   normalization map is built from both forms as registered, but a plain
-   directory row ALWAYS wins the lookup and any stripped form that shadows a
-   plain row (or that two dotted rows share, `ET$I`/`ETI$` → `ETI`) is dropped
-   from the map and RECORDED. `BRKB → BRK.B`, `BFB → BF.B`, `HEIA → HEI.A`,
-   `PBRA → PBR.A` — the four forms obligation 2's backfill needs — are
-   unaffected.
+1. **Only `.` forms ASSIGN; `$` forms are recorded and never mapped.** G.8 says
+   "normalize `.`/`$` suffixes in BOTH directions", and both directions ARE on
+   the record — but `$` is Nasdaq Trader's PREFERRED-share marker, and a
+   preferred carries no listed options, so every `$` entry is false-mapping
+   surface with no legitimate hit behind it. Measured on the registered
+   snapshot: of 355 usable `$` map entries exactly TWO are live corpus roots
+   with no plain directory row, and BOTH are wrong — `GAMB` → `GAM$B` and
+   `ATHA` → `ATH$A` would classify a real equity off a preferred row, hand
+   `resolve()` a symbol Alpaca cannot serve, and silently remove the root from
+   the layer-2 directory-absent census that G.8 exists to compute. The `.` side
+   carries the 8 real class-share hits (`BRKB`, `BFB`, `BFA`, `CRDA`, `HEIA`,
+   `MOGA`, `PBRA`, `UHALB`). So the lookup map is built from `.` rows ONLY; the
+   `$` forms go to `dollar_forms_not_mapped`. A plain directory row still always
+   wins, shadowing and ambiguous forms are still dropped and recorded, and the
+   entries that actually do assignment work are listed in `dotted_map_active` so
+   all eight can be eyeballed.
 
 2. **The per-segment overlap check is a standing GUARD, not an expected
    filter.** G.2 pins the order: build the reuse-split list FIRST, then run the
@@ -56,17 +61,39 @@ buried:
    it is not silently "fixed" — the affected pairs are recorded in
    `chain_continuations_dropped_by_premium_filter` for the orchestrator.
 
+4. **The old-symbol split trigger is STRICTLY after the seam.** G.2's words are
+   "whose OLD symbol keeps printing after `process_date`", and the date-scoping
+   interval is closed on the successor side, so the seam session itself belongs
+   to the successor. A lone old-ticker print ON the seam day is therefore a
+   straggler that merges into the successor identity; treating it as continued
+   printing would manufacture a split whose earlier identity has no bar series
+   of its own. Only a print strictly AFTER the seam splits.
+
+5. **A reuse split carries its own gap evidence, and can be exempted.** "One bar
+   series belongs to at most one issuer" is the split's premise, and it is FALSE
+   for a dual-listing consolidation: `CUK → CCL` trips the same rule as `ARIS`,
+   but CCL's printing is continuous across the seam (a 1-session gap) whereas
+   ARIS sat vacant for months. The tool cannot tell those apart from the feed
+   alone, so it does not try: every split records `last_before` / `first_at_or_after`
+   / `gap_sessions` on the corpus session calendar, and the orchestrator's
+   `--exempt-splits` review can withdraw a split by name. An exempted split is
+   removed, the pair maps as a plain continuation, and the exemption reason plus
+   the gap evidence are stored verbatim.
+
 A topology collision (two old roots landing in the SAME segment of one terminal
 symbol, which would duplicate that symbol's post-seam name-days across two
-identities) is recorded and the build FAILS: the doc is written to
+identities) is recorded and the build FAILS: the collisions are written to
 `<out>.collisions.json`, `<out>` is left alone, and the exit code is non-zero.
 
     python tools/root_classification_build.py \
         --out signals/options_flow/root_classification.json \
+        --pull-date 2026-08-08 \
+        --expect-after-floor 138 --expect-pairs 106 \
         --test-roots reviews/test_roots.json \
         --index-additions reviews/index_additions.json \
         --delisted reviews/delisted.json \
-        --merger-continuations reviews/merger_continuations.json
+        --merger-continuations reviews/merger_continuations.json \
+        --exempt-splits reviews/exempt_splits.json
 """
 
 from __future__ import annotations
@@ -79,8 +106,8 @@ import os
 import re
 import sqlite3
 import sys
-from collections.abc import Callable, Iterable, Mapping
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -117,13 +144,11 @@ _ETN_RE = re.compile(ETN_PATTERN)
 _ADJUSTED_RE = re.compile(ADJUSTED_PATTERN)
 _PLAIN_ROOT_RE = re.compile(r"^[A-Z]+$")
 _MAX_CHAIN_HOPS = 32
+# 671 records at limit=1000 is a single page today; the cap only has to stop a
+# server that never stops handing back tokens.
+_MAX_PAGES = 100
 
 logger = logging.getLogger("root_classification_build")
-
-
-class TopologyCollision(Exception):
-    """Two old roots resolve into one terminal-symbol segment. G.2: recorded and
-    resolved by the orchestrator BEFORE the map freezes."""
 
 
 class DirectoryRow(NamedTuple):
@@ -181,17 +206,13 @@ def occ_form(symbol: str) -> str:
     return symbol.replace(".", "").replace("$", "")
 
 
-def _dotted_map(rows: Iterable[DirectoryRow]) -> tuple[dict[str, str], list[dict[str, object]]]:
-    """OCC form -> directory symbol, for the symbols that carry `.` or `$`.
-
-    Entries whose OCC form shadows a plain directory row, or that two dotted rows
-    would share, are DROPPED and returned as the second element. See the module
-    docstring: `GL$D` -> `GLD` is why.
-    """
-    plain = {r.symbol for r in rows if "." not in r.symbol and "$" not in r.symbol}
+def _candidate_forms(
+    rows: Iterable[DirectoryRow], mark: str, plain: set[str]
+) -> tuple[dict[str, str], list[dict[str, object]]]:
+    """OCC form -> directory symbol for the rows carrying `mark`, plus the drops."""
     candidates: dict[str, list[str]] = {}
     for r in rows:
-        if "." in r.symbol or "$" in r.symbol:
+        if mark in r.symbol:
             candidates.setdefault(occ_form(r.symbol), []).append(r.symbol)
 
     mapping: dict[str, str] = {}
@@ -209,6 +230,41 @@ def _dotted_map(rows: Iterable[DirectoryRow]) -> tuple[dict[str, str], list[dict
     return mapping, sorted(dropped, key=lambda d: d["occ_form"])
 
 
+def _dotted_map(
+    rows: Iterable[DirectoryRow], corpus_roots: Iterable[str] = ()
+) -> tuple[dict[str, str], list[dict[str, object]], dict[str, str], list[dict[str, str]]]:
+    """The normalization record: what MAPS, what is only recorded, what is live.
+
+    Returns (mapping, dropped, dollar_forms_not_mapped, active).
+
+    Only `.` rows may assign a class or a bars symbol — see the module docstring:
+    the `$` marker is preferred shares, which carry no listed options, and its
+    only two live corpus hits (`GAMB`, `ATHA`) are both false. The `$` forms are
+    still computed and returned so "normalized in both directions" stays on the
+    record; they are never consulted by `classify()` or `resolve()`.
+
+    `active` is the subset that actually does work — an OCC form that is a live
+    corpus root with no plain directory row of its own.
+    """
+    rows = list(rows)
+    plain = {r.symbol for r in rows if "." not in r.symbol and "$" not in r.symbol}
+    mapping, dropped = _candidate_forms(rows, ".", plain)
+    dollar, dollar_dropped = _candidate_forms(rows, "$", plain)
+
+    roots = set(corpus_roots)
+    active = sorted(
+        ({"occ_form": form, "directory_symbol": sym}
+         for form, sym in mapping.items() if form in roots),
+        key=lambda d: d["occ_form"],
+    )
+    for entry in dollar_dropped:
+        entry["mark"] = "$"
+    for entry in dropped:
+        entry["mark"] = "."
+    return (mapping, sorted(dropped + dollar_dropped, key=lambda d: (d["occ_form"], d["mark"])),
+            dict(sorted(dollar.items())), active)
+
+
 # --------------------------------------------------------------------------
 # corporate actions
 # --------------------------------------------------------------------------
@@ -222,13 +278,20 @@ def fetch_name_changes(
     api_secret: str,
     url: str = CORPORATE_ACTIONS_URL,
     limit: int = 1000,
+    transport: httpx.BaseTransport | None = None,
 ) -> list[dict]:
-    """Every `name_change` record in [start, end], following the page token."""
+    """Every `name_change` record in [start, end], following the page token.
+
+    The pager is bounded twice: a repeated token aborts (a server that hands back
+    its own cursor would otherwise spin forever, silently duplicating records),
+    and so does a hard page cap.
+    """
     headers = {"APCA-API-KEY-ID": api_key, "APCA-API-SECRET-KEY": api_secret}
     out: list[dict] = []
     token: str | None = None
-    with httpx.Client(timeout=90.0) as client:
-        while True:
+    seen_tokens: set[str] = set()
+    with httpx.Client(timeout=90.0, transport=transport) as client:
+        for page in range(1, _MAX_PAGES + 1):
             params: dict[str, object] = {
                 "types": "name_change", "start": start, "end": end, "limit": limit,
             }
@@ -237,12 +300,19 @@ def fetch_name_changes(
             resp = client.get(url, headers=headers, params=params)
             resp.raise_for_status()
             payload = resp.json()
-            actions = payload.get("corporate_actions") or {}
-            out.extend(actions.get("name_changes") or [])
+            if "corporate_actions" not in payload:
+                raise ValueError(
+                    f"corporate-actions payload has no `corporate_actions` key "
+                    f"(page {page}, keys {sorted(payload)})")
+            out.extend((payload.get("corporate_actions") or {}).get("name_changes") or [])
             token = payload.get("next_page_token")
             if not token:
-                logger.info("name_change records pulled: %d", len(out))
+                logger.info("name_change records pulled: %d (%d page(s))", len(out), page)
                 return out
+            if token in seen_tokens:
+                raise ValueError(f"corporate-actions pager repeated its token at page {page}")
+            seen_tokens.add(token)
+    raise ValueError(f"corporate-actions pager exceeded {_MAX_PAGES} pages")
 
 
 class _Pair(NamedTuple):
@@ -291,30 +361,78 @@ def _filter_pairs(
 # --------------------------------------------------------------------------
 
 
+def _gap_evidence(
+    symbol: str, seam: str, corpus_dates: Mapping[str, set[str]], sessions: Sequence[str]
+) -> dict[str, object]:
+    """How long this ticker actually went quiet around the seam.
+
+    The split's premise is that one bar series belongs to at most one issuer. A
+    months-long vacancy supports it (ARIS); a 1-session gap says the ticker never
+    stopped trading and the "reuse" is a dual listing folding in (CUK -> CCL).
+    `gap_sessions` is the positional distance on the corpus session calendar, so
+    adjacent sessions read 1.
+    """
+    dates = corpus_dates.get(symbol, ())
+    before = max((d for d in dates if d < seam), default=None)
+    after = min((d for d in dates if d >= seam), default=None)
+    gap: int | None = None
+    if before is not None and after is not None:
+        index = {d: i for i, d in enumerate(sessions)}
+        if before in index and after in index:
+            gap = index[after] - index[before]
+    return {"last_before": before, "first_at_or_after": after, "gap_sessions": gap}
+
+
 def _build_splits(
-    pairs: Iterable[_Pair], corpus_dates: Mapping[str, set[str]]
-) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+    pairs: Iterable[_Pair],
+    corpus_dates: Mapping[str, set[str]],
+    sessions: Sequence[str] = (),
+    exempt: Mapping[str, object] | None = None,
+) -> tuple[dict[str, list[str]], list[dict[str, object]], list[dict[str, object]]]:
     """G.2's reuse-split list, built FIRST (the order is pinned).
 
     A `name_change` whose NEW symbol carries corpus rows earlier than
-    `process_date`, or whose OLD symbol keeps printing at/after it, splits that
-    symbol's identity at that date.
+    `process_date`, or whose OLD symbol keeps printing STRICTLY AFTER it, splits
+    that symbol's identity at that date. The strictness is G.2's own word
+    ("after") and follows from the interval being closed on the successor side:
+    the seam session belongs to the successor, so an old-ticker print ON the seam
+    day is a straggler inside the successor identity, not evidence of a second
+    tenant. Splitting on it would manufacture an earlier identity with no bar
+    series of its own.
+
+    A symbol named in `exempt` (the orchestrator's review) keeps NO split — the
+    pair maps as a plain continuation — and the withdrawal is returned with its
+    gap evidence.
     """
+    exempt = exempt or {}
     splits: dict[str, set[str]] = {}
-    reasons: list[dict[str, str]] = []
+    reasons: list[dict[str, object]] = []
+    exempted: list[dict[str, object]] = []
+
+    def _record(symbol: str, seam: str, reason: str, pair: _Pair) -> None:
+        entry: dict[str, object] = {
+            "symbol": symbol, "date": seam, "reason": reason,
+            "pair": f"{pair.old}->{pair.new}",
+            **_gap_evidence(symbol, seam, corpus_dates, sessions),
+        }
+        if symbol in exempt:
+            entry["exemption"] = exempt[symbol]
+            exempted.append(entry)
+            return
+        splits.setdefault(symbol, set()).add(seam)
+        reasons.append(entry)
+
     for p in pairs:
         if any(d < p.process_date for d in corpus_dates.get(p.new, ())):
-            splits.setdefault(p.new, set()).add(p.process_date)
-            reasons.append({"symbol": p.new, "date": p.process_date,
-                            "reason": "new_symbol_has_earlier_corpus_rows",
-                            "pair": f"{p.old}->{p.new}"})
-        if any(d >= p.process_date for d in corpus_dates.get(p.old, ())):
-            splits.setdefault(p.old, set()).add(p.process_date)
-            reasons.append({"symbol": p.old, "date": p.process_date,
-                            "reason": "old_symbol_keeps_printing",
-                            "pair": f"{p.old}->{p.new}"})
+            _record(p.new, p.process_date, "new_symbol_has_earlier_corpus_rows", p)
+        if any(d > p.process_date for d in corpus_dates.get(p.old, ())):
+            _record(p.old, p.process_date, "old_symbol_keeps_printing", p)
+
+    def _key(r: Mapping[str, object]) -> tuple:
+        return (r["symbol"], r["date"], r["reason"])
+
     return ({s: sorted(v) for s, v in sorted(splits.items())},
-            sorted(reasons, key=lambda r: (r["symbol"], r["date"], r["reason"])))
+            sorted(reasons, key=_key), sorted(exempted, key=_key))
 
 
 def _segment(boundaries: list[str], when: str | None) -> tuple[str | None, str | None]:
@@ -382,11 +500,19 @@ def _overlap_check(
     pairs: Iterable[_Pair],
     splits: Mapping[str, list[str]],
     corpus_dates: Mapping[str, set[str]],
+    exempt: Mapping[str, object] | None = None,
 ) -> tuple[list[_Pair], list[dict[str, object]], list[dict[str, object]]]:
     """Per-segment overlap, run on EVERY pair. See docstring note 2.
 
     Returns (surviving pairs, excluded+recorded, raw-overlap-rescued-by-split).
+
+    A pair whose successor is EXEMPTED from splitting is exempted here too, and
+    necessarily so: the exemption's whole content is "this apparent reuse is a
+    continuous identity", and the guard's one trigger is a successor printing
+    before the seam. Without the waiver the exemption would delete the pair from
+    the map rather than merge it — the opposite of what was reviewed.
     """
+    exempt = exempt or {}
     kept: list[_Pair] = []
     excluded: list[dict[str, object]] = []
     rescued: list[dict[str, object]] = []
@@ -400,15 +526,19 @@ def _overlap_check(
 
         clash = sorted(pre & post)
         raw_clash = sorted(corpus_dates.get(p.old, set()) & corpus_dates.get(p.new, set()))
-        if clash:
+        if clash and p.new not in exempt:
             excluded.append({"old": p.old, "new": p.new, "process_date": p.process_date,
                              "overlapping_dates": clash})
             continue
         if raw_clash:
             rescued.append({"old": p.old, "new": p.new, "process_date": p.process_date,
+                            "waived_by_exemption": p.new in exempt,
                             "raw_overlapping_dates": raw_clash})
         kept.append(p)
-    return kept, excluded, rescued
+    def _key(e: Mapping[str, object]) -> tuple:
+        return (e["old"], e["new"], e["process_date"])
+
+    return kept, sorted(excluded, key=_key), sorted(rescued, key=_key)
 
 
 def _topology_check(
@@ -436,6 +566,23 @@ def _topology_check(
 # --------------------------------------------------------------------------
 
 
+def _normalize_review(review: Mapping[str, object] | None) -> dict[str, object]:
+    """A review object, keys normalized to OCC form, values kept VERBATIM.
+
+    Keys are normalized because the reviews are written by hand from census
+    output that may quote either ticker form — `BRK.B` and `BRKB` must not become
+    two different entries — while the values (class, reason, evidence) are the
+    orchestrator's words and are stored untouched.
+    """
+    if review is None:
+        return {}
+    if not isinstance(review, Mapping):
+        raise TypeError(
+            f"review inputs must be JSON OBJECTS keyed by root, got {type(review).__name__}; "
+            "a bare list loses the reviewer's class/reason and is not accepted")
+    return {occ_form(str(k).strip().upper()): v for k, v in sorted(review.items())}
+
+
 def build_snapshot(
     *,
     directory_text: str,
@@ -448,15 +595,26 @@ def build_snapshot(
     pull_date: str,
     generated_at: str,
     start_date: str = CA_START_DATE,
-    test_roots: Iterable[str] = (),
-    index_additions: Iterable[str] = (),
-    delisted: Mapping[str, str] | None = None,
+    sessions: Sequence[str] = (),
+    test_roots: Mapping[str, object] | None = None,
+    index_additions: Mapping[str, object] | None = None,
+    delisted: Mapping[str, Mapping[str, object]] | None = None,
     merger_continuations: Iterable[Mapping[str, str]] = (),
+    exempt_splits: Mapping[str, object] | None = None,
     min_premium: float = MIN_OLD_SIDE_PREMIUM,
 ) -> dict:
-    """The registered snapshot, as a plain dict. Deterministic: everything sorted."""
+    """The registered snapshot, as a plain dict. Deterministic: everything sorted.
+
+    The four review inputs are OBJECTS keyed by root (`{"ZTST": {"reason": ...}}`)
+    and are stored VERBATIM — the orchestrator's naming reviews are committed as
+    written, never flattened to bare lists that lose the reasoning.
+    """
     rows, vintage = parse_directory(directory_text)
-    dotted, dotted_dropped = _dotted_map(rows)
+    dotted, dotted_dropped, dollar_forms, dotted_active = _dotted_map(rows, premium)
+    delisted = _normalize_review(delisted)
+    test_roots = _normalize_review(test_roots)
+    index_additions = _normalize_review(index_additions)
+    exempt_splits = _normalize_review(exempt_splits)
 
     etn = sorted(r.symbol for r in rows if _ETN_RE.search(r.security_name))
     etn_set = set(etn)
@@ -483,8 +641,10 @@ def build_snapshot(
     excluded: list[dict[str, object]] = []
     rescued: list[dict[str, object]] = []
     for _ in range(len(pairs) + 1):
-        splits, split_reasons = _build_splits(pairs, corpus_dates)
-        pairs, newly_excluded, rescued = _overlap_check(pairs, splits, corpus_dates)
+        splits, split_reasons, exempted = _build_splits(
+            pairs, corpus_dates, sessions, exempt_splits)
+        pairs, newly_excluded, rescued = _overlap_check(
+            pairs, splits, corpus_dates, exempt_splits)
         if not newly_excluded:
             break
         excluded.extend(newly_excluded)
@@ -525,18 +685,16 @@ def build_snapshot(
         "etn_rule": {"regex": ETN_PATTERN, "field": "Security Name",
                      "case_sensitive": True},
         "etn_list": etn,
-        "test_list": {
-            "directory": directory_test,
-            "opra_only": sorted({s.strip().upper() for s in test_roots}),
-        },
-        "index_list": {
-            "index_roots": sorted(INDEX_ROOTS),
-            "additions": sorted({s.strip().upper() for s in index_additions}),
-        },
+        "test_list": {"directory": directory_test, "opra_only": test_roots},
+        "index_list": {"index_roots": sorted(INDEX_ROOTS), "additions": index_additions},
         "directory_class": dict(sorted(directory_class.items())),
-        "delisted": dict(sorted((k.strip().upper(), v) for k, v in (delisted or {}).items())),
+        "delisted": delisted,
         "dotted_map": dict(sorted(dotted.items())),
+        "dotted_map_active": dotted_active,
         "dotted_dropped": dotted_dropped,
+        # recorded so "normalized in BOTH directions" stays on the record; never
+        # consulted by classify()/resolve(). See module docstring note 1.
+        "dollar_forms_not_mapped": dollar_forms,
         "successor_map": sorted(
             ({"old": p.old, "new": p.new, "process_date": p.process_date, "source": p.source}
              for p in pairs),
@@ -544,6 +702,8 @@ def build_snapshot(
         ),
         "reuse_splits": splits,
         "reuse_split_reasons": split_reasons,
+        "exempted_splits": exempted,
+        "exempt_splits_review": exempt_splits,
         "excluded_overlaps": excluded,
         "overlap_rescued_by_split": rescued,
         "topology_collisions": collisions,
@@ -563,11 +723,18 @@ class RootClassification:
     """Read side of the registered snapshot: `classify()` and `resolve()`."""
 
     def __init__(self, doc: Mapping[str, object]) -> None:
+        version = doc.get("schema_version")
+        if version != SCHEMA_VERSION:
+            raise ValueError(
+                f"root_classification schema_version {version!r} != {SCHEMA_VERSION} — "
+                "this loader cannot read that snapshot; regeneration is a new addendum")
         self.doc = doc
         self._test = set(doc["test_list"]["directory"]) | set(doc["test_list"]["opra_only"])
         self._index = set(doc["index_list"]["index_roots"]) | set(doc["index_list"]["additions"])
         self._directory_class: dict[str, str] = dict(doc["directory_class"])
-        self._delisted: dict[str, str] = dict(doc["delisted"])
+        # the review assigns a class per root; the rest of the entry is its notes
+        self._delisted: dict[str, str] = {
+            k: str(v["class"]) for k, v in doc["delisted"].items()}
         self._dotted: dict[str, str] = dict(doc["dotted_map"])
         self._adjusted = re.compile(str(doc["adjusted_rule"]["regex"]))
         self._renames: dict[str, list[tuple[str, str]]] = {}
@@ -586,7 +753,9 @@ class RootClassification:
     def directory_form(self, root: str) -> str | None:
         """OCC form -> directory form (`BRKB` -> `BRK.B`); None when there is none.
 
-        A plain directory row always wins: `GLD` is the ETF, never `GL$D`.
+        `.` rows only — a `$` (preferred) row can never be the answer, so `GAMB`
+        stays `GAMB` and reaches the layer-2 census. A plain directory row still
+        wins outright.
         """
         if root in self._directory_class or root in self._test:
             return root
@@ -646,6 +815,13 @@ def corpus_premium(db_path: Path) -> dict[str, float]:
             "SELECT underlying, SUM(premium_usd) AS p FROM flow_rollup GROUP BY underlying")}
 
 
+def corpus_sessions(db_path: Path) -> list[str]:
+    """The corpus session calendar — what `gap_sessions` is measured on."""
+    with _connect_ro(db_path) as conn:
+        return sorted(r[0] for r in conn.execute(
+            "SELECT DISTINCT date FROM corpus_sessions"))
+
+
 def corpus_dates_for(db_path: Path) -> Callable[[Iterable[str]], dict[str, set[str]]]:
     def _dates(symbols: Iterable[str]) -> dict[str, set[str]]:
         out: dict[str, set[str]] = {}
@@ -672,17 +848,42 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--directory", default=str(DEFAULT_DIRECTORY),
                    help="the COMMITTED directory snapshot")
     p.add_argument("--corpus-db", default=str(DEFAULT_DB_PATH))
-    p.add_argument("--pull-date", default=date.today().isoformat())
+    p.add_argument("--pull-date", required=True,
+                   help="the obligation-2 pull date, YYYY-MM-DD (never today() — the "
+                        "snapshot's identity must not depend on when it was run)")
     p.add_argument("--start-date", default=CA_START_DATE)
     p.add_argument("--min-premium", type=float, default=MIN_OLD_SIDE_PREMIUM)
-    p.add_argument("--test-roots", help="JSON list — the orchestrator's test-root review")
-    p.add_argument("--index-additions", help="JSON list — the orchestrator's index review")
-    p.add_argument("--delisted", help='JSON object {"ROOT": "class"} — the census review')
+    p.add_argument("--expect-after-floor", type=int,
+                   help="registered count of plain-alphabetic funded records (138); "
+                        "REQUIRED for the registered run, warn-only without it")
+    p.add_argument("--expect-pairs", type=int,
+                   help="registered count of mapped pairs after `old != new` (106)")
+    p.add_argument("--force-new-addendum", action="store_true",
+                   help="overwrite an existing --out; the snapshot is FROZEN once "
+                        "generated, so regeneration is a new dated addendum")
+    p.add_argument("--test-roots", help="JSON object {root: {...}} — the test-root review")
+    p.add_argument("--index-additions", help="JSON object {root: {...}} — the index review")
+    p.add_argument("--delisted",
+                   help='JSON object {root: {"class": ..., ...}} — the census review')
     p.add_argument("--merger-continuations",
                    help='JSON list [{"old","new","process_date","source"}]')
+    p.add_argument("--exempt-splits",
+                   help='JSON object {symbol: {"reason": ...}} — splits the review '
+                        "withdraws (a dual-listing consolidation is not a ticker reuse)")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     load_dotenv(ROOT / ".env")
+
+    out = Path(args.out)
+    if out.exists() and not args.force_new_addendum:
+        logger.error("%s already exists — the snapshot is frozen once generated. "
+                     "Regeneration is a new dated addendum; pass --force-new-addendum "
+                     "only once that addendum is written.", out)
+        return 1
+    for flag, value in (("--expect-after-floor", args.expect_after_floor),
+                        ("--expect-pairs", args.expect_pairs)):
+        if value is None:
+            logger.warning("%s not given — the registered run must pass it", flag)
 
     key = os.environ.get("ALPACA_API_KEY") or os.environ["APCA_API_KEY_ID"]
     secret = os.environ.get("ALPACA_API_SECRET") or os.environ["APCA_API_SECRET_KEY"]
@@ -698,6 +899,11 @@ def main(argv: list[str] | None = None) -> int:
 
     name_changes = fetch_name_changes(
         args.start_date, args.pull_date, api_key=key, api_secret=secret)
+    if not name_changes:
+        logger.error("the corporate-actions pull returned ZERO name_change records for "
+                     "%s..%s — an empty successor map would silently unmap every rename. "
+                     "Nothing written.", args.start_date, args.pull_date)
+        return 1
 
     from tools.multileg_arm_probe import ETF_SET  # noqa: PLC0415 — heavy, build-only
 
@@ -709,33 +915,48 @@ def main(argv: list[str] | None = None) -> int:
         name_changes=name_changes,
         premium=premium,
         dates_for=corpus_dates_for(db_path),
+        sessions=corpus_sessions(db_path),
         legacy_etf_set=ETF_SET,
         pull_date=args.pull_date,
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         start_date=args.start_date,
-        test_roots=_load_json(args.test_roots, []),
-        index_additions=_load_json(args.index_additions, []),
+        test_roots=_load_json(args.test_roots, {}),
+        index_additions=_load_json(args.index_additions, {}),
         delisted=_load_json(args.delisted, {}),
         merger_continuations=_load_json(args.merger_continuations, []),
+        exempt_splits=_load_json(args.exempt_splits, {}),
         min_premium=args.min_premium,
     )
 
-    payload = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    sidecar = Path(f"{args.out}.collisions.json")
     if doc["topology_collisions"]:
-        broken = Path(f"{args.out}.collisions.json")
-        broken.write_text(payload, encoding="utf-8")
+        sidecar.write_text(json.dumps(
+            {"topology_collisions": doc["topology_collisions"], "counts": doc["counts"],
+             "generated_at": doc["generated_at"], "pull_date": doc["pull_date"]},
+            indent=2, sort_keys=True) + "\n", encoding="utf-8")
         for c in doc["topology_collisions"]:
             logger.error("TOPOLOGY COLLISION: %s -> %s (segment from %s)",
                          c["old_roots"], c["terminal_symbol"], c["segment_start"])
-        logger.error("map NOT frozen; resolve the collisions and re-run. wrote %s", broken)
+        logger.error("map NOT frozen; resolve the collisions and re-run. wrote %s", sidecar)
         return 1
 
-    out = Path(args.out)
+    for flag, expected, actual in (
+        ("--expect-after-floor", args.expect_after_floor,
+         doc["counts"]["after_old_side_premium_floor"]),
+        ("--expect-pairs", args.expect_pairs, len(doc["successor_map"])),
+    ):
+        if expected is not None and expected != actual:
+            logger.error("%s = %d but the build computed %d — the registered quantity "
+                         "does not reproduce. Nothing written.", flag, expected, actual)
+            return 1
+
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(payload, encoding="utf-8")
-    logger.info("wrote %s | successor pairs %d | splits %d | excluded %d | ETN %d",
-                out, len(doc["successor_map"]), len(doc["reuse_splits"]),
-                len(doc["excluded_overlaps"]), len(doc["etn_list"]))
+    out.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    sidecar.unlink(missing_ok=True)   # a stale one would outlive the failure it recorded
+    logger.info("wrote %s | successor pairs %d | splits %d | exempted %d | excluded %d "
+                "| ETN %d", out, len(doc["successor_map"]), len(doc["reuse_splits"]),
+                len(doc["exempted_splits"]), len(doc["excluded_overlaps"]),
+                len(doc["etn_list"]))
     return 0
 
 

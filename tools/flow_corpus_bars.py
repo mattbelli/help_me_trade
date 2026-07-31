@@ -87,6 +87,12 @@ def main() -> int:
 
     if args.symbols:
         syms = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
+        # `$` is the directory's PREFERRED marker, never an options underlying —
+        # if one reaches here the caller mapped a root off a preferred row, and
+        # Alpaca would bisect the whole batch to reject it one symbol at a time.
+        bad = [s for s in syms if not _ticker_ok(s)]
+        if bad:
+            raise SystemExit(f"--symbols contains non-underlying tickers: {', '.join(bad)}")
         logger.info("explicit symbol list: %d underlyings", len(syms))
     else:
         syms = _universe()
