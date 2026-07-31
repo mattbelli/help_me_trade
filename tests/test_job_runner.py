@@ -27,6 +27,7 @@ AUDIT_LOOP_NAMES = [
     "proposal_sweeper",
     "idea_tracker",
     "earnings_refresh",
+    "earnings_release",
     "regime_refresh",
     "momentum_bars_refresh",
     "volume_profile_refresh",

@@ -33,8 +33,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import statistics
-from datetime import UTC, datetime, time, timedelta
 from datetime import date as _date
+from datetime import datetime, time, timedelta
 
 import httpx
 
@@ -139,20 +139,36 @@ def estimate_next_earnings(
 
 
 def session_hour(acceptance: str | None) -> str | None:
-    """`bmo` / `amc` / `dmh` from an 8-K acceptanceDateTime, or None if unparseable.
+    """`bmo` / `amc` / `dmh` from an OFFSET-BEARING acceptance timestamp.
 
-    The stamps are UTC ("2026-04-30T20:30:41.000Z"). Converting to Eastern FIRST is
-    load-bearing: compared raw, every before-open filer reads as intraday (JPM files
-    at 10:30Z = 06:30 ET = bmo).
+    ⚠️ Returns None for `data.sec.gov/submissions/CIK*.json`'s
+    `acceptanceDateTime`, and that is the fix, not a regression. That field ends
+    in `Z` but the value is only sometimes UTC — measured 2026-07-30 on 18
+    earnings 8-Ks across six mega-caps against EDGAR's own ACCEPTANCE-DATETIME
+    header: 8 carry an Eastern value with a spurious `Z`, 10 are genuine UTC,
+    and nothing in the record says which you hold. This function used to assume
+    UTC and convert, which labelled AMZN's 16:06 ET release `dmh` (12:06) — the
+    founder caught it because the stock popped after 4pm, not at lunch.
+
+    The two sources that ARE trustworthy both state their offset:
+    `signals.earnings_exhibit.parse_current_feed` (the atom feed's `<updated>`,
+    verified DST-aware and agreeing with the native header on both filer kinds),
+    and the native `<ACCEPTANCE-DATETIME>` in `<accession>-index-headers.html`.
+    Feed either of those in and the hour is real.
     """
     if not acceptance or _ET is None:
         return None
+    text = str(acceptance).strip()
+    if text.upper().endswith("Z"):
+        # Rejected by shape, because `fromisoformat` happily accepts `Z` as UTC
+        # and that is exactly the lie. A genuinely-UTC producer writes `+00:00`.
+        return None
     try:
-        dt = datetime.fromisoformat(str(acceptance).strip().replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(text)
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        return None
     t = dt.astimezone(_ET).time()
     if t < _MARKET_OPEN:
         return "bmo"

@@ -582,37 +582,155 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
     return [row]
 
 
+_EDGAR_SOURCE = "SEC EDGAR XBRL companyfacts"
+_EDGAR_NOTE = (
+    "as-reported filing values, not vendor-adjusted; `filed` is when each "
+    "number became public, so pass as_of=YYYY-MM-DD for a point-in-time read"
+)
+
+
 def _read_fundamentals(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path  # EDGAR statements live in their own research store
-    from research.fundamentals import latest_financials
+    from research.fundamentals import (
+        company_concepts,
+        concept_series,
+        latest_financials,
+        search_concepts,
+    )
+
+    # Concept discovery needs no symbol — "what is this called in XBRL" is a
+    # question about the taxonomy, not about a company.
+    search = str(filters.get("search") or "").strip()
+    if search:
+        hits = search_concepts(search)
+        if not hits:
+            return [{"search": search, "matches": [], "note": "no concept matched that text"}]
+        return [{"search": search, "matches": hits, "source": _EDGAR_SOURCE}]
 
     symbol = str(filters.get("symbol") or "").strip().upper()
     if not symbol:
-        return [{"error": "symbol is required"}]
+        return [{"error": "symbol is required (or pass `search` to look up concept names)"}]
     try:
         periods = max(1, min(int(filters.get("periods") or 4), 8))
     except (TypeError, ValueError):
         periods = 4
     as_of = str(filters.get("as_of") or "").strip() or None
 
+    if filters.get("list_concepts"):
+        reported = company_concepts(symbol)
+        if reported is None:
+            return [_unresolved_symbol(symbol)]
+        return [{"symbol": symbol, "concepts": reported, "source": _EDGAR_SOURCE}]
+
+    concept = str(filters.get("concept") or "").strip()
+    if concept:
+        series = concept_series(symbol, concept, as_of=as_of, periods=periods)
+        if series is None:
+            return [_unresolved_symbol(symbol)]
+        if not (series["annual"] or series["quarterly"]):
+            # Wrong tag name is the common case — hand back what this filer
+            # does report that matches, rather than an empty result the agent
+            # would read as "the company has no such number".
+            candidates = [
+                c for c in (company_concepts(symbol) or [])
+                if concept.lower().replace(" ", "") in c["concept"].lower()
+                or concept.lower() in (c["label"] or "").lower()
+            ][:15]
+            return [
+                {
+                    "symbol": symbol,
+                    "concept": concept,
+                    "matched": False,
+                    "note": (
+                        f"{symbol} files no facts under that exact tag. "
+                        "Concept names vary by filer — re-ask with one of `candidates`, "
+                        "or pass list_concepts=true for everything it reports."
+                    ),
+                    "candidates": candidates,
+                }
+            ]
+        series["source"] = _EDGAR_SOURCE
+        series["note"] = _EDGAR_NOTE
+        return [series]
+
     out = latest_financials(symbol, as_of=as_of, periods=periods)
     if out is None:
+        return [_unresolved_symbol(symbol)]
+    out["source"] = _EDGAR_SOURCE
+    out["note"] = _EDGAR_NOTE
+    stale = {m: e["stale"] for m, e in out["metrics"].items() if e.get("stale")}
+    if stale:
+        # Loud, because the failure mode is silent: an abandoned concept still
+        # has a newest row and reads as current unless something says otherwise.
+        out["stale_series"] = stale
+        out["note"] += (
+            f". WARNING — {symbol} stopped filing these series and the newest value "
+            f"in each is years old: {stale}. Do not quote them as current; pass "
+            "list_concepts=true to find the concept it reports instead "
+            "(banks, for example, file NoninterestIncome + InterestIncomeExpenseNet "
+            "rather than Revenues)"
+        )
+    if not out["metrics"]:
+        # An empty `metrics` is ambiguous and used to read as "this company has
+        # no financials". Say which of the two it actually is.
+        reported = company_concepts(symbol, limit=1) or []
+        out["note"] = (
+            f"{symbol} resolves to CIK {out['cik']} but no XBRL facts are ingested for it "
+            "— run `python -m research.edgar_bulk --download --ingest`, or "
+            f"`python -m research.fundamentals --build-financials {symbol}` for just this one."
+            if not reported
+            else (
+                f"{symbol} files XBRL, but none of the twelve canonical metrics matched"
+                + (f" as of {as_of}" if as_of else "")
+                + ". Concept coverage varies by filer — pass list_concepts=true to see "
+                "what it actually reports."
+            )
+        )
+    return [out]
+
+
+def _read_earnings_release(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # releases live in the research earnings store
+    from signals.earnings_exhibit import latest_releases
+
+    symbol = str(filters.get("symbol") or "").strip().upper() or None
+    with_body = bool(filters.get("body"))
+    try:
+        limit = max(1, min(int(filters.get("limit") or 10), 25))
+    except (TypeError, ValueError):
+        limit = 10
+    # The body is ~40k chars; a handful of them would blow the caller's context.
+    if with_body:
+        limit = min(limit, 3)
+
+    rows = latest_releases(symbol, limit=limit, with_body=with_body)
+    if not rows:
         return [
             {
                 "symbol": symbol,
                 "unavailable": True,
                 "note": (
-                    "not in the EDGAR cache — build it with "
-                    f"`python -m research.fundamentals --build-financials {symbol}`"
+                    "no stored release"
+                    + (f" for {symbol}" if symbol else "")
+                    + " — the reader only holds filings furnished since it started "
+                    "polling; it is not a historical archive"
                 ),
             }
         ]
-    out["source"] = "SEC EDGAR XBRL companyfacts"
-    out["note"] = (
-        "as-reported filing values, not vendor-adjusted; `filed` is when each "
-        "number became public, so pass as_of=YYYY-MM-DD for a point-in-time read"
-    )
-    return [out]
+    for row in rows:
+        row["source"] = "SEC EDGAR 8-K Item 2.02 exhibit (EX-99.1)"
+    return rows
+
+
+def _unresolved_symbol(symbol: str) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "unavailable": True,
+        "note": (
+            "no SEC filer maps to that ticker — it may be an ETF, a fund, or "
+            "delisted (EDGAR's ticker map is current-registrant only)"
+        ),
+    }
 
 
 def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
@@ -942,19 +1060,49 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "fundamentals": {
         "description": (
-            "Company financial statements from SEC EDGAR (XBRL companyfacts) — "
-            "revenue, gross profit, operating income, net income, diluted EPS, "
-            "assets, liabilities, equity, cash, long-term debt, R&D and "
-            "operating cash flow, as recent annual and quarterly series with "
-            "the sector/SIC. As-reported, free and keyless. Every value carries "
-            "its `filed` date, so `as_of` gives a true point-in-time read."
+            "Company financials from the full SEC EDGAR XBRL corpus — every "
+            "concept every US filer has ever reported, not a curated handful. "
+            "Symbol alone returns the headline series (revenue, gross profit, "
+            "operating income, net income, diluted EPS, assets, liabilities, "
+            "equity, cash, long-term debt, R&D, operating cash flow) as recent "
+            "annual and quarterly buckets with sector/SIC. Beyond those, a "
+            "filer typically reports ~250 more concepts (lease obligations, "
+            "buybacks, deferred revenue, segment counts) — reach any of them "
+            "with `concept`, find its name with `search`, or list what a filer "
+            "reports with `list_concepts`. As-reported, free and keyless; every "
+            "value carries its `filed` date so `as_of` is a true "
+            "point-in-time read. Does NOT include segment breakdowns (the "
+            "companyfacts feed strips dimensions, so 'AWS revenue' is absent)."
         ),
         "filters": {
-            "symbol": "REQUIRED — ticker",
+            "symbol": "ticker — required for everything except `search`",
+            "concept": "optional XBRL tag (e.g. OperatingLeaseLiabilityNoncurrent) — "
+                       "returns that one series; unmatched names come back with candidates",
+            "search": "optional text — find concept names by label/definition, no symbol needed",
+            "list_concepts": "optional bool — every concept this filer actually reports",
             "periods": "optional int — periods per bucket, default 4, max 8",
             "as_of": "optional YYYY-MM-DD — only what had been FILED by then",
         },
         "read": _read_fundamentals,
+    },
+    "earnings_release": {
+        "description": (
+            "The actual earnings press release, straight off EDGAR — the EX-99.1 "
+            "exhibit of an Item 2.02 8-K, stored within minutes of being furnished "
+            "(measured ~5 min behind the tape). This is where the numbers the XBRL "
+            "corpus cannot hold live: SEGMENT results ('AWS segment sales "
+            "increased 37%'), guidance, and management's framing — companyfacts "
+            "strips XBRL dimensions, so segment revenue is absent there by "
+            "construction. `accepted_et` is a true Eastern timestamp with its "
+            "offset, and `session` (bmo/amc/dmh) is derived from it. Full text "
+            "with body=true; omit it for a list."
+        ),
+        "filters": {
+            "symbol": "optional — filter to one ticker",
+            "body": "optional bool — include the full release text (long)",
+            "limit": "optional int — default 10, max 25",
+        },
+        "read": _read_earnings_release,
     },
     "news": {
         "description": (
@@ -1109,6 +1257,9 @@ _RESOURCE_ALIASES = {
     "greeks": "options_chain",
     "financials": "fundamentals",
     "earnings_financials": "fundamentals",
+    "earnings_report": "earnings_release",
+    "press_release": "earnings_release",
+    "segments": "earnings_release",
     "tape": "equity_tape",
     "dark_pool": "equity_tape",
     "blocks": "equity_tape",

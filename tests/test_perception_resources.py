@@ -68,6 +68,7 @@ def test_list_resources_catalog() -> None:
         "screener",
         "market",
         "fundamentals",
+        "earnings_release",
         "news",
         "calibration",
         "options_flow",
