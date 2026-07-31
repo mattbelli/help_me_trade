@@ -36,7 +36,7 @@
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "v9 drafted 07-31: round 8 returned 10 blockers (83\u219293) but the methodology verdict was 'fix these and I would call it law' \u2014 no re-architecting needed. v9: fourth terminal-value case (no bar at d+1 = the M&A/halt tail), split-before-overlap ordering (SPCX = $13.9B in-window, 12th-largest equity root), SPY named in the acquisition scope (benchmark gaps BLOCK the run, never truncate), delisted layer re-sourced to directory-absence (no_spot_missing can't see mid-window delistings with bars), per-date cohort-composition disclosure (last NULL\u2192ALIVE channel), written HAC formula, premium-base labels (classified vs all-sides), ATR named amendment with measured <1% harmless direction. Round 9 dispatched \u2014 convergence expected.",
+   "notes": "v10 drafted 07-31: round 9 returned 6 blockers (93\u219299), ALL text fixes \u2014 methodology verdict 'converged, modulo one clause'. v10: HAC pair set pinned (t>s \u2014 a factor-of-2 ambiguity in the test denominator), store-fault list corrected to vendor-verified BLD only (TMHC/NUVL are genuine terminations per the vendor), every premium figure base-labelled (classified vs all-sides), layer-2 residual derivation written out ($1,300.2M\u2192$127.9M\u2192$25.8M), case order (ii)\u2192(iii)\u2192(iv)\u2192(i) + SPY-calendar d+k indexing, map topology collision check, single-implementation pin for fired/tested sets, and a pre-run disclosure that DEAD (dilution) is a realistic outcome (Q5 f\u22487.9% vs f\u2080\u22488.6% on approximation). Round 10 dispatched \u2014 convergence round.",
    "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
   },
   {
