@@ -146,6 +146,26 @@ def _build(files: list[Path], n_names: int, ni: dict[str, int],
     return P, Q, B, T
 
 
+def require_cache(files: list[Path], cache_dir: Path) -> None:
+    """A missing npz is a BLOCKING fault on any registered panel, never a skip.
+
+    `_build` warns and leaves that session's columns at zero, which looks like a
+    quiet session — but the slot still occupies a trailing-60/presence window AND
+    still consumes `default_rng([SEED, d])`, so the draw stream shifts for every
+    later session. The live trigger is running `--extract --fenced` without
+    `--sessions 0`: the panel then reads clean while resting on a different
+    random stream and a different presence history. First-run-governs makes that
+    unrecoverable, so it stops the run here.
+    """
+    missing = [f.name for f in files if not f.exists()]
+    if missing:
+        raise SystemExit(
+            f"{len(missing)} of {len(files)} panel sessions missing from {cache_dir}: "
+            f"{', '.join(missing[:5])}{' ...' if len(missing) > 5 else ''} — "
+            "extract the full span first "
+            "(`order_grain_null.py --extract --fenced --sessions 0`)")
+
+
 def registered_panel(sessions: list[date]) -> tuple[list[date], np.ndarray]:
     """G.9c's panel: EXACTLY 60 lead-in sessions, tallies masked to the 37 dates.
 
@@ -295,6 +315,40 @@ def _print(label, fq, tq, se=None) -> None:
         print(f"  Q1/Q5 = {r[0]/r[4]:.2f}x")
 
 
+def _cache_provenance(files: list[Path]) -> dict:
+    """The fenced cache's own stamps, summarised for the record.
+
+    Addendum F's >=98% subset is selected on `join_rate`, and a pre-backfill
+    extract is only detectable from `bars_max_date` — so both travel with the
+    table rather than living in a log nobody keeps.
+    """
+    jr, cov, bars, src, masked, orphan_p = [], [], set(), set(), 0, 0.0
+    orphan_roots: set[str] = set()
+    for f in files:
+        with np.load(f, allow_pickle=False) as z:
+            if "ml_source" not in z.files:
+                continue
+            jr.append(float(z["join_rate"]))
+            cov.append(float(z["label_coverage"]))
+            bars.add(str(z["bars_max_date"]))
+            src.add(str(z["ml_source"]))
+            masked += int(z["package_masked_prints"])
+            orphan_p += float(z["orphan_premium"])
+            orphan_roots.update(z["orphan_roots"].tolist())
+    if not jr:
+        return {"stamped_sessions": 0}
+    jr_a, cov_a = np.array(jr), np.array(cov)
+    return {
+        "stamped_sessions": len(jr), "multileg_sources": sorted(src),
+        "join_rate_min": float(np.nanmin(jr_a)), "join_rate_mean": float(np.nanmean(jr_a)),
+        "sessions_below_join_floor": int((jr_a < 0.98).sum()),
+        "label_coverage_mean": float(np.nanmean(cov_a)),
+        "package_masked_prints": masked,
+        "orphan_premium_usd": orphan_p, "orphan_roots": sorted(orphan_roots),
+        "bars_max_dates": sorted(bars),
+    }
+
+
 def registered_run(cache_dir: Path = FENCED_OUT_DIR, draws: int = N_DRAWS,
                    arms: tuple[str, ...] = ARMS,
                    sessions: list[date] | None = None,
@@ -309,10 +363,7 @@ def registered_run(cache_dir: Path = FENCED_OUT_DIR, draws: int = N_DRAWS,
     """
     p, jmask = panel or registered_panel(sessions or _sessions(0))
     files = [cache_dir / f"{s.isoformat()}.npz" for s in p]
-    missing = [f.name for f in files if not f.exists()]
-    if missing:
-        logger.warning("%d panel sessions missing from %s: %s",
-                       len(missing), cache_dir, ", ".join(missing[:5]))
+    require_cache(files, cache_dir)
     names, ni = _name_index(files)
     logger.info("registered panel: %s .. %s (%d sessions, %d judgment dates), "
                 "%d identities", p[0], p[-1], len(p), int(jmask.sum()), len(names))
@@ -328,11 +379,16 @@ def registered_run(cache_dir: Path = FENCED_OUT_DIR, draws: int = N_DRAWS,
 
     out: dict = {
         "panel": [str(p[0]), str(p[-1])], "panel_sessions": len(p),
+        # the FULL panel, lead-in included: those 60 dates define the random
+        # stream (`default_rng([SEED, d])` is positional), so a record that
+        # named only the judgment dates would not identify the run it describes.
+        "panel_dates": [str(s) for s in p],
         "judgment_dates": [str(s) for s, m in zip(p, jmask) if m],
         "lead_in_sessions": LEAD_IN_SESSIONS, "draws": draws, "seed": SEED,
         "day_floor_usd": day_floor, "cache_dir": str(cache_dir),
-        "identities": len(names), "missing_sessions": missing,
+        "identities": len(names),
         "quintile_rule": f"trailing-{QUINT_LOOKBACK}d median (prereg:149)",
+        "provenance": _cache_provenance(files),
         "arms": {},
     }
     for arm in arms:

@@ -761,6 +761,18 @@ class RootClassification:
             return root
         return self._dotted.get(root)
 
+    def split_boundaries(self, root: str) -> list[str]:
+        """The registered reuse-split dates for `root`, earliest first.
+
+        Read-only accessor over the frozen snapshot, added so consumers ask the
+        LOADER rather than reaching into the raw JSON. Two things need it:
+        `resolve()` alone cannot say whether a segment is the last one, and a
+        root with NO boundaries is provably date-invariant under `resolve()`
+        (`_segment` returns (None, None), so every rename hop applies at any
+        date) — which is what makes caching a resolve by root alone safe.
+        """
+        return list(self._splits.get(occ_form(root.strip().upper()), ()))
+
     # -- the fence --------------------------------------------------------
     def resolve(self, root: str, date: str | None = None) -> str:
         """Terminal symbol for bars/price/classification reads.

@@ -48,7 +48,12 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from db.flow_corpus import INDEX_ROOTS, bars_before_date  # noqa: E402
+from db.flow_corpus import (  # noqa: E402
+    DEFAULT_DB_PATH,
+    INDEX_ROOTS,
+    bars_before_date,
+    connect,
+)
 from tools.flow_corpus_rollup import (  # noqa: E402
     PX,
     TCBBO_DIR,
@@ -217,6 +222,14 @@ class FencedOrders(NamedTuple):
     p_so: np.ndarray     # classified premium per order, SHORT_OTM arm
     b_all: np.ndarray    # bull half of p_all
     b_so: np.ndarray     # bull half of p_so
+    # provenance, persisted so the record is auditable without re-decoding the
+    # tape. Both counts are measured at their OWN fence step, not one step off:
+    # the package mask precedes the universe fence, so `package_masked_prints`
+    # counts prints that would otherwise have SURVIVED, and `orphan_premium`
+    # is measured on the POST-package-mask base.
+    orphan_roots: np.ndarray
+    orphan_premium: float
+    package_masked_prints: int
 
 
 def fenced_orders(session: date, j: _Joined, ml: np.ndarray, closes: dict,
@@ -248,11 +261,10 @@ def fenced_orders(session: date, j: _Joined, ml: np.ndarray, closes: dict,
     # segment has no rename of its own, so `resolve()` hands back `ARIS` for
     # BOTH issuers and, without this, the vacated issuer's flow would share one
     # presence count, one z baseline and one quintile with the new one.
-    splits = rc.doc.get("reuse_splits", {})
     orphan = np.array([occ_form(r) == occ_form(t)
-                       and any(b > ds for b in splits.get(occ_form(r), ()))
+                       and any(b > ds for b in rc.split_boundaries(r))
                        for r, t in zip(roots, ident)], bool)
-    is_equity &= ~orphan
+    in_universe = is_equity & ~orphan
     names, ident_code = np.unique(ident, return_inverse=True)
 
     spot_by_ident = np.array([closes.get(str(s), (np.nan, ""))[0] for s in names],
@@ -268,7 +280,7 @@ def fenced_orders(session: date, j: _Joined, ml: np.ndarray, closes: dict,
     # usable quote or price == mid) and 3 wide_spread fall out here, which is
     # exactly the clause-1 gate the v6 extractor never had.
     classified = fx.side <= 1
-    keep = classified & (ml == 0) & is_equity[und_code]
+    keep = classified & (ml == 0) & in_universe[und_code]
     if not keep.any():
         logger.warning("%s: no prints survived the registered fence", session)
         return None
@@ -289,21 +301,30 @@ def fenced_orders(session: date, j: _Joined, ml: np.ndarray, closes: dict,
     und_of_g = np.zeros(n_groups, dtype=np.int64)
     und_of_g[gid] = ident_code[und_code[keep]]
 
-    if orphan.any():
-        # Excluded, and counted with premium — G.2 routes these to the ungradeable
-        # census rather than letting them vanish silently.
-        om = orphan[und_code] & classified
+    # Excluded, and counted with premium — G.2 routes orphaned segments to the
+    # ungradeable census rather than letting them vanish silently. Measured on
+    # the post-package-mask base, the fence step they are actually cut at.
+    # `is_equity & orphan` and not `orphan` alone: a segment that would have been
+    # excluded by the universe fence anyway is not an orphan casualty.
+    om = (is_equity & orphan)[und_code] & classified & (ml == 0)
+    orphan_roots = sorted({roots[i] for i in np.flatnonzero(is_equity & orphan)})
+    orphan_premium = float(fx.premium[om].sum())
+    # what F.1's per-print package mask removed from the otherwise-surviving set
+    masked = int((classified & (ml != 0) & in_universe[und_code]).sum())
+    if orphan_roots:
         logger.info("%s: %s orphaned reuse-segment prints excluded ($%.1fM) — %s",
-                    session, f"{int(om.sum()):,}", fx.premium[om].sum() / 1e6,
-                    ", ".join(sorted({roots[i] for i in np.flatnonzero(orphan)})))
+                    session, f"{int(om.sum()):,}", orphan_premium / 1e6,
+                    ", ".join(orphan_roots))
 
     m = p_all > 0
     used, und = np.unique(und_of_g[m], return_inverse=True)
     return FencedOrders(names[used], und.astype(np.int32), p_all[m], p_so[m],
-                        b_all[m], b_so[m])
+                        b_all[m], b_so[m], np.array(orphan_roots, dtype="U16"),
+                        orphan_premium, masked)
 
 
 _RC = None
+_BARS_VINTAGE: tuple[str, int] | None = None
 
 
 def classification():
@@ -312,6 +333,23 @@ def classification():
     if _RC is None:
         _RC = load_classification(ROOT_CLASSIFICATION)
     return _RC
+
+
+def bars_vintage() -> tuple[str, int]:
+    """`(max equity_bars date, row count)` — read once, stamped on every npz.
+
+    Obligation 2's backfill is what makes the moneyness spot reachable at the
+    terminal symbol, so an extract taken BEFORE it is a different measurement
+    wearing the same filename. Stamping the vintage per session makes a
+    pre-backfill (or half-backfilled, resumed) cache detectable rather than
+    something a reader has to take on trust.
+    """
+    global _BARS_VINTAGE
+    if _BARS_VINTAGE is None:
+        with connect(DEFAULT_DB_PATH) as conn:
+            row = conn.execute("SELECT MAX(date), COUNT(*) FROM equity_bars").fetchone()
+        _BARS_VINTAGE = (str(row[0]), int(row[1]))
+    return _BARS_VINTAGE
 
 
 def _extract_fenced(session: date, out_dir: Path = FENCED_OUT_DIR) -> None:
@@ -324,7 +362,7 @@ def _extract_fenced(session: date, out_dir: Path = FENCED_OUT_DIR) -> None:
         return
     # multileg_flags wants the RAW DBN fixed-point price and the integer size —
     # handing it dollars silently degrades the flag to the ns-collision heuristic.
-    ml, _cond, ml_source, join_rate, _cov = multileg_flags(
+    ml, _cond, ml_source, join_rate, coverage = multileg_flags(
         session, j.arr["ts_event"].astype(np.int64),
         j.arr["instrument_id"].astype(np.int64),
         j.arr["price"].astype(np.float64), j.arr["size"].astype(np.int64))
@@ -332,14 +370,25 @@ def _extract_fenced(session: date, out_dir: Path = FENCED_OUT_DIR) -> None:
                         classification())
     if res is None:
         return
+    bars_max, bars_rows = bars_vintage()
     out_dir.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(out, und=res.und, p_all=res.p_all, p_so=res.p_so,
-                        b_all=res.b_all, b_so=res.b_so, names=res.names)
+    np.savez_compressed(
+        out, und=res.und, p_all=res.p_all, p_so=res.p_so, b_all=res.b_all,
+        b_so=res.b_so, names=res.names,
+        # provenance. `ml_source`/`join_rate` carry Addendum F's >=98% reporting
+        # gate per session, which is what the robustness subset is selected on.
+        orphan_roots=res.orphan_roots,
+        orphan_premium=np.float64(res.orphan_premium),
+        package_masked_prints=np.int64(res.package_masked_prints),
+        ml_source=np.array(ml_source), join_rate=np.float64(
+            join_rate if join_rate is not None else np.nan),
+        label_coverage=np.float64(coverage if coverage is not None else np.nan),
+        bars_max_date=np.array(bars_max), bars_rows=np.int64(bars_rows))
     logger.info("%s: %s prints -> %s equity orders / %s identities "
-                "(%s package prints masked, multileg=%s join=%s)",
+                "(%s package prints masked, multileg=%s join=%s, bars<=%s)",
                 session, f"{j.n_prints:,}", f"{len(res.p_all):,}",
-                f"{len(res.names):,}", f"{int((ml != 0).sum()):,}", ml_source,
-                f"{join_rate:.4f}" if join_rate is not None else "-")
+                f"{len(res.names):,}", f"{res.package_masked_prints:,}", ml_source,
+                f"{join_rate:.4f}" if join_rate is not None else "-", bars_max)
 
 
 def _load_panel(sessions: list[date]) -> tuple:
@@ -436,6 +485,9 @@ def main() -> None:
     if args.cache_dir and not args.fenced:
         raise SystemExit("--cache-dir is the fenced path's cache; the v6-fence "
                          "extract writes to its own frozen directory")
+    if args.fenced and not args.extract:
+        raise SystemExit("--fenced is an extract-only path (G.9c); the A2 "
+                         "comparison below is closed and is not re-run")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     sessions = _sessions(args.sessions)
     logger.info("sessions: %s .. %s (%d)", sessions[0], sessions[-1], len(sessions))
@@ -447,9 +499,6 @@ def main() -> None:
             else:
                 _extract(s)
         return
-    if args.fenced:
-        raise SystemExit("--fenced is an extract-only path (G.9c); the A2 "
-                         "comparison below is closed and is not re-run")
 
     names, rows, groups, n_names, n_days = _load_panel(sessions)
     logger.info("panel: %d names x %d sessions", n_names, n_days)

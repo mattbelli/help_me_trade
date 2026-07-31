@@ -59,6 +59,7 @@ from tools.base_rate_table import (  # noqa: E402
     _name_index,
     _trailing_quintiles,
     real_tilt,
+    require_cache,
 )
 from tools.flow_tilt import tilt_rows  # noqa: E402
 from tools.order_grain_null import (  # noqa: E402
@@ -174,13 +175,33 @@ def _bucket(p: float | None, lo: float = TERCILE_LO, hi: float = TERCILE_HI) -> 
     return 3 if p is None else 0 if p >= hi else 1 if p <= lo else 2
 
 
+KEY_ORDER = ("max per-quintile MIN(open dates, close dates) -> max total events "
+             "-> higher quintile")
+
+
 def _select_tier(minima: list[int], totals: list[int], higher_wins: bool) -> int:
     """2.4's rule: max per-quintile MIN of the two census sides, ties by total events.
 
-    `higher_wins` is G.10 #3b's added pin — a tie on BOTH keys breaks toward the
-    HIGHER quintile. 2.4's own recorded run kept the lower one, so the flag exists
-    rather than a silent edit to a comparator whose result is already on the record.
+    **Key order, adjudicated 2026-07-31 and recorded verbatim as `KEY_ORDER`:**
+    max per-quintile MIN -> max total events -> higher quintile. 2.4's registered
+    rule already carried the total-events tie-break ("ties by total events,
+    disclosed"), G.10 #3b inherits 2.4's FORM by name, and re-ordering the keys
+    now would be exactly the post-hoc selection-rule edit G.10 forbids — so the
+    higher-quintile pin applies to RESIDUAL ties, after total events.
+
+    `higher_wins` is that pin. 2.4's own recorded run kept the lower tier, so the
+    flag exists rather than a silent edit to a comparator whose result is already
+    on the record.
+
+    A census where every tier's MIN is zero selects nothing: `higher_wins` would
+    otherwise hand back Q5 on an all-zero table and "confirm" the pre-stated Q5
+    expectation out of a degenerate count.
     """
+    if max(minima) == 0:
+        raise SystemExit(
+            "degenerate census: every quintile has 0 event dates on at least one "
+            "side, so the registered rule selects nothing — check the cache span "
+            "and the f_open join before recording a tier")
     best, best_key = 0, (-1, -1)
     for q in range(5):
         key = (minima[q], totals[q])
@@ -190,7 +211,7 @@ def _select_tier(minima: list[int], totals: list[int], higher_wins: bool) -> int
 
 
 def _report_census(names, sessions, ev, no_quint, higher_wins: bool,
-                   label: str = "training window") -> int:
+                   label: str = "training window") -> dict:
     print(f"{label}: {sessions[0]} .. {sessions[-1]} "
           f"({len(sessions)} sessions, {len(names)} names; "
           f"events fire from session {LOOKBACK + 1})")
@@ -218,20 +239,67 @@ def _report_census(names, sessions, ev, no_quint, higher_wins: bool,
     best = _select_tier(minima, totals, higher_wins)
 
     tot, unm = counts.sum(), counts[:, 3].sum()
+    ranked = float(tot - unm) / max(int(tot), 1)
     print(f"\nf_open match coverage: {tot - unm:,}/{tot:,} events ranked "
-          f"({100.0 * (tot - unm) / max(tot, 1):.1f}%) — unmatched = below the "
+          f"({100.0 * ranked:.1f}%) — unmatched = below the "
           f"{VOL_FLOOR:,}-contract floor or absent from the OI join")
     od, cd = len(dates[best][0]), len(dates[best][1])
     bar = "MEETS" if min(od, cd) >= 20 else "FAILS"
-    print(f"\nPRIMARY CELL by the registered rule: {QUINT_NAMES[best]} "
+    # The applied key order is printed and stored, so the record says which rule
+    # produced the tier rather than leaving a reader to infer it from the table.
+    print(f"\nselection key order (adjudicated 2026-07-31): {KEY_ORDER}"
+          f"{'' if higher_wins else ' [2.4 legacy: ties keep the LOWER quintile]'}")
+    print(f"PRIMARY CELL by the registered rule: {QUINT_NAMES[best]} "
           f"(open {od} / close {cd} independent event dates; {bar} the "
           f">=20-per-side bar)")
-    return best
+    return {
+        "window": [sessions[0], sessions[-1]], "sessions": len(sessions),
+        "names": len(names), "events": len(ev) + no_quint,
+        "events_no_quintile": no_quint,
+        "key_order": KEY_ORDER, "higher_quintile_breaks_residual_ties": higher_wins,
+        "open_events": counts[:, 0].tolist(), "close_events": counts[:, 1].tolist(),
+        "middle_events": counts[:, 2].tolist(), "unmatched_events": counts[:, 3].tolist(),
+        "open_dates": [len(dates[q][0]) for q in range(5)],
+        "close_dates": [len(dates[q][1]) for q in range(5)],
+        "min_dates": minima, "total_events": totals,
+        "f_open_ranked_share": ranked,
+        "tier": best, "tier_name": QUINT_NAMES[best],
+        "tier_open_dates": od, "tier_close_dates": cd,
+        "meets_20_per_side": bool(min(od, cd) >= 20),
+    }
 
 
 def stage_count() -> None:
     names, sessions, ev, no_quint = _events()
     _report_census(names, sessions, ev, no_quint, higher_wins=False)
+
+
+def _cached_resolver(rc):
+    """`resolve(root, session)`, memoised where memoising is provably safe.
+
+    The OI cross-section is one row per (session, underlying), so a cache keyed
+    on the PAIR would never hit — ~10^6 resolves at ~10^5 roots. A root with NO
+    registered reuse-split boundary is date-invariant under `resolve()`
+    (`_segment` returns (None, None) at every date, so every rename hop applies
+    regardless), so its answer caches by root alone; a root WITH boundaries
+    falls through to the real call every time.
+    """
+    cache: dict[str, str] = {}
+    dated: set[str] = set()
+
+    def _resolve(root: str, session: str) -> str:
+        if root in dated:
+            return rc.resolve(root, session)
+        hit = cache.get(root)
+        if hit is not None:
+            return hit
+        if rc.split_boundaries(root):
+            dated.add(root)
+            return rc.resolve(root, session)
+        cache[root] = out = rc.resolve(root, session)
+        return out
+
+    return _resolve
 
 
 def _registered_events(cache_dir: Path):
@@ -241,6 +309,7 @@ def _registered_events(cache_dir: Path):
     if not panel:
         raise SystemExit(f"no sessions on the census span {CENSUS_START}..{CENSUS_END}")
     files = [cache_dir / f"{s.isoformat()}.npz" for s in panel]
+    require_cache(files, cache_dir)
     names, ni = _name_index(files)
     # draws=0: the census needs the real panel only, never a null draw.
     P, _Q, B, _T = _build(files, len(names), ni, draws=0)
@@ -248,7 +317,7 @@ def _registered_events(cache_dir: Path):
     tilt = real_tilt(prem, B["ALL"])
     fired, _tested = _fire(tilt, prem > 0, prem >= PREMIUM_FLOOR)
     quint = _trailing_quintiles(prem)
-    pct = _f_open_pct(resolve=lambda u, s: rc.resolve(u, s))
+    pct = _f_open_pct(resolve=_cached_resolver(rc))
     sessions = [s.isoformat() for s in panel]
     ev, no_quint = [], 0
     for i, j in zip(*(a.tolist() for a in np.nonzero(fired))):
@@ -261,14 +330,17 @@ def _registered_events(cache_dir: Path):
     return list(names), sessions, ev, no_quint
 
 
-def stage_count_registered(cache_dir: Path = FENCED_OUT_DIR) -> int:
+def stage_count_registered(cache_dir: Path = FENCED_OUT_DIR) -> dict:
     """G.10 obligation 3b — the 2.4 counting stage on the registered pipeline."""
     print("\n=== obligation 3b — 2.4 census RE-COUNT on the registered pipeline "
           "(v7 fence, equity universe, $250k classified floor) ===")
     print("=== outcome-blind: no forward return enters a census ===")
     names, sessions, ev, no_quint = _registered_events(cache_dir)
-    return _report_census(names, sessions, ev, no_quint, higher_wins=True,
-                          label="census span")
+    out = _report_census(names, sessions, ev, no_quint, higher_wins=True,
+                         label="census span")
+    out["cache_dir"] = str(cache_dir)
+    out["census_span"] = [CENSUS_START, CENSUS_END]
+    return out
 
 
 # ---------------------------------------------------------------- stage 2

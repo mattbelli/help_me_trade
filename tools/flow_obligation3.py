@@ -12,8 +12,9 @@ for four things, all pre-run, all input-side, first run governing:
      G.2's DEAD (dilution) wording names the iid-null-vs-dependent-series confound,
      and this puts its size on the face of the record.
 
-3b (the 2.4 census re-count) lives with the census it re-runs:
-`tools/open_close_split.py --stage count --registered`. `--part all` runs both.
+3b (the 2.4 census re-count) lives with the census it re-runs
+(`tools/open_close_split.py --stage count --registered`) and lands in the SAME
+record. `--part all` is the registered one-shot and runs both.
 
 **No outcome statistic is computed anywhere here.** Firing rates, censuses and
 tilt dependence are input properties (G.10), which is exactly why this may run
@@ -66,6 +67,24 @@ MIN_AR1_OBS = 30          # per-name present-day minimum for an AR(1) to be quot
 
 QUINT_NAMES = ["Q1 least liquid", "Q2", "Q3", "Q4", "Q5 most liquid"]
 DEFAULT_OUT = ROOT / "data" / "flow_obligation3_record.json"
+
+# Caveats that belong ON the record rather than in a commit message, since the
+# record is what the scoring run and any later reader are handed.
+DISCLOSURES = [
+    "MRD is a LOCATION-SHIFT approximation: the bootstrap is run at the OBSERVED "
+    "(f, f0) and the interval's width is assumed to hold at a hypothetical true "
+    "difference. Both f and f0 are rate estimators whose spread grows with the "
+    "rate, so at a larger true difference the real width is slightly wider and "
+    "the MRD quoted here is mildly UNDERSTATED. `boot_sd_pt` is reported per tier "
+    "so a reader can recompute under any other assumption.",
+    "Every tier and both arms share seed 20260812, so their bootstrap noise is "
+    "CORRELATED (common random numbers). This is deliberate — it makes the record "
+    "reproducible regardless of which tiers are computed or in what order — and "
+    "it is harmless because each tier's LCB is its own gate; the per-tier LCBs "
+    "are never combined into a joint statement.",
+    "No outcome statistic is computed anywhere in this record. Firing rates, "
+    "censuses and tilt dependence are input properties (G.10).",
+]
 
 logger = logging.getLogger("flow_obligation3")
 
@@ -263,10 +282,18 @@ def _jsonable(v):
     return v
 
 
-def run_part3(cache_dir: Path, draws: int, out: Path, reps: int) -> dict:
+def run_part3(cache_dir: Path, draws: int, reps: int) -> dict:
     res = registered_run(cache_dir=cache_dir, draws=draws)
-    record: dict = {"obligation": "G.10 #3", "panel": {k: v for k, v in res.items()
-                                                       if k != "arms"}, "arms": {}}
+    record: dict = {"panel": {k: v for k, v in res.items() if k != "arms"},
+                    "parameters": {
+                        "dilution_reps": reps, "dilution_seed": DILUTION_SEED,
+                        "block": BLOCK, "lcb_percentile": LCB_PCT,
+                        "resolve_target_pt": RESOLVE_TARGET_PT,
+                        "se_bar_pt": SE_REPORT_PT,
+                        "distinct_tested_bar": DISTINCT_TESTED_BAR,
+                        "ar1_min_present_days": MIN_AR1_OBS,
+                        "ar1_window": [TRAIN_START, TRAIN_END]},
+                    "disclosures": DISCLOSURES, "arms": {}}
     for arm in ARMS:
         rec = res["arms"][arm]
         gate = [dilution_precision(rec["real"]["per_date_fired"][i],
@@ -296,10 +323,26 @@ def run_part3(cache_dir: Path, draws: int, out: Path, reps: int) -> dict:
         print(f"  {k:<11} real median {r['median']:+.4f} (mean {r['mean']:+.4f})   "
               f"null median {n['median']:+.4f} (mean {n['mean']:+.4f})")
 
+    return record
+
+
+def write_record(record: dict, out: Path, force: bool = False) -> None:
+    """Write the record, REFUSING to overwrite an existing one without --force.
+
+    First-run-governs: the file already sitting there IS the governing record,
+    and a second invocation — a re-run with different `--draws`, a half-extracted
+    cache, an operator repeating the command — would silently replace it with a
+    run that does not govern. Overwriting has to be a decision someone typed.
+    """
+    if out.exists() and not force:
+        raise SystemExit(
+            f"{out} already exists and first-run-governs — refusing to overwrite. "
+            "Pass --force to replace it deliberately, or --out to write elsewhere. "
+            "(`--part all` is the registered one-shot; running parts 3 and 3b "
+            "separately needs --out per part.)")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(_jsonable(record), indent=2))
     print(f"\nwrote {out}")
-    return record
 
 
 def main() -> None:
@@ -309,16 +352,26 @@ def main() -> None:
     ap.add_argument("--draws", type=int, default=N_DRAWS)
     ap.add_argument("--reps", type=int, default=DILUTION_REPS)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    ap.add_argument("--force", action="store_true",
+                    help="overwrite an existing record (first-run-governs)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logger.info("registered pipeline: fence v7 + equity universe, $%s day floor, "
                 "cache %s", f"{PREMIUM_FLOOR:,.0f}", args.cache_dir)
+    # Checked BEFORE the panel build, not after: a refusal that arrives an hour
+    # into the run is a refusal nobody benefits from.
+    if args.out.exists() and not args.force:
+        raise SystemExit(f"{args.out} already exists and first-run-governs — "
+                         "refusing to overwrite. Pass --force or --out.")
 
+    record: dict = {"obligation": "G.10 #3" if args.part == "3" else
+                    "G.10 #3b" if args.part == "3b" else "G.10 #3 + #3b"}
     if args.part in ("3", "all"):
-        run_part3(args.cache_dir, args.draws, args.out, args.reps)
+        record.update(run_part3(args.cache_dir, args.draws, args.reps))
     if args.part in ("3b", "all"):
         from tools.open_close_split import stage_count_registered
-        stage_count_registered(cache_dir=args.cache_dir)
+        record["obligation_3b"] = stage_count_registered(cache_dir=args.cache_dir)
+    write_record(record, args.out, args.force)
 
 
 if __name__ == "__main__":

@@ -10,13 +10,21 @@ wrong silently):
 
   * the fence really excludes a package-coded print and a wide-spread print,
   * the equity universe really excludes an index root and a test root,
+  * an unresolvable reuse segment is EXCLUDED, not merged into the ticker's
+    later occupant, and its premium is counted after the package mask,
+  * the moneyness spot is read at the TERMINAL symbol,
   * the $250k floor gates the EVENT day only — presence counts ANY
     classified-premium day (G.2's single-implementation pin),
   * the judgment mask is the mask that feeds per-draw rates and the across-draw
     SE, not a mask sitting beside `full`,
   * the shuffle is per ORDER and ±1, never an aggregate draw,
-  * 3b's tie-break goes to the HIGHER quintile,
+  * 3b's tie-break key order, and a degenerate census refusing to select,
   * G.9b's bootstrap assembles circular blocks and reproduces on its seed.
+
+And the operator-mistake guards, which exist because first-run-governs makes a
+wrong governing record unrecoverable: a partial cache stops the run (a missing
+npz still consumes `default_rng([SEED, d])`), the fenced extract cannot touch
+the unfenced cache, and an existing record is never overwritten without --force.
 """
 
 from __future__ import annotations
@@ -32,10 +40,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import tools.open_close_split as ocs  # noqa: E402  (module handle for monkeypatching)
+import tools.order_grain_null as ognull  # noqa: E402
 from tools.base_rate_table import (
     JUDGMENT_DATES,
     LEAD_IN_SESSIONS,
     _build,
+    _cache_provenance,
     _fire,
     _name_index,
     _trailing_quintiles,
@@ -44,6 +55,7 @@ from tools.base_rate_table import (
     real_tilt,
     registered_panel,
     registered_run,
+    require_cache,
 )
 from tools.flow_corpus_rollup import PX, SPREAD_MAX_FRAC, UNDEF
 from tools.flow_obligation3 import (
@@ -52,9 +64,16 @@ from tools.flow_obligation3 import (
     circular_blocks,
     dilution_precision,
     tilt_dependence,
+    write_record,
 )
-from tools.open_close_split import _select_tier
-from tools.order_grain_null import PREMIUM_FLOOR, _Joined, fenced_orders
+from tools.open_close_split import KEY_ORDER, _report_census, _select_tier
+from tools.order_grain_null import (
+    FENCED_OUT_DIR,
+    OUT_DIR,
+    PREMIUM_FLOOR,
+    _Joined,
+    fenced_orders,
+)
 from tools.root_classification_build import RootClassification
 
 # --------------------------------------------------------------------------
@@ -98,11 +117,11 @@ def _prints(rows: list[tuple]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return arr, und, right
 
 
-def _joined(arr, und, right):
+def _joined(arr, und, right, dte: int = 45, strike: float = 100.0):
     n = len(arr)
     return _Joined(arr=arr, und_code=und, uniq_und=np.array(ROOTS),
-                   right=right, strike=np.full(n, 100.0),
-                   dte=np.full(n, 45, np.int32), n_prints=n, n_sentinel=0)
+                   right=right, strike=np.full(n, strike),
+                   dte=np.full(n, dte, np.int32), n_prints=n, n_sentinel=0)
 
 
 # tight quote: mid 1.00, half-spread 0.05 -> (ask-bid)/mid = 0.10, inside 0.50
@@ -191,6 +210,50 @@ def test_unresolvable_reuse_segment_is_excluded_not_merged():
     plain = fenced_orders(date(2025, 9, 1), _joined(arr, und, right), ml, {},
                           _classification())
     assert list(plain.names) == ["EQA"]
+
+
+def test_orphan_premium_is_measured_after_the_package_mask():
+    """The two provenance counts each sit at their OWN fence step: the package
+    mask precedes the universe fence, so an orphan print that was ALSO
+    package-coded is not counted twice."""
+    snap = dict(SNAPSHOT, reuse_splits={"EQA": ["2026-02-19"]})
+    rc = RootClassification(snap)
+    b, a = TIGHT
+    arr, und, right = _prints([
+        (0, 0, 1, 10, 1.02, 10, b, a),      # orphan EQA, survives the package mask
+        (0, 0, 2, 11, 1.02, 10, b, a),      # orphan EQA, package-coded
+        (2, 0, 3, 12, 1.02, 10, b, a),      # NEWA, package-coded -> masked
+        (2, 0, 4, 13, 1.02, 10, b, a),      # NEWA, survives
+    ])
+    ml = np.array([0, 1, 1, 0], np.int64)
+    res = fenced_orders(date(2025, 9, 1), _joined(arr, und, right), ml, {}, rc)
+    assert list(res.names) == ["NEWA"]
+    assert res.orphan_roots.tolist() == ["EQA"]
+    # only the ml == 0 orphan print, not both
+    assert res.orphan_premium == pytest.approx(1020.0)
+    # and the package mask counts only what would OTHERWISE have survived —
+    # the package-coded orphan is not in the universe, so it is not counted here
+    assert res.package_masked_prints == 1
+
+
+def test_spot_is_read_at_the_terminal_symbol():
+    """G.2: PRICE/BARS reads are NOT date-scoped — the moneyness spot comes from
+    the identity's terminal symbol, not the printed root. Under the printed root
+    the bar is absent and the print lands in `no_spot_missing`, which silently
+    empties the SHORT_OTM arm."""
+    b, a = TIGHT
+    arr, und, right = _prints([(3, 0, 1, 10, 1.02, 10, b, a)])   # OLDA -> NEWA
+    ml = np.zeros(1, np.int64)
+    j = _joined(arr, und, right, dte=10, strike=120.0)           # 20% OTM call
+
+    at_terminal = fenced_orders(date(2025, 9, 1), j, ml,
+                                {"NEWA": (100.0, "2025-08-29")}, _classification())
+    assert at_terminal.p_so.sum() == pytest.approx(1020.0)
+
+    at_printed_root = fenced_orders(date(2025, 9, 1), j, ml,
+                                    {"OLDA": (100.0, "2025-08-29")}, _classification())
+    assert at_printed_root.p_all.sum() == pytest.approx(1020.0)
+    assert at_printed_root.p_so.sum() == 0.0, "no spot -> unbucketable -> no arm"
 
 
 def test_all_prints_fenced_out_returns_none():
@@ -394,7 +457,7 @@ def test_real_table_reports_per_date_series_on_the_operative_mask():
 
 
 # --------------------------------------------------------------------------
-# 3b's tie-break
+# 3b's tie-break and the census guards
 # --------------------------------------------------------------------------
 
 
@@ -409,9 +472,64 @@ def test_census_tie_breaks_toward_the_higher_quintile():
 
 
 def test_census_tie_break_uses_total_events_before_the_quintile():
+    """Key order ADJUDICATED 2026-07-31: max MIN -> max total events -> higher
+    quintile. 2.4's registered rule already carried the total-events tie-break,
+    G.10 #3b inherits 2.4's form by name, and re-ordering the keys now would be
+    the post-hoc selection-rule edit G.10 forbids — so the higher-quintile pin
+    applies to RESIDUAL ties only. Q1 wins here on total events despite Q2 tying
+    on the first key."""
     minima = [0, 20, 20, 0, 0]
     totals = [0, 400, 300, 0, 0]
     assert _select_tier(minima, totals, higher_wins=True) == 1
+
+
+def test_degenerate_census_refuses_to_select_a_tier():
+    """All-zero minima would hand back Q5 under higher_wins and 'confirm' the
+    pre-stated Q5 expectation out of a census that counted nothing."""
+    with pytest.raises(SystemExit, match="degenerate census"):
+        _select_tier([0] * 5, [0] * 5, higher_wins=True)
+    with pytest.raises(SystemExit, match="degenerate census"):
+        _select_tier([0] * 5, [10, 0, 0, 0, 0], higher_wins=False)
+
+
+def test_report_census_records_the_applied_key_order(capsys):
+    ev = [(f"N{i}", f"2026-01-{d:02d}", 4, 0.5, 90.0 if d % 2 else 10.0)
+          for i in range(3) for d in range(1, 25)]
+    out = _report_census(["N0", "N1", "N2"], ["2026-01-01", "2026-01-24"],
+                         ev, 0, higher_wins=True, label="census span")
+    assert out["key_order"] == KEY_ORDER
+    assert out["higher_quintile_breaks_residual_ties"] is True
+    assert out["tier"] == 4 and out["f_open_ranked_share"] == 1.0
+    assert KEY_ORDER in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# the missing-session guard (a missing npz shifts every draw)
+# --------------------------------------------------------------------------
+
+
+def test_require_cache_refuses_a_partial_panel(tmp_path):
+    (tmp_path / "2026-06-01.npz").write_bytes(b"")
+    files = [tmp_path / "2026-06-01.npz", tmp_path / "2026-06-02.npz"]
+    with pytest.raises(SystemExit, match="panel sessions missing"):
+        require_cache(files, tmp_path)
+    require_cache(files[:1], tmp_path)
+
+
+def test_registered_run_refuses_a_partial_panel(tmp_path):
+    days = [date(2026, 4, 1) + timedelta(days=i) for i in range(30)]
+    days = [d for d in days if d.weekday() < 5]
+    cache = _synthetic_cache(tmp_path, days[:-1])          # last session absent
+    mask = np.array([i >= len(days) - 5 for i in range(len(days))])
+    with pytest.raises(SystemExit, match="panel sessions missing"):
+        registered_run(cache_dir=cache, draws=2, arms=("ALL",), panel=(days, mask))
+
+
+def test_registered_census_refuses_a_partial_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(ocs, "_sessions",
+                        lambda _n: [date(2025, 7, 28), date(2025, 7, 29)])
+    with pytest.raises(SystemExit, match="panel sessions missing"):
+        ocs._registered_events(tmp_path)
 
 
 # --------------------------------------------------------------------------
@@ -496,21 +614,54 @@ def test_block_bootstrap_is_degenerate_when_G_does_not_exceed_the_block():
 
 
 def _synthetic_cache(tmp_path: Path, days: list[date], n_names: int = 8,
-                     seed: int = 5) -> Path:
+                     seed: int = 5, stamps: bool = False) -> Path:
     """A fenced-shaped cache: per-order p_all/p_so/b_all/b_so plus identities."""
     rng = np.random.default_rng(seed)
     names = np.array([f"N{i:02d}" for i in range(n_names)])
     cache = tmp_path / "cache"
     cache.mkdir(parents=True, exist_ok=True)
-    for d in days:
+    for k, d in enumerate(days):
         n_orders = int(rng.integers(3 * n_names, 6 * n_names))
         und = rng.integers(0, n_names, size=n_orders).astype(np.int32)
         # a fat cross-section so trailing-60 quintiles actually separate names
         p = rng.lognormal(mean=12.0, sigma=1.5, size=n_orders) * (1 + und)
         b = p * rng.random(n_orders)
+        extra = {}
+        if stamps:
+            extra = {"orphan_roots": np.array(["ARIS"] if k == 0 else [], dtype="U16"),
+                     "orphan_premium": np.float64(1e6 if k == 0 else 0.0),
+                     "package_masked_prints": np.int64(10 + k),
+                     "ml_source": np.array("codes"),
+                     "join_rate": np.float64(0.97 if k == 0 else 0.99),
+                     "label_coverage": np.float64(0.95),
+                     "bars_max_date": np.array("2026-07-30"),
+                     "bars_rows": np.int64(1_234_567)}
         np.savez_compressed(cache / f"{d.isoformat()}.npz", und=und, p_all=p,
-                            p_so=p * 0.4, b_all=b, b_so=b * 0.4, names=names)
+                            p_so=p * 0.4, b_all=b, b_so=b * 0.4, names=names,
+                            **extra)
     return cache
+
+
+def test_cache_provenance_travels_with_the_table(tmp_path):
+    """Addendum F's >=98% subset is selected on `join_rate`, and a pre-backfill
+    extract is only detectable from `bars_max_date` — so both have to reach the
+    record rather than living in a log nobody keeps."""
+    days = [d for d in (date(2026, 4, 1) + timedelta(days=i) for i in range(30))
+            if d.weekday() < 5]
+    cache = _synthetic_cache(tmp_path, days, stamps=True)
+    prov = _cache_provenance([cache / f"{d.isoformat()}.npz" for d in days])
+    assert prov["stamped_sessions"] == len(days)
+    assert prov["multileg_sources"] == ["codes"]
+    assert prov["sessions_below_join_floor"] == 1
+    assert prov["join_rate_min"] == pytest.approx(0.97)
+    assert prov["orphan_roots"] == ["ARIS"]
+    assert prov["orphan_premium_usd"] == pytest.approx(1e6)
+    assert prov["package_masked_prints"] == sum(10 + k for k in range(len(days)))
+    assert prov["bars_max_dates"] == ["2026-07-30"]
+    # an UNSTAMPED cache is reported as unstamped, never as clean
+    plain = _synthetic_cache(tmp_path / "plain", days)
+    assert _cache_provenance([plain / f"{d.isoformat()}.npz"
+                              for d in days]) == {"stamped_sessions": 0}
 
 
 def test_registered_chain_end_to_end(tmp_path):
@@ -565,6 +716,107 @@ def test_tilt_dependence_end_to_end(tmp_path):
     # the null is an iid coin flip per order, so its per-name tilt series must
     # carry ~no autocorrelation — that is the confound the record exists to size.
     assert abs(out["null"]["ar1"]["median"]) < 0.35
+
+
+# --------------------------------------------------------------------------
+# CLI guards, the record's overwrite guard, and the identity re-keying
+# --------------------------------------------------------------------------
+
+
+def _run_cli(monkeypatch, argv: list[str]):
+    monkeypatch.setattr(sys, "argv", ["order_grain_null.py", *argv])
+    ognull.main()
+
+
+def test_cache_dir_without_fenced_is_refused(monkeypatch):
+    with pytest.raises(SystemExit, match="fenced path's cache"):
+        _run_cli(monkeypatch, ["--extract", "--cache-dir", "/tmp/x"])
+
+
+def test_fenced_without_extract_is_refused(monkeypatch):
+    with pytest.raises(SystemExit, match="extract-only"):
+        _run_cli(monkeypatch, ["--fenced"])
+
+
+def test_fenced_extract_never_touches_the_unfenced_cache(monkeypatch, tmp_path):
+    """The versioned cache is the whole point of G.9c's 'never silently reuse
+    unfenced npz' — so the fenced route must not call the v6 extractor at all."""
+    assert FENCED_OUT_DIR != OUT_DIR
+    seen: list[tuple] = []
+    monkeypatch.setattr(ognull, "_sessions", lambda _n: [date(2026, 6, 1)])
+    monkeypatch.setattr(ognull, "_extract_fenced",
+                        lambda s, out_dir: seen.append(("fenced", s, out_dir)))
+    monkeypatch.setattr(ognull, "_extract",
+                        lambda s: seen.append(("v6", s)))
+    _run_cli(monkeypatch, ["--extract", "--fenced", "--cache-dir", str(tmp_path)])
+    assert seen == [("fenced", date(2026, 6, 1), tmp_path)]
+
+    seen.clear()
+    _run_cli(monkeypatch, ["--extract"])
+    assert seen == [("v6", date(2026, 6, 1))]
+
+
+def test_record_refuses_to_overwrite_without_force(tmp_path):
+    out = tmp_path / "flow_obligation3_record.json"
+    write_record({"a": 1}, out)
+    assert json.loads(out.read_text()) == {"a": 1}
+    with pytest.raises(SystemExit, match="first-run-governs"):
+        write_record({"a": 2}, out)
+    write_record({"a": 2}, out, force=True)
+    assert json.loads(out.read_text()) == {"a": 2}
+
+
+def _oi_db(path: Path, rows: list[tuple]) -> Path:
+    import sqlite3
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE oi_reconcile_rollup (session TEXT, underlying TEXT, "
+                "volume INTEGER, vol_weighted_f_open REAL, dte_bucket TEXT, right TEXT)")
+    con.executemany("INSERT INTO oi_reconcile_rollup VALUES (?,?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+    return path
+
+
+def test_f_open_pct_rekeys_onto_resolved_identities(tmp_path, monkeypatch):
+    """The OI table stores the PRINTED root. Without re-keying, every renamed
+    name-day reads as unmatched against an identity-keyed panel; and a seam
+    session must rank the identity ONCE, not twice."""
+    db = _oi_db(tmp_path / "oi.db", [
+        ("2026-01-15", "OLDA", 600, 0.9, "30-89", "C"),
+        ("2026-01-15", "NEWA", 600, 0.5, "30-89", "C"),
+        ("2026-01-15", "EQA", 4000, 0.1, "30-89", "C"),
+    ])
+    monkeypatch.setattr(ocs, "OI_DB", db)
+    rc = _classification()
+
+    raw = ocs._f_open_pct()
+    assert ("2026-01-15", "OLDA") not in raw, "600 < the 1,000-contract floor"
+
+    keyed = ocs._f_open_pct(resolve=ocs._cached_resolver(rc))
+    # OLDA + NEWA aggregate into ONE identity that now clears the floor
+    assert ("2026-01-15", "NEWA") in keyed
+    assert ("2026-01-15", "OLDA") not in keyed
+    assert len([k for k in keyed if k[0] == "2026-01-15"]) == 2
+    assert keyed[("2026-01-15", "NEWA")] > keyed[("2026-01-15", "EQA")]
+
+
+def test_cached_resolver_matches_the_uncached_one():
+    rc = _classification()
+    cached = ocs._cached_resolver(rc)
+    for root in ROOTS:
+        for ds in ("2025-09-01", "2026-01-15", "2026-06-30"):
+            assert cached(root, ds) == rc.resolve(root, ds)
+
+
+def test_cached_resolver_calls_through_for_split_roots():
+    """A root WITH a reuse-split boundary is date-VARYING, so it must never be
+    served from the by-root cache."""
+    rc = RootClassification(dict(SNAPSHOT, reuse_splits={"OLDA": ["2026-01-15"]}))
+    cached = ocs._cached_resolver(rc)
+    assert cached("OLDA", "2025-09-01") == rc.resolve("OLDA", "2025-09-01")
+    assert cached("OLDA", "2026-06-30") == rc.resolve("OLDA", "2026-06-30")
+    assert rc.split_boundaries("OLDA") == ["2026-01-15"]
+    assert rc.split_boundaries("EQA") == []
 
 
 def test_trailing_quintiles_retain_short_lookback_dates():
