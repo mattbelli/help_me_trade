@@ -8,6 +8,7 @@ no app state, fail-soft nulls per field.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,75 @@ logger = logging.getLogger(__name__)
 # NOTE the snapshots path symbol is the OCC ROOT: SPX = AM monthlies only,
 # SPXW = the PM dailies/weeklies (measured 2026-07-22, chain sampler postmortem).
 INDEX_OPTION_ROOTS = frozenset({"SPX", "SPXW"})
+
+# --- per-day contracts metadata cache ---------------------------------------
+# The contracts fetch is what made this endpoint too slow to poll: measured
+# 2026-07-31 on the live process, SPY cost 2.15 s / 14,398 contracts — 91% of a
+# 2.36 s cold chain build — while the quote snapshot underneath it took 0.07 s
+# warm. Everything the contracts call supplies is a per-DAY constant: the
+# expirations list, and open interest (published by OCC overnight, flat
+# intraday). Caching it per (symbol, ET date) is what makes a 1-2 s poll
+# affordable, which is the whole point — the quotes were always live, we were
+# re-paying 2 s for yesterday's open interest to see them.
+_CONTRACTS_CACHE: dict[tuple[str, str], tuple[list[str], dict[str, dict[str, int]]]] = {}
+# One global lock, not one per symbol: a miss costs ~2 s, so the double-checked
+# fill is there to stop a poll from stampeding the fetch its own initial load is
+# already running. Serializing cold fills across symbols is fine at chain-widget
+# concurrency and keeps the bookkeeping to nothing.
+_CONTRACTS_LOCK = threading.Lock()
+# Bound on a process that runs for weeks. Insertion-order eviction, not LRU —
+# the date sweep does the real work and this is only a backstop against someone
+# paging through hundreds of symbols in one session.
+_CONTRACTS_CACHE_MAX = 32
+
+
+def _fetch_contracts_meta(
+    broker: "AlpacaAdapter", sym: str, today_et: str
+) -> tuple[list[str], dict[str, dict[str, int]]]:
+    """Expirations + open interest keyed by expiry, from the contracts API."""
+    raw = broker.get_option_contracts(sym, expiration_date_gte=today_et, limit=1000)
+    oi_by_expiry: dict[str, dict[str, int]] = {}
+    expirations: set[str] = set()
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict):
+            continue
+        exp = str(c.get("expiration_date") or "").strip()[:10]
+        if not exp:
+            continue
+        expirations.add(exp)
+        occ = str(c.get("symbol") or "").strip().upper()
+        oi_val = _chain_int_or_none(c.get("open_interest"))
+        if occ and oi_val is not None:
+            oi_by_expiry.setdefault(exp, {})[occ] = oi_val
+    return sorted(expirations), oi_by_expiry
+
+
+def _contracts_meta(
+    broker: "AlpacaAdapter", sym: str, today_et: str
+) -> tuple[list[str], dict[str, dict[str, int]]]:
+    key = (sym, today_et)
+    hit = _CONTRACTS_CACHE.get(key)
+    if hit is not None:
+        return hit
+    with _CONTRACTS_LOCK:
+        hit = _CONTRACTS_CACHE.get(key)
+        if hit is not None:  # filled while we waited for the lock
+            return hit
+        try:
+            meta = _fetch_contracts_meta(broker, sym, today_et)
+        except Exception:
+            logger.debug(
+                "options-chain: contracts fetch failed for %s", sym, exc_info=True
+            )
+            # Deliberately NOT cached: a transient vendor failure must not blind
+            # the symbol's expirations picker until the ET date rolls over.
+            return [], {}
+        for stale in [k for k in _CONTRACTS_CACHE if k[1] != today_et]:
+            del _CONTRACTS_CACHE[stale]
+        while len(_CONTRACTS_CACHE) >= _CONTRACTS_CACHE_MAX:
+            _CONTRACTS_CACHE.pop(next(iter(_CONTRACTS_CACHE)))
+        _CONTRACTS_CACHE[key] = meta
+        return meta
 
 
 def _chain_float_or_none(val: object) -> float | None:
@@ -270,29 +340,13 @@ def build_options_chain_sync(
     # expirations from an unfiltered snapshot truncates the picker to one
     # expiry and drops most puts (live finding 2026-07-09). Index roots have
     # no contracts API (not tradable on Alpaca): generated picker, no OI.
-    contracts: list[dict] = []
-    if sym not in INDEX_OPTION_ROOTS:
-        try:
-            raw = broker.get_option_contracts(
-                sym, expiration_date_gte=today_et, limit=1000
-            )
-            if isinstance(raw, list):
-                contracts = [c for c in raw if isinstance(c, dict)]
-        except Exception:
-            logger.debug(
-                "options-chain: contracts fetch failed for %s", sym, exc_info=True
-            )
-
+    # Cached per (symbol, ET date) — see _CONTRACTS_CACHE.
+    oi_by_expiry: dict[str, dict[str, int]] = {}
     if sym in INDEX_OPTION_ROOTS:
         expirations = _index_expirations(sym, datetime.now(_ET).date())
-        expirations_set = set(expirations)
     else:
-        expirations_set = set()
-        for c in contracts:
-            exp = str(c.get("expiration_date") or "").strip()[:10]
-            if exp:
-                expirations_set.add(exp)
-        expirations = sorted(expirations_set)
+        expirations, oi_by_expiry = _contracts_meta(broker, sym, today_et)
+    expirations_set = set(expirations)
 
     now_et = datetime.now(_ET)
     if expiry_param:
@@ -316,16 +370,7 @@ def build_options_chain_sync(
                 exc_info=True,
             )
 
-    oi_map: dict[str, int] = {}
-    for c in contracts:
-        if str(c.get("expiration_date") or "").strip()[:10] != chosen:
-            continue
-        occ = str(c.get("symbol") or "").strip().upper()
-        if not occ:
-            continue
-        oi_val = _chain_int_or_none(c.get("open_interest"))
-        if oi_val is not None:
-            oi_map[occ] = oi_val
+    oi_map = oi_by_expiry.get(chosen or "", {})
 
     # One expiry is at most a few hundred contracts — filtered, paginated fetch.
     chain: dict = {}

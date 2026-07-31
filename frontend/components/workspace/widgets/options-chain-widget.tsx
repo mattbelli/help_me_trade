@@ -31,7 +31,16 @@ import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
 
-const POLL_MS = 30_000;
+// Poll cadence while the tape is moving. The chain is REST-polled rather than
+// WS-pushed (Alpaca allows one OPRA socket per account and the flow collector
+// holds it), but the snapshots underneath arrive sub-second, so the cadence is
+// the only thing that ever made this look frozen.
+const LIVE_POLL_MS = 2_000;
+// …and while it is not. The freshest quote on the board going quiet means the
+// market is closed/halted or the name simply is not trading — back off rather
+// than burn a request every 2 s all weekend. Recovers on the next tick.
+const SLOW_POLL_MS = 30_000;
+const QUIET_AFTER_MS = 60_000;
 const STALE_MS = 20 * 60 * 1000;
 
 const STRIKES_OPTIONS: OptionsChainStrikes[] = [6, 10, 20, 40, "all"];
@@ -544,13 +553,28 @@ export function OptionsChainWidget({ config, onConfigChange }: WidgetProps) {
   // Gated on the page rather than routed through usePagePoll: this poll has no
   // immediate-fetch semantics to preserve (expanding already loads), and firing
   // one on every restart would double-request the expiry the toggle just fetched.
+  // Self-rescheduling rather than setInterval so a slow fetch can never stack
+  // requests, and so each tick can pick its own delay from how fresh the quotes
+  // it just received actually were. A failed load returns no as_of and lands in
+  // the slow lane, which is the right behaviour for an outage too.
   const pageActive = usePageActive();
   useEffect(() => {
     if (!pageActive || !symbol || !expandedExpiry) return;
-    const timer = setInterval(() => {
-      void loadExpiry(expandedExpiry, { silent: true });
-    }, POLL_MS);
-    return () => clearInterval(timer);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      const result = await loadExpiry(expandedExpiry, { silent: true });
+      if (cancelled) return;
+      const age = result?.as_of
+        ? Date.now() - Date.parse(result.as_of)
+        : Number.POSITIVE_INFINITY;
+      timer = setTimeout(tick, age < QUIET_AFTER_MS ? LIVE_POLL_MS : SLOW_POLL_MS);
+    };
+    timer = setTimeout(tick, LIVE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [pageActive, symbol, expandedExpiry, loadExpiry]);
 
   const handleToggleExpiry = (expiry: string) => {

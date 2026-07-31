@@ -32,8 +32,8 @@ only the actions are here.
   is not a workaround.
 - **⏳ A second entry is resting NOW:** `paper_9fa4e9a31332` (Fable, GOOGL 54 @ 328, expires 07-30
   19:59) will repeat this on fill. Check it before assuming the blast radius is one position.
-- **⏳ Founder decision open:** `ext-entry-sizing-decision` (founder lane) — `ext` notional parity vs
-  smaller, since no stop can be live outside RTH and a stop barely helps across a gap.
+- **Settled 07-31:** `ext` sizing stays at PARITY (founder cleared the decision without a change) —
+  the overnight window is an accepted cost, not an open question. Sizing is no longer a lever here.
 - Then `book-accounts-invisible-in-cockpit`, then `ext-hours-soft-stop` (data gate already passes —
   the 24/7 poll already carries a live overnight mark).
 
@@ -238,7 +238,6 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 - ⚠ global `allow_short_selling=true` in prod settings — broader than the per-strategy book
   authorization (any approved sell with no held long can short-to-open on paper; books + stops
   excluded, chat/manual not). Confirm or narrow when increment 5 builds the per-strategy flag.
-- Multi-angle reasoning A/B go/no-go (`MULTI_ANGLE_REASONING_AB_2026-07-19.md`).
 - ⚠ subscribe the phone to the ntfy dead-man topic (topic string in crontab) — pages go nowhere
   until then.
 - Overnight 07-18 harvest + draft PR #100 — judge together.

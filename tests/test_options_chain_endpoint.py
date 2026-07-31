@@ -372,6 +372,54 @@ def test_options_chain_empty_chain_fail_soft(monkeypatch: pytest.MonkeyPatch) ->
     assert data["as_of"] is None
 
 
+def test_options_chain_contracts_fetched_once_per_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole reason the chain can be polled: contracts cost 2.15s for SPY
+    (14,398 rows, measured live 2026-07-31) and carry only per-day constants —
+    the expirations list and open interest. Quotes must re-fetch every poll;
+    contracts must not."""
+    broker = _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        first = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
+        # A different expiry so the endpoint's own response cache cannot serve it.
+        second = client.get("/api/options-chain?symbol=NVDA&expiry=2026-07-17")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert broker.get_option_contracts.call_count == 1
+    assert broker.get_option_chain_snapshot.call_count == 2
+    # OI still lands on the right expiry's rows, from the cached map.
+    assert second.json()["expiry"] == "2026-07-17"
+
+
+def test_options_chain_contracts_failure_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient vendor failure must not blind the picker until midnight."""
+    broker = _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+    broker.get_option_contracts = MagicMock(side_effect=RuntimeError("contracts boom"))
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        first = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
+        assert first.json()["expirations"] == []
+        broker.get_option_contracts = MagicMock(
+            return_value=[
+                {
+                    "symbol": "NVDA260821C00190000",
+                    "expiration_date": "2026-08-21",
+                    "open_interest": "77",
+                }
+            ]
+        )
+        second = client.get("/api/options-chain?symbol=NVDA&expiry=2026-07-17")
+
+    assert second.json()["expirations"] == ["2026-08-21"]
+
+
 def test_options_chain_broker_error_returns_500(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
