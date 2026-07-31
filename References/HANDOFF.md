@@ -15,12 +15,16 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 2026-07-31 Options-chain rounds committed, NOT deployed
+## ▶ 2026-07-31 Options-chain rounds MERGED to main, on disk, NOT yet running
 
-Two rounds on `feat/wire-data-everywhere` (`f430490` fast-poll, `deb5020` Black-76 IV/greeks) are
-verified against live Alpaca but still need one `hmt-backend` restart to reach the browser —
-deliberately deferred, the paper books were armed and it was RTH. Details in the two 07-31
-BUILD_LOG rows. Founder's call when to run `tools/serv-deploy.sh`; delete this entry once shipped.
+Both rounds (`f430490` fast-poll, `deb5020` Black-76 IV/greeks) are merged (`2f75958`) and the dev
+tree is fast-forwarded, but the live processes still hold the old code: `hmt-backend` has run since
+11:32 UTC and `/api/options-chain` returns no `greeks_source`, so it is provably pre-merge. The
+frontend half (2s poll, "iv/δ computed" note) also needs an npm build — `next start` serves the old
+`.next`.
+⚠️ This means the backend half now activates on the NEXT restart of `hmt-backend`, deliberate or
+not (`Restart=always`). Deploy on purpose with `tools/serv-deploy.sh` (npm build FIRST in the main
+checkout) rather than letting a crash ship it. Delete this entry once shipped and verified.
 
 ---
 
