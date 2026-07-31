@@ -13,6 +13,12 @@ since the session — are reported as a count, not silently dropped. That number
 is the input to the "do we buy the $4.82 point-in-time backfill" decision.
 
   python tools/flow_corpus_bars.py --start 2025-07-28 --end 2026-07-25
+  python tools/flow_corpus_bars.py --start ... --end ... --symbols BRK.B,BF.B,BLD
+
+``--symbols`` skips the definition-file scan entirely and fetches exactly the
+list given — the shape Addendum G obligation 2's targeted backfill needs (dotted
+class-share forms, bar-less mapped successors, the SPY benchmark). Without it,
+behaviour is unchanged.
 """
 
 from __future__ import annotations
@@ -41,6 +47,17 @@ CHUNK = 200  # symbols per request
 logger = logging.getLogger("flow_corpus_bars")
 
 
+def _ticker_ok(sym: str) -> bool:
+    """Alphanumeric, plus the dotted class-share forms.
+
+    Was a bare `isalnum()`, which silently dropped BRK.B / BF.B / HEI.A / PBR.A —
+    exactly the forms Addendum G obligation 2's backfill has to reach (bars
+    stored under `BRK.B` are unreachable otherwise). Widened to the dot only:
+    `$` is Nasdaq Trader's preferred-share marker and carries no options.
+    """
+    return bool(sym) and sym.replace(".", "").isalnum()
+
+
 def _universe() -> list[str]:
     """Distinct option underlyings across every definitions file on disk."""
     syms: set[str] = set()
@@ -54,20 +71,32 @@ def _universe() -> list[str]:
         if i % 20 == 0:
             logger.info("  scanned %d/%d definition files, %d symbols",
                         i, len(files), len(syms))
-    return sorted(s for s in syms if s and s.isalnum())
+    return sorted(s for s in syms if _ticker_ok(s))
 
 
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
+    p.add_argument("--symbols", help="comma-separated explicit list; skips the "
+                                     "OPRA-definition universe scan entirely")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     load_dotenv(ROOT / ".env")
     init_db()
 
-    syms = _universe()
-    logger.info("universe: %d underlyings", len(syms))
+    if args.symbols:
+        syms = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
+        # `$` is the directory's PREFERRED marker, never an options underlying —
+        # if one reaches here the caller mapped a root off a preferred row, and
+        # Alpaca would bisect the whole batch to reject it one symbol at a time.
+        bad = [s for s in syms if not _ticker_ok(s)]
+        if bad:
+            raise SystemExit(f"--symbols contains non-underlying tickers: {', '.join(bad)}")
+        logger.info("explicit symbol list: %d underlyings", len(syms))
+    else:
+        syms = _universe()
+        logger.info("universe: %d underlyings", len(syms))
 
     headers = {
         "APCA-API-KEY-ID": os.environ["APCA_API_KEY_ID"],
