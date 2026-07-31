@@ -1,0 +1,738 @@
+{
+ "ABVE": {
+  "class": "equity",
+  "eligible_classified_usd": 723360.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal ABVEF): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ACLX": {
+  "class": "equity",
+  "eligible_classified_usd": 10845011.0,
+  "eligible_days": 14,
+  "reason": "directory-absent equity with NO store bars (terminal ACLX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ADVM": {
+  "class": "equity",
+  "eligible_classified_usd": 318059.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal ADVM): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "AKRO": {
+  "class": "equity",
+  "eligible_classified_usd": 20560141.0,
+  "eligible_days": 10,
+  "reason": "directory-absent equity with NO store bars (terminal AKRO): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "AL": {
+  "class": "equity",
+  "eligible_classified_usd": 656825.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal AL): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ALE": {
+  "class": "equity",
+  "eligible_classified_usd": 337034.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal ALE): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ALEX": {
+  "class": "equity",
+  "eligible_classified_usd": 501322.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal ALEX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "AMED": {
+  "class": "equity",
+  "eligible_classified_usd": 567760.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal AMED): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "APLS": {
+  "class": "equity",
+  "eligible_classified_usd": 42611268.0,
+  "eligible_days": 31,
+  "reason": "directory-absent equity with NO store bars (terminal APLS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "APLT": {
+  "class": "equity",
+  "eligible_classified_usd": 742959.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal APLT): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "AVDL": {
+  "class": "equity",
+  "eligible_classified_usd": 49681423.0,
+  "eligible_days": 31,
+  "reason": "directory-absent equity with NO store bars (terminal AVDL): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "BLD": {
+  "class": "equity",
+  "eligible_classified_usd": 89699078.0,
+  "eligible_days": 29,
+  "reason": "directory-absent equity with NO store bars (terminal BLD): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "BTM": {
+  "class": "equity",
+  "eligible_classified_usd": 258101.0,
+  "eligible_days": 1,
+  "reason": "bankruptcy shell (terminal BTMCQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "CBTX": {
+  "class": "unclassified",
+  "reason": "when-issued artifact (largest single disposition item, adjudicated in Addendum G rounds 9-10: $1,704.9M all-sides corpus / 193 sessions / zero bars); DELIBERATELY left unclassified \u2014 excluded from every universe, counted in the unclassified share"
+ },
+ "CBTXW": {
+  "class": "unclassified",
+  "reason": "when-issued/warrant sibling of CBTX (registered disposition, Addendum G v9); deliberately unclassified"
+ },
+ "CCRN": {
+  "class": "equity",
+  "eligible_classified_usd": 366348.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal CCRN): grades via terminal-value cases (i)/(iv)"
+ },
+ "CDTX": {
+  "class": "equity",
+  "eligible_classified_usd": 266210962.0,
+  "eligible_days": 47,
+  "reason": "directory-absent equity with NO store bars (terminal CDTX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CFLT": {
+  "class": "equity",
+  "eligible_classified_usd": 183187740.0,
+  "eligible_days": 94,
+  "reason": "directory-absent equity with NO store bars (terminal CFLT): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CIVI": {
+  "class": "equity",
+  "eligible_classified_usd": 90547786.0,
+  "eligible_days": 37,
+  "reason": "directory-absent equity with NO store bars (terminal CIVI): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CMA": {
+  "class": "equity",
+  "eligible_classified_usd": 727092451.0,
+  "eligible_days": 54,
+  "reason": "directory-absent equity with NO store bars (terminal CMA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CMBM": {
+  "class": "equity",
+  "eligible_classified_usd": 12171994.0,
+  "eligible_days": 6,
+  "reason": "directory-absent equity with NO store bars (terminal CMBMF): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CNTA": {
+  "class": "equity",
+  "eligible_classified_usd": 25153327.0,
+  "eligible_days": 27,
+  "reason": "directory-absent equity with NO store bars (terminal CNTA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "COOP": {
+  "class": "equity",
+  "eligible_classified_usd": 46955139.0,
+  "eligible_days": 34,
+  "reason": "directory-absent equity with NO store bars (terminal COOP): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CSGS": {
+  "class": "equity",
+  "eligible_classified_usd": 690337.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal CSGS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CTLP": {
+  "class": "equity",
+  "eligible_classified_usd": 506212.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal CTLP): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CTRA": {
+  "class": "equity",
+  "eligible_classified_usd": 155761998.0,
+  "eligible_days": 61,
+  "reason": "directory-absent equity with NO store bars (terminal CTRA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CWAN": {
+  "class": "equity",
+  "eligible_classified_usd": 55205814.0,
+  "eligible_days": 51,
+  "reason": "directory-absent equity with NO store bars (terminal CWAN): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "CYBR": {
+  "class": "equity",
+  "eligible_classified_usd": 86396587.0,
+  "eligible_days": 70,
+  "reason": "directory-absent equity with NO store bars (terminal CYBR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DAWN": {
+  "class": "equity",
+  "eligible_classified_usd": 42769928.0,
+  "eligible_days": 21,
+  "reason": "directory-absent equity with NO store bars (terminal DAWN): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DAY": {
+  "class": "equity",
+  "eligible_classified_usd": 12850538.0,
+  "eligible_days": 9,
+  "reason": "directory-absent equity with NO store bars (terminal DAY): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DENN": {
+  "class": "equity",
+  "eligible_classified_usd": 3128288.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity with NO store bars (terminal DENN): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DRRX": {
+  "class": "equity",
+  "eligible_classified_usd": 664250.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal DRRX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DVAX": {
+  "class": "equity",
+  "eligible_classified_usd": 434579.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal DVAX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "DVS": {
+  "class": "equity",
+  "eligible_classified_usd": 1468836.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal DVS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "EPIX": {
+  "class": "equity",
+  "eligible_classified_usd": 317663.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal EPIX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ESPR": {
+  "class": "equity",
+  "eligible_classified_usd": 7040845.0,
+  "eligible_days": 14,
+  "reason": "directory-absent equity with NO store bars (terminal ESPR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "ETNB": {
+  "class": "equity",
+  "eligible_classified_usd": 18506216.0,
+  "eligible_days": 10,
+  "reason": "directory-absent equity with NO store bars (terminal ETNB): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "EXAS": {
+  "class": "equity",
+  "eligible_classified_usd": 75821504.0,
+  "eligible_days": 79,
+  "reason": "directory-absent equity with NO store bars (terminal EXAS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "FFWM": {
+  "class": "equity",
+  "eligible_classified_usd": 1486300.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal FFWM): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "FL": {
+  "class": "equity",
+  "eligible_classified_usd": 81392847.0,
+  "eligible_days": 9,
+  "reason": "directory-absent equity with NO store bars (terminal FL): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "FOLD": {
+  "class": "equity",
+  "eligible_classified_usd": 1958295.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity with NO store bars (terminal FOLD): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "FRGE": {
+  "class": "equity",
+  "eligible_classified_usd": 1461939.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal FRGE): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "FYBR": {
+  "class": "equity",
+  "eligible_classified_usd": 278253.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal FYBR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "GDEN": {
+  "class": "equity",
+  "eligible_classified_usd": 250220.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal GDEN): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "GES": {
+  "class": "equity",
+  "eligible_classified_usd": 8104276.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal GES): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "GLDD": {
+  "class": "equity",
+  "eligible_classified_usd": 5698092.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal GLDD): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "GMS": {
+  "class": "equity",
+  "eligible_classified_usd": 2775769.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal GMS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "GTLS": {
+  "class": "equity",
+  "eligible_classified_usd": 8192218.0,
+  "eligible_days": 8,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal GTLS): grades via terminal-value cases (i)/(iv)"
+ },
+ "HBI": {
+  "class": "equity",
+  "eligible_classified_usd": 1988290.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity with NO store bars (terminal HBI): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "HI": {
+  "class": "equity",
+  "eligible_classified_usd": 2249417.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal HI): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "HOLX": {
+  "class": "equity",
+  "eligible_classified_usd": 15342887.0,
+  "eligible_days": 17,
+  "reason": "directory-absent equity with NO store bars (terminal HOLX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "HOUS": {
+  "class": "equity",
+  "eligible_classified_usd": 24449659.0,
+  "eligible_days": 9,
+  "reason": "directory-absent equity with NO store bars (terminal HOUS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "IRBT": {
+  "class": "equity",
+  "eligible_classified_usd": 92021969.0,
+  "eligible_days": 41,
+  "reason": "bankruptcy shell (terminal IRBTQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "IRBTQ": {
+  "class": "equity",
+  "eligible_classified_usd": 1966604.0,
+  "eligible_days": 2,
+  "reason": "bankruptcy shell (terminal IRBTQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "JHG": {
+  "class": "equity",
+  "eligible_classified_usd": 3308980.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal JHG): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "K": {
+  "class": "equity",
+  "eligible_classified_usd": 30659020.0,
+  "eligible_days": 13,
+  "reason": "directory-absent equity with NO store bars (terminal K): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "KALV": {
+  "class": "equity",
+  "eligible_classified_usd": 3894162.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal KALV): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "KLG": {
+  "class": "equity",
+  "eligible_classified_usd": 444750.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal KLG): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "KW": {
+  "class": "equity",
+  "eligible_classified_usd": 452135.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal KW): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "LNW": {
+  "class": "equity",
+  "eligible_classified_usd": 3247174.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity with NO store bars (terminal LNWO): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "LQIG": {
+  "class": "etf",
+  "reason": "delisted bond ETF (same clause) \u2014 classifies etf"
+ },
+ "LVTX": {
+  "class": "equity",
+  "eligible_classified_usd": 633699.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal LVTX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MAG": {
+  "class": "equity",
+  "eligible_classified_usd": 387597.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal MAG): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MASI": {
+  "class": "equity",
+  "eligible_classified_usd": 4702151.0,
+  "eligible_days": 8,
+  "reason": "directory-absent equity with NO store bars (terminal MASI): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MBTX": {
+  "class": "equity",
+  "eligible_classified_usd": 3968826.0,
+  "eligible_days": 7,
+  "reason": "directory-absent equity with NO store bars (terminal MBTX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MBTXW": {
+  "class": "unclassified",
+  "reason": "warrant ticker (registered disposition, Addendum G v9 residual derivation); deliberately unclassified"
+ },
+ "MCW": {
+  "class": "equity",
+  "eligible_classified_usd": 819618.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal MCW): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MGTN": {
+  "class": "unclassified",
+  "reason": "when-issued/warrant sibling (registered disposition, Addendum G v9); deliberately unclassified"
+ },
+ "MGTNW": {
+  "class": "unclassified",
+  "reason": "warrant ticker (registered disposition, Addendum G v9); deliberately unclassified"
+ },
+ "MODV": {
+  "class": "equity",
+  "eligible_classified_usd": 2971127.0,
+  "eligible_days": 3,
+  "reason": "bankruptcy shell (terminal MODVQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "MRUS": {
+  "class": "equity",
+  "eligible_classified_usd": 145388232.0,
+  "eligible_days": 37,
+  "reason": "directory-absent equity with NO store bars (terminal MRUS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MTSR": {
+  "class": "equity",
+  "eligible_classified_usd": 464652258.0,
+  "eligible_days": 25,
+  "reason": "directory-absent equity with NO store bars (terminal MTSR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "MVO": {
+  "class": "equity",
+  "eligible_classified_usd": 2016348.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal MVO): grades via terminal-value cases (i)/(iv)"
+ },
+ "NGD": {
+  "class": "equity",
+  "eligible_classified_usd": 73008018.0,
+  "eligible_days": 112,
+  "reason": "directory-absent equity with NO store bars (terminal NGD): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "NOTE": {
+  "class": "equity",
+  "eligible_classified_usd": 278000.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal NOTE): grades via terminal-value cases (i)/(iv)"
+ },
+ "NOTV": {
+  "class": "equity",
+  "eligible_classified_usd": 828262.0,
+  "eligible_days": 2,
+  "reason": "bankruptcy shell (terminal NOTVQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "NSA": {
+  "class": "equity",
+  "eligible_classified_usd": 2306616.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal NSA): grades via terminal-value cases (i)/(iv)"
+ },
+ "NUVL": {
+  "class": "equity",
+  "eligible_classified_usd": 3571571.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal NUVL): grades via terminal-value cases (i)/(iv)"
+ },
+ "ODP": {
+  "class": "equity",
+  "eligible_classified_usd": 4609953.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal ODP): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "OLPX": {
+  "class": "equity",
+  "eligible_classified_usd": 1083819.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal OLPX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "OPI": {
+  "class": "equity",
+  "eligible_classified_usd": 1926493.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity with NO store bars (terminal OPITS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "OS": {
+  "class": "equity",
+  "eligible_classified_usd": 8834941.0,
+  "eligible_days": 13,
+  "reason": "directory-absent equity with NO store bars (terminal OS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "PBPB": {
+  "class": "equity",
+  "eligible_classified_usd": 512883.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal PBPB): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "PCH": {
+  "class": "equity",
+  "eligible_classified_usd": 712869.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal PCH): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "PLYM": {
+  "class": "equity",
+  "eligible_classified_usd": 251120.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal PLYM): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "QIPT": {
+  "class": "equity",
+  "eligible_classified_usd": 561335.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal QIPT): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "QVCGA": {
+  "class": "equity",
+  "eligible_classified_usd": 2317432.0,
+  "eligible_days": 7,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal QVCAQ): grades via terminal-value cases (i)/(iv)"
+ },
+ "RAPT": {
+  "class": "equity",
+  "eligible_classified_usd": 16802172.0,
+  "eligible_days": 12,
+  "reason": "directory-absent equity with NO store bars (terminal RAPT): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "REVG": {
+  "class": "equity",
+  "eligible_classified_usd": 1441377.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal REVG): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "RNA": {
+  "class": "equity",
+  "eligible_classified_usd": 84921084.0,
+  "eligible_days": 60,
+  "reason": "directory-absent equity with NO store bars (terminal RNAM): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "RUI": {
+  "class": "equity",
+  "eligible_classified_usd": 1153018.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal RUI): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "RVPH": {
+  "class": "equity",
+  "eligible_classified_usd": 4190650.0,
+  "eligible_days": 8,
+  "reason": "directory-absent equity with NO store bars (terminal RVPH): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SAGE": {
+  "class": "equity",
+  "eligible_classified_usd": 1813316.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal SAGE): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SAND": {
+  "class": "equity",
+  "eligible_classified_usd": 1902340.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal SAND): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SCPH": {
+  "class": "equity",
+  "eligible_classified_usd": 11332176.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal SCPH): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SCS": {
+  "class": "equity",
+  "eligible_classified_usd": 948314.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal SCS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SEE": {
+  "class": "equity",
+  "eligible_classified_usd": 47502602.0,
+  "eligible_days": 7,
+  "reason": "directory-absent equity with NO store bars (terminal SEE): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SEMR": {
+  "class": "equity",
+  "eligible_classified_usd": 2406998.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal SEMR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SHCO": {
+  "class": "equity",
+  "eligible_classified_usd": 641826.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal SHCO): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SLNO": {
+  "class": "equity",
+  "eligible_classified_usd": 136130788.0,
+  "eligible_days": 93,
+  "reason": "directory-absent equity with NO store bars (terminal SLNO): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SMLR": {
+  "class": "equity",
+  "eligible_classified_usd": 35824274.0,
+  "eligible_days": 48,
+  "reason": "directory-absent equity with NO store bars (terminal SMLR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SNBR": {
+  "class": "equity",
+  "eligible_classified_usd": 13116923.0,
+  "eligible_days": 23,
+  "reason": "bankruptcy shell (terminal SNBRQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "SNV": {
+  "class": "equity",
+  "eligible_classified_usd": 11569109.0,
+  "eligible_days": 13,
+  "reason": "directory-absent equity with NO store bars (terminal SNV): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SOND": {
+  "class": "equity",
+  "eligible_classified_usd": 303049.0,
+  "eligible_days": 1,
+  "reason": "bankruptcy shell (terminal SONDQ, bar-less): equity; routes to the ungradeable census via the vendor re-fetch rule"
+ },
+ "SPNS": {
+  "class": "equity",
+  "eligible_classified_usd": 1310956.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal SPNS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "SRDX": {
+  "class": "equity",
+  "eligible_classified_usd": 5007128.0,
+  "eligible_days": 6,
+  "reason": "directory-absent equity with NO store bars (terminal SRDX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TBRG": {
+  "class": "equity",
+  "eligible_classified_usd": 1069366.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal TBRG): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TERN": {
+  "class": "equity",
+  "eligible_classified_usd": 81285264.0,
+  "eligible_days": 51,
+  "reason": "directory-absent equity with NO store bars (terminal TERN): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TGNA": {
+  "class": "equity",
+  "eligible_classified_usd": 1008348.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal TGNA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "THR": {
+  "class": "equity",
+  "eligible_classified_usd": 1029727.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal THR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "THS": {
+  "class": "equity",
+  "eligible_classified_usd": 5768825.0,
+  "eligible_days": 5,
+  "reason": "directory-absent equity with NO store bars (terminal THS): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "THTX": {
+  "class": "equity",
+  "eligible_classified_usd": 314230.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal THTX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TMHC": {
+  "class": "equity",
+  "eligible_classified_usd": 2955857.0,
+  "eligible_days": 4,
+  "reason": "directory-absent equity WITH store bars (delisted/acquired mid-corpus or post-window rename; terminal TMHC): grades via terminal-value cases (i)/(iv)"
+ },
+ "TPH": {
+  "class": "equity",
+  "eligible_classified_usd": 2248988.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal TPH): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TRML": {
+  "class": "equity",
+  "eligible_classified_usd": 8814472.0,
+  "eligible_days": 2,
+  "reason": "directory-absent equity with NO store bars (terminal TRML): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "TSE": {
+  "class": "equity",
+  "eligible_classified_usd": 830942.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal TSEOF): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "VMEO": {
+  "class": "equity",
+  "eligible_classified_usd": 998922.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal VMEO): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "VRNA": {
+  "class": "equity",
+  "eligible_classified_usd": 5706130.0,
+  "eligible_days": 13,
+  "reason": "directory-absent equity with NO store bars (terminal VRNA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "VRNT": {
+  "class": "equity",
+  "eligible_classified_usd": 1244951.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal VRNT): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "VTLE": {
+  "class": "equity",
+  "eligible_classified_usd": 16521352.0,
+  "eligible_days": 20,
+  "reason": "directory-absent equity with NO store bars (terminal VTLE): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "VTYX": {
+  "class": "equity",
+  "eligible_classified_usd": 20305877.0,
+  "eligible_days": 18,
+  "reason": "directory-absent equity with NO store bars (terminal VTYX): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "WBA": {
+  "class": "equity",
+  "eligible_classified_usd": 226699567.0,
+  "eligible_days": 13,
+  "reason": "directory-absent equity with NO store bars (terminal WBA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "WSR": {
+  "class": "equity",
+  "eligible_classified_usd": 2333339.0,
+  "eligible_days": 3,
+  "reason": "directory-absent equity with NO store bars (terminal WSR): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ },
+ "XHYE": {
+  "class": "etf",
+  "reason": "delisted bond ETF (calibration window; adjudicated Addendum G round 10 / findings-reg layer-2 clause) \u2014 classifies etf, exploratory arm only"
+ },
+ "XOMA": {
+  "class": "equity",
+  "eligible_classified_usd": 393574.0,
+  "eligible_days": 1,
+  "reason": "directory-absent equity with NO store bars (terminal XOMA): obligation-2 backfill re-fetches from the vendor; ungradeable only if the vendor returns nothing (G.2)"
+ }
+}

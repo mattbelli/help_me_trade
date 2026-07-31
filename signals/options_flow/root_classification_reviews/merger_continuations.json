@@ -1,0 +1,9 @@
+[
+  {
+    "old": "PARA",
+    "new": "PSKY",
+    "process_date": "2025-08-07",
+    "source": "merger_continuation",
+    "reason": "Skydance merger closed; absent from the name_change feed (verified rounds 6-10); corpus-seam verified clean (PARA last flow 2025-08-06, PSKY first 2025-08-08, PSKY bars from its 2025-08-07 listing day). Registered in Addendum G G.2 and FLOW_1_14F_FINDINGS_REGISTRATION.md."
+  }
+]

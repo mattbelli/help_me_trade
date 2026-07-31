@@ -1,0 +1,7 @@
+{
+  "CCL": {
+    "reason": "CUK->CCL 2026-05-08 is a DUAL-LISTING CONSOLIDATION (Carnival plc ADS folded into the primary CCL listing), not a ticker reuse: gap discriminator = 1 session (CCL printed continuously across the seam; every CCL row belongs to one continuous issuer, so G.2's split premise — one bar series belonging to at most one issuer — is FALSE here). Splitting would sever post-seam CCL from its own history 16 sessions before the judgment window opens (CCL clears the floor 37/37 judgment dates). Exempted: the pair maps as a plain continuation; pre-seam CUK flow rides the CCL identity, ratio-invariant in return space per G.2's restated-history clause. Adjudicated by the orchestrator per the round-1 build review (blocker 2) with the gap evidence recorded by the generator.",
+    "gap_sessions": 1,
+    "adjudicated": "2026-07-31"
+  }
+}

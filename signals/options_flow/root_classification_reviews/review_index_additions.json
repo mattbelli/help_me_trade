@@ -1,0 +1,14 @@
+{
+ "DJXW": {
+  "class": "index",
+  "reason": "DJX weekly series \u2014 cash-settled index product; census-surfaced (instrument 2)"
+ },
+ "NANOS": {
+  "class": "index",
+  "reason": "Cboe Nanos S&P 500 \u2014 cash-settled mini index product; census-surfaced (instrument 2)"
+ },
+ "XAU": {
+  "class": "index",
+  "reason": "PHLX Gold/Silver Sector index \u2014 cash-settled index product; census-surfaced (instrument 2, sub-top-20); $84.4M eligible classified"
+ }
+}

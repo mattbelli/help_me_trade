@@ -1,0 +1,11 @@
+{
+ "PTEST": {
+  "reason": "directory-absent test-shaped root, census-surfaced rounds 9-10; 12/12 eligible days in the judgment window"
+ },
+ "ZTST": {
+  "reason": "OPRA-only test root, absent from the directory; confirmed in gauntlet rounds 8-10 ($28.6M all-sides corpus phantom premium)"
+ },
+ "ZZK": {
+  "reason": "directory-absent test-shaped root, census-surfaced rounds 9-10 ($32.0M all-sides)"
+ }
+}

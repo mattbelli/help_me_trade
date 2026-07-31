@@ -1,0 +1,33 @@
+{
+ "instrument_1_top20_equity_naming_review": {
+  "basis": "top-20 equity-classified roots by all-sides corpus premium, classified via the generated snapshot",
+  "result": "all 20 are genuine single-name equities; ZERO index products misclassified into the equity universe",
+  "reviewed": [
+   "TSLA",
+   "NVDA",
+   "MU",
+   "META",
+   "MSFT",
+   "MSTR",
+   "SNDK",
+   "AMD",
+   "COIN",
+   "AMZN",
+   "PLTR",
+   "AAPL",
+   "ORCL",
+   "UNH",
+   "AVGO",
+   "GOOGL",
+   "TSM",
+   "NFLX",
+   "INTC",
+   "CRWV"
+  ]
+ },
+ "instrument_2_zero_bar_census_review": {
+  "basis": "census of roots with >=1 eligible name-day (>=$250k classified) in the judgment or calibration window matching no directory row after mapping",
+  "result": "full directory-absent census (131 roots, both windows) reviewed; index-product candidates = the three registered here (XAU, NANOS, DJXW); CBTX adjudicated a when-issued artifact, NOT index (disposed in the delisted review)"
+ },
+ "reviewer": "orchestrator (Addendum G obligation 2; committed verbatim)"
+}
