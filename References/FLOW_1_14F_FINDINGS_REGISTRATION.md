@@ -1,8 +1,8 @@
 # 1.14f/1.14g findings registration — the record frozen before the test window opens
 
-*⚠️ DRAFT v3 — NOT LAW until its gauntlet converges (round 1: 9 unique blockers — 6
-methodology + 4 record, 1 shared; round 2: 6, every one a one-clause record fix — all
-resolved below). Discharges **obligation 1 of
+*⚠️ DRAFT v4 — NOT LAW until its gauntlet converges (round 1: 9 unique blockers — 6
+methodology + 4 record, 1 shared; round 2: 6, every one a one-clause record fix; round 3
+targeted diff-verify: 2 — both in the anti-selection machinery, both fixed below). Discharges **obligation 1 of
 Addendum G §G.10** (`FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_G.md`): the intraday-screen
 findings register HERE, in a dated committed document, before obligations 2→6 execute and
 before the untouched test split (2026-06-01 → 2026-07-25) is opened by the G.2 scoring run.
@@ -28,7 +28,8 @@ launches: #1 aborted at the reproduce gate ITSELF — counts integer-exact and m
 digit-exact at all 36 cells, but 6 cells' diff off by exactly 1e-5 because the gate
 subtracted already-rounded medians while the locked 1.14f writer rounds the difference of
 the unrounded ones (fixed `98ebefb`, regression-pinned; the cosmetic gate-log fix
-`92bfd08` rode along) — the gate fired correctly on a real mismatch; #2 died on an
+`92bfd08` was committed BEFORE that launch, not with the fix) — the gate fired correctly
+on a real mismatch; #2 died on an
 over-broad Arm 2b assert; both aborts BEFORE any
 statistic was emitted, so the fix loop stayed uncontaminated; #3 ran end-to-end). 1.14g
 additionally reproduced 1.14f's aggregate signature at all 36 cells before emitting
@@ -86,20 +87,29 @@ directional information** at this grain and horizon.
   document carries: the §1.14g registration FORBIDS comparing Arm 2a's unstratified
   equity-RV Δ against the components' stratified Δs ("NOT magnitude-comparable … forbids
   demoting or promoting by comparing those two numbers"). A "3–4×" version of that
-  forbidden comparison lived in FOUR places — the 2026-07-30 BUILD_LOG run row
-  (append-only; superseded by this caveat), board cards `flow-perception-ship` (title)
-  and `1-14f-vol-matched-followup` (notes), and `memory/vol-scanner-direction.md` — the
-  living three are CORRECTED in this document's own commit, and the comparison may not be
-  quoted from this program's record.
+  forbidden comparison lived in FIVE places — the 2026-07-30 BUILD_LOG run row
+  (append-only; superseded by this caveat), board card `flow-perception-ship` (its TITLE
+  and, worst, its NOTES — a live prescriptive instruction that future framing "must
+  carry" the retired comparison), card `1-14f-vol-matched-followup` (notes), and
+  `memory/vol-scanner-direction.md` — the
+  living four are CORRECTED in this program's commits of 2026-07-31, and the comparison
+  may not be quoted from this program's record.
 - **(c)** Effects are LARGER far from earnings (vol_max far +0.180 vs in-gate +0.158) —
   not the calendar in costume.
 - **(d)** The lagged panel keeps F1/F2 starred at +0.06–0.10 across all horizons — a real
   anticipatory residual is COMPATIBLE with the record but not established by it.
 - **(e) Registered denominator diagnostics (recorded because they complicate the
-  story):** on the RAW unnormalized forward move the estimand's point estimates are ≈
-  ZERO (−0.001 / +0.000 / −0.002; no CI emitted; raw medians run 0.010–0.042, so these
-  are 2–6% of level) — **F1–F3 are statements about a name moving more than is normal
-  FOR THAT NAME, not evidence that fired names move more in absolute terms**; on outcome
+  story):** on the RAW unnormalized forward move the estimand is TINY but PRECISE — all
+  three carry CIs and all three star: vol_max −0.00084 [−0.00104, −0.00061],
+  largest_print +0.00043 [+0.00016, +0.00074], concentration −0.00219 [−0.00237,
+  −0.00202]; at fired-mass-weighted level these run roughly 10% / 4% / 29% of level,
+  small and MIXED in direction — and **`vol_max_ratio`'s raw arm is itself SIGN-FLIPPED
+  against its registered +1** (recorded as a flip by the same rule applied to
+  concentration below; a secondary with no authority): fired names' absolute forward
+  moves are, if anything, marginally SMALLER. **F1–F3 are statements about a name moving
+  more than is normal FOR THAT NAME, not evidence that fired names move more in absolute
+  terms.** The interval-free arm is the decile re-cut (point estimate + occupancy only,
+  per its registration). On outcome
   ÷ same-window rv_park the estimand is LARGER than the primary for `vol_max_ratio`
   (+0.212) and `largest_print_ratio` (+0.128), while `concentration` reads **+0.098,
   SIGN-FLIPPED against its registered −1 sign** — recorded as a flip per the 1.14g
@@ -108,8 +118,9 @@ directional information** at this grain and horizon.
   −0.017; the decile re-cut +0.109 / +0.070 / −0.019; the close-to-close stratifier
   variant reads +0.142 / +0.098 / −0.020 (BOTH positive components above their
   primaries); the zero-gap-window variant +0.118 / +0.076 / −0.021 (at the primaries).
-  All variants share the FIRED set (complement/stratum rows differ per each variant's
-  registration); none
+  All variants share the FIRING RULE (fired row counts differ ≤ 0.06% via
+  variant-specific NA-stratifier drops; complement/stratum rows differ per each
+  variant's registration); none
   changes a verdict; all are on the record so none can be "discovered" later.
 - **(f)** The 3× tail-rate secondary is clear of zero at the primary cell for all four
   components — including `short_dte_share` (+0.006 [+0.003, +0.009], starred on tail in 9
@@ -156,7 +167,8 @@ Registered BEFORE the test window opens, so it cannot be written the other way a
    rescue G.2 bans by another door); **the R.3.2 prior and F5 may not be cited to
    discount, downgrade, or raise the evidentiary bar on an ALIVE** — the prior has zero
    evidentiary weight in either direction and may not enter the verdict's adjudication.
-   An UNEVALUABLE licenses no substitute cell, re-declaration, or re-run (G.2's own ban),
+   An UNEVALUABLE licenses no substitute cell or re-declaration (G.2's own ban) and no
+   re-run (G's global first-run-governs),
    and nothing here softens it. Nor does the transfer run backwards: no G.2 verdict
    re-grades F1–F5, and a DEAD
    (dilution) in particular makes NO claim about the fired set (G.2 step 2's registered
