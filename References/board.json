@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "flow-scoring-obligations",
+   "lane": "in_progress",
+   "type": "research",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-07-31",
+   "title": "Addendum G pre-run obligations 1\u21926 (scoring run \u2265 close 2026-08-07)",
+   "notes": "Obligation 1 IN FLIGHT: FLOW_1_14F_FINDINGS_REGISTRATION.md drafted (v1), 2-reviewer gauntlet dispatched. Then in order: 2 snapshot+successor/split maps+backfill (incl SPY through d+10), 3/3b fenced null re-emission+census re-count, 5 input records, 6 size calibration+MDE. First-run-governs on every one."
+  },
+  {
    "id": "confirmatory-abstention-run",
    "lane": "done",
    "type": "research",
