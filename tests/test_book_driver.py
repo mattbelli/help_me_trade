@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from db.base import connect
 from db.idea_outcomes import list_ledger_rows
@@ -18,6 +21,21 @@ from research.books import build_book_pack
 
 _ET = ZoneInfo("America/New_York")
 NOW = datetime(2026, 7, 23, 17, 30, tzinfo=_ET)  # Thursday, post-window
+
+
+@pytest.fixture
+def unpaused(monkeypatch: Any):
+    """Run a book's pipeline regardless of whether it is currently paused.
+
+    Pausing (matt + panel, 2026-07-30) is an OPERATIONAL switch — it must not
+    cost us the pipeline coverage we need the day either one resumes.
+    """
+    from research.books import BOOKS
+
+    def _unpause(book_id: str) -> None:
+        monkeypatch.setitem(BOOKS, book_id, dataclasses.replace(BOOKS[book_id], paused=False))
+
+    return _unpause
 
 GOOD_DECISION = {
     "candidates": [
@@ -135,7 +153,8 @@ def test_journal_feeds_back_into_next_pack(tmp_path: Path) -> None:
     assert "stalking AAPL 200 retest" in pack
 
 
-def test_matt_advisory_cycle_report_only(tmp_path: Path) -> None:
+def test_matt_advisory_cycle_report_only(tmp_path: Path, unpaused: Any) -> None:
+    unpaused("matt")
     db = tmp_path / "t.db"
     out = _run(db, book_id="matt", llm=FakeLLM(["## Advisory\n\nno json block needed"]))
     assert out == {"status": "ok", "advisory": True, "report_id": out["report_id"]}
@@ -328,9 +347,12 @@ PANEL_DECISION = {
 }
 
 
-def test_session_submit_panel_registers_seats_and_delivers(tmp_path: Path) -> None:
+def test_session_submit_panel_registers_seats_and_delivers(
+    tmp_path: Path, unpaused: Any
+) -> None:
     from research.book_driver import submit_session_cycle
 
+    unpaused("panel")
     db = tmp_path / "t.db"
     seed_default_strategies(db_path=db)
     out = asyncio.run(

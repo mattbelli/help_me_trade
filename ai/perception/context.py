@@ -40,9 +40,10 @@ def list_capabilities() -> dict[str, Any]:
     """Self-describing manifest of what the agent can read."""
     from ai.perception.resources import list_resources
 
+    resources = list_resources()
     return {
         "context_scopes": {"symbol": list(_SYMBOL_FIELD_GROUPS)},
-        "resources": list_resources(),
+        "resources": resources,
         "write_actions": {
             "propose_order": (
                 "Propose a paper trade for phone approval (does not execute directly)"
@@ -67,10 +68,9 @@ def list_capabilities() -> dict[str, Any]:
         },
         "notes": (
             "Use get_context for a single symbol snapshot; use query(resource, filters) "
-            "for watchlists, strategies, screener, market regime, news, calibration, "
-            "price alerts, proposals, and reports. Prefer get_context over web_search "
-            "for prices, RVOL, session-node levels, technicals, earnings, news, "
-            "strategy signals, decision scores, and active alerts."
+            "for: " + ", ".join(sorted(resources)) + ". Prefer get_context over "
+            "web_search for prices, RVOL, session-node levels, technicals, earnings, "
+            "news, strategy signals, decision scores, and active alerts."
         ),
     }
 

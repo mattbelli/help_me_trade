@@ -13,12 +13,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ai.chat.agent import ChatRunResult, finalize_chat_turn
 from ai.chat.brain import (
-    build_turn_context,
     finalize_turn,
     is_ephemeral_mode,
-    llm_runtime_config,
     normalize_chat_mode,
-    run_tool,
     should_learn_from_turn,
     tool_catalog,
 )
@@ -367,48 +364,9 @@ def api_delete_chat_session(session_id: str):
     return {"ok": True}
 
 
-@router.get("/chat/llm-runtime")
-def api_chat_llm_runtime(model: str | None = Query(None)):
-    """LLM credentials for the Next.js chat route (server-to-server only)."""
-    return llm_runtime_config(model=model)
-
-
 @router.get("/chat/tools")
 def api_chat_tools():
     return {"tools": tool_catalog()}
-
-
-@router.post("/chat/context")
-def api_chat_context(body: dict = Body(...)):
-    user_text = str(body.get("userText") or body.get("user_text") or "").strip()
-    if not user_text:
-        return JSONResponse({"error": "userText is required"}, status_code=400)
-    inject_memories = bool(
-        body.get("injectMemories") or body.get("inject_memories")
-    )
-    inject_journal = bool(
-        body.get("injectJournal") or body.get("inject_journal")
-    )
-    return build_turn_context(
-        user_text,
-        inject_memories=inject_memories,
-        inject_journal=inject_journal,
-    )
-
-
-@router.post("/chat/tools/execute")
-async def api_chat_tool_execute(body: dict = Body(...)):
-    name = str(body.get("name", "")).strip()
-    if not name:
-        return JSONResponse({"error": "name is required"}, status_code=400)
-    arguments = body.get("arguments")
-    if arguments is not None and not isinstance(arguments, dict):
-        return JSONResponse({"error": "arguments must be an object"}, status_code=400)
-    try:
-        return {"result": await run_tool(name, arguments)}
-    except Exception as exc:
-        logger.exception("Tool execute failed: %s", name)
-        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @router.post("/chat/finalize")

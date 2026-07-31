@@ -28,7 +28,8 @@ export const CHAT_TOOL_OPTIONS = [
   {
     id: "query",
     label: "App data",
-    description: "List watchlists, screener, regime, news, calibration, etc.",
+    description:
+      "Watchlists, screener, regime, news, calibration, SEC filings + segment breakdowns, earnings releases",
   },
   {
     id: "search_memories",

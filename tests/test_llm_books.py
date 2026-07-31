@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from config.idea_engine import IDEA_COOLDOWN_MIN
 from db.idea_outcomes import JOURNAL_ORIGINS, list_ledger_rows
 from research.books import (
@@ -172,3 +174,84 @@ def test_origin_law_consistency() -> None:
     # Matt + LLM takes no machine ideas — no lane may exist for it.
     assert BOOKS["matt"].headline_origin is None
     assert not any("matt" in o for o in ALL_BOOK_ORIGINS)
+
+
+# --- pausing a book (2026-07-30: Claude Panel held) -----------------------------
+
+
+def test_paused_book_stays_fully_registered() -> None:
+    """Pausing is a flag, not a deletion: the panel keeps its lanes, seats and
+    origins so its ledger history stays readable and unpausing is one edit."""
+    from research.books import ALL_BOOK_ORIGINS, BOOKS
+
+    panel = BOOKS["panel"]
+    assert panel.paused is True
+    assert panel.seats and panel.headline_origin == "book:panel"
+    assert all(f"book:panel/{seat}" in ALL_BOOK_ORIGINS for seat in panel.seats)
+    # the books still running must not have been paused by accident
+    assert sorted(b.book_id for b in BOOKS.values() if b.paused) == ["matt", "panel"]
+    assert not BOOKS["deepseek"].paused and not BOOKS["fable"].paused
+
+
+@pytest.mark.asyncio
+async def test_dead_man_ignores_a_paused_book(monkeypatch) -> None:
+    """Without this the pause costs a warning push every single night for a
+    report nobody is expecting."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import api.main as api_main
+
+    sent: list[dict] = []
+
+    async def _notify(**kwargs):
+        sent.append(kwargs)
+
+    monkeypatch.setattr("signals.notify.notify", _notify)
+    monkeypatch.setattr("db.reports.report_exists_for_day", lambda *a, **k: False)
+    monkeypatch.setattr(
+        api_main, "datetime", _FrozenDatetime(datetime(2026, 7, 30, 21, 0, tzinfo=ZoneInfo("America/New_York")))
+    )
+    api_main._book_deadman_last_date.clear()
+
+    await api_main._book_deadman_once()
+
+    assert len(sent) == 1
+    assert "Claude Panel" not in sent[0]["body"]
+    assert "Deep Seek" in sent[0]["body"]  # the running books are still guarded
+
+
+class _FrozenDatetime:
+    """datetime stand-in whose now() is fixed (the module calls datetime.now(_ET))."""
+
+    def __init__(self, moment):
+        self._moment = moment
+
+    def now(self, tz=None):
+        return self._moment.astimezone(tz) if tz else self._moment
+
+    def __getattr__(self, name):
+        import datetime as _dt
+
+        return getattr(_dt.datetime, name)
+
+
+@pytest.mark.asyncio
+async def test_paused_book_refuses_to_run_on_every_path(tmp_path: Path) -> None:
+    """The pause lives at the _gate chokepoint, so it holds for the in-process
+    job, a session submit, and a manual run alike — not just for whichever
+    scheduler happens to launch that book."""
+    from research.book_driver import run_book_cycle, submit_session_cycle
+
+    db = tmp_path / "paused.db"
+
+    # advisory book, in-process cycle
+    assert (await run_book_cycle("matt", db_path=db)) == {
+        "status": "skipped",
+        "reason": "paused",
+    }
+    # session book, the path a manually-launched panel session would take
+    submitted = await submit_session_cycle(
+        "panel", "# report", {"candidates": []}, db_path=db
+    )
+    assert submitted["status"] == "skipped" and submitted["reason"] == "paused"

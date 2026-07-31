@@ -188,6 +188,11 @@ SESSION_NODE_SCAN_INTERVAL_SECONDS = max(
     20, int(os.environ.get("SESSION_NODE_SCAN_INTERVAL_SECONDS", "60"))
 )
 EARNINGS_REFRESH_INTERVAL_SECONDS = 24 * 3600
+# The EDGAR "current filings" feed is a rolling window of the latest 100 8-Ks.
+# Measured on a heavy earnings evening it held 74 minutes of filings, so polling
+# every 5 minutes leaves ~15x headroom before a burst could push one off the
+# window unseen. Cheap: one atom request, then two requests per NEW listed filer.
+EARNINGS_RELEASE_POLL_SECONDS = 300
 REGIME_REFRESH_INTERVAL_SECONDS = 24 * 3600
 # Regime sleeves evaluate completed daily bars after the close — a ~10-min cadence is
 # plenty (the scan self-gates to the post-close window and dedups per trading day).
@@ -628,6 +633,31 @@ async def _earnings_refresh_loop() -> None:
         else:
             mark_alive("earnings_refresh")
         await asyncio.sleep(EARNINGS_REFRESH_INTERVAL_SECONDS)
+
+
+async def _earnings_release_loop() -> None:
+    """Pull new Item 2.02 earnings releases off EDGAR and store their exhibit text.
+
+    Separate from `_earnings_refresh_loop` (which is the daily calendar of WHEN
+    companies report): this is the release itself, and it is the only source we
+    hold for segment results and guidance — the XBRL corpus strips dimensions.
+    """
+    from signals.earnings_exhibit import poll_once
+
+    while True:
+        try:
+            summary = await asyncio.to_thread(poll_once)
+            if summary["stored"]:
+                logger.info(
+                    "Earnings releases stored: %d (failed %d)",
+                    summary["stored"],
+                    summary["failed"],
+                )
+        except Exception:
+            logger.exception("Earnings release poll failed")
+        else:
+            mark_alive("earnings_release")
+        await asyncio.sleep(EARNINGS_RELEASE_POLL_SECONDS)
 
 
 async def _regime_sleeves_loop() -> None:
@@ -1325,7 +1355,8 @@ async def _book_deadman_once() -> None:
     missing = [
         b.name
         for b in BOOKS.values()
-        if not report_exists_for_day(
+        if not b.paused
+        and not report_exists_for_day(
             f"book_{b.book_id}", today, dedup_key=f"book_{b.book_id}"
         )
     ]
@@ -1926,6 +1957,7 @@ def _register_background_jobs() -> None:
         ("proposal_sweeper", _PROPOSAL_SWEEP_INTERVAL_SECONDS, None),
         ("idea_tracker", _IDEA_TRACKER_INTERVAL_MARKET_SECONDS, None),
         ("earnings_refresh", float(EARNINGS_REFRESH_INTERVAL_SECONDS), None),
+        ("earnings_release", float(EARNINGS_RELEASE_POLL_SECONDS), None),
         ("regime_refresh", float(REGIME_REFRESH_INTERVAL_SECONDS), None),
         (
             "reports_scheduler",
@@ -2198,6 +2230,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_filings_initial_fill()),
         asyncio.create_task(social_buzz_loop()),
         asyncio.create_task(_earnings_refresh_loop()),
+        asyncio.create_task(_earnings_release_loop()),
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_regime_sleeves_loop()),
         asyncio.create_task(_reports_scheduler_loop()),

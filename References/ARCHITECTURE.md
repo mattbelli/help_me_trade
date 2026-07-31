@@ -89,9 +89,12 @@ on demand:** realized P&L, FIFO round-trips, behavioral analysis, split adjustme
 - **`ai/insights.py`, `ai/llm/factory.py`** — portfolio insight paragraphs; the provider router (Anthropic/
   OpenAI-compatible/Ollama/Mock, cached, per-request override).
 
-**Chat turn flow:** user msg → `build_turn_context` (memories + intent blocks) → LLM (via the Next.js SDK) →
-optional tool call → `run_tool` → `execute_tool` → second inference → `finalize_turn` (persist + extract
-memories).
+**Chat turn flow** (ONE Python brain since phase 1b; the TS route is a pass-through proxy): user msg →
+`POST /api/chat` → `assemble_system_prompt` (`ai/chat/loop.py` — base prompt + order/alert intent blocks +
+memories + journal) → `run_chat_loop` with native tool-calling → `execute_tool` (approval tools stop and
+surface a card instead) → `finalize_turn` (persist + extract memories).
+The retired TS host's `build_turn_context` / `run_tool` / `llm_runtime_config` and their endpoints were
+deleted 2026-07-30 (card `chat-dead-ts-surface`).
 
 ---
 
