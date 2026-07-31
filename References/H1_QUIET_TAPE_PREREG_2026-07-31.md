@@ -1,10 +1,12 @@
 # H1 pre-registration — opening-classified flow on a quiet tape
 
-*⚠️ DRAFT v4 — NOT LAW until its gauntlet converges (rounds 1/2/3: 15/4/3 blockers, all
-resolved below; round-3 catches: the early-close clause registered a truncation the store
-doesn't have, the R.4 instrument-null rule was INVERTED — an instrument-attributable null
-is recorded as such, NOT as a discharge — and the sole-differencing claim needed its
-enforced/recorded split with a face-of-verdict caveat). This is the registered follow-up hypothesis H1 of
+*★ LAW as of 2026-07-31 (v5 — v4 plus two harmonizations from the final diff
+verification, which found the design clean: "no fourth gauntlet round is warranted").
+Gauntlet record: three full rounds + one targeted verification; **22 blockers found and
+fixed** (15 / 4 / 3 — among them: an RV-confounded baseline replaced by the RV-matched
+primary, a fair-trial attribution hole closed, the R.4 instrument-null rule un-inverted,
+a DST bin-window error, and the 2.4-FAIL disclosure added). Changes = a new dated
+addendum, never an edit. This is the registered follow-up hypothesis H1 of
 `FLOW_1_14F_FINDINGS_REGISTRATION.md` §R.4 (LAW 2026-07-31), written BEFORE any H1
 statistic exists. Together with the Addendum G scoring-run grade it constitutes the
 registered fair trial of the Databento `tcbbo` subscription — and per R.4's law: **the
@@ -56,7 +58,9 @@ obligation 3b's ordinal rank, `100·rank/max(n−1, 1)` (the implementation's n=
 carried), double-`argsort` with `kind='stable'` — H1's OWN tightening of 3b's default-sort
 convention, stated as such — tied values receive DISTINCT consecutive ranks in the
 registered input order: **identities sorted by terminal symbol ascending before
-ranking** (ties DO occur — 2 in 1,383 on 2026-07-17, measured); cuts applied as ≥ 80.0
+ranking** (ties DO occur — 2 tie groups among the ≤1,186 RANKABLE identities on 2026-07-17, a
+monthly expiry, measured; the rankable set is the OI-matched subset, strictly inside
+the 1,384-identity volume-floor population); cuts applied as ≥ 80.0
 and ≤ 33.0.** This population deliberately differs from `_f_open_pct`'s
 raw OI cross-section (which includes non-equity roots) and from the census population
 obligation 3b's 90.1% coverage was measured on — disclosed, registered here.
@@ -105,7 +109,8 @@ benchmark blocking rule applied identically to events and every baseline.
   day-`d` move magnitude is held comparable (ATR14, a trailing daily quantity, is
   RECORDED per arm, not enforced — H1.6 #3), and the only ENFORCED
   differencing coordinate is `f_open`. **Registered consequence (mirroring G.10 #5's
-  face-of-verdict precedent): per-arm mean `open/ATR14` is recorded for BOTH windows,
+  face-of-verdict precedent): per-arm mean `open/ATR14` AND `ATR14/price` are recorded
+  for BOTH windows (both named in H1.6 #3),
   and a material per-arm imbalance is reported ON THE FACE of the verdict as an
   attribution caveat** — the calibration demeans the training series, so a structural
   arm offset survives in the judgment statistic and cannot be absorbed by the cutoff. Estimand: difference of equal-weighted
@@ -231,8 +236,10 @@ this design). Computed AT the date count and gap vector recorded by H1.6 #3.
    the tail buckets hinging on single dates are a live UNEVALUABLE route specific to
    this design); not POWER-LIMITED. ANY run-level failure ⇒ **UNEVALUABLE —
    instrument-limited or under-powered, recorded as such; no substitute cell, no
-   re-declaration, no re-run — and per R.4's carve-out an instrument-attributable
-   UNEVALUABLE is NOT a fair-trial discharge: the record reads "H1 did not resolve".**
+   re-declaration, no re-run — and NO flavor of UNEVALUABLE is a fair-trial discharge
+   (instrument-attributable per R.4's carve-out; under-powered/count-failure by this
+   document's own conservative extension, registered here): the record reads "H1 did
+   not resolve".**
 2. **The test:** the primary per-event-date difference series against the calibrated
    one-sided cutoff — pass ⇒ **ALIVE**; fail ⇒ **DEAD**. DEAD reads "opening-heavy flow
    on a quiet tape carries no directional edge at 10td over an equally-quiet
@@ -267,7 +274,8 @@ returns — which is exactly what the calibrated test and the permutation placeb
    verbatim: the calibration is scale- but NOT shape-invariant, and a judgment window
    materially thinner per-date than training is reported ON THE FACE of the verdict**;
    regime-span composition with the hinge dates named; truncated/ungradeable census on
-   H1's cohort; per-arm tier composition, mean ATR14/price, per-date net signed share;
+   H1's cohort; per-arm tier composition, per-arm mean `open/ATR14` and `ATR14/price`, per-date net
+   signed share;
    the H1-event × G-fired-cohort overlap count.
 4. The G.4-style calibration + MDE record, computed at #3's recorded inputs.
 5. The scoring run: strictly after the Addendum G verdict is recorded, no earlier than
