@@ -18,6 +18,7 @@ from ai.research.data_sources import (
     fetch_fundamentals_source,
     fetch_market_regime_source,
     fetch_news_source,
+    fetch_segments_source,
     fetch_technicals_source,
 )
 from ai.research.errors import ResearchCancelled
@@ -100,7 +101,7 @@ SPECIALIST_ROSTER: tuple[SpecialistSpec, ...] = (
             "{symbol} earnings revenue margins valuation",
             "{symbol} balance sheet cash flow fundamentals",
         ),
-        data_sources=("earnings", "fundamentals", "portfolio"),
+        data_sources=("earnings", "fundamentals", "segments", "portfolio"),
     ),
     SpecialistSpec(
         key="technicals",
@@ -191,6 +192,7 @@ _NO_SYMBOL_SOURCES = frozenset({"portfolio", "market_regime", "calibration"})
 _DATA_SOURCE_REGISTRY: dict[str, Callable[..., dict[str, Any] | list[dict[str, Any]] | None]] = {
     "earnings": fetch_earnings_source,
     "fundamentals": fetch_fundamentals_source,
+    "segments": fetch_segments_source,
     "technicals": fetch_technicals_source,
     "news": fetch_news_source,
     "market_regime": fetch_market_regime_source,

@@ -17,6 +17,7 @@ from research.edgar_bulk import (
     fact_rows,
     upsert_facts,
 )
+from research.edgar_dera import ensure_dera_schema
 
 logger = logging.getLogger(__name__)
 
@@ -680,6 +681,182 @@ def concept_series(
     }
 
 
+def _split_segment(label: str) -> tuple[str, str]:
+    """`BusinessSegments=AmazonWebServicesSegment;` -> ("BusinessSegments", "AmazonWebServicesSegment").
+
+    DERA joins several dimensions with `;` when a fact is cut more than one way
+    (segment AND geography); we keep the first as the axis and hand back the
+    whole thing so nothing is silently discarded.
+    """
+    first = label.split(";", 1)[0]
+    axis, _, member = first.partition("=")
+    return (axis or "", member or first)
+
+
+def segment_series(
+    symbol: str,
+    *,
+    concept: str = "revenue",
+    axis: str | None = None,
+    as_of: str | None = None,
+    periods: int = 6,
+    cache_db: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
+    facts_db: Path = DEFAULT_FACTS_DB_PATH,
+) -> dict | None:
+    """Segment-level series — the breakdown `companyfacts` strips out.
+
+    `concept` accepts a canonical metric name ("revenue", "operating_income")
+    or a raw XBRL tag. Periods are bucketed by DERA's own `qtrs` (4 = annual,
+    1 = a quarter) rather than inferred from duration — the filer states it.
+    """
+    conn = connect(cache_db)
+    try:
+        _ensure_schema(conn)
+        company = _company_row(conn, symbol)
+    finally:
+        conn.close()
+    if company is None:
+        return None
+
+    tags = FINANCIAL_CONCEPTS.get(concept.strip(), (concept.strip(),))
+    conn = connect(facts_db)
+    try:
+        ensure_dera_schema(conn)
+        ids = [
+            row[0]
+            for row in conn.execute(
+                f"SELECT id FROM concepts WHERE tag IN ({','.join('?' * len(tags))})",
+                tags,
+            )
+        ]
+        if not ids:
+            return {
+                "symbol": company["symbol"], "cik": company["cik"],
+                "concept": concept, "axes": [], "series": [],
+            }
+        where = [f"f.concept_id IN ({','.join('?' * len(ids))})", "f.cik = ?"]
+        params: list = [*ids, int(company["cik"])]
+        if as_of:
+            where.append("f.filed <= ?")
+            params.append(as_of)
+        rows = conn.execute(
+            f"""
+            SELECT s.label, k.tag, f.period_end, f.qtrs, f.unit, f.form, f.filed, f.val
+            FROM segment_facts f
+            JOIN segments s ON s.id = f.segment_id
+            JOIN concepts k ON k.id = f.concept_id
+            WHERE {' AND '.join(where)}
+            ORDER BY f.period_end DESC, f.filed DESC
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    grouped: dict[tuple, dict] = {}
+    seen: set[tuple] = set()
+    for row in rows:
+        seg_axis, member = _split_segment(row["label"])
+        if axis and seg_axis.lower() != axis.strip().lower():
+            continue
+        bucket = {4: "annual", 1: "quarterly"}.get(row["qtrs"])
+        if bucket is None:
+            continue  # instants and 6-/9-month durations are not a comparable series
+        key = (seg_axis, member, row["unit"])
+        # newest filing of a period wins — a later 10-K restates the same segment
+        period_key = (*key, bucket, row["period_end"])
+        if period_key in seen:
+            continue
+        seen.add(period_key)
+        entry = grouped.setdefault(
+            key,
+            {
+                "axis": seg_axis,
+                "member": member,
+                "unit": row["unit"],
+                "annual": [],
+                "quarterly": [],
+            },
+        )
+        if len(entry[bucket]) >= periods:
+            continue
+        entry[bucket].append(
+            {
+                "period_end": row["period_end"],
+                "val": row["val"],
+                "tag": row["tag"],
+                "form": row["form"],
+                "filed": row["filed"],
+            }
+        )
+    series = sorted(
+        grouped.values(), key=lambda e: (e["axis"], -len(e["annual"]), e["member"])
+    )
+    return {
+        "symbol": company["symbol"],
+        "cik": company["cik"],
+        "concept": concept,
+        "as_of": as_of,
+        "axes": sorted({e["axis"] for e in series}),
+        "series": series,
+        "source": "SEC DERA Financial Statement Data Sets (quarterly, ~1 quarter in arrears)",
+    }
+
+
+def segment_axes(
+    symbol: str,
+    *,
+    cache_db: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
+    facts_db: Path = DEFAULT_FACTS_DB_PATH,
+) -> list[dict] | None:
+    """Which breakdowns this filer reports, and how many facts sit behind each."""
+    conn = connect(cache_db)
+    try:
+        _ensure_schema(conn)
+        company = _company_row(conn, symbol)
+    finally:
+        conn.close()
+    if company is None:
+        return None
+
+    conn = connect(facts_db)
+    try:
+        ensure_dera_schema(conn)
+        rows = conn.execute(
+            """
+            SELECT s.label, COUNT(*) n, MAX(f.period_end) latest
+            FROM segment_facts f JOIN segments s ON s.id = f.segment_id
+            WHERE f.cik = ?
+            GROUP BY f.segment_id
+            ORDER BY n DESC
+            LIMIT 200
+            """,
+            (int(company["cik"]),),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    out: dict[str, dict] = {}
+    for row in rows:
+        seg_axis, member = _split_segment(row["label"])
+        entry = out.setdefault(seg_axis, {"axis": seg_axis, "members": [], "facts": 0})
+        entry["facts"] += row["n"]
+        if len(entry["members"]) < 40:
+            entry["members"].append({"member": member, "latest": row["latest"]})
+    # DERA's `segments` column carries EVERY XBRL dimension, not just reporting
+    # segments — sorting purely by fact count puts equity components and
+    # investment-income schedules above the business breakdown someone asked for.
+    return sorted(out.values(), key=lambda e: (not _is_reporting_axis(e["axis"]), -e["facts"]))
+
+
+_REPORTING_AXIS_HINTS = ("segment", "geograph", "productorservice", "statementbusiness")
+
+
+def _is_reporting_axis(axis: str) -> bool:
+    lowered = axis.lower()
+    return any(hint in lowered for hint in _REPORTING_AXIS_HINTS)
+
+
 def search_concepts(
     text: str,
     *,
@@ -691,6 +868,10 @@ def search_concepts(
     An agent knows "research and development", not
     `ResearchAndDevelopmentExpense` — without this the corpus is only reachable
     by callers who already know the tag names.
+
+    Labelled concepts sort first: the DERA ingest adds thousands of company
+    extension tags that carry no label or definition, and unranked they crowd
+    out the standard us-gaap concept the caller actually meant.
     """
     needle = f"%{text.strip()}%"
     conn = connect(facts_db)
@@ -700,7 +881,9 @@ def search_concepts(
             """
             SELECT taxonomy, tag, label, description FROM concepts
             WHERE tag LIKE ? OR label LIKE ? OR description LIKE ?
-            ORDER BY CASE WHEN tag LIKE ? THEN 0 ELSE 1 END, length(tag) ASC
+            ORDER BY CASE WHEN label IS NULL OR label = '' THEN 1 ELSE 0 END ASC,
+                     CASE WHEN tag LIKE ? THEN 0 ELSE 1 END,
+                     length(tag) ASC
             LIMIT ?
             """,
             (needle, needle, needle, needle, int(limit)),

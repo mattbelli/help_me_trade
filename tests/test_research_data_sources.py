@@ -13,6 +13,7 @@ from ai.research.data_sources import (
     fetch_fundamentals_source,
     fetch_market_regime_source,
     fetch_news_source,
+    fetch_segments_source,
     fetch_technicals_source,
 )
 from ai.research.source_text import source_for_analysis
@@ -36,9 +37,47 @@ def _make_bars(n: int = 300, *, base: float = 100.0) -> list[MagicMock]:
 
 
 class TestFetcherFailSoft:
-    def test_fundamentals_unconfigured_finnhub(self) -> None:
-        with patch("ai.research.data_sources.finnhub_is_configured", return_value=False):
+    def test_fundamentals_unconfigured_finnhub_still_serves_edgar(self) -> None:
+        """The vendor half used to gate the WHOLE source: no Finnhub key meant the
+        research engine saw no fundamentals at all, while 124M as-reported EDGAR
+        facts sat on disk unread. The filings are free and keyless — they stand
+        alone, and the vendor ratios are the optional part."""
+        edgar = {
+            "cik": "320193",
+            "sector": "Manufacturing",
+            "sic_desc": "Computers",
+            "metrics": {"revenue": {"unit": "USD", "annual": []}},
+            "note": "as-reported",
+        }
+        with (
+            patch("ai.research.data_sources.finnhub_is_configured", return_value=False),
+            patch("ai.research.data_sources._edgar_statements", return_value=edgar),
+        ):
+            out = fetch_fundamentals_source("AAPL")
+        assert out is not None
+        assert out["content"]["edgar"]["cik"] == "320193"
+        assert "SEC EDGAR" in out["title"]
+        assert "Finnhub" not in out["title"]
+
+    def test_fundamentals_none_only_when_nothing_at_all(self) -> None:
+        with (
+            patch("ai.research.data_sources.finnhub_is_configured", return_value=False),
+            patch("ai.research.data_sources._edgar_statements", return_value=None),
+        ):
             assert fetch_fundamentals_source("AAPL") is None
+
+    def test_segments_source_reaches_the_fundamentals_specialist(self) -> None:
+        """'Which segment carries the margin' was unanswerable: vendor metrics are
+        company-level and the XBRL corpus strips dimensions."""
+        from ai.research.specialists import _DATA_SOURCE_REGISTRY
+
+        assert "segments" in _DATA_SOURCE_REGISTRY
+        fundamentals_spec = next(s for s in SPECIALIST_ROSTER if s.key == "fundamentals")
+        assert "segments" in fundamentals_spec.data_sources
+
+    def test_segments_source_absent_for_single_segment_filers(self) -> None:
+        with patch("research.fundamentals.segment_series", return_value=None):
+            assert fetch_segments_source("AAPL") is None
 
     def test_news_unconfigured_alpaca(self) -> None:
         # News moved to the Alpaca store — its gate is the alpaca broker config.

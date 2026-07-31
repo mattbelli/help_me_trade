@@ -689,6 +689,62 @@ def _read_fundamentals(filters: dict[str, Any], *, db_path: Path) -> list[dict[s
     return [out]
 
 
+def _read_segments(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # segment facts live in the EDGAR research store
+    from research.fundamentals import segment_axes, segment_series
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        return [{"error": "symbol is required"}]
+
+    if filters.get("list_axes"):
+        axes = segment_axes(symbol)
+        if axes is None:
+            return [_unresolved_symbol(symbol)]
+        if not axes:
+            return [_no_segments(symbol)]
+        return [{"symbol": symbol, "axes": axes, "source": _DERA_SOURCE}]
+
+    concept = str(filters.get("concept") or "revenue").strip()
+    axis = str(filters.get("axis") or "").strip() or None
+    as_of = str(filters.get("as_of") or "").strip() or None
+    try:
+        periods = max(1, min(int(filters.get("periods") or 6), 12))
+    except (TypeError, ValueError):
+        periods = 6
+
+    out = segment_series(
+        symbol, concept=concept, axis=axis, as_of=as_of, periods=periods
+    )
+    if out is None:
+        return [_unresolved_symbol(symbol)]
+    if not out["series"]:
+        return [_no_segments(symbol, concept=concept, axis=axis)]
+    out["note"] = (
+        "as-reported segment values. ⚠️ DERA publishes ~a quarter in arrears, so "
+        "the most recent quarter's segments are NOT here yet — for those, read the "
+        "`earnings_release` exhibit text."
+    )
+    return [out]
+
+
+def _no_segments(symbol: str, *, concept: str | None = None, axis: str | None = None) -> dict[str, Any]:
+    return {
+        "symbol": symbol,
+        "unavailable": True,
+        "note": (
+            f"no segment facts for {symbol}"
+            + (f" under concept {concept!r}" if concept else "")
+            + (f" on axis {axis!r}" if axis else "")
+            + " — single-segment companies report none at all, and the concept name "
+            "varies by filer. Try list_axes=true to see what it does break out."
+        ),
+    }
+
+
+_DERA_SOURCE = "SEC DERA Financial Statement Data Sets"
+
+
 def _read_earnings_release(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path  # releases live in the research earnings store
     from signals.earnings_exhibit import latest_releases
@@ -1085,6 +1141,29 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_fundamentals,
     },
+    "segments": {
+        "description": (
+            "Segment-level financials — revenue and operating income broken out "
+            "by business segment, geography and product line, which the main "
+            "`fundamentals` corpus cannot hold (companyfacts strips XBRL "
+            "dimensions). Source is the SEC's DERA quarterly data sets. This is "
+            "how you answer 'how fast is AWS growing' or 'which segment carries "
+            "the margin': AMZN FY2025 reads AWS revenue $128.72B / operating "
+            "income $45.61B vs North America $426.31B / $29.62B. `concept` takes "
+            "a canonical metric (revenue, operating_income) or a raw XBRL tag. "
+            "⚠️ DERA publishes ~a quarter in arrears — the newest quarter's "
+            "segments are in `earnings_release` (as prose), not here."
+        ),
+        "filters": {
+            "symbol": "REQUIRED — ticker",
+            "concept": "optional — canonical metric or XBRL tag, default 'revenue'",
+            "axis": "optional — e.g. BusinessSegments, Geographical, ProductOrService",
+            "list_axes": "optional bool — what breakdowns this filer reports",
+            "periods": "optional int — periods per bucket, default 6, max 12",
+            "as_of": "optional YYYY-MM-DD — only what had been FILED by then",
+        },
+        "read": _read_segments,
+    },
     "earnings_release": {
         "description": (
             "The actual earnings press release, straight off EDGAR — the EX-99.1 "
@@ -1259,7 +1338,9 @@ _RESOURCE_ALIASES = {
     "earnings_financials": "fundamentals",
     "earnings_report": "earnings_release",
     "press_release": "earnings_release",
-    "segments": "earnings_release",
+    "segment": "segments",
+    "business_segments": "segments",
+    "geographic_revenue": "segments",
     "tape": "equity_tape",
     "dark_pool": "equity_tape",
     "blocks": "equity_tape",

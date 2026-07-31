@@ -295,29 +295,126 @@ def fetch_earnings_source(symbol: str) -> dict[str, Any] | None:
 
 @_fail_soft
 def fetch_fundamentals_source(symbol: str) -> dict[str, Any] | None:
+    """Company fundamentals: our own EDGAR statements first, vendor ratios second.
+
+    The vendor half used to gate the WHOLE source — no Finnhub key meant the
+    research engine saw no fundamentals at all, while 124M as-reported facts sat
+    on disk unread. The filings are the primary record and are free and keyless,
+    so they stand alone; Finnhub's ratios (P/E, margins) are a bonus that is
+    allowed to be absent.
+    """
     sym = normalize_research_symbol(symbol)
-    if not sym or not finnhub_is_configured():
+    if not sym:
         return None
 
-    metrics = _run_async(afetch_company_metrics(sym)) or {}
-    profile = _run_async(afetch_company_profile(sym)) or {}
-    if not metrics and not profile:
+    statements = _edgar_statements(sym)
+    metrics: dict[str, Any] = {}
+    profile: dict[str, Any] = {}
+    if finnhub_is_configured():
+        metrics = _run_async(afetch_company_metrics(sym)) or {}
+        profile = _run_async(afetch_company_profile(sym)) or {}
+    if not statements and not metrics and not profile:
         return None
 
-    content = {"metrics": metrics, "profile": profile}
+    content: dict[str, Any] = {"metrics": metrics, "profile": profile}
+    if statements:
+        content["edgar"] = statements
     name = profile.get("name") or sym
+    parts = [f"{name} fundamentals"]
+    if statements:
+        parts.append(f"{len(statements.get('metrics') or {})} as-reported EDGAR series")
     pe = metrics.get("pe_ttm")
-    snippet = f"{name} fundamentals"
     if pe is not None:
-        snippet += f", P/E {pe:.1f}"
+        parts.append(f"P/E {pe:.1f}")
 
+    sources = ["SEC EDGAR"] if statements else []
+    if metrics or profile:
+        sources.append("Finnhub")
     return {
         "id": _next_source_id("fundamentals"),
         "type": "fundamentals_api",
-        "title": f"{sym} fundamentals (Finnhub)",
+        "title": f"{sym} fundamentals ({' + '.join(sources) or 'unavailable'})",
         "url": None,
-        "snippet": snippet,
+        "snippet": ", ".join(parts),
         "content": content,
+    }
+
+
+def _edgar_statements(sym: str) -> dict[str, Any] | None:
+    """Recent as-reported statements from the EDGAR corpus, trimmed for a prompt."""
+    from research.fundamentals import latest_financials
+
+    out = latest_financials(sym, periods=4)
+    if not out or not out.get("metrics"):
+        return None
+    trimmed: dict[str, Any] = {}
+    for metric, entry in out["metrics"].items():
+        block: dict[str, Any] = {"unit": entry["unit"]}
+        for bucket in ("annual", "quarterly"):
+            if entry[bucket]:
+                block[bucket] = [
+                    {"period_end": i["period_end"], "val": i["val"], "filed": i["filed"]}
+                    for i in entry[bucket]
+                ]
+        # An abandoned concept still has a newest row and reads as current
+        # unless the staleness flag travels with it.
+        if entry.get("stale"):
+            block["stale"] = entry["stale"]
+        trimmed[metric] = block
+    return {
+        "cik": out["cik"],
+        "sector": out["sector"],
+        "sic_desc": out["sic_desc"],
+        "metrics": trimmed,
+        "note": "as-reported SEC filings; `filed` is when each number became public",
+    }
+
+
+@_fail_soft
+def fetch_segments_source(symbol: str) -> dict[str, Any] | None:
+    """Segment revenue/operating income — the breakdown no other source here has.
+
+    "Which segment carries the margin" is a research question the engine could
+    not previously touch: the vendor metrics are company-level and the XBRL
+    corpus strips dimensions.
+    """
+    from research.fundamentals import segment_series
+
+    sym = normalize_research_symbol(symbol)
+    if not sym:
+        return None
+    out = segment_series(sym, concept="revenue", periods=4)
+    if not out or not out["series"]:
+        return None
+
+    reported = [s for s in out["series"] if s["axis"] in ("BusinessSegments", "Geographical")]
+    if not reported:
+        reported = out["series"][:8]
+    content = [
+        {
+            "axis": s["axis"],
+            "member": s["member"],
+            "unit": s["unit"],
+            "annual": [
+                {"period_end": a["period_end"], "val": a["val"]} for a in s["annual"][:4]
+            ],
+        }
+        for s in reported[:12]
+    ]
+    members = ", ".join(dict.fromkeys(s["member"] for s in reported))[:160]
+    return {
+        "id": _next_source_id("segments"),
+        "type": "segments_api",
+        "title": f"{sym} segment breakdown (SEC DERA)",
+        "url": None,
+        "snippet": f"{sym} revenue by segment — {members}",
+        "content": {
+            "segments": content,
+            "note": (
+                "as-reported segment values; DERA publishes ~a quarter in arrears, "
+                "so the newest quarter is not here yet"
+            ),
+        },
     }
 
 

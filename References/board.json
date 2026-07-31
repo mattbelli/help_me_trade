@@ -2498,6 +2498,16 @@
    "owner": "orchestrator",
    "updated_at": "2026-07-31",
    "notes": "session_hour() now correctly refuses the submissions JSON's `Z`, so parse_recent_earnings returns hour=None and the calendar lost its session label. The label was worth having: it filled the ~40% of calendar rows where Finnhub supplies none.\nTHE MECHANISM IS PROVEN (measured 2026-07-31): browse-edgar?action=getcompany&CIK=<cik>&type=8-K&output=atom returns up to 100 filings, each <updated> carrying a correct DST-aware ET offset — verified against the native ACCEPTANCE-DATETIME header on both filer kinds. ONE request per company, not per filing, so it is cheaper than fetching per-filing headers and covers full history.\nWork: teach signals/earnings_edgar.py's backfill to pair each accession with its atom <updated> and feed that to session_hour. ~3,120 companies at 10 req/s ~= 5 min.\n⚠️ Keep the direction bias in mind (edgar-free-earnings-source): a filing lags the release, so the hour is a lower bound on lateness — do NOT use it to shorten exit_lead_td."
+  },
+  {
+   "id": "edgar-dera-segments",
+   "title": "DERA segment-level ingest + deep-research wiring",
+   "lane": "done",
+   "type": "build",
+   "priority": "high",
+   "owner": "orchestrator",
+   "updated_at": "2026-07-31",
+   "notes": "SHIPPED 2026-07-31 (see BUILD_LOG 07-31). research/edgar_dera.py: 80,787,286 segment facts / 426,003 filings / 1,699,004 dimension strings across 69 quarters (2009q1-2026q1) in 30.6 min; edgar_facts.db now 16.5 GB. Verified AMZN AWS revenue 90.76->107.56->128.72B and AWS op income 24.63->39.83->45.61B. 8,304/10,433 mapped tickers (79.6%) have segments.\n⚠️ DERA publishes ~A QUARTER IN ARREARS (2026q2 404s) — BACKFILL source only. Fresh segments come from the 8-K exhibit reader as prose.\nTwo bugs caught during the build: (a) DERA dates are bare YYYYMMDD vs the corpus's ISO — unnormalised, every as_of read spanning both tables sorts wrong; (b) journal_mode=MEMORY locked out all readers, and since segment facts share a file with the 124M-fact corpus a recurring refresh would freeze live fundamentals reads — the DERA path now runs WAL + per-quarter checkpoint (cost hidden; the job is download-bound).\n★ Exposed the real gap: ai/research/ had ZERO perception, and fetch_fundamentals_source returned None whenever Finnhub was unconfigured — a vendor key gating our own free corpus. EDGAR now stands alone there; added fetch_segments_source to the fundamentals specialist. Surface audit: chat ✅, nightly books ✅, deep research ✅ now.\nOps: tools/dera_segments_refresh.sh (weekly, idempotent) also runs --sync-sic, which backfilled sector for 4,428 tickers free from sub.txt (no-sector 6,567 -> 2,139).\nFOLLOW-UP: add the weekly cron entry on serv; 2,139 tickers still lack a sector (mostly ADR/OTC filers with no US filing)."
   }
  ]
 }
