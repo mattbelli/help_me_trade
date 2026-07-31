@@ -120,8 +120,9 @@ snapshot per sweep). Open threads only:
   DEMOTED (all three components clear their negligible bands after RV-stratification); SCIENCE =
   no survival authority (top-RV-quintile balance failed; benchmark (d) leans "mostly RV in
   disguise"). Open: (a) the letter "F" was consumed 07-28 — the judging-rules amendment is now
-  **Addendum G IS LAW (v12, 2026-07-31 — BUILD_LOG row has the gauntlet record**; next =
-  obligation 1, then ordered obligations 2→6, scoring run ≥ close of 2026-08-07; card
+  **Addendum G IS LAW (v12, 2026-07-31 — BUILD_LOG row has the gauntlet record**; obligation 1
+  DISCHARGED 07-31 (findings registration LAW, 17-blocker gauntlet — BUILD_LOG row); next =
+  ordered obligations 2→6, scoring run ≥ close of 2026-08-07; card
   `addendum-g-judging-rules`), and the three 1.14f findings register separately in
   `FLOW_1_14F_FINDINGS_REGISTRATION.md` (**not yet written — gates the G.2 scoring run**, which
   itself cannot start before the close of 2026-08-07); (b) RESOLVED 07-30 — founder PARKED the

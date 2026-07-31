@@ -1,8 +1,10 @@
 # 1.14f/1.14g findings registration — the record frozen before the test window opens
 
-*⚠️ DRAFT v4 — NOT LAW until its gauntlet converges (round 1: 9 unique blockers — 6
-methodology + 4 record, 1 shared; round 2: 6, every one a one-clause record fix; round 3
-targeted diff-verify: 2 — both in the anti-selection machinery, both fixed below). Discharges **obligation 1 of
+*★ LAW as of 2026-07-31 (v5 — v4 plus three rounding/wording absorptions from the final
+verification). Gauntlet record: two full rounds (two split-mandate fresh Opus reviewers
+each) plus two targeted diff verifications; **17 blockers found and fixed** (9, 6, 2, 0 —
+final verdict: "CLEAR TO BECOME LAW", every claim reproduced digit-exact against the
+artifacts). Discharges **obligation 1 of
 Addendum G §G.10** (`FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_G.md`): the intraday-screen
 findings register HERE, in a dated committed document, before obligations 2→6 execute and
 before the untouched test split (2026-06-01 → 2026-07-25) is opened by the G.2 scoring run.
@@ -102,8 +104,9 @@ directional information** at this grain and horizon.
   story):** on the RAW unnormalized forward move the estimand is TINY but PRECISE — all
   three carry CIs and all three star: vol_max −0.00084 [−0.00104, −0.00061],
   largest_print +0.00043 [+0.00016, +0.00074], concentration −0.00219 [−0.00237,
-  −0.00202]; at fired-mass-weighted level these run roughly 10% / 4% / 29% of level,
-  small and MIXED in direction — and **`vol_max_ratio`'s raw arm is itself SIGN-FLIPPED
+  −0.00202]; these run 9.9% / 4.5% / 28.9% of level (estimator pinned: |Δ| ÷ the
+  fired-mass-weighted median of per-stratum fired medians; other reasonable weightings
+  read 3.4–29%), small and MIXED in direction — and **`vol_max_ratio`'s raw arm is itself SIGN-FLIPPED
   against its registered +1** (recorded as a flip by the same rule applied to
   concentration below; a secondary with no authority): fired names' absolute forward
   moves are, if anything, marginally SMALLER. **F1–F3 are statements about a name moving
@@ -118,7 +121,8 @@ directional information** at this grain and horizon.
   −0.017; the decile re-cut +0.109 / +0.070 / −0.019; the close-to-close stratifier
   variant reads +0.142 / +0.098 / −0.020 (BOTH positive components above their
   primaries); the zero-gap-window variant +0.118 / +0.076 / −0.021 (at the primaries).
-  All variants share the FIRING RULE (fired row counts differ ≤ 0.06% via
+  All variants share the FIRING RULE (fired row counts differ ~0.06% at most — 39 of
+  62,685 rows worst-case — via
   variant-specific NA-stratifier drops; complement/stratum rows differ per each
   variant's registration); none
   changes a verdict; all are on the record so none can be "discovered" later.

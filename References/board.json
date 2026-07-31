@@ -17,7 +17,7 @@
    "owner": "agent",
    "updated_at": "2026-07-31",
    "title": "Addendum G pre-run obligations 1\u21926 (scoring run \u2265 close 2026-08-07)",
-   "notes": "Obligation 1: v2 drafted after round 1 (9 unique blockers \u2014 headline catches: the RAW unnormalized estimand is ~ZERO (stars are own-baseline-relative, never absolute motion \u2014 now caveat (e)); the '3-4x stronger RV screen' comparison is REGISTRATION-FORBIDDEN (Arm 2a clause) and is retired from the record incl. its BUILD_LOG appearance; cancellation rule made non-admissible in H1's measurement; H1 re-gated on the 2.3 dOI T+1-aggregate ceiling; all four verdict-narrative pairings now enumerated; tail-rate star on dead-F4 disclosed; scorecard keeps all 6 expectations incl. 3 misses). Round 2 dispatched. Then obligations 2-6."
+   "notes": "Obligation 1 DISCHARGED 07-31: FLOW_1_14F_FINDINGS_REGISTRATION.md is LAW (v5) after 2 full rounds + 2 targeted verifications, 17 blockers (9/6/2/0). Headline catches: RAW estimand ~zero and vol_max raw SIGN-FLIPPED (stars are own-baseline-relative, never absolute motion); the 'free RV 3-4x' comparison retired as registration-forbidden at all 5 homes; scorecard keeps 3 wrong expectations; tcbbo fair trial made non-admissible in H1's measurement. Roadmap 1.14g RESULT block landed same commit. NEXT: obligation 2 \u2014 snapshot generation (successor map + reuse splits via Alpaca corporate-actions pull, test/index/delisted lists, LEGACY_ETF_SET) + bar backfill (4 dotted forms, BLD, SPY through d+10) + tool extension for dotted symbols. Then 3/3b, 5, 6. Scoring run >= close 2026-08-07."
   },
   {
    "id": "confirmatory-abstention-run",

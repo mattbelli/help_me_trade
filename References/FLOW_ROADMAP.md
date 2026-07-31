@@ -1627,7 +1627,7 @@ it is a description of the market. No exceptions.
         elevated equity RV ⇒ elevated forthcoming |move| is vol clustering, not flow
         information. That fork is 1.14g; nothing ships to perception before it runs.
 
-- [ ] **1.14g The vol-clustering fork — RV-nested controls, the equity-RV placebo, and
+- [x] **1.14g The vol-clustering fork — RV-nested controls, the equity-RV placebo, and
       the calibrated survival test** (the registered follow-up to 1.14f's stars; founder
       authorization 07-30). The question, stated as TWO claims the design keeps separate:
       (i) the PRODUCT claim — does the 1.14f screen add anything over a free equity-RV
@@ -1921,6 +1921,37 @@ it is a description of the market. No exceptions.
         1.14g outcome. v3.1 adds ONE clause (the Arm 2b reliability ceiling), from
         the three-auditor review of the IMPLEMENTATION — still before any run. Stratum occupancy, balance, reliability, evaluability, and
         every NA count reported in full. Output: `data/research/mover_intraday_114g.json`.
+
+      **1.14g RESULT — RUN 2026-07-30 (single registered run, SEED=20260809; three
+      launches: #1 aborted at the reproduce gate ITSELF on a real 1e-5 diff-rounding
+      mismatch — 6 of 36 cells; the gate subtracted already-rounded medians while the
+      locked 1.14f writer rounds the difference of unrounded ones; fixed `98ebefb`,
+      regression-pinned — #2 on an over-broad Arm 2b commonality assert (`7e6cd6b`);
+      neither abort emitted any statistic; #3 end-to-end, 2.3 h, 212 sessions, 2.63M
+      rows). Both calibration gates PASSED (permuted-label max deviation 0.003 vs 0.02
+      tolerance; Arm 2a machinery control +0.398★). VERDICT, per the registered
+      two-claim split:**
+      - **PRODUCT — NOT DEMOTED, all three components:** stratified vol_max **+0.121★**
+        [+0.107, +0.135], largest_print **+0.078★** [+0.069, +0.088], concentration
+        **−0.020★** [−0.026, −0.013] — same sign as 1.14f, all clear of their registered
+        negligible bands. Read with the balance caveat below: NOT-DEMOTED is a failure
+        to demote under an under-adjusted stratification, not a product claim.
+      - **SCIENCE — NO SURVIVAL AUTHORITY anywhere:** balance INADEQUATE for all three
+        (vol_max's row: top RV quintile 37% of fired mass, residual gap 0.241 vs the
+        0.019 limit — WORSE than the 0.193 unstratified gap; "the matching failed, not
+        the hypothesis"), and retentions 0.708 / 0.650 sit BELOW the 0.848 split-sample
+        placebo — reading rule (a) pass, (b) pass, (c) fail, (d) fail. Leaning "mostly
+        RV in disguise" — a lean, never a verdict.
+      - Lagged Arm 1b keeps vol_max/largest_print starred at +0.06–0.10 across horizons
+        (concentration survives only H=2h); the raw denominator arm is tiny, precise,
+        and MIXED in sign (vol_max −0.0008, SIGN-FLIPPED vs its registered +1) — the
+        stars are own-baseline-relative, never absolute motion.
+      - ⚠️ The 07-30 BUILD_LOG run row's "free RV screen 3–4×" framing is RETIRED —
+        it is exactly the comparison this section's own Arm 2a clause forbids. The
+        findings, the full caveat set, the expectations scorecard, and the follow-up
+        hypotheses are LAW in `References/FLOW_1_14F_FINDINGS_REGISTRATION.md`
+        (Addendum G obligation 1 — discharged 2026-07-31). Artifacts:
+        `data/research/mover_intraday_114g.json` + `_fired_keys.npz`.
 
 **THIS PHASE IS NOT A BACKTEST.** Founder, 07-27: *"we aren't backtesting a strategy... we can get
 to backtesting possibly if we find a pattern worth testing."* So, explicitly: **no entry, no exit,
