@@ -1,9 +1,10 @@
 # H1 pre-registration — opening-classified flow on a quiet tape
 
-*⚠️ DRAFT v3 — NOT LAW until its gauntlet converges (round 1: 15 unique blockers; round 2:
-4, every one a text fix — the RV-matched design survived; headline round-2 catches: the
-attribution claim overstated what tcbbo uniquely provides, a DST error in the rv_park bin
-window, and the missing 2.4-outcome disclosure — all resolved below). This is the registered follow-up hypothesis H1 of
+*⚠️ DRAFT v4 — NOT LAW until its gauntlet converges (rounds 1/2/3: 15/4/3 blockers, all
+resolved below; round-3 catches: the early-close clause registered a truncation the store
+doesn't have, the R.4 instrument-null rule was INVERTED — an instrument-attributable null
+is recorded as such, NOT as a discharge — and the sole-differencing claim needed its
+enforced/recorded split with a face-of-verdict caveat). This is the registered follow-up hypothesis H1 of
 `FLOW_1_14F_FINDINGS_REGISTRATION.md` §R.4 (LAW 2026-07-31), written BEFORE any H1
 statistic exists. Together with the Addendum G scoring-run grade it constitutes the
 registered fair trial of the Databento `tcbbo` subscription — and per R.4's law: **the
@@ -25,8 +26,11 @@ honesty note):** `f_open` is a T+1 DAILY AGGREGATE — ΔOI reconciled against t
 prints, published pre-open for the prior session (06:30–08:44 ET, ~45 minutes before this
 design's entry — observable pre-entry, but this is registered as a RESEARCH measurement
 on the proxy, not a live signal). A null attributable to the instrument is recorded as
-instrument-limited, not as evidence against the mechanism — and still discharges the
-fair trial (R.4). `f_open` is used CROSS-SECTIONALLY ONLY (its >0.5 level is an OI-decay
+instrument-limited, not as evidence against the mechanism — and, per R.4's explicit
+carve-out, it is **NOT a discharge of the fair trial**: it equally licenses no substitute
+cell, re-declaration, or re-run, and the founder's record carries "H1 did not resolve"
+rather than a discharge. (A graded DEAD on the first registered run IS a complete
+discharge — R.4's general first-run-governs rule.) `f_open` is used CROSS-SECTIONALLY ONLY (its >0.5 level is an OI-decay
 artifact; never thresholded on level).
 
 ---
@@ -49,9 +53,11 @@ volume-weighted f_open summed per identity BEFORE ranking, as at obligation 3b),
 is **INELIGIBLE and counted** (measured at drafting: 9.7–18.0% of floor-clearing name-days
 per judgment date lack an OI match) — it enters NEITHER arm. **Percentile convention:
 obligation 3b's ordinal rank, `100·rank/max(n−1, 1)` (the implementation's n=1 guard
-carried), double-`argsort` with `kind='stable'` — tied values receive DISTINCT
-consecutive ranks in stable input order (measured: zero ties in either variable on the
-sampled sessions, none straddling a cut); cuts applied as ≥ 80.0 and ≤ 33.0.** This population deliberately differs from `_f_open_pct`'s
+carried), double-`argsort` with `kind='stable'` — H1's OWN tightening of 3b's default-sort
+convention, stated as such — tied values receive DISTINCT consecutive ranks in the
+registered input order: **identities sorted by terminal symbol ascending before
+ranking** (ties DO occur — 2 in 1,383 on 2026-07-17, measured); cuts applied as ≥ 80.0
+and ≤ 33.0.** This population deliberately differs from `_f_open_pct`'s
 raw OI cross-section (which includes non-equity roots) and from the census population
 obligation 3b's 90.1% coverage was measured on — disclosed, registered here.
 
@@ -68,11 +74,16 @@ population scope, not a bias): over **all bins present in that session's
 `data/equity_bars_5min/` file — 09:30–15:55 ET; the store's UTC clock SHIFTS WITH DST
 (13:30 UTC starts in EDT, 14:30 in EST — a literal-UTC window silently drops the final
 hour on 85 of the 171 calibration sessions, measured; the file-based pin is DST-free),
-78 bins on a normal session, and on an early-close session only the bins its file
-actually holds through the early close** — read at the terminal symbol,
+78 bins on EVERY session in the store (verified: all 251 session files hold 78 bins
+09:30–15:55 ET — including the two early closes, whose files carry post-close bins);
+on an early-close session the bin GRID is truncated at that session's official 13:00 ET
+close, post-close bins are DISCARDED, and the ≥80% presence denominator is that same
+truncated count — the two such sessions, both calibration-window, are 2025-11-28 and
+2025-12-24, named here; the judgment window contains none** — read at the terminal
+symbol,
 `rv_park = sqrt( Σ ln(h/l)² / (4·ln2 · n_present) )`; 1.14g's absence conditions
 restated in full: a bin is ABSENT when h/l are non-finite, l ≤ 0, or h < l; a bin with
-`h == l` is present and contributes 0; **≥ 80% of that session's own stored bin count
+`h == l` is present and contributes 0; **≥ 80% of that session's bin-grid count (78, or the truncated early-close count)
 present, else NA ⇒ ineligible, counted**.
 
 The event's **direction** = the sign of the day's classified call/put premium tilt (base
@@ -92,8 +103,12 @@ benchmark blocking rule applied identically to events and every baseline.
   `rv_park ≤ p33` that FAIL condition 1 (not opening-heavy), each signed by its own tilt
   sign (zero-tilt excluded and counted). Both arms are calm-tape by construction — the
   day-`d` move magnitude is held comparable (ATR14, a trailing daily quantity, is
-  RECORDED per arm, not enforced — H1.6 #3), and the ONLY
-  differencing coordinate is `f_open`. Estimand: difference of equal-weighted
+  RECORDED per arm, not enforced — H1.6 #3), and the only ENFORCED
+  differencing coordinate is `f_open`. **Registered consequence (mirroring G.10 #5's
+  face-of-verdict precedent): per-arm mean `open/ATR14` is recorded for BOTH windows,
+  and a material per-arm imbalance is reported ON THE FACE of the verdict as an
+  attribution caveat** — the calibration demeans the training series, so a structural
+  arm offset survives in the judgment statistic and cannot be absorbed by the cutoff. Estimand: difference of equal-weighted
   per-event-date means (G.4's shape).
   One-sided, registered-positive. **Attribution, stated as measured:** ΔOI itself rides
   a $0.00 L0 `statistics` feed (roadmap Phase 2 header — "unlike tcbbo it does not age
@@ -119,7 +134,8 @@ benchmark blocking rule applied identically to events and every baseline.
 - **Tilt-sign permutation placebo (registered diagnostic, seed 20260819):** the primary's
   per-date difference recomputed 1,000 times with EVENT tilt signs permuted within date —
   a CONDITIONAL randomization null of the event arm's sign information (its distribution
-  centers on −(baseline mean), not zero; reportable p floored at ~1/1001). Reported
+  centers on s̄·ā − baseline-mean, where s̄ is the per-date net signed share H1.6 #3
+  already records — not on zero; reportable p floored at ~1/1001). Reported
   beside the verdict; changes no verdict.
 
 **Tier pooling — a NAMED AMENDMENT, registered here:** G.9(a)'s pooling prohibition
@@ -138,9 +154,12 @@ quintiles of +0.026 / +0.000 / +0.046 / −0.058 / +0.041. **H1's ≥p80 cut is 
 boundary of that gradient's top bucket, and the gradient was in the record before the
 cut was chosen — influence cannot be excluded and is disclosed rather than denied**
 (the cut is also the natural top-quintile boundary). Weak transfer, stated: 2.4's
-cohort was |z|≥2 Q5 events with no calm conditioning and no RV-matched baseline; H1's
-is a different selection on a different contrast. **Pre-stated prior, for honesty not
-authority, with zero evidentiary weight in either direction (R.3.2's rule): DEAD.**
+cohort was |z|≥2 Q5 events with no calm conditioning and no RV-matched baseline, its
+grader is close-to-close (a DIFFERENT convention from this metric — G.2's own recorded
+caveat), and its span (through 2026-05-29) CONTAINS but exceeds H1's calibration window;
+H1's is a different selection on a different contrast. **Pre-stated prior, for honesty not
+authority (R.3.2's grammar), with zero evidentiary weight in either direction (R.3.1's
+rule): DEAD.**
 Pre-commitment mirroring G.2: the training-window H1 cohort alpha is published
 alongside the test result.
 
@@ -208,9 +227,12 @@ this design). Computed AT the date count and gap vector recorded by H1.6 #3.
    "a gate that cannot fail is not a gate"); the regime-span rule of G.2 with ALL THREE buckets
    (≤ −2%, the OPEN interval (−2%, +2%), ≥ +2% represented on evaluable event dates,
    composition reported — the two measured hinge dates, 2026-06-25 and 2026-07-15,
-   recorded by name); not POWER-LIMITED. ANY run-level failure ⇒ **UNEVALUABLE —
+   recorded by name; ACKNOWLEDGED: H1's cohort is a sparse subset of G's universe, so
+   the tail buckets hinging on single dates are a live UNEVALUABLE route specific to
+   this design); not POWER-LIMITED. ANY run-level failure ⇒ **UNEVALUABLE —
    instrument-limited or under-powered, recorded as such; no substitute cell, no
-   re-declaration, no re-run** (and per R.4 it still discharges the fair trial).
+   re-declaration, no re-run — and per R.4's carve-out an instrument-attributable
+   UNEVALUABLE is NOT a fair-trial discharge: the record reads "H1 did not resolve".**
 2. **The test:** the primary per-event-date difference series against the calibrated
    one-sided cutoff — pass ⇒ **ALIVE**; fail ⇒ **DEAD**. DEAD reads "opening-heavy flow
    on a quiet tape carries no directional edge at 10td over an equally-quiet
@@ -218,8 +240,8 @@ this design). Computed AT the date count and gap vector recorded by H1.6 #3.
    wrong-way t is DEAD and may never be called significant. Secondaries change no
    verdict.
 
-**Why there is no dilution gate (the sharp reason, registered):** G.9b's null is a
-per-order ±1 sign shuffle, which leaves `f_open`, `rv_park`, and therefore H1's event
+**Why there is no dilution gate (the sharp reason, registered):** the G.9c null table's
+draw is a per-order ±1 sign shuffle (G.9b's gate consumes its f₀), which leaves `f_open`, `rv_park`, and therefore H1's event
 SELECTION invariant — `f ≡ f₀` mechanically, the gate is degenerate, and no dilution
 correction is defined. The honest content of that fact: under the order-sign null the
 selection carries zero information by construction, so this design's entire evidential
