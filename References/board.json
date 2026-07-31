@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "h1-quiet-tape-prereg",
+   "lane": "in_progress",
+   "type": "research",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-07-31",
+   "title": "H1 prereg: opening-flow on a quiet tape (tcbbo fair-trial half 2)",
+   "notes": "Founder GO 07-31. DRAFT v1 written: event = f_open>=p80 x rv_park<=p33 cross-sectional + $250k floor on the fenced equity pipeline; PRIMARY = directional 10td (G.2 metric, G.4 inference by reference, seeds 20260818/19); judgment = test split, run strictly AFTER the Addendum G verdict; must be LAW before close 2026-08-07. Gauntlet round 1 dispatched (2 split-mandate reviewers)."
+  },
+  {
    "id": "flow-scoring-obligations",
    "lane": "in_progress",
    "type": "research",
