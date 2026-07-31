@@ -17,7 +17,7 @@
    "owner": "agent",
    "updated_at": "2026-07-31",
    "title": "H1 prereg: opening-flow on a quiet tape (tcbbo fair-trial half 2)",
-   "notes": "v2 drafted 07-31 after round 1 (15 unique blockers). Design catches fixed: PRIMARY is now the RV-MATCHED directional contrast (both arms calm-tape; the only differencing coordinate is f_open \u2014 an ALIVE is attributable to the paid instrument or it is not ALIVE); one pinned population/percentile convention incl. the 1,000-contract floor; rv_park registered as a NEW same-session coordinate (formula written); 07-24 OI gap disposed (extend reconcile w/ the 07-27 stats file, else 36 dates disclosed); per-date coverage gate (drop-and-count, not run-kill); code-freeze before the G run; G.10#5-analogue input record + shape-invariance import; multiplicity disclosure; tilt-permutation placebo (seed 20260819). Round 2 dispatched."
+   "notes": "v3 drafted 07-31 after round 2 (4 blockers, all text): attribution restated as measured (dOI rides a FREE L0 feed; tcbbo-unique = tape volume V + the tilt sign; ALIVE = f_open's MARGINAL contribution to the tcbbo signal); rv_park bin window pinned DST-free (85/171 calibration sessions are EST \u2014 a literal-UTC window silently dropped the last hour); 2.4's graded FAIL at this exact coordinate disclosed + pre-stated prior DEAD; code-freeze deadline rebound to 08-07 (binds H1, never G). 13 nits folded (multiplicity ~2% stated plainly, regime-break disclosure, tie/n=1 conventions, 07-24 inputs already on disk). Round 3 (convergence) next."
   },
   {
    "id": "flow-scoring-obligations",

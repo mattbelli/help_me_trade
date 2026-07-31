@@ -1,9 +1,9 @@
 # H1 pre-registration — opening-classified flow on a quiet tape
 
-*⚠️ DRAFT v2 — NOT LAW until its gauntlet converges (round 1: 15 unique blockers — 10
-methodology + 5 record, 2 shared — all resolved below; the two design catches, an
-RV-confounded baseline and a fair-trial attribution hole, are fixed by an RV-MATCHED
-primary contrast). This is the registered follow-up hypothesis H1 of
+*⚠️ DRAFT v3 — NOT LAW until its gauntlet converges (round 1: 15 unique blockers; round 2:
+4, every one a text fix — the RV-matched design survived; headline round-2 catches: the
+attribution claim overstated what tcbbo uniquely provides, a DST error in the rv_park bin
+window, and the missing 2.4-outcome disclosure — all resolved below). This is the registered follow-up hypothesis H1 of
 `FLOW_1_14F_FINDINGS_REGISTRATION.md` §R.4 (LAW 2026-07-31), written BEFORE any H1
 statistic exists. Together with the Addendum G scoring-run grade it constitutes the
 registered fair trial of the Databento `tcbbo` subscription — and per R.4's law: **the
@@ -42,14 +42,16 @@ classified floor on the EVENT day only. Cache: `data/order_grain_null_v7_equity/
 **The percentile cross-section for BOTH conditions — one population, stated once:**
 identities in the fenced equity universe on session `d` that (i) clear the $250k
 classified floor on `d`, (ii) appear in `oi_reconcile_rollup` with **≥ 1,000
-identity-aggregated contracts** on `d` (§2.3/§2.4's registered volume floor — below it
+identity-aggregated contracts** on `d` (§2.4's registered volume floor — below it
 `f_open` is denominator noise; f_open re-keyed onto identities date-scoped, volume and
 volume-weighted f_open summed per identity BEFORE ranking, as at obligation 3b), and
 (iii) carry a valid `rv_park` (below). A floor-clearing name-day failing (ii) or (iii)
-is **INELIGIBLE and counted** (measured at drafting: 10–18% of floor-clearing name-days
+is **INELIGIBLE and counted** (measured at drafting: 9.7–18.0% of floor-clearing name-days
 per judgment date lack an OI match) — it enters NEITHER arm. **Percentile convention:
-obligation 3b's ordinal rank, `100·rank/(n−1)`, `argsort` ties to the lower rank; cuts
-applied as ≥ 80.0 and ≤ 33.0.** This population deliberately differs from `_f_open_pct`'s
+obligation 3b's ordinal rank, `100·rank/max(n−1, 1)` (the implementation's n=1 guard
+carried), double-`argsort` with `kind='stable'` — tied values receive DISTINCT
+consecutive ranks in stable input order (measured: zero ties in either variable on the
+sampled sessions, none straddling a cut); cuts applied as ≥ 80.0 and ≤ 33.0.** This population deliberately differs from `_f_open_pct`'s
 raw OI cross-section (which includes non-equity roots) and from the census population
 obligation 3b's 90.1% coverage was measured on — disclosed, registered here.
 
@@ -62,11 +64,16 @@ FORMULA, not its stratifier: 1.14g's quantity is a trailing gapped intraday wind
 its stratifier is the own-normalized `rv_ratio`; H1 uses the RAW same-session level
 cross-sectionally — deliberately, and with the consequence disclosed: a raw-level rank
 selects calm NAMES as much as calm DAYS; the RV-matched contrast below makes that a
-population scope, not a bias): over ALL RTH 5-min bins of session `d` from
-`data/equity_bars_5min/` (78 bins, 13:30–19:55 UTC), read at the terminal symbol,
-`rv_park = sqrt( Σ ln(h/l)² / (4·ln2 · n_present) )`; a bin with `h == l` is present and
-contributes 0; **≥ 80% of the session's bins present, else NA ⇒ ineligible, counted**
-(1.14g's absence conditions verbatim).
+population scope, not a bias): over **all bins present in that session's
+`data/equity_bars_5min/` file — 09:30–15:55 ET; the store's UTC clock SHIFTS WITH DST
+(13:30 UTC starts in EDT, 14:30 in EST — a literal-UTC window silently drops the final
+hour on 85 of the 171 calibration sessions, measured; the file-based pin is DST-free),
+78 bins on a normal session, and on an early-close session only the bins its file
+actually holds through the early close** — read at the terminal symbol,
+`rv_park = sqrt( Σ ln(h/l)² / (4·ln2 · n_present) )`; 1.14g's absence conditions
+restated in full: a bin is ABSENT when h/l are non-finite, l ≤ 0, or h < l; a bin with
+`h == l` is present and contributes 0; **≥ 80% of that session's own stored bin count
+present, else NA ⇒ ineligible, counted**.
 
 The event's **direction** = the sign of the day's classified call/put premium tilt (base
 prereg 68-72's `dir`, RAW); exact-zero tilt ⇒ the event enters the magnitude arm only,
@@ -84,21 +91,36 @@ benchmark blocking rule applied identically to events and every baseline.
   1+2) minus the **RV-matched baseline**: name-days of the SAME cross-section with
   `rv_park ≤ p33` that FAIL condition 1 (not opening-heavy), each signed by its own tilt
   sign (zero-tilt excluded and counted). Both arms are calm-tape by construction — the
-  denominator (ATR14) and day-`d` move magnitude are held comparable, and the ONLY
-  differencing coordinate is `f_open`, the ingredient the subscription uniquely
-  provides. Estimand: difference of equal-weighted per-event-date means (G.4's shape).
-  One-sided, registered-positive. **An ALIVE here is attributable to the paid instrument
-  or it is not ALIVE — the fair-trial attribution hole is closed by construction.**
+  day-`d` move magnitude is held comparable (ATR14, a trailing daily quantity, is
+  RECORDED per arm, not enforced — H1.6 #3), and the ONLY
+  differencing coordinate is `f_open`. Estimand: difference of equal-weighted
+  per-event-date means (G.4's shape).
+  One-sided, registered-positive. **Attribution, stated as measured:** ΔOI itself rides
+  a $0.00 L0 `statistics` feed (roadmap Phase 2 header — "unlike tcbbo it does not age
+  out"); as implemented, `f_open`'s denominator V is the tcbbo tape's per-contract
+  volume, and whether a cheaper volume source substitutes is NOT measured. The
+  tcbbo-unique ingredients held fixed across both arms are the tilt SIGN that signs
+  every observation and the fenced classified premium in the floor. **So an ALIVE is
+  attributable to the JOINT conditioning of the tcbbo-derived tilt sign on `f_open` —
+  the contrast isolates `f_open`'s MARGINAL contribution to the tcbbo signal**, the
+  defensible fair-trial claim; draft v1's free-leg attribution hole stays closed by the
+  RV-matched construction.
 - **SECONDARY (reported, labelled, NO kill authority):** (a) the joint contrast (events
   vs fails-1-or-2) — the v1 primary, demoted for the reasons in the header; (b) the
   magnitude (|alpha|) version of the primary contrast, whose baseline uses the same
   RV-matched rule with zero-tilt name-days INCLUDED (they carry magnitude; pinned here);
-  (c) an ex-monthly-expiry leg of the primary (2026-06-18 and 07-17 sit in the window at
-  the lowest measured OI coverage, 84.7%/82.0% — reported separately, never a rescue).
+  (c) an ex-monthly-expiry leg of the primary (2026-06-18 and 07-17 sit in the window
+  among the lowest measured OI coverage — 84.7% and 82.0%, the latter the minimum;
+  §2.3's expiry-day contract-level figure is 80–87% — reported separately, never a
+  rescue). Disclosed, symmetric across arms within each date: the tcbbo `size` UNDEF
+  sentinel disappears from the feed between 2026-06-22 and 06-29 (roadmap — a corpus
+  regime break splitting the 37 dates roughly in half, with the calibration window
+  entirely pre-break); not a bias channel, on the record.
 - **Tilt-sign permutation placebo (registered diagnostic, seed 20260819):** the primary's
-  per-date difference recomputed 1,000 times with event tilt signs permuted within date —
-  a genuine directional null (the order-sign shuffle cannot reach this design; see
-  H1.5). Reported beside the verdict; changes no verdict.
+  per-date difference recomputed 1,000 times with EVENT tilt signs permuted within date —
+  a CONDITIONAL randomization null of the event arm's sign information (its distribution
+  centers on −(baseline mean), not zero; reportable p floored at ~1/1001). Reported
+  beside the verdict; changes no verdict.
 
 **Tier pooling — a NAMED AMENDMENT, registered here:** G.9(a)'s pooling prohibition
 governs firing-rate grading against the per-tier null table; H1 grades an
@@ -107,28 +129,51 @@ denominator, and grades POOLED across liquidity tiers. The per-arm tier composit
 (and per-arm mean ATR14/price, per-date net signed share) is recorded in the pre-run
 record (H1.6 #3) so the composition claim is checkable, not assumed.
 
+**Outcome-data disclosure and pre-stated prior (G.2's and R.3.2's grammar, owed here):**
+the closest prior measurement is roadmap 2.4's graded run (2026-07-29) — the SAME
+instrument (`f_open` percentile), horizon (10td), metric family (signed ATR-normalized
+alpha) and window H1 calibrates on — and it FAILED leaning the wrong way (Q5 open−close
+−0.043 ATR [−0.133, +0.046]), with a published dose gradient across f_open rank
+quintiles of +0.026 / +0.000 / +0.046 / −0.058 / +0.041. **H1's ≥p80 cut is the
+boundary of that gradient's top bucket, and the gradient was in the record before the
+cut was chosen — influence cannot be excluded and is disclosed rather than denied**
+(the cut is also the natural top-quintile boundary). Weak transfer, stated: 2.4's
+cohort was |z|≥2 Q5 events with no calm conditioning and no RV-matched baseline; H1's
+is a different selection on a different contrast. **Pre-stated prior, for honesty not
+authority, with zero evidentiary weight in either direction (R.3.2's rule): DEAD.**
+Pre-commitment mirroring G.2: the training-window H1 cohort alpha is published
+alongside the test result.
+
 ## H1.3 Windows, ordering, and the touch rule
 
 - **Training window** (calibration only): 2025-07-28 → 2026-03-31 (G.4's dated split).
 - **Judgment window: 2026-06-01 → 2026-07-24 MINUS 2026-07-23 (37 dates, G.2's cell
   verbatim).** Known instrument fact, disposed NOW: `oi_reconcile.db` ends 2026-07-23,
   so 2026-07-24 currently has ZERO f_open coverage. **Registered disposition: H1.6 #2
-  extends the reconcile with the 2026-07-27 OPRA statistics file (pure data acquisition,
-  §2.3's own machinery, pulled while the subscription is live); if the file is
-  unobtainable, 07-24 is an instrument-dead date — dropped and counted, window = 36
-  dates, disclosed on the face of the verdict.**
+  extends the reconcile through session 2026-07-24 (§2.3's own machinery; the needed
+  inputs — `opra_oi/2026-07-27.npz`, `2026-07-24.npz`, and the 07-24 defs/tcbbo files —
+  are ALREADY ON DISK, so this is a re-run, not an acquisition); in the residual case
+  it cannot complete, 07-24 is an instrument-dead date — dropped and counted, window =
+  36 dates, disclosed on the face of the verdict.**
 - **Ordering and the touch rule, stated correctly:** this registration must be LAW
   before the close of 2026-08-07 — the earliest date any registered scoring run may
   execute on this split (G.2/G.10's date bound) — hence before the Addendum G GRADE of
   the split exists. G.10's disclosed prior reads (2.4's June-close reads, 1.14f's
   outcome-store fetch) stand and are not reopened; the governing rule is behavioral,
   not calendrical: **an H1 outcome statistic on the split before this document is law
-  voids the run (R.5's undertaking, adopted here).** The H1 scoring run executes
+  voids the run (G.10's before-law rule + R.5's own-undertaking form, both adopted
+  here).** The H1 scoring run executes
   STRICTLY AFTER the Addendum G verdict is recorded, reads only the frozen artifacts
   (fenced cache, classification snapshot, oi_reconcile, `data/equity_bars_5min/`), and
   computes nothing on any window other than those registered here.
-- **Multiplicity, disclosed:** G.2 and H1 are TWO one-sided 99% tests touching the same
-  37-date split (different cohorts, same metric family). No correction is applied —
+  (Panel lead-in: H1 is lead-in-invariant beyond 20 sessions — the presence rule looks
+  back 20 and no trailing-quintile machinery exists here; G.9c's EXACTLY-60 rule is a
+  null-table property and does NOT import.)
+- **Multiplicity, disclosed, with the number stated plainly:** G.2 and H1 are TWO
+  one-sided 99% tests touching the same 37-date split (different cohorts, same metric
+  family) — under a global null the chance that AT LEAST ONE spuriously returns ALIVE
+  is about 2%, double what either document's cutoff advertises alone. No correction is
+  applied —
   each is its own registered hypothesis — and the registered consequence is: the two
   verdicts are reported separately and may NEVER be combined into a single "flow works"
   claim; the input-side overlap between H1's event cohort and G's fired cohort is
@@ -144,7 +189,8 @@ size-calibrated exactly as G.4** — the training-window per-date difference ser
 THESE coordinates, demeaned, circular MBB (block 10, ⌈G/10⌉ draws truncated to G),
 100,000 replications, **seed 20260818**, identical in-replicate variance rule, cutoff =
 the 99th percentile of signed replicate t; **the MDE is δ-shifted on the SAME replicates
-per G.4 (no second seed)**, 0.01-ATR grid, ≥ 80% power, > 1.00 ATR ⇒ POWER-LIMITED.
+per G.4 (no second seed)**, 0.01-ATR grid, ≥ 80% power, > 1.00 ATR ⇒ POWER-LIMITED, published with per-date sd and
+autocorrelation, rounded to 2 decimals (G.4's record fields).
 Calibration dates = training dates carrying ≥ 1 gradeable event AND ≥ 1 gradeable
 baseline observation; H1's short-lookback rule is its own: the 15-of-20 presence rule
 and ATR14's case-(iii) route govern early dates (no trailing-quintile lookback exists in
@@ -157,7 +203,9 @@ this design). Computed AT the date count and gap vector recorded by H1.6 #3.
    equity name-days carrying an OI match (≥1,000 contracts) — must be ≥ 70%; a date
    below it is instrument-dead: dropped and counted, never graded** (measured at
    drafting: 36 of 37 dates run 82.0–90.3%; 07-24 is the known zero pending H1.6 #2) —
-   the ≥ 20-date bar then governs; the regime-span rule of G.2 with ALL THREE buckets
+   the ≥ 20-date bar then governs (measured: no in-window date sits between 70% and
+   82%, so this gate is in practice a TRIPWIRE for the 07-24 case — named as such, per
+   "a gate that cannot fail is not a gate"); the regime-span rule of G.2 with ALL THREE buckets
    (≤ −2%, the OPEN interval (−2%, +2%), ≥ +2% represented on evaluable event dates,
    composition reported — the two measured hinge dates, 2026-06-25 and 2026-07-15,
    recorded by name); not POWER-LIMITED. ANY run-level failure ⇒ **UNEVALUABLE —
@@ -183,9 +231,12 @@ returns — which is exactly what the calibrated test and the permutation placeb
 1. This registration LAW (gauntlet converged) — before the close of 2026-08-07.
 2. **Instrument extension + freeze:** pull the 2026-07-27 OPRA statistics file and
    extend `oi_reconcile` through session 2026-07-24 (§2.3 machinery, pure acquisition);
-   then **the H1 implementation is committed and its git hash recorded BEFORE the
-   Addendum G scoring run executes; the feasibility and input records below run on that
-   frozen code; any later code change is a dated addendum.**
+   then **the H1 implementation is committed and its git hash recorded before the close
+   of 2026-08-07 (the earliest permitted G scoring date); if the Addendum G run executes
+   before this freeze, H1 is VOID and must be re-registered — the obligation binds H1,
+   NEVER G's timing (R.4: the fair trial does not gate the scoring run). The feasibility
+   and input records below run on that frozen code; any later code change is a dated
+   addendum.**
 3. **Input-property record (the G.10 #5 analogue; ALSO cannot run before the close of
    2026-08-07 for the judgment-window halves):** training-window event counts and
    realized percentile cuts; per-date instrument coverage across all 37 dates; the
