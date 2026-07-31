@@ -43,15 +43,8 @@ only the actions are here.
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
-- ⏳ 07-31: first TIMER-driven external backup (09:15 UTC) stamps `/mnt/backup/hmt-backups/
-  last_success` and the log ends "backup OK" — the two manual runs prove the script, not the
-  timer. Also confirm the drive is still mounted `fuseblk` (ntfs-3g), NEVER `ntfs3`
-  (`ntfs3-kernel-driver-panicked-serv`).
 - ⏳ (was Mon 07-27) IV corpus first live cron run: `iv_daily` row per universe symbol + sane
   `bars_current`; then 07-28: OI backfill lands on 07-27's rows (OI publishes a session late).
-- ⏳ (was Mon 07-27+) re-run `tools/option_spread_probe.py` INTRADAY before recording the spread
-  gate (prereg fixed: Saturday-close CHEAP would be decisive, PROHIBITIVE not; the ~3.2× cohort
-  ratio is the robust part).
 - ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
   Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
   submit-at-the-open. The stop_guard half of this verify is blocked until `stop-guard-never-fires`
