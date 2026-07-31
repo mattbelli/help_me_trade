@@ -36,7 +36,7 @@
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "v7 drafted 07-30: round 6 returned 7 blockers (67\u219274 fixed). Headline: the successor map is now SOURCED from Alpaca corporate-actions name_change records (106 corpus-relevant renames, date-scoped \u2014 symbol reuse is real; 4 of 9 seam-inferred reviewer pairs were refuted by the authoritative records), merged at event grain; primary cell registered EQUITY-universe-only (cash-index roots = 37.1% of window premium, structurally bar-less); baseline universe + truncation symmetry pinned; calibration window dated; dilution-gate bootstrap parameterized. Round 7 dispatched.",
+   "notes": "v8 drafted 07-31: round 7 returned 9 blockers (74\u219283 fixed). Round 7 validated the sourced map (106 renames + all 4 refutations independently reproduced) but broke the merge SEMANTICS: v8 registers two-direction identity (flow date-scoped at process_date; bars/ATR/classification read at the TERMINAL symbol), a reuse SPLIT list (ARIS/GOLD/SPCX), an `adjusted` class for digit-suffix roots and a `test` class (both excluded everywhere), vendor authority for truncated/ungradeable (store faults: BLD/TMHC/NUVL), ATR14 pinned with a <15-bar UNGRADEABLE rule, DEAD split into (dilution)/(test) wordings, and a written variance-fallback formula (LRV=Var(x,ddof=1) on the series in hand \u2014 never a training constant). Round 8 dispatched.",
    "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
   },
   {
