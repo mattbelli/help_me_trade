@@ -1,10 +1,13 @@
 # Addendum G — the judging-rules amendment (roadmap 1.15–1.23, hosting 1.4 and 1.5)
 
-*⚠️ DRAFT v11 — NOT LAW until the gauntlet converges. Blockers by round: v1 18, v2 16, v3 11,
-v4 13, v5 9, v6 7, v7 9, v8 10, v9 6, v10 1 (0 methodology — verdict: "Converged… let it
-become law" — + 1 record: a single v10-introduced digit, $161.6M → $153.8M). All resolved
-below; v11 = v10 + that digit + round-10 nit closures, pending a targeted diff verification.
-Orchestrator, 2026-07-31.*
+*★ LAW as of 2026-07-31 (v12 — v11 plus two cosmetic absorptions from the final diff
+verification). Adversarial gauntlet record: TEN full rounds, each with two split-mandate
+fresh Opus reviewers (methodology / record-consistency), plus one targeted diff
+verification; **100 blockers found and fixed** (by round: 18, 16, 11, 13, 9, 7, 9, 10, 6,
+1). Round-10 verdicts: methodology CONVERGED, 0 blockers ("Let it become law"); record 1 (a
+drafting digit, fixed and re-verified). Final verification verdict: "CLEAR TO BECOME LAW" —
+every changed passage reproduced on the corpus to the digit. Changing anything registered
+here is a NEW dated addendum (G.10). Orchestrator, 2026-07-31.*
 
 *Dated addendum to `FLOW_BASELINE_PREREG_2026-07-26.md`. This is the amendment roadmap §1d
 reserved as "Addendum F"; that letter was consumed 07-28, so this is G (`INDEX.md`'s Addendum E
@@ -195,7 +198,7 @@ silently put the cohort and `f₀` on different universes — named so it cannot
   in (i) with a zero-length window and no `open_{d+1}`,
   where the metric is undefined and three readings were available. Instance shape, stated
   precisely: NUVL (bars end 2026-07-14) and TMHC (07-23) — both vendor-confirmed genuine
-  terminations — truncate under (i) with 1–3-session windows for events shortly BEFORE their
+  terminations — truncate under (i) with 1–6-session windows for events BEFORE their
   last bar; (iv) catches any name-day AT or beyond the final bar, the state (i) cannot grade. **Order and indexing
   pinned: cases are checked (ii) → (iii) → (iv) → (i), each name-day tallied exactly once;
   `d+k` means the k-th session after `d` in the registered BENCHMARK (SPY) session calendar**
@@ -417,7 +420,7 @@ registration). **Registered, one estimator, one parameterization:**
   60-session warm-up exists before it; dates whose trailing-60 quintile lookback is short are
   RETAINED** (drafting-approximation impact: Q5 membership ~777 vs ~788 names/date, ~50 vs ~53
   events/date — small either way; the registered numbers come from the obligation-3
-  pipeline, and the literal reading is now the registered one). That** per-date difference series is DEMEANED TO ZERO, then moving-block
+  pipeline, and the literal reading is now the registered one). That per-date difference series is DEMEANED TO ZERO, then moving-block
   bootstrapped — block length 10, 100,000 replications, seed 20260810; **block assembly
   pinned: CIRCULAR blocks (the series wraps, so endpoints are not under-weighted), draw
   ⌈G/10⌉ blocks by uniformly random start position, concatenate, truncate to length G** — at

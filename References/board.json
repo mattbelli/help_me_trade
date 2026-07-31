@@ -31,13 +31,13 @@
   },
   {
    "id": "addendum-g-judging-rules",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "research",
    "priority": "high",
    "owner": "orchestrator",
    "updated_at": "2026-07-30",
-   "notes": "v11 drafted 07-31: ROUND 10 CONVERGED \u2014 methodology 0 blockers ('Let it become law'; state-space enumerated, HAC reduces to textbook NW, ~2 dozen measurements reproduced to the digit, 'strongest record I have audited'); record 1 blocker = a v10-introduced digit ($161.6M\u2192$153.8M test-root classified sum). v11 = v10 + that digit + round-10 nit closures (SPY-session gap naming, interior-hole\u2192blocking-fault, (iii) no-bar-at-d pin, (iv) instance shapes stated precisely, residual $24.8M, SE attribution, G.9b assembly import, G.1 named-amendment tag). Targeted diff-verify pass dispatched; on clean return the header de-DRAFTs to LAW. Tally: 100 blockers over 10 rounds.",
-   "title": "Addendum G (judging-rules amendment) \u2014 draft v4 in adversarial gauntlet, round 4"
+   "notes": "LAW 2026-07-31 (v12). Ten full rounds x two split-mandate Opus reviewers + a final targeted diff verification ('CLEAR TO BECOME LAW'); 100 blockers found and fixed (18/16/11/13/9/7/9/10/6/1). Registers: one falsifiable primary cell (ALL/expected-Q5/10td, equity-only), size-calibrated cutoff, parameterized dilution gate with split DEAD verdicts, sourced date-scoped rename map (106 renames; seam inference refuted and forbidden), four-case terminal-value rule, ordered obligations 1-6. Pre-stated: DEAD (dilution) is a realistic outcome (f~7.9% vs f0~8.6% approx). Full record: BUILD_LOG 07-31. Next thread: FLOW_1_14F_FINDINGS_REGISTRATION.md (obligation 1), then obligations 2-6; scoring run >= close 2026-08-07.",
+   "title": "Addendum G (judging rules) \u2014 LAW after a 10-round, 100-blocker adversarial gauntlet"
   },
   {
    "id": "vol-abnormality-scanner",
