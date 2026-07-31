@@ -77,7 +77,7 @@
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-07-30",
-   "notes": "Registration = LAW at FLOW_ROADMAP.md \u00a71.14g (v3+v3.1, SEED=20260809). Built tools/mover_intraday_114g.py (~3k lines, 76 tests); run #3 completed end-to-end 07-30 (2.3h, 212 sessions, 2.63M rows) after two uncontaminated pre-emission aborts (gate log bug; over-broad Arm 2b assert \u2014 fixed per-window, 7e6cd6b). VERDICT (all 3 components): PRODUCT = NOT DEMOTED \u2014 stratified primaries starred, same sign as 1.14f, clear of negligible bands (vol_max +0.121, largest_print +0.078, concentration \u22120.020). SCIENCE = NO SURVIVAL AUTHORITY \u2014 balance INADEQUATE (top RV quintile: 37% of fired mass, residual gap 0.241 vs 0.019 limit; the matching failed, not the hypothesis) and benchmark (d) failed (components retain 0.65\u20130.71 through stratification vs placebo 0.848 \u2014 leans 'mostly RV in disguise'). Context: free RV screen raw delta 0.32\u20130.43 = 3\u20134x the components' stratified residual; lagged arm keeps vol_max/largest_print starred; join>=98 arm mirrors. Artifacts: data/research/mover_intraday_114g.json + _fired_keys.npz (row keys for a 1.14h identity gate). Full row: BUILD_LOG 07-30. Follow-ups: Addendum F registration (own thread); founder perception-surface decision (founder lane, HANDOFF)."
+   "notes": "Registration = LAW at FLOW_ROADMAP.md \u00a71.14g (v3+v3.1, SEED=20260809). Built tools/mover_intraday_114g.py (~3k lines, 76 tests); run #3 completed end-to-end 07-30 (2.3h, 212 sessions, 2.63M rows) after two uncontaminated pre-emission aborts (gate log bug; over-broad Arm 2b assert \u2014 fixed per-window, 7e6cd6b). VERDICT (all 3 components): PRODUCT = NOT DEMOTED \u2014 stratified primaries starred, same sign as 1.14f, clear of negligible bands (vol_max +0.121, largest_print +0.078, concentration \u22120.020). SCIENCE = NO SURVIVAL AUTHORITY \u2014 balance INADEQUATE (top RV quintile: 37% of fired mass, residual gap 0.241 vs 0.019 limit; the matching failed, not the hypothesis) and benchmark (d) failed (components retain 0.65\u20130.71 through stratification vs placebo 0.848 \u2014 leans 'mostly RV in disguise'). Context: free-RV-vs-stratified comparison RETIRED (registration-forbidden; findings registration caveat (b)); lagged arm keeps vol_max/largest_print starred; join>=98 arm mirrors. Artifacts: data/research/mover_intraday_114g.json + _fired_keys.npz (row keys for a 1.14h identity gate). Full row: BUILD_LOG 07-30. Follow-ups: Addendum F registration (own thread); founder perception-surface decision (founder lane, HANDOFF)."
   },
   {
    "id": "1-14f-intraday-screen",
@@ -2476,7 +2476,7 @@
   },
   {
    "id": "flow-perception-ship",
-   "title": "Flow perception surface \u2014 PARKED by founder 07-30 (1.14g: a free RV screen carries 3\u20134x the signal)",
+   "title": "Flow perception surface \u2014 PARKED by founder 07-30 (1.14g: science verdict carried no survival authority; free-RV comparison retired per findings registration caveat (b))",
    "lane": "backlog",
    "type": "build",
    "priority": "normal",

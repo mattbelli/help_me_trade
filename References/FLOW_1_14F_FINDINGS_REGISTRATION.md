@@ -1,7 +1,8 @@
 # 1.14f/1.14g findings registration — the record frozen before the test window opens
 
-*⚠️ DRAFT v2 — NOT LAW until its gauntlet converges (round 1: 9 unique blockers — 6
-methodology + 4 record, 1 shared — all resolved below). Discharges **obligation 1 of
+*⚠️ DRAFT v3 — NOT LAW until its gauntlet converges (round 1: 9 unique blockers — 6
+methodology + 4 record, 1 shared; round 2: 6, every one a one-clause record fix — all
+resolved below). Discharges **obligation 1 of
 Addendum G §G.10** (`FLOW_BASELINE_PREREG_2026-07-26_ADDENDUM_G.md`): the intraday-screen
 findings register HERE, in a dated committed document, before obligations 2→6 execute and
 before the untouched test split (2026-06-01 → 2026-07-25) is opened by the G.2 scoring run.
@@ -23,7 +24,12 @@ here carries survival authority; nothing here touches a test-split outcome. Orch
 
 Both results come from single registered executions behind pre-registrations that survived
 pre-run adversarial review (1.14f SEED=20260808; 1.14g SEED=20260809 — 1.14g took three
-launches: #1 died on a gate-log bug and #2 on an over-broad Arm 2b assert, both BEFORE any
+launches: #1 aborted at the reproduce gate ITSELF — counts integer-exact and medians
+digit-exact at all 36 cells, but 6 cells' diff off by exactly 1e-5 because the gate
+subtracted already-rounded medians while the locked 1.14f writer rounds the difference of
+the unrounded ones (fixed `98ebefb`, regression-pinned; the cosmetic gate-log fix
+`92bfd08` rode along) — the gate fired correctly on a real mismatch; #2 died on an
+over-broad Arm 2b assert; both aborts BEFORE any
 statistic was emitted, so the fix loop stayed uncontaminated; #3 ran end-to-end). 1.14g
 additionally reproduced 1.14f's aggregate signature at all 36 cells before emitting
 anything — counts integer-exact, medians and diffs to 5 decimals; **aggregate-only, never
@@ -68,7 +74,8 @@ directional information** at this grain and horizon.
 **Shared caveats of record:**
 - **(a) The 1.14g balance gate failed for all three components** (figures below are
   `vol_max_ratio`'s row; the other two fail on their own scales — largest_print 31.3% /
-  0.151 vs 0.0125; concentration 19.3% / 0.0166 vs 0.00089): the top RV quintile holds
+  0.151 vs 0.0125; concentration 19.3% / 0.0166 vs 0.00089 — concentration's recorded
+  failure is the 4-of-5-quintiles clause, its heavy-quintile test passed): the top RV quintile holds
   ~37% of fired mass with residual RV gap 0.241 vs the 0.019 limit — WORSE than the 0.193
   unstratified gap, i.e. the stratified estimates are UNDER-adjusted, so "NOT DEMOTED" is
   a failure to demote under an under-powered adjustment, not a product claim. No
@@ -79,24 +86,35 @@ directional information** at this grain and horizon.
   document carries: the §1.14g registration FORBIDS comparing Arm 2a's unstratified
   equity-RV Δ against the components' stratified Δs ("NOT magnitude-comparable … forbids
   demoting or promoting by comparing those two numbers"). A "3–4×" version of that
-  forbidden comparison appeared in the 2026-07-30 BUILD_LOG run row and is RETIRED here —
-  it may not be quoted from this program's record.
+  forbidden comparison lived in FOUR places — the 2026-07-30 BUILD_LOG run row
+  (append-only; superseded by this caveat), board cards `flow-perception-ship` (title)
+  and `1-14f-vol-matched-followup` (notes), and `memory/vol-scanner-direction.md` — the
+  living three are CORRECTED in this document's own commit, and the comparison may not be
+  quoted from this program's record.
 - **(c)** Effects are LARGER far from earnings (vol_max far +0.180 vs in-gate +0.158) —
   not the calendar in costume.
 - **(d)** The lagged panel keeps F1/F2 starred at +0.06–0.10 across all horizons — a real
   anticipatory residual is COMPATIBLE with the record but not established by it.
-- **(e) Registered denominator diagnostics, same rows (recorded because they complicate
-  the story):** on the RAW unnormalized forward move the estimand is ≈ ZERO (−0.001 /
-  +0.000 / −0.002) — **F1–F3 are statements about a name moving more than is normal FOR
-  THAT NAME, never that fired names move more in absolute terms**; on outcome ÷
-  same-window rv_park it is LARGER than the primary (+0.212 / +0.128 / +0.098); the
-  contemporaneous-complement (decision-time-population) arm retains +0.097 / +0.056 /
+- **(e) Registered denominator diagnostics (recorded because they complicate the
+  story):** on the RAW unnormalized forward move the estimand's point estimates are ≈
+  ZERO (−0.001 / +0.000 / −0.002; no CI emitted; raw medians run 0.010–0.042, so these
+  are 2–6% of level) — **F1–F3 are statements about a name moving more than is normal
+  FOR THAT NAME, not evidence that fired names move more in absolute terms**; on outcome
+  ÷ same-window rv_park the estimand is LARGER than the primary for `vol_max_ratio`
+  (+0.212) and `largest_print_ratio` (+0.128), while `concentration` reads **+0.098,
+  SIGN-FLIPPED against its registered −1 sign** — recorded as a flip per the 1.14g
+  registration's own rule, never folded into "larger"; a secondary with no authority.
+  The contemporaneous-complement (decision-time-population) arm retains +0.097 / +0.056 /
   −0.017; the decile re-cut +0.109 / +0.070 / −0.019; the close-to-close stratifier
-  variant reads +0.142 for vol_max, above the primary. All same-rows secondaries; none
+  variant reads +0.142 / +0.098 / −0.020 (BOTH positive components above their
+  primaries); the zero-gap-window variant +0.118 / +0.076 / −0.021 (at the primaries).
+  All variants share the FIRED set (complement/stratum rows differ per each variant's
+  registration); none
   changes a verdict; all are on the record so none can be "discovered" later.
 - **(f)** The 3× tail-rate secondary is clear of zero at the primary cell for all four
-  components — including `short_dte_share` (+0.006 [+0.003, +0.009], starred on tail in 8
-  of 9 all-train cells) whose registered median statistic is null (F4). Recorded, no
+  components — including `short_dte_share` (+0.006 [+0.003, +0.009], starred on tail in 9
+  of 9 all-train cells, 7 of 9 in the join≥98 arm) whose registered median statistic is
+  null (F4). Recorded, no
   survival authority; F4's verdict is the median statistic's, per its registration.
 
 ## R.2 Expectations vs outcomes — the full scorecard, misses kept
@@ -106,7 +124,10 @@ re-stamped in the artifact); all five are scored, plus 1.14f's own:
 - "Arm 2a strongly positive" — **RIGHT** (+0.398★, machinery control).
 - "Every component attenuates substantially" — **RIGHT for two of three** (vol_max 0.708,
   largest_print 0.650; concentration barely attenuated at the primary cell — 0.96, 0.63
-  at W=120).
+  at W=120). On the record before it can be "found" later: both RIGHT components
+  retained MORE than the ~40–57% the registration's own zero-flow-information simulation
+  prior predicts — retention alone distinguishes nothing, which is why (d) is the
+  benchmark.
 - "`vol_max_ratio` most exposed (numerator mechanically coupled to RV)" — **WRONG**: it
   retained MORE than largest_print (0.708 vs 0.650), the less exposed of the two.
 - "`largest_print_ratio` the likelier science survivor" — **WRONG**: it retained least,
@@ -114,6 +135,11 @@ re-stamped in the artifact); all five are scored, plus 1.14f's own:
 - "`concentration` expected PRODUCT-DEMOTED" — **WRONG**: it cleared its negligible band.
 - 1.14f's own registered motivated positive (`short_dte_share`) — **WRONG at this grain**
   (F4).
+- 1.14f's registered NEGATIVE day-grain forward priors on `vol_max_ratio` and
+  `largest_print_ratio` (from 1.14e; "a negative finding here is confirmatory color") —
+  **WRONG, in the informative direction**: both starred strongly POSITIVE at intraday
+  grain (the run row's own headline: "REAL but not where the prior pointed").
+  `concentration` had no surviving prior to score.
 Kept in full because a registration program that only remembers its hits is calibrating
 nothing.
 
@@ -130,12 +156,14 @@ Registered BEFORE the test window opens, so it cannot be written the other way a
    rescue G.2 bans by another door); **the R.3.2 prior and F5 may not be cited to
    discount, downgrade, or raise the evidentiary bar on an ALIVE** — the prior has zero
    evidentiary weight in either direction and may not enter the verdict's adjudication.
-   Nor does the transfer run backwards: no G.2 verdict re-grades F1–F5, and a DEAD
+   An UNEVALUABLE licenses no substitute cell, re-declaration, or re-run (G.2's own ban),
+   and nothing here softens it. Nor does the transfer run backwards: no G.2 verdict
+   re-grades F1–F5, and a DEAD
    (dilution) in particular makes NO claim about the fired set (G.2 step 2's registered
    wording) and therefore says nothing about these findings.
 2. **Pre-stated prior, for honesty not authority:** the drafting expectation is that the
    G.2 run returns DEAD — DEAD (dilution) specifically is disclosed inside Addendum G as
-   a realistic outcome (approximate judgment-window Q5 f ≈ 7.9% vs f₀ ≈ 8.6% — carrying
+   a realistic outcome (approximate judgment-window Q5 f ≈ 7.9% vs the v6-fence f₀ = 8.6% — carrying
    G's own qualifier: NOT comparable as registered, different fences, both sides
    re-measured at obligation 3; and "Q5" is G's pre-stated expectation, obligation 3b
    selects the tier), and F5's direction-null, at a different grain (weak transfer, stated
@@ -152,8 +180,8 @@ Registered BEFORE the test window opens, so it cannot be written the other way a
    statistical support from any cross-screen comparison (see caveat (b)). A G.2 ALIVE
    would be a reason to REVISIT, by founder decision — never an auto-unpark.
 
-## R.4 Registered follow-up hypotheses (labelled; no survival authority; each carries its
-mechanism sentence per the 2026-07-30 standing rule)
+## R.4 Registered follow-up hypotheses (labelled; no survival authority; each EDGE-CLAIM
+hypothesis carries its mechanism sentence per the 2026-07-30 standing rule)
 
 **H1 — Opening-flow on a quiet tape (the anticipatory complement).** The 1.14g record
 says premium bursts ride names that are ALREADY moving. The undischarged interesting case
@@ -167,7 +195,8 @@ the mechanism is discharged in H1's own prereg).* Status: hypothesis only; MUST 
 pre-registered (its own dated document, gauntlet per house rule) before any measurement
 runs; **gated on Phase-2 §2.3, whose registered ceiling applies: ΔOI is a daily net
 published pre-open for the prior close — an aggregate contract-day estimate of open
-share, never a per-print or intraday label, and blind to which party opened. H1's prereg
+share, never a per-print or intraday label (§2.3), and blind to which party opened
+(§2.4's registered honesty note). H1's prereg
 must state whether it measures on that T+1 proxy (research-only) or defines a
 live-observable substitute; a null attributable to the instrument is recorded as such,
 not as a discharge of the fair trial.** Together with the G.2 test-window grade, H1 is
