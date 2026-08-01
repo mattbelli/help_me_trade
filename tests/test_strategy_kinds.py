@@ -290,16 +290,16 @@ def _vix_obs(*, today: float, prior: list[float]) -> list[tuple[str, float]]:
     return obs
 
 
-def _vix_ctx() -> EntryContext:
+def _vix_ctx(sym: str = "SPY", params: dict | None = None) -> EntryContext:
     sym_bars, idx = _healthy_stock_bars(drop_pct=-6.0)
     spy_bars, spy_idx = _spy_bars(drop_pct=-2.0)
     return EntryContext(
-        sym="SPY",
+        sym=sym,
         sym_bars=sym_bars,
         idx=idx,
         spy_bars=spy_bars,
         spy_idx=spy_idx,
-        params={},
+        params={"symbol": "SPY"} if params is None else params,
     )
 
 
@@ -311,6 +311,39 @@ def test_vix_spike_check_fires_on_spike_from_calm(monkeypatch) -> None:
         lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
     )
     assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is True
+
+
+def test_vix_spike_check_no_fire_on_untargeted_symbol(monkeypatch) -> None:
+    """A VIX spike says nothing about WHICH symbol to buy. Without a symbol gate the
+    predicate passed for every name in the universe and the scan auto-bought whichever
+    sorted first (universe=sp500 ⇒ $10k of 'A')."""
+    ctx = _vix_ctx(sym="A")  # targets SPY; scanning Agilent
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_check_fail_closed_when_symbol_unset(monkeypatch) -> None:
+    """No params["symbol"] ⇒ inert, never 'match anything'."""
+    ctx = _vix_ctx(sym="SPY", params={})
+    monkeypatch.setattr("signals.strategy_kinds.regime_is_fresh", lambda **_: True)
+    monkeypatch.setattr(
+        "signals.strategy_kinds.recent_observations",
+        lambda *args, **kwargs: _vix_obs(today=30.0, prior=[18.0] * 12),
+    )
+    assert STRATEGY_KINDS["vix_spike"].check_entry(ctx) is False
+
+
+def test_vix_spike_symbol_param_survives_entry_filter() -> None:
+    """filter_entry_params strips keys not in entry_param_keys — if "symbol" were
+    unregistered the gate above would silently fail closed forever."""
+    filtered = filter_entry_params(
+        STRATEGY_KINDS["vix_spike"], {"symbol": "SPY", "vix_spike_min": 28.0, "bogus": 1}
+    )
+    assert filtered == {"symbol": "SPY", "vix_spike_min": 28.0}
 
 
 def test_vix_spike_check_no_fire_when_today_not_above_threshold(monkeypatch) -> None:
