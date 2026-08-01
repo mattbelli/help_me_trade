@@ -828,6 +828,58 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     return out
 
 
+def _read_oi_walls(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # own research store, not the trading DB
+    from db.oi_walls import OI_WALLS_DB_PATH, standing_walls, store_status
+
+    root = str(filters.get("root") or "").strip().upper() or None
+    expiry = str(filters.get("expiry") or "").strip() or None
+    try:
+        limit = max(1, min(int(filters.get("limit") or 20), _MAX_ROWS))
+    except (TypeError, ValueError):
+        limit = 20
+
+    if not OI_WALLS_DB_PATH.exists():
+        return [{
+            "unavailable": True,
+            "note": "the condensed OI store has not been built on this machine "
+                    "(data/oi_walls.db — see tools/oi_condense.py)",
+        }]
+    status = {s["source"]: s for s in store_status()}
+    rows = standing_walls(root=root, expiry=expiry, limit=limit)
+    if not rows:
+        return [{
+            "unavailable": True,
+            "root": root,
+            "expiry": expiry,
+            "note": "no standing OI rows matched on the latest stored date",
+            "store": list(status.values()),
+        }]
+    for r in rows:
+        # Perception, never a level to trade: the pin/magnet study is pre-registered
+        # and UNRUN, so any support/resistance reading here would be folklore.
+        caveat = (
+            "standing open interest only — no pin, magnet or support/resistance edge "
+            "has been measured for these strikes; open interest is T+1 (published "
+            "pre-open, describing the prior close's positions)"
+        )
+        st = status.get(r["source"], {})
+        if st.get("stale"):
+            caveat += (
+                f"; STALE — the {r['source']} half of the store was last updated "
+                f"{r['as_of']} ({st['as_of_age_days']}d ago), so these are the walls "
+                "as of that date, not today"
+            )
+        if r.get("structure") == "collar_shaped_triple":
+            caveat += (
+                "; structure is SHAPE-matched from our own rows (three near-equal-OI "
+                "legs reading put/put/call) over the rows returned — it is not an "
+                "identification of any named fund or trade"
+            )
+        r["caveat"] = caveat
+    return rows
+
+
 def _read_flow_perception(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     from db.flow_perception import rows_for_session
 
@@ -1303,6 +1355,30 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_flow_perception,
     },
+    "oi_walls": {
+        "description": (
+            "Standing option open-interest walls on the index complex — the largest "
+            "OI strikes on the latest stored date, per source, with how long each has "
+            "stood, the previous session's value and the change. Sources: OPRA "
+            "(SPX/SPXW, per-strike daily OI) and SME (CME S&P 500 Month-End options — "
+            "the venue the large quarterly index collar migrated to in March 2026, "
+            "which is why a collar the SPX chain no longer shows is visible here). "
+            "Legs whose OI matches within ~5% across a put/put/call triple at one "
+            "expiry are flagged structure=collar_shaped_triple — a shape measured off "
+            "these rows over the rows RETURNED (a small limit can hide a triple), "
+            "never a named fund. PERCEPTION ONLY: standing OI is a fact about "
+            "positioning, not a level that pins, magnets or supports price — that "
+            "study is pre-registered and unrun, so quote no edge, probability or "
+            "win rate from it. Every row carries its as-of date and says when the "
+            "source has gone stale."
+        ),
+        "filters": {
+            "root": "optional — SPX | SPXW | SME",
+            "expiry": "optional YYYY-MM or YYYY-MM-DD prefix",
+            "limit": "optional int per source — default 20, max 50",
+        },
+        "read": _read_oi_walls,
+    },
 }
 
 
@@ -1352,6 +1428,12 @@ _RESOURCE_ALIASES = {
     "flow_decomp": "flow_report",
     "flow_decomposition": "flow_report",
     "daily_flow_report": "flow_report",
+    "collar": "oi_walls",
+    "jpm_collar": "oi_walls",
+    "open_interest": "oi_walls",
+    "oi": "oi_walls",
+    "walls": "oi_walls",
+    "strike_walls": "oi_walls",
     "unusual_flow": "flow_perception",
     "unusual_options_flow": "flow_perception",
     "flow_scan": "flow_perception",

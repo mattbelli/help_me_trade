@@ -15,6 +15,20 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 2026-08-01 `oi_walls` is live on the CLI/headless agent surface, NOT yet in chat
+
+The resource reads correctly through `tools/perception_query.py` (verified), but `ai/chat/tools.py`
+builds its resource list at **import**, so the chat agent only gains `oi_walls` on the next
+`hmt-backend` restart.
+
+- **⏳ Not restarted on purpose:** main also holds the options-chain rounds merged-but-not-running,
+  whose own handoff asks for a deliberate `tools/serv-deploy.sh` with the npm build FIRST in the
+  main checkout. Ship both together in that deploy rather than bundling them into a side round.
+- After the restart, confirm in chat: ask what the SPX collar strikes are and expect SME
+  P5990/P7090/C7890 with the staleness/no-edge caveat attached.
+
+---
+
 ## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
 
 DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with

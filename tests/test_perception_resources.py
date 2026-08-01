@@ -78,6 +78,7 @@ def test_list_resources_catalog() -> None:
         "index_pressure",
         "flow_report",
         "flow_perception",
+        "oi_walls",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
