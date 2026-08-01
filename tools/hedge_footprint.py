@@ -96,8 +96,11 @@ ROOT_CLASSIFICATION = ROOT / "signals" / "options_flow" / "root_classification.j
 TRAIN_START = date(2025, 7, 28)
 TRAIN_END = date(2026, 5, 31)             # inclusive
 G_NS = 1_820_000_000                      # 3.1's measured lead-lag grain, 1.82s
-HORIZONS_G = (16, 64, 165)                # ≈29s (primary) / 2min / 5min
-PRIMARY_HORIZON_G = 16
+HORIZONS_G = (16, 64, 165)                # ≈29s / 2min (primary, Amendment 2) / 5min
+# Amendment 2 (registered 2026-08-01, founder-blessed): 64g primary — run 1's
+# direction stats peaked there and the logged profile shows the flow building
+# for 2-4 minutes. 16g/165g stay reported; ABSENT still needs all three.
+PRIMARY_HORIZON_G = 64
 SNAPSHOT_S = 300                          # [·−300s, ·+300s] per window
 PREMIUM_MIN = 25_000.0
 PREMIUM_ROBUST = 100_000.0                # reported robustness leg
@@ -126,7 +129,7 @@ N_CONTROLS = 20                           # 10 before / 10 after, filled one-sid
 R_FLAT = 0.04
 Q_FLAT = 0.0
 YEAR_SECONDS = 365.0 * 86400.0
-QUIET_PCTL = 50.0                         # quiet tier = pre-window vol ≤ p50 of controls
+QUIET_PCTL = 75.0                         # Amendment 2: ladder step 1 (p50 → p75), n-floor
 FLOOR_EVENTS = 100
 FLOOR_UNDERLYINGS = 25
 FLOOR_MDE = 0.3
@@ -656,8 +659,11 @@ def cluster_bootstrap(
     return out
 
 
-def _look_a_slope(h_abs: np.ndarray, z: np.ndarray, h_sign: np.ndarray) -> float:
-    return theil_sen(h_abs, hedge_aligned(z, h_sign))[0]
+def _look_a_slope(x: np.ndarray, z: np.ndarray, h_sign: np.ndarray) -> float:
+    """Theil–Sen slope of aligned Z on the size axis. Amendment 2: the axis is D
+    (an injected hedge lands as Z ≈ β·D·(expected/MAD); the |H| axis is empty in
+    Z-space because D ≥ 3 selection ties |H| to the same scale MAD divides out)."""
+    return theil_sen(x, hedge_aligned(z, h_sign))[0]
 
 
 def mde_by_injection(
@@ -665,6 +671,7 @@ def mde_by_injection(
     h_sign: np.ndarray,
     cluster_id: np.ndarray,
     s_ctrl: np.ndarray,
+    x_axis: np.ndarray | None = None,
     betas: tuple[float, ...] = (0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5),
     n_rep: int = 100,
     n_perm: int = 400,
@@ -679,8 +686,14 @@ def mde_by_injection(
     the synthetic hedge β·|H|·sign(H), and runs the registered cluster
     permutation on the pseudo-set. MDE > 0.3 makes any null
     NO-VERDICT-UNDERPOWERED, never ABSENT.
+
+    Amendment 2: the regression axis is `x_axis` (D by default via the caller) —
+    the injected shares are STILL β·|H| (physical shares are what a hedge adds),
+    which is exactly why the run-1 |H| axis showed power 0.0: Z-normalization
+    maps that injection onto D, not |H|.
     """
     h_abs = np.asarray(h_abs, dtype=np.float64)
+    x_axis = h_abs if x_axis is None else np.asarray(x_axis, dtype=np.float64)
     h_sign = np.asarray(h_sign, dtype=np.float64)
     s_ctrl = np.asarray(s_ctrl, dtype=np.float64)
     n, n_ctrl = s_ctrl.shape
@@ -696,11 +709,11 @@ def mde_by_injection(
                 rest = np.delete(s_ctrl[i], pick[i])
                 pseudo = s_ctrl[i, pick[i]] + beta * h_abs[i] * h_sign[i]
                 z[i] = excess(pseudo, rest).z
-            ok = np.isfinite(z)
+            ok = np.isfinite(z) & np.isfinite(x_axis)
             if ok.sum() < 3:
                 continue
             _, p = cluster_permutation_p(
-                lambda s, _h=h_abs[ok], _z=z[ok]: _look_a_slope(_h, _z, s),
+                lambda s, _x=x_axis[ok], _z=z[ok]: _look_a_slope(_x, _z, s),
                 h_sign[ok], np.asarray(cluster_id)[ok], n_perm=n_perm,
                 seed=int(rng.integers(1, 2**31 - 1)),
             )
@@ -1697,6 +1710,7 @@ def _arrays(records: list[dict], k: int, arm: str = "primary",
     return {
         "value": np.array([v for _, _, v in rows], dtype=np.float64),
         "abs_h": np.array([r["abs_h"] for r, _, _ in rows], dtype=np.float64),
+        "d": np.array([r.get("d") or np.nan for r, _, _ in rows], dtype=np.float64),
         "h_sign": np.array([r["h_sign"] for r, _, _ in rows], dtype=np.float64),
         "shares": np.array([r["contracts"] * 100.0 for r, _, _ in rows], dtype=np.float64),
         "abs_delta": np.array([r["abs_delta_measure"] for r, _, _ in rows], dtype=np.float64),
@@ -1708,12 +1722,20 @@ def _arrays(records: list[dict], k: int, arm: str = "primary",
     }
 
 
-def look_a(a: dict, n_perm: int = N_PERM, n_boot: int = N_BOOT) -> dict:
-    """Ẽ = Z·sign(H) vs |H|: Theil–Sen slope, intercept REPORTED, cluster
-    bootstrap CI over underlyings, cluster-permutation p."""
-    x, z, s = a["abs_h"], a["value"], a["h_sign"]
+def look_a(a: dict, n_perm: int = N_PERM, n_boot: int = N_BOOT,
+           axis: str = "d") -> dict:
+    """Ẽ = Z·sign(H) vs the size axis: Theil–Sen slope, intercept REPORTED,
+    cluster bootstrap CI over underlyings, cluster-permutation p.
+
+    Amendment 2: verdict axis = "d" (Z-space image of the size prediction);
+    axis = "abs_h" remains callable for the run-1 comparison arm. The Z-on-D
+    slope DETECTS; magnitude is read from E-on-|H| in shares (`_cut`)."""
+    x, z, s = a[axis], a["value"], a["h_sign"]
+    ok = np.isfinite(x)
+    x, z, s = x[ok], z[ok], s[ok]
     if len(x) < 5:
         return {"n": len(x), "pass": False, "reason": "too few events"}
+    a = {**a, "underlying": a["underlying"][ok], "cluster": a["cluster"][ok]}
     slope, intercept = theil_sen(x, hedge_aligned(z, s))
     boot = cluster_bootstrap(
         lambda idx: theil_sen(x[idx], hedge_aligned(z[idx], s[idx]))[0],
@@ -1726,7 +1748,7 @@ def look_a(a: dict, n_perm: int = N_PERM, n_boot: int = N_BOOT) -> dict:
     aligned = hedge_aligned(z, s)
     quints = np.array_split(np.argsort(x), 5)
     return {
-        "n": len(x), "slope": slope, "intercept": intercept,
+        "n": len(x), "axis": axis, "slope": slope, "intercept": intercept,
         "ci95": [lo, hi], "permutation_p": p,
         "mean_aligned": float(np.mean(aligned)), "median_aligned": float(np.median(aligned)),
         "n_positive_h": int((s > 0).sum()), "n_negative_h": int((s < 0).sum()),
@@ -1739,17 +1761,22 @@ def look_a(a: dict, n_perm: int = N_PERM, n_boot: int = N_BOOT) -> dict:
 
 
 def look_a_prime(a: dict, n_perm: int = N_PERM) -> dict:
-    """Ẽ ~ a·(contracts×100) + b·|H|. Common information scales with SIZE traded;
-    only a delta hedge scales with Δ holding contracts fixed. Needs b > 0."""
-    x1, x2, z, s = a["shares"], a["abs_h"], a["value"], a["h_sign"]
-    iqr = float(np.percentile(a["abs_delta"], 75) - np.percentile(a["abs_delta"], 25)) \
-        if len(a["abs_delta"]) else float("nan")
+    """Ẽ_Z ~ a·(D/|Δ|) + b·D (Amendment 2's mapping of the discriminator into
+    Z-space: D/|Δ| is normalized contracts — common information scales with size
+    traded relative to the tape; only a delta hedge scales with Δ on top of it).
+    Needs b > 0."""
+    ok = np.isfinite(a["d"]) & (a["abs_delta"] > 0)
+    x1 = a["d"][ok] / a["abs_delta"][ok]
+    x2, z, s = a["d"][ok], a["value"][ok], a["h_sign"][ok]
+    cluster = a["cluster"][ok]
+    iqr = float(np.percentile(a["abs_delta"][ok], 75)
+                - np.percentile(a["abs_delta"][ok], 25)) if ok.any() else float("nan")
     if len(z) < 8 or not np.isfinite(iqr) or iqr < 0.15:
         return {"n": len(z), "abs_delta_iqr": iqr, "evaluable": False,
                 "pass": None, "reason": "|Δ| IQR < 0.15 — the LEG is unevaluable, not the study"}
     def _b(sg: np.ndarray) -> float:
         return ols_two_term(hedge_aligned(z, sg), x1, x2)[2]
-    b_obs, p = cluster_permutation_p(_b, s, a["cluster"], n_perm=n_perm)
+    b_obs, p = cluster_permutation_p(_b, s, cluster, n_perm=n_perm)
     icept, a_coef, _ = ols_two_term(hedge_aligned(z, s), x1, x2)
     return {"n": len(z), "abs_delta_iqr": iqr, "evaluable": True,
             "intercept": icept, "a_contracts": a_coef, "b_absH": b_obs,
@@ -1803,7 +1830,8 @@ def _cut(records: list[dict], k: int, tier: str, band: str, arm: str,
          n_perm: int, n_boot: int) -> dict:
     a = _arrays(records, k, arm=arm, tier=tier, band=band)
     a_uns = _arrays(records, k, arm="unsigned", tier=tier, band=band)
-    la = look_a(a, n_perm=n_perm, n_boot=n_boot)
+    la = look_a(a, n_perm=n_perm, n_boot=n_boot)              # Amendment 2: Z on D
+    la_h = look_a(a, n_perm=n_perm, n_boot=n_boot, axis="abs_h")  # run-1 arm, reported
     lap = look_a_prime(a, n_perm=n_perm)
     lb = look_b(records, k, tier, band, n_perm=n_perm)
     lc = look_c(a_uns, n_boot=n_boot)
@@ -1819,7 +1847,8 @@ def _cut(records: list[dict], k: int, tier: str, band: str, arm: str,
     return {
         "n": len(a["value"]),
         "n_underlyings": int(len(np.unique(a["underlying"]))) if len(a["value"]) else 0,
-        "look_a": la, "look_a_prime": lap, "look_b": lb, "look_c": lc,
+        "look_a": la, "look_a_run1_axis_abs_h": la_h,
+        "look_a_prime": lap, "look_b": lb, "look_c": lc,
         "direction_mean_aligned_z": direction_stat, "direction_permutation_p": direction_p,
         "beta_shares_attenuated_lower_bound": beta_shares,
         "beta_shares_intercept": beta_intercept,
@@ -1864,7 +1893,7 @@ def stage_analyze(out_dir: Path, stratum: str, n_perm: int = N_PERM,
     if len(a["value"]) >= 5 and width >= 3:
         ctrl = np.array([c[:width] for c in a["ctrl"]], dtype=np.float64)
         power = mde_by_injection(a["abs_h"], a["h_sign"], a["cluster"], ctrl,
-                                 n_rep=mde_rep, n_perm=mde_perm)
+                                 x_axis=a["d"], n_rep=mde_rep, n_perm=mde_perm)
     else:
         power = {"mde": None, "power_by_beta": {}, "note": "too few events/controls"}
 
@@ -1930,6 +1959,47 @@ def stage_analyze(out_dir: Path, stratum: str, n_perm: int = N_PERM,
     return result
 
 
+def stage_power(out_dir: Path, stratum: str, mde_rep: int = 100,
+                mde_perm: int = 400) -> dict:
+    """Amendment 2's controls-only power pre-check — runs BEFORE any event
+    window is read on the new axis. Uses stage-2's Δ_select-derived |H| and D
+    (no event tape) + CONTROL windows only; the rerun proceeds to `analyze`
+    only if MDE ≤ 0.3 at 80% power."""
+    table = build_condition_table()
+    ledger = json.loads((out_dir / f"fetch_ledger_{stratum}.json").read_text())
+    h_abs, h_sign, d, cluster, ctrl_rows = [], [], [], [], []
+    h_ns = PRIMARY_HORIZON_G * G_NS
+    for ev in ledger["events"]:
+        if ev.get("fetch_dropped") or ev.get("band") != "primary":
+            continue
+        s_ct = []
+        for ts in ev["control_ts_ns"]:
+            c = _load_window(out_dir, ev["symbol"], ts)
+            if c is None:
+                continue
+            arr = _signed_arrays(*c, table)
+            s_ct.append(statistic_s(arr["t"], arr["primary"], ts, h_ns))
+        if len(s_ct) < 3:
+            continue
+        h_abs.append(ev["abs_h_select"])
+        h_sign.append(1.0 if ev["h_select"] > 0 else -1.0)
+        d.append(ev["d"])
+        cluster.append(f"{ev['symbol']}|{ev['session']}")
+        ctrl_rows.append(s_ct)
+    width = min(len(c) for c in ctrl_rows)
+    ctrl = np.array([c[:width] for c in ctrl_rows], dtype=np.float64)
+    power = mde_by_injection(np.array(h_abs), np.array(h_sign), np.array(cluster),
+                             ctrl, x_axis=np.array(d), n_rep=mde_rep,
+                             n_perm=mde_perm)
+    out = {"spec": SPEC + " Amendment 2", "stage": "power",
+           "primary_horizon_g": PRIMARY_HORIZON_G, "axis": "d",
+           "n_pseudo_events": len(h_abs), "ctrl_width": width, **power,
+           "proceed": power.get("mde") is not None and power["mde"] <= FLOOR_MDE}
+    save_json(out_dir / f"power_precheck_{stratum}.json", out)
+    logger.info("power pre-check: MDE=%s proceed=%s", power.get("mde"), out["proceed"])
+    return out
+
+
 def all_horizons_failed(looks_quiet: dict) -> bool:
     """ABSENT's precondition: EVERYTHING dead at every horizon — including the
     direction test. The registered table enumerates "direction-without-size" as
@@ -1956,7 +2026,7 @@ def _horizon_cuts(records: list[dict], n_perm: int, n_boot: int) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("stage", choices=("select", "bars", "fetch", "analyze"))
+    parser.add_argument("stage", choices=("select", "bars", "fetch", "power", "analyze"))
     parser.add_argument("--stratum", choices=("equity", "etf"), default="equity",
                         help="ETFs are a DECLARED SEPARATE STRATUM, never pooled")
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
@@ -1973,6 +2043,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.stage == "select":
         stage_select(out_dir, args.stratum)
         return 0
+    if args.stage == "power":
+        result = stage_power(out_dir, args.stratum, mde_rep=args.mde_rep,
+                             mde_perm=args.mde_perm)
+        return 0 if result["proceed"] else 1
     if args.stage == "analyze":
         stage_analyze(out_dir, args.stratum, n_perm=args.n_perm, n_boot=args.n_boot,
                       mde_rep=args.mde_rep, mde_perm=args.mde_perm)

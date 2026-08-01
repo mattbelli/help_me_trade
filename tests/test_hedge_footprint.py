@@ -372,12 +372,13 @@ class TestStatistics:
 # Look A — the size test, and why the direction-only alternative fails it
 # ===========================================================================
 
-def _cut(abs_h, z, h_sign, clusters=None):
+def _cut(abs_h, z, h_sign, clusters=None, d=None):
     n = len(abs_h)
     cl = clusters if clusters is not None else np.array([f"C{i}" for i in range(n)])
     return {"abs_h": np.asarray(abs_h, float), "value": np.asarray(z, float),
             "h_sign": np.asarray(h_sign, float), "underlying": cl, "cluster": cl,
             "abs_delta": np.full(n, 0.5), "shares": np.asarray(abs_h, float) * 2.0,
+            "d": np.asarray(d, float) if d is not None else np.asarray(abs_h, float),
             "records": []}
 
 
@@ -421,6 +422,27 @@ class TestLookAAlignment:
         assert res["slope"] == pytest.approx(beta, rel=0.2)
         assert res["pass"] is True
         assert res["permutation_p"] < 0.01
+
+    def test_amendment2_z_lives_on_the_d_axis_not_abs_h(self):
+        # The run-1 lesson, pinned: a physical hedge of β·|H| shares, once
+        # Z-normalized by a control MAD proportional to the name's scale, lands
+        # as Z ≈ β·D — so with scale varying independently of D, the |H| axis is
+        # empty while the D axis carries the whole signal.
+        rng = np.random.default_rng(7)
+        n = 80
+        d = np.linspace(3.0, 120.0, n)
+        # After D>=3 selection, |H| is decoupled from D (every event's |H| is
+        # large relative to ITS OWN scale; |H| itself spans names of any size):
+        abs_h = rng.uniform(50_000.0, 500_000.0, n)
+        h_sign = np.where(np.arange(n) % 2 == 0, 1.0, -1.0)
+        beta = 0.5
+        z = (beta * d + rng.normal(0, 5.0, n)) * h_sign
+        a = _cut(abs_h, z, h_sign, d=d)
+        on_d = look_a(a, n_perm=2_000, n_boot=400)            # amended default
+        on_h = look_a(a, n_perm=2_000, n_boot=400, axis="abs_h")
+        assert on_d["pass"] is True and on_d["permutation_p"] < 0.01
+        assert on_d["slope"] == pytest.approx(beta, rel=0.25)
+        assert on_h["pass"] is False                  # the empty axis stays empty
 
     def test_signed_h_regression_would_have_passed_on_direction_alone(self):
         # why the registered form is Ẽ vs |H| and not Ẽ vs signed H

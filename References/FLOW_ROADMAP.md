@@ -2799,6 +2799,31 @@ equivalent; we do not need it.
         the founder's eyes before it runs, and why forward paper/test-split confirmation would
         be the clean second leg regardless of what it shows.
 
+      **3.2 Amendment 2 (REGISTERED 2026-08-01, founder-blessed "re run blessed", before the
+      rerun).** Post-unblinding statistic change, disclosed as such: the direction/presence
+      results and the descriptive follow-up below had been seen when this was written; the
+      rerun's size result is therefore amendment-grade evidence, and forward paper / the
+      sealed test split remains the clean second leg. What changes, exactly and only:
+      - **Look A (size, verdict-bearing): hedge-aligned Z regressed on D** — the Z-space image
+        of the size prediction (an injected hedge of fraction β lands as Z ≈ β·D·(expected/MAD),
+        so D is the axis with signal; run-1's |H| axis is empty by construction). Pass = Theil–Sen
+        slope > 0 with cluster-bootstrap CI excluding 0 AND cluster-permutation p < 0.01.
+        **Magnitude is read from E-on-|H| in shares** (Theil–Sen + cluster CI, reported
+        alongside, attenuated lower bound) — the Z-on-D slope detects, it does not measure β.
+      - **Look A′ (discriminator) maps the same way:** Ẽ_Z ~ a·(D/|Δ|) + b·D (D/|Δ| is
+        normalized contracts — common information scales with size traded relative to the
+        tape; only a hedge scales with Δ on top of it); requires b > 0, same evaluability rule.
+      - **Primary horizon 64g (≈2min)** — run 1's direction stats peaked there (p = 0.0025)
+        and the logged descriptive profile shows the flow building for 2–4 minutes; 16g and
+        165g stay reported; ABSENT still requires failure at ALL three.
+      - **Ladder step 1 taken (as registered): quiet tier p50 → p75** to address the n = 83 <
+        100 floor. Steps 2–3 remain unspent.
+      - **Validation before unblinding the new axis:** the injection harness runs FIRST on
+        CONTROL windows only, using stage-2's Δ_select/|H_select|/D (no event tape read);
+        the rerun proceeds to events only if MDE ≤ 0.3 at 80% power — otherwise it stops and
+        reports UNDERPOWERED again with no event numbers computed on the new axis.
+      - Floors, verdict table, all other statistics, fences, and data: UNCHANGED.
+
       **3.2 descriptive follow-up (logged look, 2026-08-01, founder asked "how fast does it
       end / is it outliers?"):** on the quiet tier (n=83), the mean aligned excess BUILDS for
       ~4 minutes — +524 sh by 29s → +1,456 by 60s → +4,156 by 4min — then plateaus (+4,284 at
