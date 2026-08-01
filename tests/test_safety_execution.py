@@ -594,7 +594,7 @@ async def test_rebalance_skips_leg_without_price(
         update_strategy,
     )
     from db.trades import init_trade_tables
-    from signals.momentum import execute_rebalance
+    from signals.momentum import _current_rebalance_month, execute_rebalance
 
     db = tmp_path / "no_price.db"
     init_db(db)
@@ -660,7 +660,7 @@ async def test_rebalance_skips_leg_without_price(
             {"symbol": "GOOD", "qty": 10},
         ],
     }
-    month = "2026-07"
+    month = _current_rebalance_month()
     start_run("momentum_sp500", month, plan, db_path=db)
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
@@ -852,7 +852,7 @@ async def test_rebalance_run_ceiling_stops_legs(
         update_strategy,
     )
     from db.trades import init_trade_tables
-    from signals.momentum import execute_rebalance
+    from signals.momentum import _current_rebalance_month, execute_rebalance
 
     db = tmp_path / "rebal.db"
     init_db(db)
@@ -916,7 +916,7 @@ async def test_rebalance_run_ceiling_stops_legs(
             {"symbol": "CCC", "qty": 30},
         ],
     }
-    month = "2026-07"
+    month = _current_rebalance_month()
     start_run("momentum_sp500", month, plan, db_path=db)
     strategy = get_strategy("momentum_sp500", db_path=db)
     assert strategy is not None
