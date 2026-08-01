@@ -1325,7 +1325,12 @@ def minute_profile(bars: list[dict]) -> dict[int, list[float]]:
 
 
 def stage_bars(out_dir: Path, stratum: str, client, data_base_url: str,
-               limit: int | None = None) -> dict:
+               limit: int | None = None, stage2_top: int = STAGE2_TOP,
+               per_underlying_cap: int = PER_UNDERLYING_CAP) -> dict:
+    # stage2_top / per_underlying_cap default to the REGISTERED 3.2 constants;
+    # overrides exist solely for 3.3's registered widening ladder (spec v2,
+    # Gate-1 ladder step 1: cap 20/underlying + top 600/band) and are recorded
+    # in the stage artifact.
     doc = json.loads((out_dir / f"stage1_candidates_{stratum}.json").read_text())
     cands = doc["candidates"][:limit] if limit else doc["candidates"]
     led = {"candidates": len(cands), "drop_no_bars": 0, "drop_zero_expected": 0,
@@ -1371,12 +1376,12 @@ def stage_bars(out_dir: Path, stratum: str, client, data_base_url: str,
                        "minute_samples": len(vols)})
 
     selected: list[dict] = []
-    for band, cap in (("primary", STAGE2_TOP), ("secondary", STAGE2_TOP)):
+    for band, cap in (("primary", stage2_top), ("secondary", stage2_top)):
         pool = sorted((s for s in scored if s["band"] == band), key=lambda s: -s["d"])
         per_name: dict[str, int] = {}
         picked: list[dict] = []
         for s in pool:
-            if per_name.get(s["symbol"], 0) >= PER_UNDERLYING_CAP:
+            if per_name.get(s["symbol"], 0) >= per_underlying_cap:
                 led["drop_underlying_cap"] += 1
                 continue
             if len(picked) >= cap:
@@ -1387,6 +1392,7 @@ def stage_bars(out_dir: Path, stratum: str, client, data_base_url: str,
         selected.extend(picked)
 
     out = {"spec": SPEC, "stage": "bars", "stratum": stratum, "ledger": led,
+           "stage2_top": stage2_top, "per_underlying_cap": per_underlying_cap,
            "selected": selected,
            "n_primary": sum(1 for s in selected if s["band"] == "primary"),
            "n_secondary": sum(1 for s in selected if s["band"] == "secondary")}
@@ -2043,6 +2049,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--n-boot", type=int, default=N_BOOT)
     parser.add_argument("--mde-rep", type=int, default=100)
     parser.add_argument("--mde-perm", type=int, default=400)
+    parser.add_argument("--stage2-top", type=int, default=STAGE2_TOP,
+                        help="3.3 widening ladder ONLY (registered default otherwise)")
+    parser.add_argument("--per-underlying-cap", type=int, default=PER_UNDERLYING_CAP,
+                        help="3.3 widening ladder ONLY (registered default otherwise)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     out_dir = args.out_dir / args.stratum
@@ -2066,7 +2076,9 @@ def main(argv: list[str] | None = None) -> int:
                "APCA-API-SECRET-KEY": cfg["api_secret_key"]}
     with httpx.Client(headers=headers, timeout=60.0) as client:
         if args.stage == "bars":
-            stage_bars(out_dir, args.stratum, client, cfg["data_base_url"], args.limit)
+            stage_bars(out_dir, args.stratum, client, cfg["data_base_url"], args.limit,
+                       stage2_top=args.stage2_top,
+                       per_underlying_cap=args.per_underlying_cap)
         else:
             stage_fetch(out_dir, args.stratum, client, cfg["data_base_url"], args.limit)
     return 0

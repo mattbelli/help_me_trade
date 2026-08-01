@@ -172,15 +172,21 @@ snapshot per sweep). Open threads only:
   direction-without-size — BUILD_LOG rows + ROADMAP result blocks are the record). 3.3
   REGISTERED 2026-08-01, founder-blessed "Ok lets run it", labels FROZEN** (SHA
   `104c184e…a089e57`, HIGH 25 / NULL 84 / ANTI 8, `tools/hedge_footprint_freeze.py`).
-  ⏳ **Open action: build the 3.3 measurement + gates** (new code, unit-tested BEFORE any
-  outcome fetch: stratum-label permutation w/ week blocks, return-space injection harness
-  evaluating the FULL verdict conjunction, stratified cluster bootstrap, minP, one-price-
-  space marks machinery + continuity tripwire, earnings fence from EDGAR store) → run
-  Gate 1 (controls-only, MDE ≤ 1.5% at h2 or the widening ladder) → ONLY then unseal
-  forward returns → verdict per the registered table → founder chart-review pack (25 HIGH
-  events; promised deliverable). ⚠️ Forward returns are SEALED until Gate 1 passes; the
-  frozen file's writer refuses overwrite — treat a SHA mismatch as an incident, never
-  regenerate. No collision with the live-pairing thread (other agent).
+  Measurement BUILT (`tools/hedge_label_drift.py` + 177 tests, seal locks in code) and
+  **Gate 1 RAN: FAIL** (power 0.18 at the 1.5% floor; binding leg = m-residualized —
+  n=117 can't separate "label predicts" from "concurrent move predicts"). NOTHING
+  unsealed. Rulings + result = ROADMAP 3.3 Amendment 1.
+  ⏳ **In flight: ladder step 1** — wide selection (cap 20/underlying, top 600/band,
+  primary band) fetching into `data/research/hedge_footprint_wide/` (background; snap
+  cache shared with the 3.2 dir). When it lands: extend `tools/hedge_footprint_freeze.py`
+  to the wide ledger → NEW frozen SHA via dated addendum → re-run Gate 1. **Re-gate
+  passes → unseal → verdict → founder chart pack (promised). Re-gate fails → the ladder
+  ENDS: NO-RUN, returns stay sealed, 3.3 waits for forward corpus accrual.** ⚠️ Forward
+  returns are SEALED until a gate passes; the frozen writer refuses overwrite — treat a
+  SHA mismatch as an incident. ⚠️ Deep review of the unseal/analyze paths (builder-
+  written) MUST complete before any unseal actually runs — gate1 path is reviewed; the
+  rest is built+tested but not yet orchestrator-reviewed line-by-line. No collision with
+  the live-pairing thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

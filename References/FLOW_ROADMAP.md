@@ -3033,7 +3033,9 @@ equivalent; we do not need it.
         (primary, TRF-incl, tick-rule) on BOTH marks (M0, M0_fast) → the label carries no
         drift information in training; kills 3.3 as a tradable angle; does NOT touch 3.4.
         **AMBIGUOUS** = any other mixed outcome — no kill, no re-cut.
-        **NO-VERDICT[-UNDERPOWERED]** = floors breached or Gate 2 failed.
+        **NO-VERDICT[-UNDERPOWERED]** = floors breached, or Gate 2 failed with a
+        non-significant result (Amendment 1 ruling a: a significant co-primary still
+        routes; a failed Gate 2 blocks LABEL-EMPTY only).
       - **Build discipline:** new code, built + unit-tested BEFORE any outcome fetch:
         label permutation, return-space injection harness, stratified bootstrap, minP,
         frozen-file writer. Reused unchanged: `theil_sen`, `hedge_aligned`, cluster-id
@@ -3061,6 +3063,47 @@ equivalent; we do not need it.
         58 DTE, 5.1% OTM, m_bps +18.5 (vs NULL +1.4, ANTI −11.8 — the concurrent-move
         covariate already separates strata exactly as the review predicted); HIGH
         earnings-in-forward-window: 1 within 3d, 4 within 9d.
+
+      **3.3 Amendment 1 (2026-08-01) — build-round rulings + GATE 1 RESULT: FAIL, ladder
+      step 1 invoked. Forward returns remain SEALED.**
+      - The measurement tool is `tools/hedge_label_drift.py` (+177 hermetic tests): stages
+        gate1/unseal/analyze; unseal HARD-refuses without a passing gate1 artifact,
+        analyze without the unseal artifact; every stage verifies the frozen-label SHA.
+        Seven spec ambiguities were flagged by the build (echoed into every artifact),
+        ruled here: **(a) Gate 2 wording** — the clause governs (a failed re-gate blocks
+        LABEL-EMPTY and downgrades only NON-significant results; a significant co-primary
+        still routes); the verdict-table one-liner is corrected to match. **(b) Continuity
+        tripwire amended** — the registered form was algebraically BLIND (close_all/(M0_raw
+        ·f_i) ≡ close_raw/M0_raw; the factor cancels — proved by a pinned test). New
+        registered tripwire: same-session RAW-space check |log(close_raw/M0_raw)| < 0.10
+        (wrong-issuer / split-space detector; halts the run; halt-listed events exempt and
+        listed), plus the next-session ratio DISCLOSED per event, non-halting. **(c)**
+        Week-blocks cannot preserve the exact HIGH cluster count (uneven weeks) — blocks
+        move together, realized preservation fraction disclosed; measured NOT
+        power-consequential (session-blocks give the same power within 0.01). **(d)**
+        LABEL-GRADED = full PREDICTIVE conjunction minus the NULL-is-zero claim
+        (confirmed as intended). **(e)** Gate 1's conjunction covers the four simulable
+        legs only ⇒ its MDE is OPTIMISTIC — which strengthens, not weakens, a FAIL.
+        **(f)** Gate-1 SPY leg is close-to-close (conservative). **(g)** Disclosed: the
+        flow corpus already holds daily closes through 07-24, so the seal is PROCEDURAL
+        (no forward return computed), enforced by SQL date bounds strictly before each
+        event's session — stricter than registered.
+      - **GATE 1 RESULT (controls-only, 96 usable pseudo-events, 22 HIGH):** power at the
+        1.5% floor = **0.18**; at δ = 3% = 0.67 — MDE exceeds the whole registered grid.
+        **proceed = false; nothing unsealed.** Type-I calibration measured at 0.010 (the
+        null is honest). **Binding leg = the m-residualized contrast** (pass rate 0.153 at
+        δ=1.5%): because m already separates the strata (+18.5 vs +1.4 bps), partialling
+        it out absorbs most of the HIGH indicator at this n — the design is telling us
+        that with 117 events it cannot distinguish "the label predicts" from "the
+        concurrent move predicts." That is the safeguard working, not a defect.
+      - **Ladder step 1 invoked (registered):** re-run 3.2 selection at cap 20/underlying
+        + top 600/band, PRIMARY band only, into `data/research/hedge_footprint_wide/`
+        (snap cache shared read-only from the 3.2 dir; selection overrides are CLI-flagged
+        and recorded in the stage artifact — registered 3.2 constants untouched). Then:
+        re-freeze the widened labels (new SHA via dated addendum), re-run Gate 1. **If the
+        re-gate fails, the registered ladder ENDS: verdict NO-RUN, forward returns stay
+        sealed, and 3.3 waits for forward corpus accrual** (the collector records daily;
+        the sealed pool grows on its own).
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer
