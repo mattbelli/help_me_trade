@@ -40,11 +40,11 @@ shipped and the guard fired live 07-30, and `resting-stop-locks-the-position` sh
 live 08-01: AMZN 50 @ `acct_alpaca_fable` and GOOGL 61 @ `acct_alpaca_deepseek` each carry their GTC
 stop (233.00 / 314.90), and both were locked at `available` 0.
 
-- **⏳ Deploying now** (`tools/serv-deploy.sh both`). Until the restart lands, both books stay locked;
-  nothing has attempted an exit yet, so nothing has actually been rejected in production. The same
-  deploy ships the **frontend** half of the options-chain round (2s poll + the "iv/δ computed" note)
-  — its backend half went live with the 08-01 13:28 UTC re-auth restart (`greeks_source` is served),
-  so only `.next` was still stale. Delete this bullet once the restart is verified.
+- **⏳ First real exit is the verify.** Deployed 08-01 16:16 UTC (backend PID 2093943, frontend
+  2094116, both collectors); the release path has never run against a live broker. Watch the first
+  book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
+  stop at the same trigger or an inbox note saying nothing was left to stop. Any CRITICAL
+  "UNPROTECTED position" push means a failure path fired — read it, it names which.
 - **⏳ `sell-reservation-snapshot-window`** (card, `next`, high) — pre-existing, reproduced twice this
   round: for a sell-to-close every exposure gate is skipped, so the snapshot's `open_orders` is the
   ONLY quantity gate, and two sells inside one 20s poll window can oversell. The release path holds
