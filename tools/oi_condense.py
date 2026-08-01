@@ -74,6 +74,10 @@ def open_db() -> sqlite3.Connection:
 
 def condense_file(conn: sqlite3.Connection, path: Path, source: str, parser, day: str | None):
     df = db.DBNStore.from_file(path).to_df(map_symbols=True)
+    if df.empty:  # holiday / nothing published yet — an empty df has no columns to filter
+        conn.execute("INSERT OR REPLACE INTO done_files (path) VALUES (?)", (str(path),))
+        conn.commit()
+        return 0
     oi = df[df["stat_type"] == 9]
     rows = {}
     for ts, sym, qty in zip(oi.index, oi["symbol"], oi["quantity"]):
