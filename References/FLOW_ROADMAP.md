@@ -3104,6 +3104,34 @@ equivalent; we do not need it.
         re-gate fails, the registered ladder ENDS: verdict NO-RUN, forward returns stay
         sealed, and 3.3 waits for forward corpus accrual** (the collector records daily;
         the sealed pool grows on its own).
+
+      **3.3 Addendum 2 (2026-08-01) — ladder step 1 executed; WIDE labels frozen.**
+      Wide selection ran clean: 1,200 events fetched (600 primary band), 24,093 windows,
+      0 fetch drops. Wide quiet/primary/64g cut = **250 events: HIGH 31 / NULL 200 /
+      ANTI 19**; frozen BEFORE any outcome fetch to
+      `hedge_footprint_wide/equity/hedge_scores_frozen_3p3.json` **SHA-256
+      `c87592df731b5299bccec0f81a78061d2854c9745a5aff38d67d104c6d97264f`**
+      (byte-identical reproduction verified; the pre-ladder 117-event SHA above remains
+      the step-0 record). Note disclosed before the re-gate: widening grew the comparison
+      stratum far more than the tail (HIGH 25→31, NULL 84→200) — the wide selection
+      admits lower-D prints, which rarely score ≥ 3; effective contrast n grows only
+      ~1.6×, so the re-gate remains a genuine test, not a formality. Re-gate next; its
+      number decides.
+
+      **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
+      FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
+      Wide-set Gate 1 (250 events, 31 HIGH, frozen SHA c87592df…97264f): **MDE = 3.0%
+      vs floor 1.5%; proceed = false.** Power ladder: 0.29 @ 1.5%, 0.53 @ 2%, 0.94 @ 3%
+      (up from 0.18/—/0.67 on the 117-set — widening worked, just not enough). Binding
+      leg is still the m-residualized contrast (0.31 at the floor). Registered ladder
+      step 2 = STOP. **Standing state: 3.3 is DORMANT-ACCRUING** — the flow collector
+      records daily; HIGH accrues ≈ 3–4/month at wide selection, so a meaningful re-gate
+      needs ~a year unless the true effect is ≥ 2–3% (detectable today — the floor
+      exists precisely so a small real effect is never declared absent by an underpowered
+      test). Any earlier re-test = a NEW registration (weaker protections, must be
+      disclosed as such); the registered path is accrual. **3.4 (spread orientation) is
+      NOT gated on 3.3** — it needs only 3.2's direction result, which is CONFIRMED —
+      and is the natural next Phase-3 move.
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer

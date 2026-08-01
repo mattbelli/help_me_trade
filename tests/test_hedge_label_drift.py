@@ -100,9 +100,11 @@ def _write_frozen(tmp_path, payload=None, monkeypatch=None):
 
 class TestFrozenLabelHash:
     def test_registered_sha_is_the_one_in_the_registration_block(self):
-        # changing this constant is an AMENDMENT, never an edit
+        # changing this constant is an AMENDMENT, never an edit.
+        # 3.3 Addendum 2: ladder step 1 wide population (250 events); the
+        # pre-ladder 117-event SHA 104c184e…a089e57 stays in the ROADMAP record.
         assert hld.FROZEN_SHA256 == (
-            "104c184e4a20503c8ee6858b2b6efd5078852e07ee5875ab6d9a5aabba089e57")
+            "c87592df731b5299bccec0f81a78061d2854c9745a5aff38d67d104c6d97264f")
 
     def test_missing_frozen_file_refuses(self, tmp_path):
         with pytest.raises(SealError, match="missing"):

@@ -172,21 +172,21 @@ snapshot per sweep). Open threads only:
   direction-without-size — BUILD_LOG rows + ROADMAP result blocks are the record). 3.3
   REGISTERED 2026-08-01, founder-blessed "Ok lets run it", labels FROZEN** (SHA
   `104c184e…a089e57`, HIGH 25 / NULL 84 / ANTI 8, `tools/hedge_footprint_freeze.py`).
-  Measurement BUILT (`tools/hedge_label_drift.py` + 177 tests, seal locks in code) and
-  **Gate 1 RAN: FAIL** (power 0.18 at the 1.5% floor; binding leg = m-residualized —
-  n=117 can't separate "label predicts" from "concurrent move predicts"). NOTHING
-  unsealed. Rulings + result = ROADMAP 3.3 Amendment 1.
-  ⏳ **In flight: ladder step 1** — wide selection (cap 20/underlying, top 600/band,
-  primary band) fetching into `data/research/hedge_footprint_wide/` (background; snap
-  cache shared with the 3.2 dir). When it lands: extend `tools/hedge_footprint_freeze.py`
-  to the wide ledger → NEW frozen SHA via dated addendum → re-run Gate 1. **Re-gate
-  passes → unseal → verdict → founder chart pack (promised). Re-gate fails → the ladder
-  ENDS: NO-RUN, returns stay sealed, 3.3 waits for forward corpus accrual.** ⚠️ Forward
-  returns are SEALED until a gate passes; the frozen writer refuses overwrite — treat a
-  SHA mismatch as an incident. ⚠️ Deep review of the unseal/analyze paths (builder-
-  written) MUST complete before any unseal actually runs — gate1 path is reviewed; the
-  rest is built+tested but not yet orchestrator-reviewed line-by-line. No collision with
-  the live-pairing thread (other agent).
+  Measurement BUILT (`tools/hedge_label_drift.py` + 177 tests, seal locks in code).
+  **Gate 1 FAILED on both populations — the registered ladder is EXHAUSTED: NO-RUN,
+  forward returns NEVER unsealed. 3.3 is DORMANT-ACCRUING** (ROADMAP Amendments 1–3:
+  narrow 0.18 → wide 0.29 power at the 1.5% floor; MDE 3.0%; binding leg =
+  m-residualized; HIGH accrues ≈3–4/month → meaningful re-gate ~a year out; any earlier
+  re-test = NEW registration, disclosed weaker). Wide artifacts:
+  `hedge_footprint_wide/equity/` (250 events frozen, SHA `c87592df…97264f`).
+  ⚠️ Standing seals: forward returns SEALED (no gate has passed); frozen writers refuse
+  overwrite — treat a SHA mismatch as an incident. ⚠️ If a future re-gate passes: deep
+  review of the unseal/analyze paths of `hedge_label_drift.py` MUST complete first
+  (gate1 path reviewed; the rest built+tested, not yet line-by-line reviewed).
+  ⏳ **Next Phase-3 move: 3.4 spread orientation** — NOT gated on 3.3 (needs only 3.2's
+  CONFIRMED direction result); unlocks the ~33% of premium fenced as spreads. Needs its
+  own pre-registration round (founder-visible). No collision with the live-pairing
+  thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

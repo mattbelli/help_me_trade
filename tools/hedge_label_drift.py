@@ -89,7 +89,11 @@ _ET = ZoneInfo("America/New_York")
 
 # --- the seal -----------------------------------------------------------------
 FROZEN_NAME = "hedge_scores_frozen_3p3.json"
-FROZEN_SHA256 = "104c184e4a20503c8ee6858b2b6efd5078852e07ee5875ab6d9a5aabba089e57"
+# 3.3 Addendum 2 (2026-08-01): ladder step 1 WIDE population (250 events,
+# HIGH 31 / NULL 200 / ANTI 19, hedge_footprint_wide/). The original 117-event
+# SHA 104c184e…a089e57 remains the record of the pre-ladder freeze in the
+# ROADMAP registration block.
+FROZEN_SHA256 = "c87592df731b5299bccec0f81a78061d2854c9745a5aff38d67d104c6d97264f"
 GATE1_NAME = "gate1_3p3.json"
 UNSEAL_NAME = "unseal_3p3.json"
 RESULTS_NAME = "results_3p3.json"
