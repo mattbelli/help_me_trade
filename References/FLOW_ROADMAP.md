@@ -3118,6 +3118,35 @@ equivalent; we do not need it.
       ~1.6×, so the re-gate remains a genuine test, not a formality. Re-gate next; its
       number decides.
 
+      **3.3 backfill-funnel validation (logged look, 2026-08-01, founder-blessed "Yes"
+      — $0 spent, every Databento pull cost-quoted first and free):** can 17.5 months of
+      pre-corpus history (Alpaca options trades exist back to ≥2024-02-15 with ns
+      timestamps + condition codes) be mined for HIGH events at trivial cost? Measured:
+      - **Whole-market naive backfill is dead:** Databento tcbbo ALL_SYMBOLS quotes
+        $28,382/yr ($51,575 for 2yr; schema exists only back to 2023-03). Targeted
+        10-min tcbbo windows in candidate-profile names quote **$0.000–0.018/window ⇒
+        ~$6–12 for a full backfill's drill-down** — the cost problem is discovery, not
+        data.
+      - **⚠️ The free-dailies discovery net is DEAD, measured:** Databento OPRA
+        `ohlcv-1d` EXCLUDES block-style prints — CVNA daily volume = 1 on a day the
+        corpus holds a 5,000-lot; VRT daily volume = 3 vs a 10,000-lot. Only 26/77
+        truth events cleared a $25k daily net despite all having ≥$27.5k premium. Any
+        design leaning on OPRA OHLCV aggregates for large-print discovery is built on
+        sand.
+      - **`definition` and `statistics` schemas are $0.00 whole-market** (per-day
+        id→OSI join verified 7/7). A ΔOI discovery net returned implausible next-day
+        collapses (publish-timing semantics unresolved) — parked, needs its own round.
+      - **Alpaca confirmation leg WORKS: 67/77 truth prints found at exact ns+size;
+        all 10 misses are component-splitting** (Alpaca reports per-fill components
+        where stage-1 groups same-ns prints — GNW 305 = 45+259+1 in-window), so
+        ms-window summing ⇒ ~full recall; condition codes present ('c'/'e'/'I'/'a').
+      - **Open (next round): the discovery pass.** Candidates: ΔOI net with correct
+        publish-timing; or a thin-name-universe Alpaca crawl (the D ≥ 3 profile lives
+        in thin names — enumerate contracts from free definitions, crawl only names
+        under an ADV ceiling). No purchase decision is ripe until discovery is
+        validated end-to-end; the ~$10 drill-down quote stays parked in the founder
+        lane.
+
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
       Wide-set Gate 1 (250 events, 31 HIGH, frozen SHA c87592df…97264f): **MDE = 3.0%
