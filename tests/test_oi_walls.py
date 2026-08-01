@@ -104,3 +104,15 @@ def test_missing_store_says_so_instead_of_raising(monkeypatch: pytest.MonkeyPatc
 async def test_collar_alias_resolves() -> None:
     for alias in ("collar", "jpm_collar", "oi", "walls", "open_interest"):
         assert (await query(alias)).get("resource") == "oi_walls", alias
+
+
+def test_symbol_filter_is_accepted_as_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The live model asked with {"symbol": "SPX"} on its first real question; an ignored
+    # filter would answer a one-root question with every source's walls.
+    db = _store(tmp_path, [
+        (date.today().isoformat(), "opra", "SPX", "2026-09-18", "P", 7000.0, 241469),
+        (date.today().isoformat(), "sme", "SME", "2026-09", "P", 5990.0, 24377),
+    ])
+    monkeypatch.setattr(oi_walls, "OI_WALLS_DB_PATH", db)
+    rows = _read_oi_walls({"symbol": "SPX"}, db_path=tmp_path / "unused.db")
+    assert {r["root"] for r in rows} == {"SPX"}

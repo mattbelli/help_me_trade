@@ -832,7 +832,10 @@ def _read_oi_walls(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, 
     del db_path  # own research store, not the trading DB
     from db.oi_walls import OI_WALLS_DB_PATH, standing_walls, store_status
 
-    root = str(filters.get("root") or "").strip().upper() or None
+    # `symbol` is the filter name every other resource uses, and the live model reached
+    # for it here on its first real question — an ignored filter would have quietly
+    # returned every source's walls under a question about one root.
+    root = str(filters.get("root") or filters.get("symbol") or "").strip().upper() or None
     expiry = str(filters.get("expiry") or "").strip() or None
     try:
         limit = max(1, min(int(filters.get("limit") or 20), _MAX_ROWS))
@@ -1373,7 +1376,7 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "source has gone stale."
         ),
         "filters": {
-            "root": "optional — SPX | SPXW | SME",
+            "root": "optional — SPX | SPXW | SME (alias: symbol)",
             "expiry": "optional YYYY-MM or YYYY-MM-DD prefix",
             "limit": "optional int per source — default 20, max 50",
         },
