@@ -69,6 +69,13 @@ class RiskCheckResult:
     is_short_open: bool = False
     # Pre-trade notional used for exposure caps (qty × risk_price × multiplier).
     risk_notional: Decimal | None = None
+    # Shares of a held long already committed to open sell orders, set ONLY when
+    # those pending sells are what blocked this order. A resting protective stop
+    # is such a sell for the whole position, so an exit fails here with the shares
+    # visibly present — the chokepoint reads this to know a stop release could
+    # unblock it. None on every other outcome, including a genuine oversell of a
+    # position that simply isn't there.
+    blocked_by_pending_sells: Decimal | None = None
 
 
 @dataclass(frozen=True)

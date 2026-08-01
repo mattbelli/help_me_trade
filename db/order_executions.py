@@ -432,6 +432,46 @@ def list_terminal_partial_buys(
     return [_row_to_execution(row) for row in rows]
 
 
+def list_open_protective_stops(
+    symbol: str,
+    *,
+    broker: str,
+    account_id: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Resting protective-stop SELLs THIS APP placed for symbol+account.
+
+    The release path (trading/execution_service.py) cancels what this returns, so
+    the scoping is the safety property: order_type='stop' with a broker_order_id
+    means an order our own chokepoint placed and the broker acknowledged. A stop
+    the founder set by hand in the broker's UI has no execution row, so it is
+    never in here and never gets cancelled out from under him.
+
+    Broker-scoped as well as account-scoped: on the legacy account_id IS NULL
+    path an unfiltered query would hand one broker's order id to another
+    broker's adapter.
+    """
+    init_execution_tables(db_path)
+    account_clause = (
+        " AND account_id = ?" if account_id is not None else " AND account_id IS NULL"
+    )
+    params: tuple[Any, ...] = (symbol.strip().upper(), broker)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM order_executions
+            WHERE symbol = ? AND side = 'sell' AND order_type = 'stop'
+              AND status IN ('submitted', 'partially_filled')
+              AND broker_order_id IS NOT NULL AND broker = ?{account_clause}
+            ORDER BY created_at ASC
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
 def recent_open_buy_exists(
     symbol: str,
     *,

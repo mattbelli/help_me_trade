@@ -400,6 +400,12 @@ class RiskEngine:
                             f"sell qty exceeds available position "
                             f"(held {held}, pending sells {pending_sell})"
                         ),
+                        # Reported ONLY when open sells are what consumed the
+                        # position; with none pending this is a plain oversell
+                        # and nothing the chokepoint can release would help.
+                        blocked_by_pending_sells=(
+                            pending_sell if pending_sell > 0 else None
+                        ),
                     )
                 checks["sell_position"] = f"pass: closing {qty} of {held} long"
             elif short_allowed and not is_option and intent.order_type != "stop":

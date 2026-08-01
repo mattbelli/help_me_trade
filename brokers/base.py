@@ -50,6 +50,10 @@ class Order:
     # TIF disambiguates done_for_day: a day order is dead at day end, a GTC
     # order reworks next session (book limit/ext entries rest for days).
     time_in_force: str | None = None
+    # Trigger price of a resting stop. order_executions never persisted it, so
+    # the broker's own copy is the only way to put a released protective stop
+    # back exactly as it stood (trading/execution_service.py).
+    stop_price: float | None = None
 
 
 @dataclass(frozen=True)

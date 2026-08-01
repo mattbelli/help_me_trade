@@ -33,23 +33,30 @@ Diagnosis + the full fix list live on card `schwab-reauth-akamai-block` and the 
 
 ---
 
-## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
+## ▶ Book position protection — stops place AND release; deploy is the open action
 
-DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with
-**zero open orders at the broker** — its 314.90 stop was never placed, and the guard has placed
-**nothing since it shipped**. Full diagnosis + the measured Alpaca constraint matrix live on the cards;
-only the actions are here.
+Both prior alarms here are closed and their entries deleted per the tense rule: `stop-guard-never-fires`
+shipped and the guard fired live 07-30, and `resting-stop-locks-the-position` shipped 08-01. Verified
+live 08-01: AMZN 50 @ `acct_alpaca_fable` and GOOGL 61 @ `acct_alpaca_deepseek` each carry their GTC
+stop (233.00 / 314.90), and both were locked at `available` 0.
 
-- **⏳ Fix `stop-guard-never-fires` first** (card, `next`, critical). ~One line — `account_id` is
-  dropped by `db/paper_orders.py:_row_to_proposal()`, so `trading/stop_guard.py:118` skips every
-  candidate. Needs an **account-scoped** regression test; the existing tests pass `account_id=None`
-  and never exercise the filter.
+- **⏳ NOT YET DEPLOYED.** Cancel-then-sell is committed but the backend still runs the old code, so
+  both books stay locked until `tools/serv-deploy.sh backend`. Nothing has attempted an exit yet, so
+  nothing has actually been rejected in production.
+- **⏳ `sell-reservation-snapshot-window`** (card, `next`, high) — pre-existing, reproduced twice this
+  round: for a sell-to-close every exposure gate is skipped, so the snapshot's `open_orders` is the
+  ONLY quantity gate, and two sells inside one 20s poll window can oversell. The release path holds
+  the submit lock to a placed exit and re-polls after, so it is the one sell route that closes its
+  own window; every other one is open.
+- **⏳ `unprotected-position-monitor`** (card, `next`, high) — now also owns the specific hole that a
+  dead stop row removes an entry from the guard's work list for good. ⚠️ The obvious fix was built,
+  reviewed and REVERTED 08-01 for three measured reasons (dry_run re-submits forever; a hand cancel
+  ping-pongs uncapped and can exhaust `max_daily_orders`; re-protection is sized from the entry, not
+  the position) — read the card before re-attempting. The chokepoint pages critically instead.
 - **⚠️ Timing is load-bearing, not cosmetic:** Alpaca 422s a stop whose trigger is already breached
   (*"stop price must be less than current price"*), so the guard must place on fill while price is
   still above the stop. After a gap-down it **cannot** place one at all — "re-place it each morning"
-  is not a workaround.
-- **⏳ A second entry is resting NOW:** `paper_9fa4e9a31332` (Fable, GOOGL 54 @ 328, expires 07-30
-  19:59) will repeat this on fill. Check it before assuming the blast radius is one position.
+  is not a workaround. The release path's residual re-stop carries the same gate.
 - **⏳ Founder decision open:** `ext-entry-sizing-decision` (founder lane) — `ext` notional parity vs
   smaller, since no stop can be live outside RTH and a stop barely helps across a gap.
 - Then `book-accounts-invisible-in-cockpit`, then `ext-hours-soft-stop` (data gate already passes —
@@ -72,8 +79,7 @@ only the actions are here.
   `bars_current`; then 07-28: OI backfill lands on 07-27's rows (OI publishes a session late).
 - ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
   Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
-  submit-at-the-open. The stop_guard half of this verify is blocked until `stop-guard-never-fires`
-  lands (see the 07-30 section) — it cannot pass today.
+  submit-at-the-open. The stop_guard half is no longer blocked — the guard ships and has fired.
 - ⏳ chart prewarm: `/health` bars_prewarm `lag_s` stays well under the shortest TTL across a few
   sessions (`chart-bars-prewarm-storms`).
 
