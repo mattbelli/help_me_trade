@@ -145,14 +145,17 @@ snapshot per sweep). Open threads only:
 - **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE same
   day** (BUILD_LOG row + ROADMAP 3.1 RESULT block: clocks agree at ms grain, equity `t` =
   participant timestamp; registered lead-lag grain for 3.2 = **1.82s**; card
-  `flow-phase3-hedge-footprint`). **3.2 prereg REGISTERED 2026-08-01** (ROADMAP 3.2 spec
-  block) after two split-mandate Opus adversarial reviews — 9 blockers + 16 majors
-  incorporated (sign-inverted falsifier, `cond=''` single-leg hole, ADV/780 detectability
-  gate 15–40× wrong at the open, cluster-permutation inference, 16g/64g/165g horizon
-  ladder, MDE ≤ 0.3 power floor gating any ABSENT). Open next, in order: **build the 3.2
-  tool + tests to the frozen spec** (any deviation = dated amendment BEFORE the run), then
-  run it; 3.3/3.4 exist only per the 3.2 verdict table. Runs entirely on historical files +
-  snapshot fetches — no collision with the live-pairing thread (other agent).
+  `flow-phase3-hedge-footprint`). **3.2 prereg'd, built, RUN 2026-08-01 — verdict
+  NO-VERDICT-UNDERPOWERED** (ROADMAP 3.2 RESULT block + BUILD_LOG row are the record):
+  direction+presence live at p<0.01 on the quiet tier (dies on active tape / degenerate Δ,
+  pre-window flat = no reverse-causality signature), but the registered SIZE falsifier had
+  power 0.0 at every β by construction (Z÷MAD divides out the |H| scale D≥3 selects on) —
+  its own injection harness caught it, the kill did NOT fire, 3.3/3.4 stay gated.
+  ⏳ **Open: founder decision on PROPOSED Amendment 2** (founder lane card
+  `flow-32-amendment2-decision`): re-run Look A as aligned-Z-on-D (+ E-on-|H| alongside),
+  validated on the injection harness (controls only) before unblinding — it is a
+  POST-UNBLINDING statistic change, disclosed as such; forward paper/test-split is the clean
+  second leg either way. No collision with the live-pairing thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

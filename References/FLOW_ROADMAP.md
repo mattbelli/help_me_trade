@@ -2757,6 +2757,48 @@ equivalent; we do not need it.
         two issuers into one control baseline and permutation cluster; 3.2 registers only the
         date-scoped rename map. Revisit only if such a name reaches the selected set.
 
+      **3.2 RESULT (run 2026-08-01, `tools/hedge_footprint.py`, artifacts
+      `data/research/hedge_footprint/equity/`). VERDICT: NO-VERDICT-UNDERPOWERED** — the
+      registered table refused to rule, and it was right to. The numbers, all registered arms:
+      - **Pipeline:** 105 code-provenance sessions → 1,788 candidates cleared D ≥ 3 → 600
+        selected (300/band) → 12,290 snapshot windows → 597 measured, 555 usable (42 drops =
+        7% < the 20% STOP: mostly `delta_measure_sub_intrinsic`). Quiet tier at 16g: **n = 83
+        events, 73 underlyings** (n-floor 100 MISSED; underlying floor met). Signable share
+        median 77%; TRF share median 35%; QCT ≈ 0; pre-window excess **z ≈ 0.004** on the
+        quiet tier (no reverse-causality signature).
+      - **Direction + presence are LIVE on the quiet tier:** the direction permutation test
+        (mean hedge-aligned Z = 3.97) **p = 0.0085 at 16g / p = 0.0025 at 64g**; Look B
+        (stacked profile) **PASSES both** (p = 0.0085 / 0.0055; mean excess ≈ +524 shares in
+        the hedge direction ≈ +530 mean E); Look C (unsigned) CI positive at ALL three
+        horizons. Where it should die, it dies: **active tape** dir p = 0.68 with pre-window
+        z = +1.54 (the reverse-causality signature appears exactly off the quiet tier);
+        **secondary Δ band** [0.05,0.95] dir p = 0.28 (degenerate-Δ dilution as predicted);
+        TRF-inclusive weaker than non-TRF (0.0285 vs 0.0085 — the stale-clock smear, as 3.1
+        forensics predicted); tick-rule signing agrees (0.0075); premium ≥ $100k and top-150
+        robustness legs hold (0.0085 / 0.018).
+      - **But the SIZE falsifier — Look A — is structurally powerless as registered, and the
+        pre-registered injection harness proved it on control data:** power = 0.0 at EVERY β
+        including 0.5, so MDE = none ⇒ UNDERPOWERED. Diagnosis (structural, not sampling): Z
+        divides each event by its own control MAD ∝ the name's window volume, while D ≥ 3
+        selection makes |H| ∝ that same scale — so in Z-space an injected hedge lands as
+        Z ≈ β·D, nearly independent of |H|, and the registered slope-on-|H| has no signal to
+        find at any n (the builder's smoke recovered β 0.43/0.40 in E-shares space — the
+        machinery is fine; the registered Z-primary axis is wrong). The widening ladder is NOT
+        exercised: no ladder step moves a power that is 0 at all β by construction.
+      - **What this verdict is NOT:** not FOOTPRINT-ABSENT (the phase does not die — the kill
+        was never close: three looks pass where the mechanism predicts and fail where it
+        predicts), and not CONFIRMED (the registered table demands the size test, which could
+        not run with power; direction-without-size is exactly what it refuses to over-read).
+      - **PROPOSED Amendment 2 — NOT registered, founder-visible because it is
+        post-unblinding:** re-run Look A with the size prediction mapped into the same space
+        as the statistic — regress hedge-aligned Z on **D** (the Z-space image of |H|;
+        prediction Z ≈ β·D), with the E-shares-on-|H| regression reported alongside, and
+        validate the new statistic on the injection harness (controls only) BEFORE unblinding
+        it on events. Full disclosure: the looks above have been seen; a statistic chosen
+        after unblinding is weaker evidence than a pre-registered one, which is why this needs
+        the founder's eyes before it runs, and why forward paper/test-split confirmation would
+        be the clean second leg regardless of what it shows.
+
       **3.2 Amendment 1a (registered 2026-08-01, during the fetch stage, before any analyze).**
       The very first live control window falsified the disclosed feed-assertion assumption: JKS
       (thin ADR, 12:47 ET control window) carried 797 shares = 0.065× pro-rata — a genuinely
