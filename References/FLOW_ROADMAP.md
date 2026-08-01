@@ -2799,7 +2799,22 @@ equivalent; we do not need it.
         the founder's eyes before it runs, and why forward paper/test-split confirmation would
         be the clean second leg regardless of what it shows.
 
-      **3.2 Amendment 1a (registered 2026-08-01, during the fetch stage, before any analyze).**
+      **3.2 descriptive follow-up (logged look, 2026-08-01, founder asked "how fast does it
+      end / is it outliers?"):** on the quiet tier (n=83), the mean aligned excess BUILDS for
+      ~4 minutes — +524 sh by 29s → +1,456 by 60s → +4,156 by 4min — then plateaus (+4,284 at
+      5min); **no reversal inside the window**; highest instantaneous rate in the first 9s.
+      **Heavily concentrated:** top 5 of 83 events = 93% of the total excess (5 different
+      names: SHLS/VNET/PCOR/UAL/QSR), top decile = 127% (many events are negative); only 63%
+      of events align positive; median event ≈ +88 sh signed — though the median event's
+      UNSIGNED excess is strongly positive (Look C median z = 2.27), so the typical event has
+      activity the midpoint rule cannot sign. Even the outliers capture only **1–3% of the
+      theoretical delta × contracts × 100** in lit signed tape (E/|H| median ≈ 0, p90 = 1%).
+      Weak size gradient in medians: big-|H| half median +306 vs small-half +58. Read:
+      consistent with occasional true dealer fills worked over 2–4 minutes (netting,
+      internalization, midpoint-dark and derivative hedging absorb the rest) — i.e., the
+      per-event footprint-present/absent contrast IS 3.3's counterparty signal, and 16g was
+      registered too short (64g carried the strongest direction p, 0.0025). Descriptive only;
+      no registered claim.
       The very first live control window falsified the disclosed feed-assertion assumption: JKS
       (thin ADR, 12:47 ET control window) carried 797 shares = 0.065× pro-rata — a genuinely
       quiet tape, in exactly the thin names D ≥ 3 selects for, and control windows are BY
