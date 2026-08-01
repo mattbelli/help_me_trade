@@ -160,20 +160,18 @@ snapshot per sweep). Open threads only:
   `--g-verdict`); any code change before #5 = dated addendum + re-freeze.
 - ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
   the band, recorded as the registered finding. Thread closed.
-- **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE same
-  day** (BUILD_LOG row + ROADMAP 3.1 RESULT block: clocks agree at ms grain, equity `t` =
-  participant timestamp; registered lead-lag grain for 3.2 = **1.82s**; card
-  `flow-phase3-hedge-footprint`). **3.2 prereg'd, built, RUN 2026-08-01 — verdict
-  NO-VERDICT-UNDERPOWERED** (ROADMAP 3.2 RESULT block + BUILD_LOG row are the record):
-  direction+presence live at p<0.01 on the quiet tier (dies on active tape / degenerate Δ,
-  pre-window flat = no reverse-causality signature), but the registered SIZE falsifier had
-  power 0.0 at every β by construction (Z÷MAD divides out the |H| scale D≥3 selects on) —
-  its own injection harness caught it, the kill did NOT fire, 3.3/3.4 stay gated.
-  ⏳ **Open: founder decision on PROPOSED Amendment 2** (founder lane card
-  `flow-32-amendment2-decision`): re-run Look A as aligned-Z-on-D (+ E-on-|H| alongside),
-  validated on the injection harness (controls only) before unblinding — it is a
-  POST-UNBLINDING statistic change, disclosed as such; forward paper/test-split is the clean
-  second leg either way. No collision with the live-pairing thread (other agent).
+- **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE;
+  3.2 DONE 2026-08-01 with FINAL verdict FOOTPRINT-AMBIGUOUS (direction-without-size)** —
+  Amendment 2 founder-blessed ("re run blessed"), power gate passed honestly (MDE 0.05/0.10,
+  floors met), direction p=0.0015 at 64g quiet with flat pre-window, size scaling absent at
+  a power that would have seen 10% (BUILD_LOG row + ROADMAP 3.2 result blocks are the
+  record; card `flow-phase3-hedge-footprint`; founder card `flow-32-amendment2-decision`
+  resolved). **Next: 3.3 counterparty label — design it as PER-EVENT footprint
+  presence/absence, not pooled slopes** (the registered read + logged outlier look both
+  point there); needs its own pre-registration, and it is where forward returns finally
+  unseal (tradability question). Cheap first look available: drop the top-5 outlier events
+  and re-check direction (descriptive, data on disk). No collision with the live-pairing
+  thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

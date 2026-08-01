@@ -1761,7 +1761,9 @@ def look_a(a: dict, n_perm: int = N_PERM, n_boot: int = N_BOOT,
         "slope_h_negative": theil_sen(x[s < 0], aligned[s < 0])[0] if (s < 0).sum() >= 5 else None,
         # illustrative only — no verdict authority
         "quintile_mean_aligned": [float(np.mean(aligned[q])) for q in quints],
-        "pass": bool(np.isfinite(slope) and slope > 0 and np.isfinite(lo) and lo > 0),
+        # Amendment 2 registered rule: slope > 0 AND CI excludes 0 AND perm p < 0.01
+        "pass": bool(np.isfinite(slope) and slope > 0 and np.isfinite(lo) and lo > 0
+                     and np.isfinite(p) and p < PERM_ALPHA),
     }
 
 

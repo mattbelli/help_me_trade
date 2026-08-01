@@ -2556,7 +2556,7 @@ equivalent; we do not need it.
       is reaction asymmetry, but the registered rule governs; sub-2s binning in 3.2 would
       require a dated amendment citing this investigation). No |Δ| pattern blocks 3.2:
       **proceed.**
-- [ ] **3.2 Hedge footprint on large single-leg prints.** Take the biggest single-leg option prints;
+- [x] **3.2 Hedge footprint on large single-leg prints.** Take the biggest single-leg option prints;
       measure signed equity volume in the following N seconds against matched control windows on the
       same name, same time of day. **The test is size, not just direction:** the hedge should be
       ≈ delta × contracts × 100 shares. That prediction is what makes it falsifiable.
@@ -2854,6 +2854,37 @@ equivalent; we do not need it.
       missing EVENT day is a **dropped event in the ledger** (counts toward the registered >20%
       STOP), never a run-killer. No statistic, threshold, or verdict rule is touched; this is
       the STOP-rule scope ("documented data repair").
+      **3.2 Amendment 2 RESULT (rerun 2026-08-01, FINAL): FOOTPRINT-AMBIGUOUS —
+      direction-without-size. No kill, no re-cut; Phase 3 proceeds.**
+      - **Power gate (registered pre-condition) passed honestly:** controls-only injection
+        pre-check on 298 pseudo-events, all 20 controls per event (the run-1 truncation —
+        every control list clipped to the global min of 4 — was fixed first, `a7624a8`):
+        **MDE = 0.05**; event-side MDE = 0.10. Floors ALL met: n = 117 ≥ 100, underlyings
+        = 101 ≥ 25, MDE 0.10 ≤ 0.3. 597 measured / 555 usable (7% dropped — sub-intrinsic
+        or unstable Δ, missing controls; far under the 20% STOP).
+      - **Primary horizon (64g ≈ 2 min, quiet tier): direction p = 0.0015 PASS; Look B
+        p = 0.0015 PASS; Look C CI [1.32, 2.37] PASS; pre-window median z = −0.04** (flat
+        tape before the print — no reverse-causality signature). **Look A (Ẽ_Z on D):
+        slope −0.0022, CI [−0.0052, +0.0008], perm p = 0.94 FAIL; A′ FAIL.** Run-1 |H|
+        axis also flat (p = 0.39, reported as the comparison arm).
+      - **The size FAIL is informative, not blindness:** at MDE 0.10, a proportional lit
+        signed footprint of even 10% of Δ×contracts×100 would have been seen at 80% power.
+        Measured pooled scaling ≈ 0.06% (E-on-|H| attenuated lower bound β ≈ 0.0006,
+        intercept ≈ 910 sh); mean excess ≈ 1,815 sh/event, independent of predicted size.
+      - Off-primary: 16g quiet A has CI > 0 (slope +0.0031, CI [0.00008, 0.0088]) but perm
+        p = 0.0215 ≥ 0.01 → FAIL under the registered three-leg rule. (Surfaced a
+        code-vs-spec mismatch: the built pass flag omitted the p < 0.01 leg; corrected to
+        the registered rule + pinned test, analyze re-run — verdict and all statistics
+        unchanged, the one flag flipped.) 165g quiet: only C passes. Active tier: nothing
+        passes (dir p ≈ 0.9, pre-window z up to +3.1 — the quiet fence doing its job).
+        TRF-inclusive robustness at 64g: dir p = 0.021 (weakens, same as run 1).
+      - **Registered read:** on quiet tapes the equity tape responds to big single-leg
+        prints in the hedge-predicted direction within ~2 min, but the response does NOT
+        scale with predicted hedge size and (logged look) is concentrated in a top-decile
+        minority. Consistent with most prints being netted/internalized invisibly while a
+        minority leave true footprints ⇒ **3.3 must be designed as PER-EVENT footprint
+        presence/absence (the counterparty label), not pooled slopes.** Forward returns
+        remain sealed and untouched; tradability is 3.3's question, not 3.2's claim.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*

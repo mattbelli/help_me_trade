@@ -406,9 +406,13 @@ class TestLookAAlignment:
         assert slope == pytest.approx(beta, rel=1e-9)
         assert intercept == pytest.approx(0.0, abs=1e-6)
         res = look_a(_cut(abs_h, z, h_sign), n_perm=200, n_boot=200)
-        assert res["pass"] is True
         assert res["slope"] == pytest.approx(beta, rel=1e-6)
         assert res["ci95"][0] > 0
+        # noiseless β|H| is degenerate for the permutation null (see next test),
+        # and the registered pass rule requires ALL THREE legs — slope > 0, CI
+        # excluding 0, AND perm p < 0.01 — so CI-only is NOT a pass:
+        assert res["permutation_p"] >= 0.01
+        assert res["pass"] is False
 
     def test_true_hedge_with_scatter_clears_the_cluster_permutation(self):
         # a NOISELESS Ẽ = β|H| is degenerate for the permutation null: every
