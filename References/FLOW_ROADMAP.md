@@ -2903,6 +2903,164 @@ equivalent; we do not need it.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*
+
+      **3.3 SPEC v2 — REGISTERED 2026-08-01 (founder-blessed "Ok lets run it" after the
+      v1→v2 review round below; the reported-only h4/h_exp legs are the founder's own
+      additions, blessed in the same exchange). This spec IS LAW: any change after this
+      line is a dated amendment. This phase UNSEALS forward returns for the first time;
+      the frozen-label SHA-256 is recorded at the end of this block before any outcome
+      fetch.**
+
+      **Review round record (logged looks — all on already-unblinded 3.2 windows, neutral
+      symbols, or metadata; NO forward returns computed):** v1 carried 13 blockers.
+      Measured en route: (a) raw-quote marks vs `adjustment=all` bars mix price spaces —
+      244–656 bps of pure bookkeeping error on neutral names (KO/JNJ/XOM/PFE), 5–13× the
+      decision floor, sign-imbalanced across strata; (b) HIGH events' own score window
+      carries +21.1 bps aligned mid drift (LOW +1.3) — the score is mechanically coupled to
+      a concurrent price move, and the hedge is still running at the ±300s fetch edge for a
+      minority (late-window HIGH mean z 4.11); (c) the label is arm-sensitive: Jaccard vs
+      the 25-event HIGH set = 0.50 (TRF-incl), 0.57 (tick-rule), 0.27 (16g), 0.27 (165g);
+      (d) 8 of v1's 92 "LOW" events have score ≤ −3 — an ANTI-aligned footprint whose
+      plausible causes (side misclassification, unrecognized package leg, self-hedger) all
+      flip the outcome sign too; (e) event-day realized vol = 1.46× the same name's control
+      days in HIGH (LOW 1.03×) — a controls-only power estimate is optimistic exactly in
+      the stratum that matters; (f) earnings land in the forward window for 4/25 HIGH at
+      h3; (g) benign, measured so a null isn't over-read later: spreads at the mark are
+      fine (median 7–9 bps, zero crossed/locked), zero events have news at the mark, and
+      the strata are already matched on D/contracts/|Δ|/premium (the "HIGH = biggest
+      print" proxy concern is empirically weak); the v1 sign-flip permutation tested the
+      wrong null for a stratum contrast, and the v1 power harness scored only the p-leg of
+      a multi-leg verdict rule (operative α ≈ 0.0013, true power ≈ 56% at the floor).
+
+      **Question (sharpened).** Does the per-event footprint score label the counterparty,
+      and does the label predict aligned forward drift? Thesis: HIGH ⇒ a dealer absorbed a
+      real outside risk-taker's bet (sometimes informed ⇒ drift); NULL ⇒ plausibly
+      customer-vs-customer (no information ⇒ ≈ 0 drift — an equivalence claim, not an
+      accepted null). Training window only (2025-07-28 → 2026-05-05); sealed test split +
+      forward paper remain the confirmation leg; any positive = calibrated hypothesis,
+      never a live signal.
+
+      - **Frozen label file (before ANY outcome fetch):** `hedge_scores_frozen_3p3.json` —
+        per event: symbol, session, ts_ns, instrument_id, h_sign, D, |H|, Ẽ_Z@64g,
+        cluster id, stratum, and every registered covariate below; SHA-256 recorded in the
+        registration block; a pinned test reproduces it from the committed code. Strata:
+        **HIGH s ≥ +3 (25 ev / 23 und), NULL |s| < 3 (84), ANTI s ≤ −3 (8)**. Verdict
+        contrast = **HIGH − NULL**; ANTI is reported separately (registered prediction: a
+        significantly negative aligned return there evidences misclassification, not the
+        thesis) and never pooled. Threshold honesty: outcomes are sealed so the type-I
+        rate is unaffected by how 3.0 was picked; it is NEVER revised after outcomes
+        exist — any re-cut is a new phase on the sealed test split. Strata with n < 15:
+        counts + point estimates only, no p/CI. Tercile boundaries pre-registered from the
+        frozen file. Balance table (ADV, price, trailing vol, control MAD, |Δ|, D,
+        put/call, buy/sell, h_sign mix, exp_days, %OTM moneyness) disclosed at freeze.
+      - **Marks & price space:** M0 = NBBO mid at T+300s (primary anchor; staleness rule:
+        no quote update within 60s → last trade, flagged); **M0_fast = mid at T+60s** and
+        **M_pre = mid at T−1s** reported at every horizon. ONE adjustment space: per-event
+        factor f_i = close_all/close_raw on the event session applied to intraday marks;
+        |f_i − 1| disclosed; hard tripwire |log(first forward close / M0_adj)| < 0.10;
+        unit test on a known dividend payer. Symbols resolved date-scoped via the
+        `name_change` feed (P/ABX/FLG are live rename risks). The v1 claim "the hedge's
+        push is excluded by construction" is retracted: M0 sits after the measured
+        response, so the response is capitalized into M0, not removed.
+      - **Horizons:** h1 = M0 → T+30 min (fixed width; replaces same-session close);
+        **h2 = next-session close [PRIMARY]**; h3 = T+5-session close. **Reported-only
+        legs (founder ask 2026-08-01, no verdict authority, expected underpowered — noise
+        ∝ √t):** h4 = T+21-session close (~30–45 calendar days), and **h_exp = close on
+        the option's own expiry date capped at T+30 sessions** — the trader's self-stated
+        deadline — both also shown σ-standardized so mixed maturities compare. Any
+        forward window crossing the sealed-split boundary (2026-05-05) is truncated there
+        and flagged; the frozen balance table adds each event's exp_days and moneyness
+        (%OTM) so the bet-horizon mix of HIGH is visible before unsealing.
+      - **Outcome y:** customer-direction-aligned log return, SPY-subtracted at IDENTICAL
+        marks and adjustment space (SPY 1-min mark at T+300s, same-close endpoints), minus
+        the median of the same quantity on the event's own PRE-event control sessions
+        (same name, same clock marks; the symmetric all-20-controls version reported).
+        Robustness legs reported: raw, SPY-only, β-adjusted (β̂ from 60 pre-sessions),
+        σ-standardized (÷ pre-event trailing vol ×√horizon — sign agreement required for
+        PREDICTIVE), last-trade mark. **Censoring keep-rule:** halt → first post-resumption
+        or auction price; delisting/acquisition → deal or last price; drop ONLY if no
+        price exists; drops > 5% of either stratum → NO-VERDICT; censored events listed
+        per stratum with returns shown.
+      - **Earnings fence (pre-unseal, from our EDGAR store):** the PRIMARY contrast runs
+        on the earnings-free-forward-window stratum at every horizon; earnings-straddling
+        events form a declared separate stratum, reported, never pooled; exact post-fence
+        n disclosed at freeze (~24 HIGH at h2); ex-ante fenceability (estimated vs actual
+        dates) disclosed for the live version.
+      - **Inference (Look D):** null = **cluster-level stratum-LABEL permutation**
+        (reassign HIGH across underlying×session clusters preserving the HIGH cluster
+        count; the v1 sign-flip null is retained only for one-sample statements), with
+        **calendar-week blocks** at h2/h3 (10.9% of event pairs sit within 5 sessions);
+        one-sided α = 0.01; n_perm ≥ 50,000, seed registered. **Two co-primaries under
+        exact minP/max-statistic FWER on the same draws:** (i) Δ = mean y, HIGH − NULL at
+        the 3.0 split; (ii) Spearman rank correlation of score vs y over HIGH+NULL.
+        PREDICTIVE needs either to clear the adjusted threshold with the other same-signed;
+        conflicting signs ⇒ AMBIGUOUS. CIs by **stratified** cluster bootstrap (preserve
+        per-stratum cluster counts; BCa or percentile-t; > 1% non-finite draws ⇒ CI
+        invalid). **Concurrent-move control (verdict-bearing):** m_i = aligned mid move
+        over [T, T+300s] (measured look above) is a registered covariate; the contrast
+        residualized on (m, m²) must ALSO pass at α, else AMBIGUOUS with the registered
+        reading "label proxies the concurrent order-flow move." **Leave-one-week-out
+        jackknife:** any single week's removal pushing the primary p above α ⇒ AMBIGUOUS.
+        NULL's ≈ 0 claim = equivalence test (95% stratified-bootstrap CI inside ±0.5%),
+        never an accepted null.
+      - **Power, two gates:** **Gate 1 (pre-unseal):** injection harness on pseudo-events
+        built from control-day marks carrying the real labels/signs/clusters; δ injected
+        into HIGH pseudo-events only, grid {0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0}%; a
+        replication counts as detected ONLY if the FULL registered PREDICTIVE conjunction
+        passes; per-stratum dispersion = max(control-day estimate, 20-prior-session daily
+        dispersion), with the measured event/control vol ratio (1.46× HIGH) reported
+        beside the gate; floor **MDE ≤ 1.5% aligned drift at h2, 80% power**. Ladder if
+        failed, in order, all pre-unseal: (1) re-run 3.2 selection at cap 20/underlying +
+        top 600/band — PRIMARY band only (secondary Δ-band is never pooled into the
+        contrast, per 3.2 Amendment 1; it may appear only as its own reported stratum);
+        (2) STOP = NO-RUN, nothing unsealed. **Gate 2 (post-unseal re-gate):** realized
+        MDE recomputed from the actual events' dispersion; realized MDE > 1.5% ⇒ any
+        non-significant result routes NO-VERDICT-UNDERPOWERED and may NEVER route
+        LABEL-EMPTY.
+      - **Floors:** earnings-free primary stratum n_HIGH ≥ 20 events / ≥ 16 underlyings,
+        n_NULL ≥ 65; breach → NO-VERDICT.
+      - **Verdict table:** **LABEL-PREDICTIVE** = minP co-primary pass at h2 on the
+        earnings-free stratum AND the m-residualized contrast passes AND point Δ̂ ≥ 0.5%
+        AND stratified-bootstrap CI lower bound > 0 AND sign agreement across label
+        variants (TRF-incl, tick-rule), anchors (M_pre/M0/M0_fast), and the σ-standardized
+        leg AND the jackknife survives (either M0 or M0_fast may carry it; the other is
+        disclosed). **LABEL-GRADED** = contrast passes but NULL's own mean is
+        significantly positive (sign-flip p < 0.05): the score grades information;
+        "customer-vs-customer carries none" is falsified. **LABEL-INVERTED** = one-sided
+        p < 0.01 in the OPPOSITE direction on the co-primaries: recorded finding, no
+        re-cut, no trade license. **LABEL-EMPTY** (the kill) = floors met AND Gate 2
+        passed AND both co-primaries fail at ALL three horizons under ALL three labellings
+        (primary, TRF-incl, tick-rule) on BOTH marks (M0, M0_fast) → the label carries no
+        drift information in training; kills 3.3 as a tradable angle; does NOT touch 3.4.
+        **AMBIGUOUS** = any other mixed outcome — no kill, no re-cut.
+        **NO-VERDICT[-UNDERPOWERED]** = floors breached or Gate 2 failed.
+      - **Build discipline:** new code, built + unit-tested BEFORE any outcome fetch:
+        label permutation, return-space injection harness, stratified bootstrap, minP,
+        frozen-file writer. Reused unchanged: `theil_sen`, `hedge_aligned`, cluster-id
+        construction, the snapshot readers. No "machinery verbatim" claim survives.
+      - **Tradability honesty:** returns are gross of borrow/financing/SSR (12/25 HIGH are
+        short-side — BTDR/EOLS/SHLS-class names); long- and short-side subsets reported at
+        every horizon; a short-side-carried PREDICTIVE is a research finding only. Quote
+        SIZES are not in the 3.2 snapshots — any capacity claim requires a size-carrying
+        refetch and is out of scope for this verdict.
+      - **Honest failure modes:** ~25-event tail, one regime, one market; HIGH = "hedged
+        in lit," not "dealer present" (internalization lands in NULL); the label is
+        arm-sensitive (Jaccard table above) — LABEL-EMPTY is deliberately hard to reach
+        and most real outcomes land AMBIGUOUS, which is the honest default.
+      - **LABELS FROZEN 2026-08-01, before any outcome fetch:**
+        `hedge_scores_frozen_3p3.json` **SHA-256
+        `104c184e4a20503c8ee6858b2b6efd5078852e07ee5875ab6d9a5aabba089e57`** — 117 events,
+        strata HIGH 25 / NULL 84 / ANTI 8, written and byte-identically reproduced by
+        `tools/hedge_footprint_freeze.py` (pinned tests
+        `tests/test_hedge_footprint_freeze.py`; the writer REFUSES to overwrite a
+        mismatching on-disk file). One pre-registration correction disclosed: the first
+        write mis-read the ledger's `exp_days` (an EPOCH-day expiry date) as
+        days-to-expiry; caught in the balance table (median "20,560 days"), fixed to
+        `dte`, file deleted + regenerated before this SHA was pinned — nothing had been
+        unsealed. Balance table in `hedge_balance_3p3.json`: HIGH median $1.05M premium,
+        58 DTE, 5.1% OTM, m_bps +18.5 (vs NULL +1.4, ANTI −11.8 — the concurrent-move
+        covariate already separates strata exactly as the review predicted); HIGH
+        earnings-in-forward-window: 1 within 3d, 4 within 9d.
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer

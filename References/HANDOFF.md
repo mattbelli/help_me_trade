@@ -168,18 +168,19 @@ snapshot per sweep). Open threads only:
   `--g-verdict`); any code change before #5 = dated addendum + re-freeze.
 - ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
   the band, recorded as the registered finding. Thread closed.
-- **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE;
-  3.2 DONE 2026-08-01 with FINAL verdict FOOTPRINT-AMBIGUOUS (direction-without-size)** —
-  Amendment 2 founder-blessed ("re run blessed"), power gate passed honestly (MDE 0.05/0.10,
-  floors met), direction p=0.0015 at 64g quiet with flat pre-window, size scaling absent at
-  a power that would have seen 10% (BUILD_LOG row + ROADMAP 3.2 result blocks are the
-  record; card `flow-phase3-hedge-footprint`; founder card `flow-32-amendment2-decision`
-  resolved). **Next: 3.3 counterparty label — design it as PER-EVENT footprint
-  presence/absence, not pooled slopes** (the registered read + logged outlier look both
-  point there); needs its own pre-registration, and it is where forward returns finally
-  unseal (tradability question). Cheap first look available: drop the top-5 outlier events
-  and re-check direction (descriptive, data on disk). No collision with the live-pairing
-  thread (other agent).
+- **⏳ Phase 3 (dealer hedge footprint): 3.1 + 3.2 DONE (3.2 verdict FOOTPRINT-AMBIGUOUS,
+  direction-without-size — BUILD_LOG rows + ROADMAP result blocks are the record). 3.3
+  REGISTERED 2026-08-01, founder-blessed "Ok lets run it", labels FROZEN** (SHA
+  `104c184e…a089e57`, HIGH 25 / NULL 84 / ANTI 8, `tools/hedge_footprint_freeze.py`).
+  ⏳ **Open action: build the 3.3 measurement + gates** (new code, unit-tested BEFORE any
+  outcome fetch: stratum-label permutation w/ week blocks, return-space injection harness
+  evaluating the FULL verdict conjunction, stratified cluster bootstrap, minP, one-price-
+  space marks machinery + continuity tripwire, earnings fence from EDGAR store) → run
+  Gate 1 (controls-only, MDE ≤ 1.5% at h2 or the widening ladder) → ONLY then unseal
+  forward returns → verdict per the registered table → founder chart-review pack (25 HIGH
+  events; promised deliverable). ⚠️ Forward returns are SEALED until Gate 1 passes; the
+  frozen file's writer refuses overwrite — treat a SHA mismatch as an incident, never
+  regenerate. No collision with the live-pairing thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window
