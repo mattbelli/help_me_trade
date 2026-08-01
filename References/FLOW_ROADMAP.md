@@ -2885,6 +2885,21 @@ equivalent; we do not need it.
         minority leave true footprints ⇒ **3.3 must be designed as PER-EVENT footprint
         presence/absence (the counterparty label), not pooled slopes.** Forward returns
         remain sealed and untouched; tradability is 3.3's question, not 3.2's claim.
+
+      **3.2 outlier-drop follow-up (logged look, 2026-08-01, founder-blessed "run the free
+      look" — descriptive, no verdict authority):** does the 64g-quiet direction result
+      survive without the outliers? Full cut reproduces (n=117, mean aligned Z 1.49,
+      p=0.0010 at 4,000 perms). Ranked by aligned excess SHARES, top 5 (FLG/PTON/P/HAL/WMT)
+      = 50.7% of the 212k-share total (the p75 tier dilutes run-1's 93%-of-83); **drop
+      those 5 → p = 0.0075 (survives p<0.01); drop the top decile (12) → p = 0.044
+      (marginal).** Ranked by aligned Z — the loudest per-event evidence — drop 5 →
+      p = 0.016; **drop 12 → p = 0.23 (dead).** 58% of events align positive, median
+      aligned Z 0.58, median aligned E +1,105 sh. Read: not a 5-event fluke, but the
+      evidence lives in a graded top tail (~a dozen loud events of 117, ≈1 per 1–2
+      sessions at this selection) over a weakly-positive majority ⇒ 3.3's label should be
+      a **continuous per-event footprint score (aligned Z) with a registered threshold**,
+      not a binary anomaly flag, and its tradability test must expect tail-rate event
+      counts, not 117-per-quarter.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*

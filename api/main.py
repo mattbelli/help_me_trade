@@ -3178,7 +3178,11 @@ def _compute_rvol_from_total_volume(
 
 
 _OPTIONS_CHAIN_CACHE: dict[tuple[str, str, str], tuple[float, dict]] = {}
-_OPTIONS_CHAIN_TTL_S = 30.0
+# Coalesces concurrent readers (desktop + phone on the same chain) onto one
+# upstream fetch; it is NOT the update cadence. It was 30 s, which stacked with
+# the widget's own 30 s poll into ~60 s worst-case staleness on quotes that
+# arrive sub-second — the reason the chain looked frozen during RTH.
+_OPTIONS_CHAIN_TTL_S = 1.0
 
 
 @app.get("/api/options-chain")

@@ -8,6 +8,8 @@ no app state, fail-soft nulls per field.
 from __future__ import annotations
 
 import logging
+import math
+import threading
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -25,6 +27,75 @@ logger = logging.getLogger(__name__)
 # NOTE the snapshots path symbol is the OCC ROOT: SPX = AM monthlies only,
 # SPXW = the PM dailies/weeklies (measured 2026-07-22, chain sampler postmortem).
 INDEX_OPTION_ROOTS = frozenset({"SPX", "SPXW"})
+
+# --- per-day contracts metadata cache ---------------------------------------
+# The contracts fetch is what made this endpoint too slow to poll: measured
+# 2026-07-31 on the live process, SPY cost 2.15 s / 14,398 contracts — 91% of a
+# 2.36 s cold chain build — while the quote snapshot underneath it took 0.07 s
+# warm. Everything the contracts call supplies is a per-DAY constant: the
+# expirations list, and open interest (published by OCC overnight, flat
+# intraday). Caching it per (symbol, ET date) is what makes a 1-2 s poll
+# affordable, which is the whole point — the quotes were always live, we were
+# re-paying 2 s for yesterday's open interest to see them.
+_CONTRACTS_CACHE: dict[tuple[str, str], tuple[list[str], dict[str, dict[str, int]]]] = {}
+# One global lock, not one per symbol: a miss costs ~2 s, so the double-checked
+# fill is there to stop a poll from stampeding the fetch its own initial load is
+# already running. Serializing cold fills across symbols is fine at chain-widget
+# concurrency and keeps the bookkeeping to nothing.
+_CONTRACTS_LOCK = threading.Lock()
+# Bound on a process that runs for weeks. Insertion-order eviction, not LRU —
+# the date sweep does the real work and this is only a backstop against someone
+# paging through hundreds of symbols in one session.
+_CONTRACTS_CACHE_MAX = 32
+
+
+def _fetch_contracts_meta(
+    broker: "AlpacaAdapter", sym: str, today_et: str
+) -> tuple[list[str], dict[str, dict[str, int]]]:
+    """Expirations + open interest keyed by expiry, from the contracts API."""
+    raw = broker.get_option_contracts(sym, expiration_date_gte=today_et, limit=1000)
+    oi_by_expiry: dict[str, dict[str, int]] = {}
+    expirations: set[str] = set()
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict):
+            continue
+        exp = str(c.get("expiration_date") or "").strip()[:10]
+        if not exp:
+            continue
+        expirations.add(exp)
+        occ = str(c.get("symbol") or "").strip().upper()
+        oi_val = _chain_int_or_none(c.get("open_interest"))
+        if occ and oi_val is not None:
+            oi_by_expiry.setdefault(exp, {})[occ] = oi_val
+    return sorted(expirations), oi_by_expiry
+
+
+def _contracts_meta(
+    broker: "AlpacaAdapter", sym: str, today_et: str
+) -> tuple[list[str], dict[str, dict[str, int]]]:
+    key = (sym, today_et)
+    hit = _CONTRACTS_CACHE.get(key)
+    if hit is not None:
+        return hit
+    with _CONTRACTS_LOCK:
+        hit = _CONTRACTS_CACHE.get(key)
+        if hit is not None:  # filled while we waited for the lock
+            return hit
+        try:
+            meta = _fetch_contracts_meta(broker, sym, today_et)
+        except Exception:
+            logger.debug(
+                "options-chain: contracts fetch failed for %s", sym, exc_info=True
+            )
+            # Deliberately NOT cached: a transient vendor failure must not blind
+            # the symbol's expirations picker until the ET date rolls over.
+            return [], {}
+        for stale in [k for k in _CONTRACTS_CACHE if k[1] != today_et]:
+            del _CONTRACTS_CACHE[stale]
+        while len(_CONTRACTS_CACHE) >= _CONTRACTS_CACHE_MAX:
+            _CONTRACTS_CACHE.pop(next(iter(_CONTRACTS_CACHE)))
+        _CONTRACTS_CACHE[key] = meta
+        return meta
 
 
 def _chain_float_or_none(val: object) -> float | None:
@@ -246,6 +317,185 @@ def _window_strikes_rows(
     return sorted(picked, key=lambda r: r["strike"])
 
 
+# --- computed IV + greeks (fallback where the vendor has holes) --------------
+# Alpaca publishes greeks + IV on every expiry EXCEPT the one expiring today —
+# 0 of 500 SPY contracts at 0DTE, measured across SPY/QQQ/NVDA/AAPL/IWM on
+# 2026-07-31 — and even beyond 0DTE covers only the liquid strikes (157 of 339
+# SPY one week out). signals/black76.py fills those holes off the chain's own
+# parity forward. Vendor values win wherever they exist; `greeks_source` in the
+# payload says vendor / black76 / mixed so the two are never silently blended.
+
+# Settlement moment, ET. Nearly every listed option settles at the close; the SPX
+# root is the AM-settled exception (SPXW is the PM weekly/daily — see
+# INDEX_OPTION_ROOTS), and on expiry day that is a 6.5-hour difference in T.
+_AM_SETTLED_ROOTS = frozenset({"SPX"})
+
+
+def _time_to_expiry_years(expiry: str, sym: str, now_et: datetime) -> float | None:
+    from datetime import time as dt_time
+
+    try:
+        exp_date = date.fromisoformat(expiry[:10])
+    except ValueError:
+        return None
+    settle = dt_time(9, 30) if sym in _AM_SETTLED_ROOTS else dt_time(16, 0)
+    seconds = (
+        datetime.combine(exp_date, settle, tzinfo=_ET) - now_et
+    ).total_seconds()
+    if seconds <= 0:
+        return None
+    return seconds / (365.0 * 86400.0)
+
+
+# Treasury constant-maturity tenors, in years, for the discount factor. These are
+# the curve series signals/macro_substrate.py already refreshes daily into
+# macro.db — the substrate shipped to a UI card and had no code consumer until
+# now. Yields are quoted bond-equivalent rather than continuously compounded; at
+# these tenors that is a few basis points, far inside the quote noise we are
+# discounting against, so it is not worth converting.
+_CURVE_TENORS: tuple[tuple[float, str], ...] = (
+    (1 / 12, "DGS1MO"),
+    (0.25, "DGS3MO"),
+    (0.5, "DGS6MO"),
+    (1.0, "DGS1"),
+    (2.0, "DGS2"),
+    (5.0, "DGS5"),
+    (7.0, "DGS7"),
+    (10.0, "DGS10"),
+    (20.0, "DGS20"),
+    (30.0, "DGS30"),
+)
+_RATE_CACHE: dict[str, list[tuple[float, float]]] = {}
+
+
+def _curve_points(today_et: str) -> list[tuple[float, float]]:
+    """(tenor_years, rate) from macro.db, read once per day. Empty on any failure."""
+    hit = _RATE_CACHE.get(today_et)
+    if hit is not None:
+        return hit
+    points: list[tuple[float, float]] = []
+    try:
+        from db.macro import latest_value
+
+        for tenor, series in _CURVE_TENORS:
+            row = latest_value(series)
+            if row is not None and row[1] is not None:
+                points.append((tenor, float(row[1]) / 100.0))
+    except Exception:
+        logger.debug("options-chain: rate curve unavailable", exc_info=True)
+        points = []
+    _RATE_CACHE.clear()
+    _RATE_CACHE[today_et] = points
+    return points
+
+
+def _discount_factor(t_years: float, today_et: str) -> float:
+    """exp(-rT) with r interpolated on the curve. Falls back to 1.0 (no discount).
+
+    A missing curve costs almost nothing at the short end — D is 0.999 at a week
+    — and the fallback is visible in the payload's ``greeks_source``, so a LEAPS
+    IV computed without a rate is never passed off as one computed with it.
+    """
+    points = _curve_points(today_et)
+    if not points:
+        return 1.0
+    if t_years <= points[0][0]:
+        rate = points[0][1]
+    elif t_years >= points[-1][0]:
+        rate = points[-1][1]
+    else:
+        rate = points[-1][1]
+        for (t0, r0), (t1, r1) in zip(points, points[1:], strict=False):
+            if t0 <= t_years <= t1:
+                rate = r0 + (r1 - r0) * (t_years - t0) / (t1 - t0)
+                break
+    return math.exp(-rate * t_years)
+
+
+def _side_mid(side: dict) -> float | None:
+    """Mid price, but only from a genuine two-sided market.
+
+    A zero bid means nobody is buying at any price; ask/2 would invert into a
+    confident-looking implied vol built on half a quote. None is the honest read.
+    """
+    bid, ask = side.get("bid"), side.get("ask")
+    if bid is None or ask is None or bid <= 0 or ask < bid:
+        return None
+    return (bid + ask) / 2.0
+
+
+def _fill_computed_greeks(
+    fit_rows: list[dict],
+    display_rows: list[dict],
+    sym: str,
+    expiry: str,
+    underlying_price: float | None,
+    now_et: datetime,
+) -> str | None:
+    """Fill any IV/greek the vendor left empty. Returns the source label used.
+
+    The forward is fitted across the WHOLE board (parity is most identifiable
+    with many strikes) but inverted only on the rows actually being displayed —
+    a 2 s poll should not solve a thousand contracts nobody is looking at.
+    """
+    from signals.black76 import greeks as black76_greeks
+    from signals.black76 import implied_forward, implied_vol
+
+    t_years = _time_to_expiry_years(expiry, sym, now_et)
+    if t_years is None:
+        return None
+
+    pairs: list[tuple[float, float, float]] = []
+    for row in fit_rows:
+        call_mid, put_mid = _side_mid(row["call"]), _side_mid(row["put"])
+        if call_mid is not None and put_mid is not None:
+            pairs.append((row["strike"], call_mid, put_mid))
+
+    discount = _discount_factor(t_years, now_et.date().isoformat())
+    forward = implied_forward(pairs, discount)
+    source = "black76"
+    if forward is None or (
+        underlying_price
+        and underlying_price > 0
+        and abs(forward / underlying_price - 1.0) > 0.25
+    ):
+        # Too few two-sided strikes to read the forward, or one so far from spot
+        # that the chain is telling us something is wrong with its own quotes.
+        # Spot is a fair stand-in at the short end, where this mostly happens,
+        # and the label says which regime produced the numbers.
+        if not underlying_price or underlying_price <= 0:
+            return None
+        forward, source = underlying_price, "black76_spot"
+
+    vendor = computed = 0
+    for row in display_rows:
+        for right in ("call", "put"):
+            side = row[right]
+            if side.get("iv") is not None and side.get("delta") is not None:
+                vendor += 1
+                continue  # vendor supplied them — never overwrite real data
+            mid = _side_mid(side)
+            if mid is None:
+                continue
+            sigma = implied_vol(
+                mid, forward, row["strike"], t_years, discount, right == "call"
+            )
+            if sigma is None:
+                continue
+            side["iv"] = round(sigma, 4)
+            for key, val in black76_greeks(
+                forward, row["strike"], t_years, discount, sigma,
+                right == "call", spot=underlying_price,
+            ).items():
+                side[key] = round(val, 4)
+            computed += 1
+    if computed and vendor:
+        return "mixed"
+    if computed:
+        return source
+    return "vendor" if vendor else None
+
+
 def _format_chain_as_of(times: list[datetime]) -> str | None:
     if not times:
         return None
@@ -270,29 +520,13 @@ def build_options_chain_sync(
     # expirations from an unfiltered snapshot truncates the picker to one
     # expiry and drops most puts (live finding 2026-07-09). Index roots have
     # no contracts API (not tradable on Alpaca): generated picker, no OI.
-    contracts: list[dict] = []
-    if sym not in INDEX_OPTION_ROOTS:
-        try:
-            raw = broker.get_option_contracts(
-                sym, expiration_date_gte=today_et, limit=1000
-            )
-            if isinstance(raw, list):
-                contracts = [c for c in raw if isinstance(c, dict)]
-        except Exception:
-            logger.debug(
-                "options-chain: contracts fetch failed for %s", sym, exc_info=True
-            )
-
+    # Cached per (symbol, ET date) — see _CONTRACTS_CACHE.
+    oi_by_expiry: dict[str, dict[str, int]] = {}
     if sym in INDEX_OPTION_ROOTS:
         expirations = _index_expirations(sym, datetime.now(_ET).date())
-        expirations_set = set(expirations)
     else:
-        expirations_set = set()
-        for c in contracts:
-            exp = str(c.get("expiration_date") or "").strip()[:10]
-            if exp:
-                expirations_set.add(exp)
-        expirations = sorted(expirations_set)
+        expirations, oi_by_expiry = _contracts_meta(broker, sym, today_et)
+    expirations_set = set(expirations)
 
     now_et = datetime.now(_ET)
     if expiry_param:
@@ -316,16 +550,7 @@ def build_options_chain_sync(
                 exc_info=True,
             )
 
-    oi_map: dict[str, int] = {}
-    for c in contracts:
-        if str(c.get("expiration_date") or "").strip()[:10] != chosen:
-            continue
-        occ = str(c.get("symbol") or "").strip().upper()
-        if not occ:
-            continue
-        oi_val = _chain_int_or_none(c.get("open_interest"))
-        if oi_val is not None:
-            oi_map[occ] = oi_val
+    oi_map = oi_by_expiry.get(chosen or "", {})
 
     # One expiry is at most a few hundred contracts — filtered, paginated fetch.
     chain: dict = {}
@@ -385,7 +610,17 @@ def build_options_chain_sync(
                 }
             )
 
+    all_rows = rows
     rows = _window_strikes_rows(rows, underlying_price, strikes_param)
+    greeks_source: str | None = None
+    if chosen and rows:
+        try:
+            greeks_source = _fill_computed_greeks(
+                all_rows, rows, sym, chosen, underlying_price, now_et
+            )
+        except Exception:  # noqa: BLE001 — a model failure must not blank the chain
+            logger.exception("options-chain: greeks fill failed for %s", sym)
+
     as_of_times: list[datetime] = []
     for row in rows:
         as_of_times.extend(row_times.get(row["strike"], []))
@@ -401,4 +636,6 @@ def build_options_chain_sync(
     }
     if underlying_price_source is not None:
         result["underlying_price_source"] = underlying_price_source
+    if greeks_source is not None:
+        result["greeks_source"] = greeks_source
     return result

@@ -40,9 +40,11 @@ shipped and the guard fired live 07-30, and `resting-stop-locks-the-position` sh
 live 08-01: AMZN 50 @ `acct_alpaca_fable` and GOOGL 61 @ `acct_alpaca_deepseek` each carry their GTC
 stop (233.00 / 314.90), and both were locked at `available` 0.
 
-- **⏳ NOT YET DEPLOYED.** Cancel-then-sell is committed but the backend still runs the old code, so
-  both books stay locked until `tools/serv-deploy.sh backend`. Nothing has attempted an exit yet, so
-  nothing has actually been rejected in production.
+- **⏳ Deploying now** (`tools/serv-deploy.sh both`). Until the restart lands, both books stay locked;
+  nothing has attempted an exit yet, so nothing has actually been rejected in production. The same
+  deploy ships the **frontend** half of the options-chain round (2s poll + the "iv/δ computed" note)
+  — its backend half went live with the 08-01 13:28 UTC re-auth restart (`greeks_source` is served),
+  so only `.next` was still stale. Delete this bullet once the restart is verified.
 - **⏳ `sell-reservation-snapshot-window`** (card, `next`, high) — pre-existing, reproduced twice this
   round: for a sell-to-close every exposure gate is skipped, so the snapshot's `open_orders` is the
   ONLY quantity gate, and two sells inside one 20s poll window can oversell. The release path holds
@@ -57,8 +59,8 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   (*"stop price must be less than current price"*), so the guard must place on fill while price is
   still above the stop. After a gap-down it **cannot** place one at all — "re-place it each morning"
   is not a workaround. The release path's residual re-stop carries the same gate.
-- **⏳ Founder decision open:** `ext-entry-sizing-decision` (founder lane) — `ext` notional parity vs
-  smaller, since no stop can be live outside RTH and a stop barely helps across a gap.
+- **Settled 07-31:** `ext` sizing stays at PARITY (founder cleared the decision without a change) —
+  the overnight window is an accepted cost, not an open question. Sizing is no longer a lever here.
 - Then `book-accounts-invisible-in-cockpit`, then `ext-hours-soft-stop` (data gate already passes —
   the 24/7 poll already carries a live overnight mark).
 
@@ -282,7 +284,6 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 - ⚠ global `allow_short_selling=true` in prod settings — broader than the per-strategy book
   authorization (any approved sell with no held long can short-to-open on paper; books + stops
   excluded, chat/manual not). Confirm or narrow when increment 5 builds the per-strategy flag.
-- Multi-angle reasoning A/B go/no-go (`MULTI_ANGLE_REASONING_AB_2026-07-19.md`).
 - ⚠ subscribe the phone to the ntfy dead-man topic (topic string in crontab) — pages go nowhere
   until then.
 - Overnight 07-18 harvest + draft PR #100 — judge together.

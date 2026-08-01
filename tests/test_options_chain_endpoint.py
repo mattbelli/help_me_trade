@@ -372,6 +372,114 @@ def test_options_chain_empty_chain_fail_soft(monkeypatch: pytest.MonkeyPatch) ->
     assert data["as_of"] is None
 
 
+def test_options_chain_never_overwrites_vendor_greeks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Vendor values win. Alpaca publishes greeks everywhere except the expiry
+    expiring today (measured across 5 symbols 2026-07-31), so ours are a
+    fallback — silently replacing a real vol surface with our own would be the
+    opposite of the fix."""
+    _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
+
+    data = resp.json()
+    row = next(r for r in data["rows"] if r["strike"] == 190.0)
+    # _chain_snapshots() carries vendor iv/greeks on this strike — untouched.
+    assert row["call"]["iv"] == 0.499
+    assert row["call"]["delta"] == 0.44
+    assert data["greeks_source"] == "vendor"
+
+
+def test_options_chain_computes_greeks_when_vendor_has_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 0DTE hole: quotes but no vendor greeks, so Black-76 fills them."""
+    from datetime import timedelta
+
+    expiry = (real_datetime.now().date() + timedelta(days=30)).isoformat()
+    occ_date = real_datetime.fromisoformat(expiry).strftime("%y%m%d")
+    chain = {}
+    contracts = []
+    for strike in range(180, 225, 5):
+        key = f"{int(strike * 1000):08d}"
+        # Priced off a ~201 forward so both legs carry real time value.
+        call_mid = max(201.0 - strike, 0) + 6.0
+        put_mid = max(strike - 201.0, 0) + 6.0
+        for right, mid in (("C", call_mid), ("P", put_mid)):
+            occ = f"NVDA{occ_date}{right}{key}"
+            chain[occ] = {
+                "latestQuote": {"bp": round(mid - 0.05, 2), "ap": round(mid + 0.05, 2)}
+            }
+            contracts.append({"symbol": occ, "expiration_date": expiry})
+    _mock_alpaca(monkeypatch, chain=chain, contracts=contracts)
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get(f"/api/options-chain?symbol=NVDA&expiry={expiry}")
+
+    data = resp.json()
+    assert data["greeks_source"] == "black76"
+    filled = [r for r in data["rows"] if r["call"]["iv"] is not None]
+    assert filled, "expected computed IV on a chain with no vendor greeks"
+    for row in filled:
+        assert 0.0 < row["call"]["iv"] < 5.0
+        assert 0.0 <= row["call"]["delta"] <= 1.0
+        assert row["put"]["delta"] is None or -1.0 <= row["put"]["delta"] <= 0.0
+        assert row["call"]["theta"] is not None
+        assert row["call"]["vega"] is not None
+
+
+def test_options_chain_contracts_fetched_once_per_day(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole reason the chain can be polled: contracts cost 2.15s for SPY
+    (14,398 rows, measured live 2026-07-31) and carry only per-day constants —
+    the expirations list and open interest. Quotes must re-fetch every poll;
+    contracts must not."""
+    broker = _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        first = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
+        # A different expiry so the endpoint's own response cache cannot serve it.
+        second = client.get("/api/options-chain?symbol=NVDA&expiry=2026-07-17")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert broker.get_option_contracts.call_count == 1
+    assert broker.get_option_chain_snapshot.call_count == 2
+    # OI still lands on the right expiry's rows, from the cached map.
+    assert second.json()["expiry"] == "2026-07-17"
+
+
+def test_options_chain_contracts_failure_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient vendor failure must not blind the picker until midnight."""
+    broker = _mock_alpaca(monkeypatch, chain=_chain_snapshots())
+    broker.get_option_contracts = MagicMock(side_effect=RuntimeError("contracts boom"))
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        first = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
+        assert first.json()["expirations"] == []
+        broker.get_option_contracts = MagicMock(
+            return_value=[
+                {
+                    "symbol": "NVDA260821C00190000",
+                    "expiration_date": "2026-08-21",
+                    "open_interest": "77",
+                }
+            ]
+        )
+        second = client.get("/api/options-chain?symbol=NVDA&expiry=2026-07-17")
+
+    assert second.json()["expirations"] == ["2026-08-21"]
+
+
 def test_options_chain_broker_error_returns_500(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

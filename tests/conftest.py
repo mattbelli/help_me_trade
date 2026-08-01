@@ -100,6 +100,20 @@ def _clear_settings_cache_after_test() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _clear_options_chain_contracts_cache() -> None:
+    # The chain builder caches contracts metadata (expirations + OI) per
+    # (symbol, ET date). Every chain test mocks the same symbol on the same day,
+    # so without this the FIRST test's mocked contracts answer every later
+    # test's expirations — measured 2026-07-31: two tests asserting an empty
+    # picker got the previous test's expiry instead.
+    from brokers import options_chain
+
+    options_chain._CONTRACTS_CACHE.clear()
+    yield
+    options_chain._CONTRACTS_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
 def _clear_fusion_context_memo() -> None:
     # The fusion intake memoizes market-wide context reads (60s TTL) in module
     # state, and it negative-caches: a test that runs intake, seeds regime or
