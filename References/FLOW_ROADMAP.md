@@ -3140,12 +3140,24 @@ equivalent; we do not need it.
         all 10 misses are component-splitting** (Alpaca reports per-fill components
         where stage-1 groups same-ns prints — GNW 305 = 45+259+1 in-window), so
         ms-window summing ⇒ ~full recall; condition codes present ('c'/'e'/'I'/'a').
-      - **Open (next round): the discovery pass.** Candidates: ΔOI net with correct
-        publish-timing; or a thin-name-universe Alpaca crawl (the D ≥ 3 profile lives
-        in thin names — enumerate contracts from free definitions, crawl only names
-        under an ADV ceiling). No purchase decision is ripe until discovery is
-        validated end-to-end; the ~$10 drill-down quote stays parked in the founder
-        lane.
+      - **Discovery, round 2 (same day, founder authorized the buy "just check the
+        exact amount"): every shortcut measured DEAD; the viable path is a free slow
+        crawl.** (1) The ΔOI artifact was OPRA id-reuse across days (CVNA id → a fresh
+        contract next day; the same-day definition check cannot catch it) — corrected
+        to a per-day OSI join, the real ΔOI net then MISSES 3/7 truth prints (CVNA
+        5,000x → ΔOI +1; VRT 10,000x → +36; ARM 5,000x → +18): **open-vs-close netting
+        makes the blindness CORRELATED with counterparty structure — the very label
+        3.3 studies. ΔOI net: dead, and dangerously so.** (2) Parent-scoped tcbbo buy:
+        the 1,200 wide events span 549 roots quoting **$14,689**, and the root set
+        CHURNS — only 47% of second-half events occur in first-half roots — so even
+        that buy misses half of history's candidates. Dead. (3) **Viable: gentle
+        full-universe Alpaca crawl** — free definitions enumerate contracts; pre-filter
+        by moneyness/DTE (truth profile: median 58 DTE, 5% OTM — cuts the universe
+        several-fold; recall of the pre-filter measurable against truth for free);
+        batched trades queries over ~360 sessions ≈ a multi-day background crawl at
+        polite rates; then the tcbbo drill-down windows for discovered candidates
+        (~$10–30, founder-authorized, EXACT quote before the charged request). Next
+        round: build the crawler + measure pre-filter recall on truth, all free.
 
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
