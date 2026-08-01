@@ -1055,6 +1055,58 @@ class AlpacaAdapter:
                     out[sym] = parsed
         return out
 
+    async def aget_day_volumes(self, symbols: list[str]) -> dict[str, tuple[int, str]]:
+        """Batch today's cumulative share volume: ``{SYMBOL: (volume, ts)}``.
+
+        ``dailyBar.v`` from ``GET /v2/stocks/snapshots``, reusing the same
+        200-symbol chunking as :meth:`aget_ext_quotes`. The volume INCLUDES
+        extended hours (measured 07-28) — callers wanting an RTH-only total
+        subtract their own premarket baseline. ``ts`` is the daily bar's stamp
+        when present, else the snapshot's own. Fail-soft: partial/empty on
+        error, never raises.
+        """
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+        if not cleaned:
+            return {}
+
+        out: dict[str, tuple[int, str]] = {}
+        for start in range(0, len(cleaned), self._EXT_QUOTES_CHUNK):
+            chunk = cleaned[start : start + self._EXT_QUOTES_CHUNK]
+            try:
+                data = await self._aget_data(
+                    "/v2/stocks/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": self._data_feed},
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca day-volume snapshot failed for %d symbols",
+                    len(chunk),
+                    exc_info=True,
+                )
+                continue
+            for sym in chunk:
+                snap = data.get(sym) if isinstance(data, dict) else None
+                if not isinstance(snap, dict):
+                    continue
+                daily_bar = snap.get("dailyBar")
+                if not isinstance(daily_bar, dict):
+                    continue
+                try:
+                    volume = int(float(daily_bar.get("v")))
+                except (TypeError, ValueError):
+                    continue
+                if volume <= 0:
+                    continue
+                ts = str(daily_bar.get("t") or snap.get("t") or "")
+                out[sym] = (volume, ts)
+        return out
+
     def get_stock_snapshot_fields(self, symbol: str) -> dict[str, float] | None:
         """Read-only equity snapshot: last price and today's daily-bar volume.
 
