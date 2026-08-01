@@ -15,6 +15,24 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 2026-08-06 Schwab re-auth — the verdict on the Akamai hardening
+
+Token is healthy (minted 08-01 13:28Z, cliff **2026-08-08**). serv's IP is still edge-blocked from
+`sws-gateway.schwab.com`; six anti-detection fixes shipped 08-01 but **none tested against Schwab**.
+Diagnosis + the full fix list live on card `schwab-reauth-akamai-block` and the 08-01 BUILD_LOG row.
+
+- **⏳ 2026-08-06 — cron's first real attempt** (it skips while the token is under 5 days). Check
+  `data/reauth.log`. Success = the hardening cleared the block. Failure now reports **"Akamai
+  edge-blocked this IP"** with a `Reference #` instead of accusing the password — if you see a
+  credential error instead, the guard itself is wrong.
+- **⏳ If it fails:** `python -m tools.schwab_manual_exchange --start`, open the URL on an unblocked
+  machine, paste the `127.0.0.1:8182?code=...` back **fast** (Schwab codes expire in minutes), then
+  `--finish '<url>' --restart-backend`. Must land before the **08-08** cliff.
+- ⚠️ **`data/schwab_reauth_profile` is load-bearing** — deleting it makes the next run look like a
+  brand-new device, which is the signature we just spent the round removing.
+
+---
+
 ## ▶ 2026-07-30 ⚠️ LIVE UNPROTECTED POSITION — stop_guard has never fired
 
 DeepSeek book **GOOGL 61 @ 327.00** (`exec_7958562468e9`, filled 07-27 18:25 ET) is holding with

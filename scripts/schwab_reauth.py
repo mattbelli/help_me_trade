@@ -47,6 +47,8 @@ import argparse
 import asyncio
 import json
 import os
+import random
+import re
 import signal
 import subprocess
 import sys
@@ -108,11 +110,26 @@ ELEMENT_TIMEOUT_MS = 30_000   # wait_for_selector / wait_for_url timeout
 REDIRECT_TIMEOUT_MS = 30_000  # wait for the final callback redirect
 
 # ---------------------------------------------------------------------------
-# CHROMIUM LAUNCH — system chromium required (bundled playwright chromium
-# does NOT work on this Ubuntu 26.04 box with snap confinement)
+# BROWSER LAUNCH — real Google Chrome (deb), NOT the chromium snap. The snap is
+# confined to the mesa-2404 GPU userspace, which cannot drive this box's NVIDIA
+# card, so WebGL fell back to SwiftShader — a "this machine has no GPU" tell
+# that marks the session as automation. ANGLE's Vulkan backend reaches the real
+# card; measured 2026-08-01 it reports
+#   ANGLE (NVIDIA, Vulkan 1.4.329 (NVIDIA GeForce RTX 2060 SUPER), NVIDIA)
+# Chrome also reports "Google Chrome" in sec-ch-ua where the snap said
+# "Chromium". --use-gl=egl does NOT work here (falls back to SwiftShader).
 # ---------------------------------------------------------------------------
-CHROMIUM_EXECUTABLE = "/snap/bin/chromium"
-CHROMIUM_ARGS = ["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+CHROMIUM_EXECUTABLE = "/usr/bin/google-chrome-stable"
+CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-blink-features=AutomationControlled",
+    "--use-angle=vulkan",
+    "--enable-features=Vulkan",
+]
+
+# Persistent browser profile — carries Akamai sensor cookies + device age between
+# runs. Gitignored with the rest of data/.
+PROFILE_DIR = ROOT / "data" / "schwab_reauth_profile"
 
 # ---------------------------------------------------------------------------
 # Schwab OAuth endpoints
@@ -156,6 +173,43 @@ def _notify_reauth_failure(reason: str) -> None:
         )
     except Exception as exc:
         print(f"[reauth] Could not send failure alert: {exc}", file=sys.stderr)
+
+
+def _assert_not_edge_blocked(page) -> None:
+    """Raise if Akamai served an edge-deny page instead of Schwab's login form.
+
+    A blocked IP gets "Access Denied" with an errors.edgesuite.net reference.
+    Pushing on past it surfaces later as a bogus "Invalid login ID or password",
+    which is indistinguishable from a real credential failure — on 2026-08-01
+    that misdirection sent the founder to reset the wrong password entirely.
+    """
+    try:
+        body = page.inner_text("body")[:2000]
+    except Exception:
+        return  # page not readable yet; the normal selector waits will handle it
+    if "Access Denied" not in body and "permission to access" not in body:
+        return
+    # Akamai renders "Reference&nbsp;#..." — match any whitespace, not a space.
+    ref = re.search(r"Reference\s*#\s*(\S+)", body)
+    raise RuntimeError(
+        "Akamai edge-blocked this IP — Schwab served 'Access Denied' instead of a "
+        f"login page{' (Reference #' + ref.group(1) + ')' if ref else ''}. This is NOT a "
+        "credential problem: do not reset any password. Mint a token from an "
+        "unblocked browser via tools/schwab_manual_exchange.py --start."
+    )
+
+
+def _human_type(page, field, text: str) -> None:
+    """Type with real keystrokes and jittered gaps.
+
+    ``fill()`` sets the whole value in 0ms — nobody types a 15-character
+    password instantly, and that timing is a behavioural bot signal on a login
+    form.
+    """
+    field.click()
+    for ch in text:
+        page.keyboard.type(ch)
+        page.wait_for_timeout(random.uniform(55, 145))
 
 
 def _screenshot_path() -> Path:
@@ -294,21 +348,24 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
     # Toggle with SCHWAB_REAUTH_HEADED=1 (run via `xvfb-run -a` since serv has no display).
     headed = os.environ.get("SCHWAB_REAUTH_HEADED", "").strip().lower() in ("1", "true", "yes")
     with sync_playwright() as p:
-        browser = p.chromium.launch(
+        # Persistent profile: a fresh browser every week looks like a brand-new
+        # device submitting credentials, which is exactly what Akamai scores as
+        # a bot. Reusing the profile keeps its sensor cookies (_abck/bm_sz) and
+        # device age across runs, the way a real user's browser does.
+        # No user_agent override — a hardcoded string drifts out of sync with
+        # the snap on every refresh (it claimed Chrome 149 against a 150 engine
+        # until 2026-08-01), and the mismatch is itself a bot signal.
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        context = p.chromium.launch_persistent_context(
+            str(PROFILE_DIR),
             executable_path=CHROMIUM_EXECUTABLE,
             headless=not headed,
             args=CHROMIUM_ARGS,
-        )
-        context = browser.new_context(
             ignore_https_errors=True,
-            user_agent=(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
-            ),
             viewport={"width": 1366, "height": 900},
             locale="en-US",
         )
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
         page.set_default_timeout(ELEMENT_TIMEOUT_MS)
         page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
 
@@ -337,26 +394,48 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
                 # that's fine — we just wait for the login page to settle.
                 pass
 
+            # Distinguish "IP blocked at the edge" from "bad password" NOW,
+            # while the deny page is still on screen and unambiguous.
+            _assert_not_edge_blocked(page)
+
             # ----------------------------------------------------------------
             # 2. Enter username
             # ----------------------------------------------------------------
             print("[reauth] Entering username …")
             page.wait_for_selector(LOGIN_ID_SELECTOR, timeout=ELEMENT_TIMEOUT_MS)
-            page.fill(LOGIN_ID_SELECTOR, username)
+            _human_type(page, page.locator(LOGIN_ID_SELECTOR), username)
 
             # ----------------------------------------------------------------
             # 3. Enter password
             # ----------------------------------------------------------------
             print("[reauth] Entering password …")
             page.wait_for_selector(PASSWORD_SELECTOR, timeout=ELEMENT_TIMEOUT_MS)
-            page.fill(PASSWORD_SELECTOR, password)
+            _human_type(page, page.locator(PASSWORD_SELECTOR), password)
 
             # ----------------------------------------------------------------
             # 4. Click login button
             # ----------------------------------------------------------------
             print("[reauth] Clicking login button …")
             page.wait_for_selector(LOGIN_BTN_SELECTOR, timeout=ELEMENT_TIMEOUT_MS)
+            page.wait_for_timeout(random.uniform(400, 900))  # a person pauses before submitting
             page.click(LOGIN_BTN_SELECTOR)
+
+            # A rejected login re-renders the SAME login form with an inline
+            # error. Catch that here: otherwise the OTP fallback below matches
+            # #loginIdInput, types the TOTP into the Login ID box, and the run
+            # dies 30s later on a missing "Continue" (2026-08-01).
+            try:
+                page.wait_for_selector(
+                    "text=Invalid login ID or password", timeout=8_000
+                )
+                raise RuntimeError(
+                    "Schwab rejected SCHWAB_LOGIN_USERNAME/SCHWAB_LOGIN_PASSWORD "
+                    "('Invalid login ID or password'). Verify the password by hand "
+                    "at schwab.com before re-running — repeated attempts lock the "
+                    "account."
+                )
+            except PlaywrightTimeout:
+                pass  # no error banner — login went through
 
             # ----------------------------------------------------------------
             # 5. OTP / Security code
@@ -367,7 +446,10 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
             try:
                 otp_input.wait_for(state="visible", timeout=ELEMENT_TIMEOUT_MS)
             except Exception:
-                otp_input = page.locator("input:visible").first
+                # Never fall back onto the login form's own fields.
+                otp_input = page.locator(
+                    f"input:visible:not({LOGIN_ID_SELECTOR}):not({PASSWORD_SELECTOR})"
+                ).first
                 otp_input.wait_for(state="visible", timeout=ELEMENT_TIMEOUT_MS)
             # Generate a FRESH code now; if <8s left in the current 30s window, wait
             # for the next so it stays valid through submission.
@@ -377,7 +459,7 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
                 page.wait_for_timeout((seconds_left + 1) * 1000)
             otp_code = _totp.now()
             print(f"[reauth] OTP code generated (length={len(otp_code)})")
-            otp_input.fill(otp_code)
+            _human_type(page, otp_input, otp_code)
 
             # ----------------------------------------------------------------
             # 6. Submit OTP
@@ -530,10 +612,10 @@ def run_headless_reauth() -> None:  # noqa: C901 (complexity acceptable for a fl
                 print(f"[reauth] Failure page HTML saved: {html_path}", file=sys.stderr)
             except Exception as html_err:
                 print(f"[reauth] Could not save page HTML: {html_err}", file=sys.stderr)
-            browser.close()
+            context.close()
             sys.exit(f"[reauth] FATAL during Playwright flow: {exc}")
 
-        browser.close()
+        context.close()
 
     # -- Exchange code for token (outside browser context) -------------------
     print("[reauth] Exchanging authorization code for token …")
