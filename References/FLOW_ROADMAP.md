@@ -2721,6 +2721,41 @@ equivalent; we do not need it.
 
       *Done when:* the verdict block below this spec records all looks, both tiers, all three
       horizons, the drop ledger, the power floor, and the verdict per the table.
+
+      **3.2 Amendment 1 (registered 2026-08-01, at build, BEFORE any run).** The build
+      (`tools/hedge_footprint.py`, 80 hermetic tests) surfaced defects/ambiguities in the spec
+      itself; resolved here, dated, before any data was read:
+      - **Look C inference was degenerate as registered.** "Inference for all: flip sign(H)…"
+        cannot move an UNSIGNED statistic (p ≡ 1; Look C could never pass, silently biasing
+        toward ABSENT). Look C's inference = the spec's other registered machinery: cluster
+        bootstrap over underlyings, 95% CI of the median Z excluding 0.
+      - **"The permutation direction test" pinned:** cluster-permutation on mean Ẽ (= Z·sign(H))
+        at the primary horizon — a direction statistic distinct from Look A's slope; both p's
+        reported.
+      - **Direction veto on the kill, explicit:** ABSENT additionally requires the direction
+        test failing at all three horizons — already implied by the table's
+        "direction-without-size = AMBIGUOUS", now unambiguous in code
+        (`all_horizons_failed`, pinned by test).
+      - **Secondary Δ-band is its own stage-1→stage-2 cohort** (tagged `band=secondary`): a
+        "secondary read" re-cut from the primary-band cohort would be vacuous since the
+        primary band is strictly inside it, and selection is never revised after a fetch. The
+        primary verdict uses the primary band only. ETF stratum likewise runs as its own
+        invocation (`--stratum etf`) — separate selection, never pooled.
+      - **Clarifications, identical on event and controls so nothing is biased:** 165g =
+        300.3s vs the ±300s fetch (outermost 0.3s short on both sides of the comparison);
+        the quiet flag is computed per horizon against that horizon's own pre-window;
+        pre/post windows are half-open ([T−h,T) / [T,T+h)); MAD unscaled.
+      - **Build assumptions the spec left open, disclosed (not rule changes):** option tick =
+        OPRA penny pilot ($0.01 < $3.00, else $0.05); feed assertion threshold = window ≥ 10%
+        of pro-rata SIP daily volume (IEX ~2–3% fails with margin); per-tape condition
+        exclusions {P,Z,U,T} + CTA 'B'/UTP 'W' + '4', QCT '7' separate, unknown tape takes
+        the union; expiry = DBN expiration UTC day at 16:00 ET; group option quote mid = mean
+        of the group's good_q tcbbo midpoints; control-skip activity = single-leg ≥ $25k;
+        ADV = mean volume over the 20 split-adjusted prior sessions; MDE defaults
+        n_rep=100/n_perm=400 (CLI-tunable cost knobs, not spec values).
+      - **Known limitation, flagged not fixed:** a reused ticker (measured case: ARIS) pools
+        two issuers into one control baseline and permutation cluster; 3.2 registers only the
+        date-scoped rename map. Revisit only if such a name reaches the selected set.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*
