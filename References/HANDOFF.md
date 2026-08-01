@@ -142,6 +142,15 @@ snapshot per sweep). Open threads only:
   `--g-verdict`); any code change before #5 = dated addendum + re-freeze.
 - ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
   the band, recorded as the registered finding. Thread closed.
+- **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE same
+  day** (BUILD_LOG row + ROADMAP 3.1 RESULT block: clocks agree at ms grain, equity `t` =
+  participant timestamp; registered lead-lag grain for 3.2 = **1.82s**; card
+  `flow-phase3-hedge-footprint`). Open next, in order: **3.2 pre-registration** (hedge
+  footprint on large single-leg prints — event set via v6 condition codes, size prediction
+  ≈ delta × contracts × 100 as the falsifier, matched controls, signing method, pass/fail +
+  mechanism sentence) BEFORE any grading run; 3.3/3.4 exist only if 3.2 finds the footprint.
+  Runs entirely on historical files + snapshot fetches — no collision with the live-pairing
+  thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

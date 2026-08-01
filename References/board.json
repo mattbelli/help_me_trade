@@ -20,6 +20,16 @@
    "notes": "LAW 2026-07-31 (v5, 22 blockers). Ob-2 DISCHARGED 07-31 both halves: oi_reconcile extended through 07-29 (07-24 = 81.4% coverage, window keeps 37 dates) AND tools/h1_quiet_tape.py BUILT+FROZEN after 2 split-mandate Opus reviews + targeted verification (~17 blockers fixed; population question adjudicated: prereg's <=1,186 = raw OI cross-section, registered conjunction = 707 on 07-17, strictly inside). 40 tests; full suite 3,451 green. Stages gated in code: record/calibrate refuse before 2026-08-08; score demands the G-verdict artifact + asserts dates AND gap vector against the #3 record; first-run-governs guards throughout. REMAINING: bars top-up through d+10, then #3 record -> #4 calibration (>= 08-08), #5 scoring strictly after the G verdict. Code change before #5 = dated addendum + re-freeze."
   },
   {
+   "id": "flow-phase3-hedge-footprint",
+   "lane": "in_progress",
+   "type": "research",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-01",
+   "title": "Flow Phase 3 \u2014 dealer hedge footprint: 3.1 clock skew DONE (ms-grain agreement), 3.2 prereg next",
+   "notes": "Founder go 2026-08-01 (phase order settled: Phase 3 never blocked by Phase 1's open reporting items; Phase 2 done in substance, 2.5 founder-parked). 3.1 DONE same day: spec registered before build (FOMC/ISM burst alignment, 9+12 events); tools/hedge_clock_skew.py + 17 tests; 21/21 events burst both tapes; 10/21 within |delta|<=10ms straddling zero (tightest +0.135ms) => cross-tape clock skew single-digit ms, equity t = participant timestamp; STOP rule fired on 4 outliers, investigation attributes all to burst-ramp shape (sign flips, first trades 0.8-60ms after T). Registered grain for 3.2 = 1.82s (p90|delta| FOMC). Artifacts data/research/hedge_clock_skew/. NEXT: 3.2 pre-registration (hedge footprint on large single-leg prints via v6 condition codes; size prediction ~= delta x contracts x 100 = the falsifier; mechanism sentence per 07-30 standing rule) BEFORE any grading run. 3.3/3.4 (counterparty label, spread orientation) gated on 3.2 existing at all."
+  },
+  {
    "id": "flow-scoring-obligations",
    "lane": "in_progress",
    "type": "research",

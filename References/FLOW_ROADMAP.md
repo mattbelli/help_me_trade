@@ -2493,8 +2493,69 @@ accumulated flow*. This is **directly observing** the hedge. Different mechanism
 resolution as our OPRA prints. Verified 2026-07-26. Databento wanted $2.06/day whole-market for the
 equivalent; we do not need it.
 
-- [ ] **3.1 Measure the clock skew** between OPRA `ts_event` and Alpaca SIP trade timestamps. Must be
-      measured, never assumed. *Done when:* the skew distribution is written down.
+- [x] **3.1 Measure the clock skew** between OPRA `ts_event` and Alpaca SIP trade timestamps. Must be
+      measured, never assumed. *Done when:* the skew distribution is written down. **DONE 2026-08-01
+      — see the RESULT block below the spec.**
+
+      **3.1 spec (registered 2026-08-01, before build):**
+      - **Option side — already measured, cited not re-run:** the condition-code join probe
+        (2026-07-27, session 2026-07-24, 8 names, 1.86M prints) matched identical prints
+        Databento tcbbo ↔ Alpaca options and found the clock offset **exactly 0ns p1–p99** —
+        both vendors pass the OPRA participant timestamp through. The option leg of any Phase-3
+        pairing is exchange matching-engine time. Nothing to re-measure.
+      - **Equity side — the open half:** Alpaca `/v2/stocks/{sym}/trades` exposes ONE timestamp
+        `t`. Vendor docs/forum say it is the participant timestamp (exchange matching engine
+        for on-exchange prints; the reporting firm's clock for TRF `x='D'`), but that is a
+        vendor claim, and participant-vs-SIP is exactly the skew 3.2 inherits. Measure it.
+      - **Method — scheduled-release burst alignment.** A macro release is a physical common
+        event on a NIST-locked clock, visible on both tapes at once. Events: the **9 FOMC
+        decision days inside the corpus span** (14:00:00 ET; all 9 tcbbo sessions verified on
+        disk 2026-08-01) as the primary set; monthly **ISM-manufacturing 10:00:00 ET** days as
+        a secondary set (weaker bursts, allowed to fail). Instrument: SPY equity trades
+        (Alpaca snapshot fetch, [T−60s, T+10s], sizes/exchange/conditions kept) vs SPY option
+        prints (session tcbbo, same window).
+      - **Onset, registered:** trades-per-100ms profile over [T−60s, T) is the baseline;
+        onset = first 100ms bin at/after T with rate ≥ 5× the baseline mean AND ≥ 5 trades,
+        then the first trade timestamp inside that bin. Same rule on both tapes. Guards: no
+        qualifying bin in [T, T+10s] ⇒ the event reports **NO-BURST** and contributes nothing
+        (a misdated event self-reveals; nothing is fabricated); both tapes must burst for a
+        Δ to exist. Secondary, reported not primary: raw first-trade-after-T delta.
+      - **Report:** per event, equity onset − T, option onset − T, Δ = option − equity; across
+        events, the Δ distribution — that IS the "skew distribution written down." **Honest
+        limit, stated in advance:** Δ mixes true clock skew with the tapes' reaction-speed
+        difference; it is an UPPER BOUND on skew at the grain where both tapes react, and a
+        bound is all 3.2 needs.
+      - **Forensics:** sub-second digit histogram of equity `t` (a ms-truncated feed is a skew
+        floor of its own), per-exchange share, TRF broken out separately. Equity onset is
+        computed on non-TRF prints only — TRF timestamps are reporting-firm clocks.
+      - **Decision rule for 3.2 (registered):** minimum lead-lag grain = max(100ms, p90 |Δ|
+        over burst events, the measured granularity floor). Any |Δ| > 1s ⇒ STOP — the
+        endpoints are not what we think; investigate before 3.2 runs.
+
+      **3.1 RESULT (run 2026-08-01, `tools/hedge_clock_skew.py`, artifacts in
+      `data/research/hedge_clock_skew/`):** all **21/21 events burst on both tapes** (every
+      FOMC and ISM date self-validated; the NO-BURST guard never fired). The Δ distribution:
+      FOMC n=9 min −198.3ms / p50 +102.9ms / p90|Δ| 1,820ms / max +5,096ms; all-21 p50 +2.0ms.
+      **The tape clocks agree at millisecond grain: 10 of 21 events land within |Δ| ≤ 10ms,
+      straddling zero (−7.1ms … +4.2ms, tightest +0.135ms)** — a constant cross-tape offset
+      must sit below every one of those, so the skew bound is ~single-digit ms, sub-ms typical.
+      Equity `t` therefore behaves as a participant/exchange timestamp (a materially delayed
+      SIP stamp could not align sub-ms with the OPRA participant clock on fast events).
+      **The STOP rule fired (4 events |Δ| > 1s) and the mandated investigation attributes every
+      one to burst-ramp shape, not clocks:** on each slow day the "slow" tape's FIRST trade
+      arrives 0.8–60ms after T (the tape is alive at ms scale; the 5×-baseline threshold just
+      trips late on a shallow ramp — 2025-10-29's option tape never truly burst until +5.2s),
+      and the asymmetry FLIPS SIGN (2026-05-01: the equity side was the slow one, Δ = −502.9ms)
+      — impossible for a clock offset. Curio, recorded: two FOMC days (2026-06-17, 2026-07-29)
+      show the option burst landing at exactly +1.0s (768/866 prints in the +1.0–1.1s bin) with
+      first prints ≤12ms — a venue/participant cadence artifact on the options side.
+      **Forensics:** all three streams ≥99.7% sub-microsecond digits (no truncation floor);
+      TRF share of SPY equity prints 14–41%, excluded from onsets per spec.
+      **Registered decision rule output, standing:** minimum lead-lag grain for 3.2 =
+      **1.82s** (p90|Δ| on the FOMC primary set — conservative by construction since the tail
+      is reaction asymmetry, but the registered rule governs; sub-2s binning in 3.2 would
+      require a dated amendment citing this investigation). No |Δ| pattern blocks 3.2:
+      **proceed.**
 - [ ] **3.2 Hedge footprint on large single-leg prints.** Take the biggest single-leg option prints;
       measure signed equity volume in the following N seconds against matched control windows on the
       same name, same time of day. **The test is size, not just direction:** the hedge should be
