@@ -122,6 +122,13 @@ def _clear_fusion_context_memo() -> None:
     from signals.fusion import intake as fusion_intake
 
     fusion_intake._CONTEXT_MEMO.clear()
+    # Same hazard, per-symbol: the rvol lane memoizes its write bucket, the
+    # detected-prints sum and the loaded volume profile in module state, so a
+    # second intake in the same test would silently skip the write or reuse a
+    # negative-cached profile.
+    fusion_intake._RVOL_BUCKET_MEMO.clear()
+    fusion_intake._RVOL_PRINTS_MEMO.clear()
+    fusion_intake._RVOL_PROFILE_MEMO.clear()
 
 
 @pytest.fixture

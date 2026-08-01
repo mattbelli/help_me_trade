@@ -200,24 +200,29 @@ flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 
 ## ▶ Fusion — Horizon Redesign Round 5 + measurement follow-ups
 
-**⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
-attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
-uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
-- ⚠️⚠️ **THE RAM-UPGRADE REBOOT (server down 07-29 evening) DEPLOYS NEWS BY ITSELF — no deploy step is
-  owed.** All four `hmt-*` units are `enabled` at boot and the dev tree already contains `8cf8008`
-  (PR #134), so the first post-upgrade backend start runs the news lane. **FIRST JOB ON THE WAY BACK:
-  record that start time (`systemctl show hmt-backend -p ActiveEnterTimestamp`) — that timestamp, not
-  07-30, IS the news cohort boundary.** If the box returns mid-session, that day is a PARTIAL cohort:
-  label it and never use it as a baseline. (Pre-upgrade the backend had not restarted since 07-28
-  12:33 UTC, so everything before the reboot is clean measurement-round data.)
-- ▶ **PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main in, re-verify (full suite
-  + ruff), merge, then deploy on the session AFTER news has had one full clean day. Never the same
-  cohort date as news.
-- ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
-  `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
-- ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
-  for (never done); attention scores stepping DOWN = **the correction, not signal**. Watch the one-time
-  attention migration — it full-scans ~591k `evidence_dots`, so keep it off the lock-starve path.
+**Cohort boundaries — both deploys are now placed, on separate dates** (news moves catalyst reach UP,
+the attention frozen-peak fix moves legacy scores DOWN — together the score step is uninterpretable;
+rationale in the two 07-28 BUILD_LOG rows):
+- ✅ **NEWS COHORT BOUNDARY = 2026-07-30, and it is a CLEAN full session, not a partial one.** Settled
+  by measurement 08-01, not by the restart timestamp: the post-reboot backend start was 07-30
+  03:40:47 UTC, and the first news dot was written 07-30 13:32:09 UTC — 09:32 ET, two minutes after
+  the bell. The 8,550-dot burst in that hour is the backfill (dot `ts` reaches back to 07-22); live
+  minting ran 07-30 and 07-31 (10,958 dots total). Nothing landed mid-session, so no day needs a
+  PARTIAL label.
+- ▶ **RVOL COHORT BOUNDARY = the first session after the #135 deploy (08-03 open).** Deployed
+  08-01 with the market closed, which is a pre-open deploy with no session in between — never
+  mid-session, and a different cohort date from news.
+- ⏳ 08-03+: `rvol_dots` / `rvol_skipped_*` counters, and the per-pass write-cost benchmark the review
+  asked for (still never done). Attention scores stepping DOWN = **the correction, not signal**.
+  ⚠️ **The old "the migration full-scans ~591k `evidence_dots`, keep it off the lock-starve path"
+  warning was wrong and is retired** — measured 08-01 on a copy of the live DB: the table is 158,506
+  rows, the migration UPDATEs **262** of them across 75 episodes (39 still open), deletes nothing,
+  touches no other component, and runs in **37 ms**, idempotent. It is not a lock hazard.
+- ⏳ 08-03+: watch `volume_profile_refresh`. `profile_universe()` now unions open-episode symbols, which
+  took it 1,008 → 1,876 (+868 measured 08-01), so the nightly build is roughly twice as long at its
+  existing 0.6 s spacing. Equities route to **Alpaca** under hybrid (`_child_for` sends only futures to
+  Schwab), so there is no WAF exposure — but that job's `# safely under Schwab's ~120/min` comment is
+  now a stale relic and the pacing is untuned for the provider it actually hits.
 - ⏳ next in this lane: filings → fusion dots — needs `ingest_seq` on `filings_events` plus a founder call
   on insider-buy direction (`none` like news, or a deliberate exception). Congress rows stale since 07-02.
 

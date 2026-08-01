@@ -177,6 +177,10 @@ def _evidence_protos(episode_id: str, db_path: Path) -> list[dict[str, Any]]:
         raw = _as_float_or_none(dot.get("raw_value"))
         if raw is not None and group in ("options_actor", "equity_actor"):
             statement += f" · ${raw:,.0f}"
+        elif raw is not None and group == "background_crowd":
+            # A multiple, never dollars — the crowd dot's raw_value is an RVOL
+            # ratio, and rendering it as $2 would be a fabricated notional.
+            statement += f" · {raw:.2f}× RVOL-ex-prints"
         protos.append(
             {
                 "statement": statement,

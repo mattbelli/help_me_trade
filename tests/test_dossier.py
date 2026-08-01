@@ -202,6 +202,24 @@ def test_claim_ids_deterministic(db: Path) -> None:
         assert indices == list(range(len(indices)))
 
 
+def test_background_crowd_raw_value_renders_as_a_multiple(db: Path) -> None:
+    # The evidence angle rendered raw_value for ACTOR groups only, so an rvol
+    # dot came out as a bare "0 pts" claim with its reading dropped — and $2.35
+    # would be a fabricated notional.
+    episode = _seed_episode(db)
+    _seed_dot(db, dot_id="d1", component="rvol_ex_prints", group="background_crowd",
+              direction="none", points=0.0, raw_value="2.35", ts=_utc(18, 0))
+    _seed_dot(db, dot_id="d2", component="option_sweep", group="options_actor",
+              direction="bull", points=2.0, raw_value="300000", ts=_utc(18, 1))
+
+    claims = build_dossier(episode, db_path=db, now=NOW)["claims"]
+    rvol = next(c for c in claims if "rvol_ex_prints" in c["statement"])
+    assert "2.35× RVOL-ex-prints" in rvol["statement"]
+    assert "$" not in rvol["statement"]
+    flow = next(c for c in claims if "option_sweep" in c["statement"])
+    assert "$300,000" in flow["statement"]  # actor dollars unchanged
+
+
 def test_warming_social_is_omitted(db: Path) -> None:
     episode = _seed_episode(db)
     _seed_dot(db, dot_id="d1", component="option_sweep", group="options_actor",

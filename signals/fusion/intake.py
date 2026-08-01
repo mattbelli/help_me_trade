@@ -20,6 +20,9 @@ from config.idea_engine import (
     FUSION_NEWS_WINDOW_MIN,
     FUSION_REGIME_STALE_DAYS,
     FUSION_REHYDRATE_SESSIONS,
+    FUSION_RVOL_DAY_VOLUME_MAX_AGE_S,
+    FUSION_RVOL_REFRESH_BUCKET_MIN,
+    FUSION_RVOL_WARMUP_MIN,
     FUSION_SOCIAL_SPIKE_RATIO,
     FUSION_SPOT_MAX_AGE_S,
     FUSION_STORM_BATCH_EVENTS,
@@ -43,7 +46,7 @@ from signals.fusion.scorer import (
     tape_direction,
 )
 from signals.options_flow.constants import CONV_LEVEL_ATR
-from trading.market_hours import _ET
+from trading.market_hours import _ET, _SESSION_OPEN
 
 PriceLookup = Callable[[str], Decimal | None]
 ShockLookup = Callable[[], bool]
@@ -300,15 +303,31 @@ def _insert_dot_on(
     detail: dict[str, Any],
     price: Decimal | None,
     atr14: Decimal | None,
+    refresh_state: bool = False,
 ) -> str:
     """Write one dot on an EXISTING connection — the caller owns the commit.
 
     Split out of ``_insert_dot`` so a lane that mints many dots in one pass (the
     news attach lane) does it in a single transaction instead of one
-    connect+commit per dot."""
+    connect+commit per dot.
+
+    ``refresh_state`` is for a ROLLING state dot — one row per (episode,
+    component) that re-reads a live measurement every pass. Without it the
+    ON CONFLICT keeps the row's ORIGINAL ``raw_value`` and ``ts`` (correct for an
+    event dot, whose reading is the event), so a rolling dot's reading froze at
+    its first value while only points/detail moved — a fabricated fact on the
+    dossier, and for anything lifecycle reads by recency (``_latest_rvol``) a
+    permanently stale ``ts``. Event lanes leave it False."""
     dot_id = _stable_id("dot", source_store, source_event_id, component)
-    conn.execute(
+    state_refresh_sql = (
         """
+                raw_value = excluded.raw_value,
+                ts = excluded.ts,"""
+        if refresh_state
+        else ""
+    )
+    conn.execute(
+        f"""
             INSERT INTO evidence_dots(
                 id, episode_id, source_store, source_event_id, source_ingest_seq,
                 symbol, ts, component, actor_group, dot_kind, direction,
@@ -317,7 +336,7 @@ def _insert_dot_on(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_store, source_event_id, component) DO UPDATE SET
                 detail_json = excluded.detail_json,
-                points = excluded.points,
+                points = excluded.points,{state_refresh_sql}
                 -- Crash-replay restamp: a first pass before the price/ATR caches
                 -- warmed leaves NULL stamps; a replay that has them fills the
                 -- gaps. COALESCE keeps the ORIGINAL stamp when present (history
@@ -409,18 +428,34 @@ def _put_disposition(
 
 
 def _attach_attention(episode: dict, ts: str, db_path: Path) -> None:
+    """ONE rolling attention dot per (episode, source), tracking the CURRENT buzz.
+
+    The old key was ``{symbol}:{bucket}:{source}`` — a new row per ET hour
+    bucket, above the spike gate only. The scorer takes latest/best over the
+    group, so a single spiky hour pinned the episode's attention score at its
+    all-time peak for the episode's whole 15-session life and nothing could
+    walk it back down (07-28 audit). A rolling dot refreshed every eligible
+    pass tracks the reading DOWN as well as up: below the gate it is zeroed
+    (points 0.0, ``state='below_gate'``), never frozen and never deleted — the
+    dot is the episode's history, only its score is a live claim.
+
+    ATTENTION IS SCORED (unlike background_crowd/context), so this is a real
+    scoring change: legacy episodes lose their pinned peak.
+    """
     for source in sorted(SOURCES):
         buzz = get_source_buzz(episode["symbol"], source, db_path=db_path)
         ratio = buzz.get("anomaly_ratio")
         if buzz.get("state") != "ready" or ratio is None:
             continue
-        if float(ratio) < FUSION_SOCIAL_SPIKE_RATIO:
-            continue
-        source_id = f"{episode['symbol']}:{buzz['bucket']}:{source}"
+        value = float(ratio)
+        below_gate = value < FUSION_SOCIAL_SPIKE_RATIO
+        detail = dict(buzz)
+        if below_gate:
+            detail["state"] = "below_gate"
         _insert_dot(
             episode_id=episode["id"],
             source_store="social_mentions",
-            source_event_id=source_id,
+            source_event_id=f"{episode['id']}:{source}_buzz",
             source_ingest_seq=0,
             symbol=episode["symbol"],
             ts=ts,
@@ -429,10 +464,11 @@ def _attach_attention(episode: dict, ts: str, db_path: Path) -> None:
             dot_kind="state",
             direction="none",
             raw_value=_decimal(ratio),
-            points=min(3.0, max(0.0, math.log2(float(ratio)))),
-            detail=buzz,
+            points=0.0 if below_gate else min(3.0, max(0.0, math.log2(value))),
+            detail=detail,
             price=None,
             atr14=None,
+            refresh_state=True,
             db_path=db_path,
         )
 
@@ -694,9 +730,17 @@ def _attach_earnings(episode: dict, ts: str, market_day: str, db_path: Path) -> 
                 (episode["id"],),
             ).fetchone()
             if row is not None and float(row["points"] or 0.0) != 0.0:
+                # Same rolling-dot contract as the mint path above: the reading
+                # (raw_value = weekdays-to-print) and the stamp have to move
+                # with the points, or the zeroed dot still tells the dossier
+                # "4 weekdays out, as of <the day it was minted>".
                 conn.execute(
-                    "UPDATE evidence_dots SET points = 0.0, detail_json = ? WHERE id = ?",
-                    (stale_detail, row["id"]),
+                    """
+                    UPDATE evidence_dots
+                    SET points = 0.0, raw_value = NULL, ts = ?, detail_json = ?
+                    WHERE id = ?
+                    """,
+                    (ts, stale_detail, row["id"]),
                 )
                 conn.commit()
         return
@@ -723,9 +767,231 @@ def _attach_earnings(episode: dict, ts: str, market_day: str, db_path: Path) -> 
         detail=detail,
         price=None,
         atr14=None,
+        # Rolling state dot: the weekday distance SHRINKS every session, and the
+        # dot's ts is what the dossier reads as "as of". Without the refresh the
+        # points moved while raw_value stayed pinned at day 1's count — a
+        # "5 weekdays out" reading on the morning of the print.
+        refresh_state=True,
         db_path=db_path,
     )
     bump("fusion_intake", "earnings_dots", db_path=db_path)
+
+
+# ------------------------------------------------------------- rvol ex-prints
+# Per-symbol memos, deliberately NOT _CONTEXT_MEMO: that one is keyed on the
+# market day alone (market-wide reads) and cannot hold a per-symbol value.
+_RVOL_BUCKET_MEMO: dict[tuple[str, str], int] = {}  # (episode, day) -> last written bucket
+_RVOL_PRINTS_MEMO: dict[tuple[str, str, int], int] = {}  # (symbol, since_utc, bucket) -> shares
+_RVOL_PROFILE_MEMO: dict[str, tuple[float, Any]] = {}  # symbol -> (monotonic, Profile|None)
+_RVOL_PROFILE_TTL_S = 3600.0  # signals/equity_tape.py:_PROFILE_TTL_SECONDS
+
+
+def _rvol_profile(symbol: str) -> Any:
+    """The symbol's cached volume profile (None when absent or too old).
+
+    ``load_profile``'s own max_age_days guard still decides staleness — this is
+    only a per-process read memo so a busy pass does not re-open the JSON file
+    per event."""
+    from signals.volume_profile import load_profile
+
+    now = time.monotonic()
+    hit = _RVOL_PROFILE_MEMO.get(symbol)
+    if hit is not None and now - hit[0] < _RVOL_PROFILE_TTL_S:
+        return hit[1]
+    try:
+        profile = load_profile(symbol)
+    except (OSError, ValueError, KeyError):
+        profile = None
+    if len(_RVOL_PROFILE_MEMO) > 512:
+        _RVOL_PROFILE_MEMO.clear()
+    _RVOL_PROFILE_MEMO[symbol] = (now, profile)
+    return profile
+
+
+def _detected_prints_shares(
+    symbol: str, since_utc: str, bucket: int, db_path: Path
+) -> int:
+    """Shares this symbol printed in dots we already count separately, counted
+    from ``since_utc`` — the instant the day-volume numerator counts FROM.
+
+    The equity actor group scores the blocks/dark prints in their own right, so
+    leaving them in the RVOL numerator double-counts the same shares: a single
+    5%-of-day dark cross would read as a crowd that is not there. The window is
+    the premarket offset's latch stamp, NOT ET midnight: the numerator is
+    ``day_volume - offset``, so a print from before the latch (the collector
+    runs 4am-8pm and detects premarket blocks) was never in the numerator and
+    subtracting it is pure over-subtraction — it drove the numerator to the
+    ``max(0.0, ...)`` clamp and published a fabricated 0.0x. Memoized on the
+    write-throttle bucket — the same 5 minutes the reading itself lives for."""
+    key = (symbol, since_utc, bucket)
+    hit = _RVOL_PRINTS_MEMO.get(key)
+    if hit is not None:
+        return hit
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(size), 0) AS shares FROM equity_tape_events
+            WHERE symbol = ? AND event_type IN ('equity_block', 'dark_pool')
+              AND ts >= ?
+            """,
+            (symbol, since_utc),
+        ).fetchone()
+    shares = int(row["shares"] or 0) if row is not None else 0
+    if len(_RVOL_PRINTS_MEMO) > 512:
+        _RVOL_PRINTS_MEMO.clear()
+    _RVOL_PRINTS_MEMO[key] = shares
+    return shares
+
+
+def _rvol_dot_exists(episode_id: str, db_path: Path) -> bool:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM evidence_dots
+            WHERE episode_id = ? AND component = 'rvol_ex_prints'
+            """,
+            (episode_id,),
+        ).fetchone()
+    return row is not None
+
+
+def _mint_rvol_dot(
+    episode: dict,
+    ts: str,
+    raw_value: Decimal | None,
+    detail: dict[str, Any],
+    db_path: Path,
+) -> None:
+    """The single rolling background_crowd dot for this episode.
+
+    points is ALWAYS 0.0: ``background_crowd`` sits in
+    ``scorer.ANNOTATE_ONLY_GROUPS`` (spec §2.2/:147 demoted it — the residual is
+    asymmetric), so a nonzero value here would score nothing today and become a
+    live scoring change the day the group is ever un-demoted. The reading lives
+    in ``raw_value``, which ``lifecycle._latest_rvol`` reads by recency —
+    hence refresh_state=True, so both the value and the ts advance."""
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="volume_profile",
+        source_event_id=f"{episode['id']}:rvol_ex_prints",
+        source_ingest_seq=0,
+        symbol=str(episode["symbol"]),
+        ts=ts,
+        component="rvol_ex_prints",
+        actor_group="background_crowd",
+        dot_kind="state",
+        direction="none",
+        raw_value=raw_value,
+        points=0.0,
+        detail=detail,
+        price=None,
+        atr14=None,
+        refresh_state=True,
+        db_path=db_path,
+    )
+
+
+def _attach_rvol(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
+    """Background-crowd state dot: today's RVOL with the detected prints removed.
+
+    ATTACH-ONLY (``source_store='volume_profile'`` is not in ``STORES``): no
+    cursor, no disposition — it rides an episode that already exists. The
+    numerator is the day-volume read-cache MINUS the block/dark shares the
+    equity actor group already counts; the denominator is the symbol's own
+    time-of-day baseline. When any ingredient is missing the dot publishes
+    ``raw_value=None`` with a state label — never a frozen last-good reading,
+    never 0.0 as if it were a measurement."""
+    symbol = str(episode["symbol"])
+    from signals.volume_profile import N_BUCKETS, _bucket_index
+
+    try:
+        et = _parse_iso(ts).astimezone(_ET)
+    except (TypeError, ValueError):
+        return
+    minutes_since_open = (et.hour * 60 + et.minute) - (
+        _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+    )
+    memo_key = (str(episode["id"]), market_day)
+    bucket_key = minutes_since_open // FUSION_RVOL_REFRESH_BUCKET_MIN
+    if _RVOL_BUCKET_MEMO.get(memo_key) == bucket_key:
+        return  # already written this 5-minute bucket — the baseline's own resolution
+    if len(_RVOL_BUCKET_MEMO) > 512:
+        _RVOL_BUCKET_MEMO.clear()
+    _RVOL_BUCKET_MEMO[memo_key] = bucket_key
+
+    base_detail: dict[str, Any] = {
+        "as_of": ts,
+        "minutes_since_open": minutes_since_open,
+        "volume_source": "alpaca_snapshot",
+        # The 20-day baseline is built from the SAME consolidated tape, so it
+        # contains its own share of block/dark prints. Subtracting today's from
+        # the numerator only is deliberately asymmetric (spec :147, the reason
+        # the group is annotate-only) — labeled so nothing downstream reads the
+        # multiple as a clean ex-prints ratio on both sides.
+        "baseline_contains_prints": True,
+    }
+
+    def unavailable(state: str, **extra: Any) -> None:
+        # Mint NOTHING when the episode has no rvol dot yet: an episode whose
+        # first pass lands outside RTH must not carry a permanent empty claim.
+        if not _rvol_dot_exists(str(episode["id"]), db_path):
+            bump("fusion_intake", f"rvol_skipped_{state}", db_path=db_path)
+            return
+        _mint_rvol_dot(
+            episode, ts, None, {**base_detail, **extra, "state": state}, db_path
+        )
+        bump("fusion_intake", "rvol_dots", db_path=db_path)
+
+    bucket = _bucket_index(et)
+    if bucket is None:
+        unavailable("closed")
+        return
+    profile = _rvol_profile(symbol)
+    if profile is None or bucket >= len(profile.cumfrac):
+        unavailable("no_profile")
+        return
+    if minutes_since_open < FUSION_RVOL_WARMUP_MIN:
+        unavailable("warming", profile_n_days=profile.n_days)
+        return
+    volumes = fusion_db.get_day_volume(
+        symbol,
+        max_age_s=FUSION_RVOL_DAY_VOLUME_MAX_AGE_S,
+        as_of=ts,  # fence vs the EVENT, not the wall clock (the get_spot idiom)
+        db_path=db_path,
+    )
+    if volumes is None:
+        # No usable numerator: the row is stale/absent, it is yesterday's, or
+        # the producer never latched a trustworthy premarket offset for this
+        # symbol today (a mid-session arrival). All of them are "no reading" —
+        # get_day_volume's contract is that it returns a number or nothing.
+        unavailable("no_volume", profile_n_days=profile.n_days)
+        return
+    rth_volume, day_volume, offset_ts = volumes
+    expected = profile.median_daily_total * profile.cumfrac[bucket]
+    if expected <= 0:
+        unavailable("no_profile", profile_n_days=profile.n_days)
+        return
+    # Window the subtraction on the offset's latch stamp: rth_volume counts
+    # from exactly there, so anything printed before it was never in it.
+    prints = _detected_prints_shares(symbol, offset_ts, bucket_key, db_path)
+    numerator = max(0.0, float(rth_volume) - float(prints))
+    rvol = round(numerator / expected, 2)
+    detail = {
+        **base_detail,
+        "rvol_ex_prints": rvol,
+        "rvol_raw": round(float(rth_volume) / expected, 2),
+        "day_volume": float(day_volume),
+        "premarket_offset": float(day_volume - rth_volume),
+        "prints_shares_subtracted": prints,
+        "expected_volume": round(expected, 2),
+        "bucket": bucket,
+        "profile_n_days": profile.n_days,
+        # N_BUCKETS comes from the profile module so the two definitions of
+        # "the session's last bucket" can never drift (rvol_now's settled_min).
+        "state": "settled" if bucket >= N_BUCKETS - 1 else "live",
+    }
+    _mint_rvol_dot(episode, ts, _decimal(rvol), detail, db_path)
+    bump("fusion_intake", "rvol_dots", db_path=db_path)
 
 
 # Market-wide context reads are identical for every episode on a market day —
@@ -1571,19 +1837,24 @@ def intake_once(
                 detail=detail,
                 db_path=db_path,
             )
-            _attach_attention(episode, str(event["ts"]), db_path)
             _attach_shock(episode, str(event["ts"]), db_path)
             _attach_structure(episode, str(event["ts"]), price, atr14, db_path)
             # Context/catalyst facts are per-(episode, market-day), not
             # per-event: run once per pass so a storm burst can't multiply
             # write commits on the single-writer WAL (the 07-27 lock-starve
-            # class). The 60s poll cadence is the refresh clock.
+            # class). The 60s poll cadence is the refresh clock. Attention
+            # joined them once it became a rolling dot — it reads the social
+            # store, not the event's price, so a per-event refresh bought a
+            # write commit per event and nothing else (_attach_structure stays
+            # per-event: it needs THIS dot's stamped price).
             context_key = (str(episode["id"]), _market_day(str(event["ts"])))
             if context_key not in context_done:
                 context_done.add(context_key)
+                _attach_attention(episode, str(event["ts"]), db_path)
                 _attach_earnings(episode, str(event["ts"]), context_key[1], db_path)
                 _attach_regime(episode, str(event["ts"]), context_key[1], db_path)
                 _attach_index_pressure(episode, str(event["ts"]), context_key[1], db_path)
+                _attach_rvol(episode, str(event["ts"]), context_key[1], db_path)
             state = _rescore(episode["id"], db_path)
             if disposition == "scored":
                 _maybe_call_registrar(episode["id"], dot_id, state, db_path)
