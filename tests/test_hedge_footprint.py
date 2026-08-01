@@ -24,7 +24,6 @@ from tools.hedge_footprint import (
     _multileg,
     _paged_get,
     _profile,
-    assert_window_volume,
     bs_price,
     build_condition_table,
     cluster_permutation_p,
@@ -769,16 +768,25 @@ class TestFetch:
 
 
 class TestFeedAssertion:
-    def test_sip_window_passes(self):
+    def test_sip_window_ratio_is_normal(self):
         # a 600s window carrying ~2.5% of a 10M-share day is pro-rata normal
-        ratio = assert_window_volume(250_000.0, 10_000_000.0, 600.0, "AAPL")
+        ratio = hf.prorata_ratio(250_000.0, 10_000_000.0, 600.0, "AAPL")
         assert ratio > 0.9
-
-    def test_iex_style_understatement_raises(self):
-        # ~20x understated: what would manufacture FOOTPRINT-ABSENT
-        with pytest.raises(Exception, match="feed downgrade"):
-            assert_window_volume(12_500.0, 10_000_000.0, 600.0, "AAPL")
 
     def test_missing_daily_bar_raises(self):
         with pytest.raises(Exception, match="daily bar"):
-            assert_window_volume(250_000.0, 0.0, 600.0, "AAPL")
+            hf.prorata_ratio(250_000.0, 0.0, 600.0, "AAPL")
+
+    def test_quiet_window_with_agreeing_bars_is_consistent(self):
+        # Amendment 1a's measured case: JKS control window, 797 shares in 10min,
+        # 0.065x pro-rata — genuinely quiet, minute bars agree, must PASS
+        assert hf.feed_consistent(797.0, 797.0) is True
+        assert hf.feed_consistent(797.0, 1200.0) is True
+
+    def test_missing_prints_are_a_fault(self):
+        # trades fetch ~20x under the same feed's own minute bars = missing
+        # prints (what would manufacture FOOTPRINT-ABSENT)
+        assert hf.feed_consistent(12_500.0, 250_000.0) is False
+
+    def test_zero_volume_window_with_zero_bars_is_consistent(self):
+        assert hf.feed_consistent(0.0, 0.0) is True

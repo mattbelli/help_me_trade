@@ -2756,6 +2756,22 @@ equivalent; we do not need it.
       - **Known limitation, flagged not fixed:** a reused ticker (measured case: ARIS) pools
         two issuers into one control baseline and permutation cluster; 3.2 registers only the
         date-scoped rename map. Revisit only if such a name reaches the selected set.
+
+      **3.2 Amendment 1a (registered 2026-08-01, during the fetch stage, before any analyze).**
+      The very first live control window falsified the disclosed feed-assertion assumption: JKS
+      (thin ADR, 12:47 ET control window) carried 797 shares = 0.065× pro-rata — a genuinely
+      quiet tape, in exactly the thin names D ≥ 3 selects for, and control windows are BY
+      CONSTRUCTION event-free quiet tape. Worse, the pro-rata check cannot even catch the fault
+      it was built for: a global entitlement downgrade shrinks the window fetch and the daily
+      bar together, leaving the ratio normal. Replaced with a direct evidence test, identical on
+      events and controls: a window below 10% pro-rata triggers a minute-bar cross-check on the
+      same feed over the same interval — trades ≥ bars/2 ⇒ genuinely quiet, accepted + logged;
+      bars materially above the trades fetch ⇒ MISSING PRINTS, raise. Second live finding, same
+      scope: a control day with NO daily bar at all (STUB — a control window reaching before the
+      name's IPO; the ADV query never required 20 full sessions) is a **skipped control**, and a
+      missing EVENT day is a **dropped event in the ledger** (counts toward the registered >20%
+      STOP), never a run-killer. No statistic, threshold, or verdict rule is touched; this is
+      the STOP-rule scope ("documented data repair").
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*

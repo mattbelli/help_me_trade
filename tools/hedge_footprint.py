@@ -785,6 +785,13 @@ class FeedAssertionError(RuntimeError):
     understates ~20× and would manufacture FOOTPRINT-ABSENT."""
 
 
+class MissingDailyBar(RuntimeError):
+    """No SIP daily bar for this symbol-day — a control day before the name's
+    IPO (the ADV query never required 20 full sessions) or a full-day halt.
+    A missing CONTROL day is a skipped control; a missing EVENT day drops the
+    event into the ledger. Neither is a run-killer."""
+
+
 def _paged_get(client, url: str, params: dict, key: str,
                max_pages: int = MAX_PAGES) -> list[dict]:
     rows: list[dict] = []
@@ -867,6 +874,17 @@ def fetch_minute_bars(client, data_base_url: str, symbol: str, start: date,
          "limit": PAGE_LIMIT, "adjustment": "raw", "feed": FEED}, "bars")
 
 
+def window_bar_volume(client, data_base_url: str, symbol: str, lo_ns: int,
+                      hi_ns: int) -> float:
+    """Σ 1-min bar volume over [lo, hi) on the SAME feed — the cross-check arm
+    of `feed_consistent`."""
+    bars = _paged_get(
+        client, f"{data_base_url}/v2/stocks/{symbol}/bars",
+        {"start": _rfc3339(lo_ns), "end": _rfc3339(hi_ns), "timeframe": "1Min",
+         "limit": PAGE_LIMIT, "adjustment": "raw", "feed": FEED}, "bars")
+    return float(sum(float(b["v"]) for b in bars))
+
+
 def fetch_daily_volume(client, data_base_url: str, symbol: str, day: date) -> float:
     bars = _paged_get(
         client, f"{data_base_url}/v2/stocks/{symbol}/bars",
@@ -883,19 +901,27 @@ def fetch_news(client, data_base_url: str, symbol: str, lo_ns: int,
          "limit": 50, "sort": "asc"}, "news")
 
 
-def assert_window_volume(window_shares: float, day_shares: float, window_s: float,
-                         label: str, min_frac: float = FEED_ASSERT_MIN_FRAC) -> float:
-    """Guard the SIP feed. Returns the measured pro-rata ratio; raises below the
-    floor, because a silently downgraded feed manufactures FOOTPRINT-ABSENT."""
+def prorata_ratio(window_shares: float, day_shares: float, window_s: float,
+                  label: str) -> float:
+    """Window volume as a fraction of its flat-day pro-rata share. A LOW ratio is
+    a screen, not a verdict — Amendment 1a: the first live control window (JKS,
+    a thin name at lunch, 0.065×) proved quiet-tape lows are ROUTINE in exactly
+    the thin names D ≥ 3 selects for. And a GLOBAL entitlement downgrade shrinks
+    the window and the daily bar together, leaving this ratio normal — so the
+    fault check is the minute-bar cross-check below, never this number alone."""
     if day_shares <= 0.0:
         raise FeedAssertionError(f"{label}: no SIP daily bar volume to assert against")
     prorata = day_shares * (window_s / RTH_SECONDS)
-    ratio = window_shares / prorata if prorata > 0 else 0.0
-    if ratio < min_frac:
-        raise FeedAssertionError(
-            f"{label}: window volume {window_shares:,.0f} is {ratio:.3f}× its pro-rata "
-            f"share of the SIP daily bar ({day_shares:,.0f}) — feed downgrade suspected")
-    return ratio
+    return window_shares / prorata if prorata > 0 else 0.0
+
+
+def feed_consistent(trades_shares: float, bars_shares: float,
+                    tol: float = 2.0) -> bool:
+    """The actual fault detector (Amendment 1a): the same feed's minute bars over
+    the same interval showing materially more volume than the trades fetch is
+    direct evidence of MISSING PRINTS (partial downgrade, truncation); a
+    genuinely quiet window shows both views agreeing at any level."""
+    return trades_shares >= bars_shares / tol
 
 
 # =============================================================================
@@ -1425,13 +1451,25 @@ def fetch_window(out_dir: Path, client, data_base_url: str, symbol: str, ts_ns: 
         return
     lo = ts_ns - SNAPSHOT_S * 1_000_000_000
     hi = ts_ns + SNAPSHOT_S * 1_000_000_000
-    trades = fetch_trades(client, data_base_url, symbol, lo, hi)
     day = datetime.fromtimestamp(ts_ns / 1e9, tz=_ET).date()
     key = f"{symbol}:{day.isoformat()}"
     if key not in daily:
         daily[key] = fetch_daily_volume(client, data_base_url, symbol, day)
-    ratio = assert_window_volume(float(trades["size"].sum()), daily[key],
-                                 2.0 * SNAPSHOT_S, f"{symbol} {_rfc3339(ts_ns)}")
+    label = f"{symbol} {_rfc3339(ts_ns)}"
+    if daily[key] <= 0.0:
+        raise MissingDailyBar(f"{label}: no SIP daily bar (pre-IPO control day "
+                              "or full-day halt)")
+    trades = fetch_trades(client, data_base_url, symbol, lo, hi)
+    vol = float(trades["size"].sum())
+    ratio = prorata_ratio(vol, daily[key], 2.0 * SNAPSHOT_S, label)
+    if ratio < FEED_ASSERT_MIN_FRAC:
+        bars_vol = window_bar_volume(client, data_base_url, symbol, lo, hi)
+        if not feed_consistent(vol, bars_vol):
+            raise FeedAssertionError(
+                f"{label}: trades fetch carries {vol:,.0f} shares but the same "
+                f"feed's minute bars show {bars_vol:,.0f} — missing prints")
+        logger.info("%s: quiet window accepted (%.3f× pro-rata; bars agree at "
+                    "%.0f shares)", label, ratio, bars_vol)
     quotes = fetch_quotes(client, data_base_url, symbol, lo, hi)
     save_npz(t_path, **trades, prorata_ratio=np.array([ratio]))
     save_npz(q_path, **quotes)
@@ -1456,12 +1494,27 @@ def stage_fetch(out_dir: Path, stratum: str, client, data_base_url: str,
         session = date.fromisoformat(ev["session"])
         ctrls = control_sessions(session, ev["symbol"], ev["ts_ns"], pool, _activity)
         base = session_midnight_ns(session)
-        ctrl_ts = [session_midnight_ns(c) + int(ev["ts_ns"] - base) for c in ctrls]
-        fetch_window(out_dir, client, data_base_url, ev["symbol"], ev["ts_ns"], daily)
-        for ts in ctrl_ts:
-            fetch_window(out_dir, client, data_base_url, ev["symbol"], ts, daily)
-        ledger.append({**ev, "control_sessions": [c.isoformat() for c in ctrls],
-                       "control_ts_ns": ctrl_ts})
+        try:
+            fetch_window(out_dir, client, data_base_url, ev["symbol"], ev["ts_ns"],
+                         daily)
+        except MissingDailyBar as exc:
+            logger.warning("event dropped at fetch: %s", exc)
+            ledger.append({**ev, "control_sessions": [], "control_ts_ns": [],
+                           "fetch_dropped": str(exc)})
+            save_json(daily_path, daily)
+            continue
+        kept_sessions, kept_ts = [], []
+        for c in ctrls:
+            ts = session_midnight_ns(c) + int(ev["ts_ns"] - base)
+            try:
+                fetch_window(out_dir, client, data_base_url, ev["symbol"], ts, daily)
+            except MissingDailyBar as exc:
+                logger.warning("control skipped: %s", exc)
+                continue
+            kept_sessions.append(c.isoformat())
+            kept_ts.append(ts)
+        ledger.append({**ev, "control_sessions": kept_sessions,
+                       "control_ts_ns": kept_ts})
         save_json(daily_path, daily)
         if i % 10 == 0:
             logger.info("fetched %s/%s events", i, len(events))
@@ -1526,6 +1579,9 @@ def _signed_arrays(trades: dict, quotes: dict, table: dict) -> dict:
 
 def measure_event(out_dir: Path, ev: dict, table: dict) -> dict | None:
     """Δ_measure, S/E/Z per horizon, the Look-B profile, all arms."""
+    if ev.get("fetch_dropped"):
+        return {"symbol": ev["symbol"], "session": ev["session"],
+                "ts_ns": ev["ts_ns"], "dropped": f"fetch: {ev['fetch_dropped']}"}
     loaded = _load_window(out_dir, ev["symbol"], ev["ts_ns"])
     if loaded is None:
         return None
