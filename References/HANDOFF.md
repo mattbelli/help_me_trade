@@ -159,12 +159,14 @@ snapshot per sweep). Open threads only:
 - **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE same
   day** (BUILD_LOG row + ROADMAP 3.1 RESULT block: clocks agree at ms grain, equity `t` =
   participant timestamp; registered lead-lag grain for 3.2 = **1.82s**; card
-  `flow-phase3-hedge-footprint`). Open next, in order: **3.2 pre-registration** (hedge
-  footprint on large single-leg prints — event set via v6 condition codes, size prediction
-  ≈ delta × contracts × 100 as the falsifier, matched controls, signing method, pass/fail +
-  mechanism sentence) BEFORE any grading run; 3.3/3.4 exist only if 3.2 finds the footprint.
-  Runs entirely on historical files + snapshot fetches — no collision with the live-pairing
-  thread (other agent).
+  `flow-phase3-hedge-footprint`). **3.2 prereg REGISTERED 2026-08-01** (ROADMAP 3.2 spec
+  block) after two split-mandate Opus adversarial reviews — 9 blockers + 16 majors
+  incorporated (sign-inverted falsifier, `cond=''` single-leg hole, ADV/780 detectability
+  gate 15–40× wrong at the open, cluster-permutation inference, 16g/64g/165g horizon
+  ladder, MDE ≤ 0.3 power floor gating any ABSENT). Open next, in order: **build the 3.2
+  tool + tests to the frozen spec** (any deviation = dated amendment BEFORE the run), then
+  run it; 3.3/3.4 exist only per the 3.2 verdict table. Runs entirely on historical files +
+  snapshot fetches — no collision with the live-pairing thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window

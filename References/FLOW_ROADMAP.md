@@ -2561,6 +2561,166 @@ equivalent; we do not need it.
       same name, same time of day. **The test is size, not just direction:** the hedge should be
       ≈ delta × contracts × 100 shares. That prediction is what makes it falsifiable.
       *Decides:* whether the footprint exists at all. If not, stop here.
+
+      **3.2 spec (registered 2026-08-01, before build). Review provenance:** drafted, then
+      adversarially reviewed by two split-mandate Opus reviewers (stats/confounds;
+      microstructure/data-mechanics) BEFORE registration — 9 blockers + 16 majors found and
+      incorporated, including a sign inversion in the draft's falsifier formula (it would have
+      declared ABSENT on a perfect hedge), an unjoined-print hole in the single-leg fence
+      (`cond=''` passes `∉ PACKAGE_CODES`), and a measured 15–40× open-session error in the
+      draft's ADV/780 detectability gate.
+
+      - **Question + mechanism sentence.** A market maker who fills a large single-leg option
+        order carries instant directional risk and neutralizes delta in the stock within
+        seconds–minutes; that stock volume IS the footprint — present when the counterparty was
+        a dealer, absent when it was another customer (which is what 3.3 then labels). Stated in
+        advance: the measured slope β blends dealer-fill share × hedge intensity × book netting
+        × hedge slicing × a *customer-side self-hedge* channel (a customer delta-hedging their
+        own option trade contributes the OPPOSITE stock sign and cancels), and errors-in-variables
+        in H attenuate it toward zero — so β is an **attenuated lower bound**; existence means
+        β > 0, never β = 1, and 0 < β < 1 must not be over-read as "partial hedging" as a fact.
+      - **Event set.** Sessions: training window only (2025-07-28 → 2026-05-31), and only
+        **code-provenance sessions** (Addendum E join ≥ 0.98 — 107 of 212 training sessions
+        qualify; disclosed, the pool halves). Universe: `root_classification.json` class
+        **equity only** in the primary (index options hedge in futures we cannot see — and the
+        same is true of ETFs: SPY/QQQ risk lands in ES/NQ, creation baskets, correlated names;
+        **ETFs = declared separate stratum, never pooled**). The ×100 multiplier is guaranteed
+        only by the `adjusted` fence — defs carry no multiplier field (`unit_of_measure_qty`
+        UNDEF on 100% of 2025-07-28 C/P rows, measured). Underlying must resolve via the
+        date-scoped rename map; unresolved drops logged SEPARATELY from IV drops (they bias
+        against thin names). An **event is an order-group** (distinct `(ts_event,
+        instrument_id)`, item 1.3); contracts and premium are group-summed. **Single-leg
+        requires all three:** every print in the group has a joined code (`cond != ''`), no code
+        in PACKAGE_CODES, and no ns-collision heuristic flag (the corpus `_multileg` rule) — an
+        unjoined print certifies nothing. **Side:** unanimous `good_q` midpoint side (buy/sell)
+        across the group; mixed/wide/unquoted → dropped + logged.
+      - **Filters, all registered:** group premium ≥ $25k (institutional size; $100k reported
+        as a robustness leg); **DTE ≥ 1** (0DTE gamma makes H unstable within the window;
+        logged, future stratum); |Δ_select| ∈ **[0.15, 0.85]** primary ([0.05, 0.95] as a
+        registered secondary read — near-degenerate Δ is where inversion is ill-conditioned);
+        **Δ-stability:** ±1 option tick moves |Δ| by > 0.05 → drop + log; ADV ≥ 200k shares,
+        prior close ≥ $5; **T ∈ [09:35:00, 15:55:00] ET** so every horizon sits inside
+        continuous trading (no opening rotation, no closing auction, no 16:00–16:15 option-only
+        tail); half-day sessions excluded (events AND controls); **release fence:** no T inside
+        [09:55, 10:05] or [13:55, 14:05] ET on any session (the RTH scheduled-release minutes —
+        3.1's own burst physics would otherwise sit inside the primary tier); **news fence:** no
+        Alpaca/Benzinga story on the underlying in [T−5min, T] (historical news API; drop +
+        log); **isolation on activity, not just events:** other single-leg option premium in
+        the same underlying within ±120s ≤ 25% of the event's own (twenty $10k prints produce
+        unattributable hedge flow while no single one "qualifies").
+      - **Two-stage selection (selection never revised after any fetch).** Stage 1, on-disk
+        only: all corpus-computable filters; Δ_select from the **prior-session close**
+        (`bars_before_date`) — the snapshot spot cannot gate selection (circular); rank by
+        |H_select| shares, top 1,000 candidates. Stage 2: per candidate fetch prior-20-session
+        1-min equity bars; expected 29s volume = median same-clock-minute volume × (29.1/60);
+        **D = |H_select| ÷ expected ≥ 3** — the footprint, if full-size and unsliced, would be
+        ≥ 3× the time-of-day-honest tape. `ADV/780` may not appear anywhere: measured
+        2026-05-28, the open runs 15–40× ADV/780 (MRVL 09:30 = 39.9×), so the flat-day gate
+        certifies "≥3× normal" on events that are really ~0.2× and would make a null verdict
+        blindness, not evidence. Rank by D, cap 10 per underlying, take top **300** (a cap, not
+        a target).
+      - **Delta — two of them, registered.** Δ_select (selection only): spot = prior close.
+        Δ_measure (analysis, defines H): spot = **equity NBBO midpoint at T** from the event
+        snapshot (the last pre-T print is too often a 1-share TRF odd lot — measured). Both:
+        Black–Scholes European; **IV inverted by bisection from the OPTION QUOTE MIDPOINT on
+        the print, never the trade price** (aggressive prints push IV — and so |Δ|, and so D —
+        up on buys and down on sells: side-correlated error in the regressor and side-skewed
+        selection; trade-price IV = logged secondary); r = 4% flat, q = 0; time-to-expiry =
+        (expiry 16:00 ET − ts_event) in **seconds** / (365·86400). Quote-mid below *discounted*
+        intrinsic → drop + count. Honesty note: with q = 0, borrow cost (HTB) and near-ex-div
+        both load into IV → known Δ bias; the |Δ| band limits, does not remove.
+      - **The prediction (the falsifier).** **H = (customer side sign) × Δ_signed × contracts
+        × 100**, side sign +1 customer buy / −1 sell, Δ_signed + for calls / − for puts.
+        Worked examples, kept as unit tests: customer buys call → dealer short call → dealer
+        BUYS Δ·N·100 (H > 0); customer buys put → dealer short put (positive dealer delta) →
+        dealer SELLS (H < 0); sells reverse both.
+      - **Equity measurement.** Snapshots per event AND per control: trades + quotes
+        [·−300s, ·+300s]; `feed="sip"` passed literally and each window's volume asserted
+        against the day's SIP daily bar (an IEX fallback understates ~20× and manufactures
+        ABSENT); fetcher keeps price/size/exchange/condition/tape and **raises** on the page
+        cap (silent truncation stales every subsequent prevailing quote). Windows in units of
+        the 3.1 grain g = 1.82s: pre/post pairs at **16g (primary), 64g, 165g** (≈29s / 2min /
+        5min) — the horizon ladder exists because "hedges get worked over minutes" is this
+        phase's own stated failure mode, and a 29s-only window structurally cannot see a sliced
+        hedge. No lead-lag claim finer than g. **Signing:** prevailing SIP NBBO midpoint rule
+        (the corpus's own rule); at-mid or no-quote → unsigned (measured base: at-mid is
+        13–22% of volume — and mechanism-aligned, dealers route hedges to midpoint dark
+        precisely to avoid signalling, hence Look C below); tick-rule = logged secondary,
+        never primary; signable share = per-event covariate, reported, NOT a STOP (the draft's
+        80% STOP sat on the measured base rate of 77–86%). **Tape hygiene:** primary statistic
+        on **non-TRF prints only** (TRF stamps are reporting-firm clocks up to 10s stale — 3.1
+        forensics; measured TRF share 40–56% of volume, smearing the exact boundary the
+        statistic straddles); TRF-inclusive = registered secondary (divergence itself
+        informative); prior-reference-price and out-of-sequence conditions excluded everywhere;
+        average-price / derivatively-priced excluded with the code set registered **per tape
+        (z)** at build and logged as a table (CTA and UTP alphabets differ — measured: F
+        regular=' '/avg='B'; NVDA regular='@'/avg='W'); QCT equity prints reported separately
+        (they are ANOTHER party's tied stock leg and must not be read as this event's hedge).
+      - **Statistic + controls.** Per horizon: S = signed vol(post) − signed vol(pre).
+        Controls: same underlying, same clock time, **20 nearest qualifying sessions,
+        symmetric** (10 before / 10 after where available, filled from the available side),
+        skipping sessions where the name has ≥$25k single-leg activity within ±300s of that
+        clock time (the PRE-D filter set, not the selected 300 — near-misses contaminate
+        baselines), half-days, and release-fence windows. E = S_event − median(S_ctrl)
+        (shares); **Z = E / MAD(S_ctrl)** (MAD of 20, not 5). **Z is primary for every test**
+        (raw shares let one mega-cap set the curve); E reported for the shares-interpretable β.
+        **Quiet tier (primary):** event pre-window unsigned volume ≤ **p50** of its own
+        controls' pre-windows. Honest language, registered: this shaves the active half — it
+        does NOT establish "nothing was happening," and it cannot catch an informed trader
+        working both markets in the same second (no pre-window trace); the size discriminator
+        (Look A′) is the guard there. Pre-window excess reported per tier as the
+        reverse-causality check.
+      - **The registered looks.**
+        - **Look A (size):** hedge-aligned Ẽ = Z·sign(H) vs |H|: Theil–Sen slope, **intercept
+          reported** — a large intercept with a flat slope is the direction-only alternative
+          (news/momentum reaction) and is AMBIGUOUS, never CONFIRMED (a pooled slope of Ẽ on
+          signed H would pass on pure direction effects; this form is why it can't). Cluster
+          bootstrap CI (resample underlyings). H>0 and H<0 reads reported separately.
+          |H|-quintile monotonicity: illustrative only, no verdict authority.
+        - **Look A′ (discriminator, registered secondary):** Ẽ ~ a·(contracts×100) + b·|H| —
+          common information scales with size traded; only a delta hedge scales with Δ holding
+          contracts fixed; requires b > 0 under the same cluster inference. The joint
+          (contracts, |Δ_measure|) spread is disclosed before unblinding; |Δ| IQR < 0.15 in
+          the selected set → this leg is declared unevaluable (the leg, not the study).
+        - **Look B (stacked profile, as a TEST):** per-event control-normalized hedge-aligned
+          signed excess per g-bin; statistic = sum over the post window; profile ±165g is
+          fully control-covered by the ±300s control fetch.
+        - **Look C (unsigned, supporting):** unsigned volume excess (post − pre vs controls) —
+          immune to signing loss, which is mechanism-aligned (midpoint dark).
+        - **Inference for all:** cluster-permutation null — flip sign(H) for all events of an
+          (underlying × session) cluster TOGETHER, recompute; one-sided p < 0.01. The 50/50
+          binomial is banned: 6.4 effective independent names is this repo's own measurement,
+          and customers buy more than they sell, so H-signs are not balanced under the null.
+      - **Power floor, before unblinding:** MDE for Look A at 80% power, estimated by
+        injecting synthetic hedges β·|H| into CONTROL windows (consumes no event outcomes)
+        over a β grid with the cluster structure. **MDE > 0.3 → any null is
+        NO-VERDICT-UNDERPOWERED, never ABSENT.**
+      - **Verdicts — the complete table** (quiet tier, equity stratum, non-TRF, Z, 16g
+        primary; floors: n ≥ 100 events, ≥ 25 distinct underlyings, MDE ≤ 0.3):
+        - **FOOTPRINT-CONFIRMED:** Look A passes (slope > 0, cluster CI excludes 0) AND Look B
+          passes AND the permutation direction test passes, floors met. β then reported as an
+          attenuated lower bound.
+        - **FOOTPRINT-ABSENT** (the phase kill; 3.3/3.4 close): every look (A, A′ where
+          evaluable, B, C) fails at **all three horizons** on the quiet tier, floors met.
+          Two-method rule satisfied by construction.
+        - **FOOTPRINT-AMBIGUOUS:** any mixed outcome (direction-without-size; Look-C-only
+          excess; strata disagreement). Does NOT kill the phase; does NOT license a re-cut;
+          next step is a dated amendment.
+        - **NO-VERDICT / -UNDERPOWERED:** floors unmet. Registered widening ladder, one step
+          per dated amendment, in order: (1) quiet p50 → p75; (2) top-300 → top-500;
+          (3) D ≥ 3 → D ≥ 2.
+        - **Robustness legs (reported, never verdict-bearing):** premium ≥ $100k; top-150;
+          |Δ| ∈ [0.05, 0.95]; TRF-inclusive; ETF stratum; active-tape stratum.
+      - **STOP rules, scope defined:** > 20% of stage-2 candidates dropped for symbol-mapping
+        or IV failures → investigate; an investigation may produce diagnostics, documented
+        data repair, or NO-VERDICT — it may NOT move any threshold, statistic, or verdict
+        rule (those need a dated amendment written before any re-run).
+      - **Disclosure.** Training window only; consumes NO outcomes (microstructure seconds
+        around prints, never forward returns) — the test split stays sealed. First read of
+        event-level equity microstructure around corpus prints; logged as a look.
+
+      *Done when:* the verdict block below this spec records all looks, both tiers, all three
+      horizons, the drop ledger, the power floor, and the verdict per the table.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*
