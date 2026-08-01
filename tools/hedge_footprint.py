@@ -695,19 +695,24 @@ def mde_by_injection(
     h_abs = np.asarray(h_abs, dtype=np.float64)
     x_axis = h_abs if x_axis is None else np.asarray(x_axis, dtype=np.float64)
     h_sign = np.asarray(h_sign, dtype=np.float64)
-    s_ctrl = np.asarray(s_ctrl, dtype=np.float64)
-    n, n_ctrl = s_ctrl.shape
+    # RAGGED control lists, per event — never a truncated rectangle. The first
+    # A2 run clipped every event to the SHORTEST list (one post-skip event kept
+    # 4 of 20 controls), which threw away 80% of the control data and made the
+    # power estimate flat noise at every β.
+    ctrl_rows = [np.asarray(c, dtype=np.float64) for c in s_ctrl]
+    n = len(ctrl_rows)
     rng = np.random.default_rng(seed)
     out: dict[str, float] = {}
     mde = float("inf")
     for beta in betas:
         rejects = 0
         for _ in range(n_rep):
-            pick = rng.integers(0, n_ctrl, n)
             z = np.empty(n, dtype=np.float64)
             for i in range(n):
-                rest = np.delete(s_ctrl[i], pick[i])
-                pseudo = s_ctrl[i, pick[i]] + beta * h_abs[i] * h_sign[i]
+                row = ctrl_rows[i]
+                pick = int(rng.integers(0, len(row)))
+                rest = np.delete(row, pick)
+                pseudo = row[pick] + beta * h_abs[i] * h_sign[i]
                 z[i] = excess(pseudo, rest).z
             ok = np.isfinite(z) & np.isfinite(x_axis)
             if ok.sum() < 3:
@@ -1891,8 +1896,7 @@ def stage_analyze(out_dir: Path, stratum: str, n_perm: int = N_PERM,
     a = _arrays(usable, PRIMARY_HORIZON_G, tier="quiet", band="primary")
     width = min((len(c) for c in a["ctrl"]), default=0)
     if len(a["value"]) >= 5 and width >= 3:
-        ctrl = np.array([c[:width] for c in a["ctrl"]], dtype=np.float64)
-        power = mde_by_injection(a["abs_h"], a["h_sign"], a["cluster"], ctrl,
+        power = mde_by_injection(a["abs_h"], a["h_sign"], a["cluster"], a["ctrl"],
                                  x_axis=a["d"], n_rep=mde_rep, n_perm=mde_perm)
     else:
         power = {"mde": None, "power_by_beta": {}, "note": "too few events/controls"}
@@ -1986,14 +1990,15 @@ def stage_power(out_dir: Path, stratum: str, mde_rep: int = 100,
         d.append(ev["d"])
         cluster.append(f"{ev['symbol']}|{ev['session']}")
         ctrl_rows.append(s_ct)
-    width = min(len(c) for c in ctrl_rows)
-    ctrl = np.array([c[:width] for c in ctrl_rows], dtype=np.float64)
+    widths = [len(c) for c in ctrl_rows]
     power = mde_by_injection(np.array(h_abs), np.array(h_sign), np.array(cluster),
-                             ctrl, x_axis=np.array(d), n_rep=mde_rep,
+                             ctrl_rows, x_axis=np.array(d), n_rep=mde_rep,
                              n_perm=mde_perm)
     out = {"spec": SPEC + " Amendment 2", "stage": "power",
            "primary_horizon_g": PRIMARY_HORIZON_G, "axis": "d",
-           "n_pseudo_events": len(h_abs), "ctrl_width": width, **power,
+           "n_pseudo_events": len(h_abs),
+           "ctrl_width_min": min(widths), "ctrl_width_median": float(np.median(widths)),
+           **power,
            "proceed": power.get("mde") is not None and power["mde"] <= FLOOR_MDE}
     save_json(out_dir / f"power_precheck_{stratum}.json", out)
     logger.info("power pre-check: MDE=%s proceed=%s", power.get("mde"), out["proceed"])
