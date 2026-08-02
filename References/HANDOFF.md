@@ -183,16 +183,19 @@ snapshot per sweep). Open threads only:
   overwrite — treat a SHA mismatch as an incident. ⚠️ If a future re-gate passes: deep
   review of the unseal/analyze paths of `hedge_label_drift.py` MUST complete first
   (gate1 path reviewed; the rest built+tested, not yet line-by-line reviewed).
-  ⏳ **OPEN: backfill phase B** — crawl COMPLETE 2026-08-02 (361/361 clean, 36.5M groups),
-  phase-A selection run (`tools/flow_backfill_select.py`), and the authorized tcbbo
-  purchase EXECUTED at the exact quote **$18.23** (6,656 ±330s parent windows, top-10,000
-  contracts/ADV20 proxy shortlist → `data/research/flow_backfill/tcbbo/`; BUILD_LOG
-  2026-08-02 row + ROADMAP round-3 block = the record). Open items: (1) post-purchase
-  proxy-slippage check — where the true |h|/d ranking lands vs the purchase boundary;
-  saturation ⇒ tranche 2 (budget headroom exists, ceiling $30); (2) phase B = registered
-  pipeline over the purchased windows — side/Δ/single-leg (per-print conds via free
-  Alpaca re-fetch, the corpus's own multileg provenance), isolation, stage-2 d with
-  backfill-window minute profiles — → new frozen labels via dated addendum → re-gate.
+  ⏳ **OPEN: backfill label scoring → new frozen labels → re-gate** — phase B stages 1+2
+  COMPLETE 2026-08-02 (`tools/flow_backfill_phaseb.py`, parity-gated 925/927 vs the
+  corpus with 0 extras; 6,656/6,656 windows → 942 stage-1 records → **923 stage-2
+  events**, 729 primary; BUILD_LOG 2026-08-02 phase-B row + ROADMAP round-3 block = the
+  record). Slippage check MEASURED: yield flat to the purchase boundary = SATURATED;
+  **tranche 2 justified but DEFERRED** — label-score the 923 first (free), re-gate, and
+  only buy tranche 2 (exact quote first, ≤$30 ceiling) if power still fails. Open items:
+  (1) label scoring on the underlying equity tape over the 923 events (mirror the 3.3
+  label pipeline; outputs stay sealed exactly as the corpus's); (2) new frozen label set
+  via dated addendum — TWO parallel Opus adversarial reviewers BEFORE freeze
+  (`review-agents-opus`); (3) re-run Gate 1 at the grown HIGH stratum; if it passes,
+  the line-by-line unseal/analyze review of `hedge_label_drift.py` MUST complete before
+  any unseal (standing).
   ⏳ **Next Phase-3 move: 3.4 spread orientation** — NOT gated on 3.3 (needs only 3.2's
   CONFIRMED direction result); unlocks the ~33% of premium fenced as spreads. Needs its
   own pre-registration round (founder-visible). No collision with the live-pairing

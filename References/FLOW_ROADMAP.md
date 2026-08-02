@@ -3225,6 +3225,44 @@ equivalent; we do not need it.
         pipeline (side/delta/single-leg via free Alpaca per-print cond re-fetch,
         the corpus's own multileg provenance; isolation; stage-2 d) over the
         purchased windows → new frozen labels via dated addendum → re-gate.
+      - **Phase-B stages 1+2 (2026-08-02, same day) — pipeline BUILT, PARITY-GATED
+        925/927, run over all 6,656 windows: 942 stage-1 records → 923 stage-2
+        events. Slippage check: SATURATED.** `tools/flow_backfill_phaseb.py`
+        mirrors stage 1 by IMPORTING every load-bearing primitive (grouping /
+        `_multileg` / `fence_and_classify` from the rollup; `match_prints` ±100ms;
+        `single_leg_groups` / `group_side` / `fit_delta` / all registered
+        constants from `hedge_footprint`); the a-side is the free HISTORICAL
+        Alpaca option-trades endpoint — the same vendor feed the corpus's live
+        capture recorded. Disclosed adaptations (in the tool's docstring): join
+        floor at SESSION aggregate (98% is a session-grain gate; 10-print
+        fragments fail it stochastically); OSI-parsed contract identity;
+        window-internal isolation base with an **edge-context eligibility rule**
+        (full ±120s neighbourhood must lie inside the window — parity measured
+        edge truncation as pure over-keep). **Corpus-parity gate on 2026-03-06:
+        925/927 candidates reproduced with h_select exact to 1e-6, 0 extras**;
+        the road there caught 3 real defects by measurement (ms-floored fetch
+        `end` bound ate the window's last print = the candidate itself, 97/99
+        misses; edge-truncated isolation bases = all 8 extras, verified UPS
+        corpus-side base $20,255 > $19,925 threshold; join-floor grain). The 2
+        residual misses are the CORPUS side under-counting its own isolation
+        base (capture gaps left neighbour prints unjoined; the complete
+        historical a-side is the stricter application). Full run: 6,656/6,656
+        windows, aggregate join 98.8%, 40 sessions (all 2024-Feb–Jun) below the
+        floor → 105 records dropped, **942 final stage-1 records**. Stage 2
+        (imported `minute_profile`/`expected_29s_volume`/`detectability`/news
+        fence; caps scaled rate-preserving 300→1,020, 10→34 for 357 vs 105
+        sessions): **923 selected (729 primary / 194 secondary)** — d≥3 dropped
+        only 11 (the contracts/ADV20 proxy pre-selects detectability), news 2,
+        per-name cap 6. **Slippage check, measured: stage-1 yield per 1,000
+        proxy ranks is FLAT to the purchase boundary** (109 kept in ranks
+        9,000–10,000 vs ~94 average) — the top-10,000 cutoff truncates the
+        population, so tranche 2 IS justified by the data; it is DEFERRED
+        behind the free step: 923 events at the wide set's ~12% HIGH rate ≈
+        ~110 HIGH vs the ~120 target, so label-score first, re-gate, and only
+        buy tranche 2 (exact quote, ≤$30 ceiling) if power still fails. Next:
+        label scoring on the underlying equity tape → new frozen labels via
+        dated addendum (TWO parallel Opus adversarial reviewers before freeze)
+        → re-run Gate 1.
 
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
