@@ -36,7 +36,7 @@ from __future__ import annotations
 import html
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -52,10 +52,11 @@ from db.chart_features import init_chart_features
 from db.earnings_calendar import last_earnings_date, next_earnings_date
 from db.idea_dossiers import put_dossier
 from db.index_pressure import day_summary
+from db.macro import DEFAULT_MACRO_DB_PATH
 from db.managed_positions import list_open_positions
-from db.regime import latest_observation
 from db.social_mentions import get_buzz
 from signals.fusion.scorer import options_direction, tape_direction
+from signals.macro_substrate import REPORT_AXES, regime_report
 from trading.market_calendar import is_trading_day
 
 _ET = ZoneInfo("America/New_York")
@@ -89,6 +90,15 @@ _INTRADAY_ANGLES = frozenset({"evidence", "flow", "tape"})
 # ``fresh``. Same-ET-day matches how a reader treats a headline's relevance.
 _SESSION_ANGLES = frozenset({"structure", "attention", "context", "portfolio", "news"})
 _ALWAYS_FRESH_ANGLES = frozenset({"catalyst", "history"})
+
+# Macro series are daily FRED prints with a publication lag — FRED almost never
+# has a same-ET-day observation during a trading session, so the session-angle
+# same-calendar-day rule would mark EVERY macro claim [stale] forever (measured
+# 2026-08-02). A prior-day close IS today's regime; a week-old dollar is not.
+# 4 calendar days covers a normal weekend (Fri→Mon = 3) or weekend + one market
+# holiday (Fri→Tue = 4); 7 (= a week) is past this and must render stale.
+# Independent of macro_substrate.REPORT_STALE_DAYS (that one is value-vs-missing).
+MACRO_FRESH_MAX_GAP_DAYS = 4
 
 # Social buzz below this ratio is not worth an attention claim (matches the intake's
 # spike gate spirit — a boring reading is silence, not a dot).
@@ -767,40 +777,111 @@ def _select_news_headlines(
     return [slot_a, *remaining[: max(0, cap - 1)]]
 
 
+def _et_noon_iso(day: str) -> str:
+    """ISO ts at 12:00 America/New_York on ``day``.
+
+    Macro observation dates are calendar days, not UTC midnights — feeding a bare
+    ``YYYY-MM-DD`` through ``_parse_ts`` yields UTC midnight whose ET date is the
+    *previous* day, so ``_is_fresh`` would mark a same-session reading stale.
+    """
+    d = date.fromisoformat(str(day)[:10])
+    return datetime(d.year, d.month, d.day, 12, 0, tzinfo=_ET).isoformat()
+
+
+def _macro_obs_fresh(date_used: str, as_of_day: str) -> bool:
+    """Publication-lag freshness for a macro observation (not same-ET-day)."""
+    try:
+        gap = (date.fromisoformat(as_of_day[:10]) - date.fromisoformat(date_used[:10])).days
+    except ValueError:
+        return False
+    return 0 <= gap <= MACRO_FRESH_MAX_GAP_DAYS
+
+
+def _macro_protos(
+    as_of_day: str,
+    *,
+    macro_db_path: Path,
+) -> list[dict[str, Any]]:
+    """Macro substrate axes from ``macro.db`` via ``regime_report`` (store-only).
+
+    Supersedes the old ``regime_macro`` VIX + hand-computed term-spread line — same
+    two axes, deeper history, with percentile + bucket + reference depth. Missing or
+    stale axes are stated, never dropped. ``direction`` is always ``none`` (riders).
+    Absent / empty ``macro.db`` → no claims (do not raise; worktrees often lack data/).
+    Claim ``ts`` is ET-noon on ``date_used`` (honest observation time). ``fresh`` is
+    set explicitly against ``MACRO_FRESH_MAX_GAP_DAYS`` — not via ``_is_fresh`` —
+    because daily FRED prints lag the session calendar. Missing → ``fresh=False``.
+    """
+    if not as_of_day or not macro_db_path.is_file():
+        return []
+    try:
+        report = regime_report([as_of_day], db_path=macro_db_path)
+    except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
+        return []
+
+    axes = report.get("axes") or {}
+    # Empty store (schema only, no history) ≈ absent — do not spam four "missing" lines.
+    if not any(int((block.get("history") or {}).get("n") or 0) for block in axes.values()):
+        return []
+
+    protos: list[dict[str, Any]] = []
+    for axis in REPORT_AXES:  # fixed order: vol, credit, curve, dollar
+        block = axes.get(axis) or {}
+        series = str(block.get("series") or REPORT_AXES[axis])
+        hist_n = int((block.get("history") or {}).get("n") or 0)
+        obs = (block.get("per_date") or {}).get(as_of_day) or {}
+        value = obs.get("value")
+        date_used = obs.get("date_used")
+        if value is None or date_used is None:
+            protos.append(
+                {
+                    "statement": (
+                        f"macro {axis} {series}: missing "
+                        f"(n={hist_n}) [as of {as_of_day}]"
+                    ),
+                    "value": None,
+                    "ts": "",
+                    "direction": "none",
+                    "fresh": False,
+                }
+            )
+            continue
+        pctile = obs.get("pctile")
+        bucket = obs.get("bucket")
+        # date_used (observation date), never window_day — FRED lags (D1 lesson).
+        protos.append(
+            {
+                "statement": (
+                    f"macro {axis} {series}: {float(value):g} · "
+                    f"pctile {pctile} ({bucket}, n={hist_n}) "
+                    f"[as of {date_used}]"
+                ),
+                "value": float(value),
+                "ts": _et_noon_iso(str(date_used)),
+                "direction": "none",
+                "fresh": _macro_obs_fresh(str(date_used), as_of_day),
+            }
+        )
+    return protos
+
+
 def _context_protos(
     episode: dict[str, Any],
     symbol: str,
     as_of_day: str,
     state_ts: str,
     db_path: Path,
+    *,
+    macro_db_path: Path = DEFAULT_MACRO_DB_PATH,
 ) -> list[dict[str, Any]]:
-    """Regime tag + index-pressure state + market-shock flag (riders — never directional).
+    """Macro substrate + index-pressure + market-shock (riders — never directional).
 
-    Reads are as-of ``now``'s ET date (named in each statement), not the episode birth
-    day — ``market_day`` is opening-session-only under the Round-3 episode model."""
+    Macro rides ``signals.macro_substrate.regime_report`` against ``macro.db`` (not
+    the thin ``regime_macro`` table in trading.db). Reads are as-of ``now``'s ET
+    date; each macro claim names its observation ``date_used``. ``market_day`` is
+    opening-session-only under the Round-3 episode model."""
     protos: list[dict[str, Any]] = []
-    as_of = as_of_day or None
-    vix = latest_observation("VIXCLS", as_of=as_of, db_path=db_path)
-    if vix is not None:
-        vix_val = vix[1]
-        vol_tag = "elevated-vol" if vix_val >= 20 else "calm-vol"
-        statement = f"regime: VIX {vix_val:.1f} ({vol_tag})"
-        dgs10 = latest_observation("DGS10", as_of=as_of, db_path=db_path)
-        dgs2 = latest_observation("DGS2", as_of=as_of, db_path=db_path)
-        if dgs10 is not None and dgs2 is not None:
-            term = dgs10[1] - dgs2[1]
-            curve = "inverted" if term < 0 else "normal"
-            statement += f", term spread {term:+.2f} ({curve} curve)"
-        if as_of_day:
-            statement += f" [as of {as_of_day}]"
-        protos.append(
-            {
-                "statement": statement,
-                "value": vix_val,
-                "ts": state_ts,
-                "direction": "none",
-            }
-        )
+    protos.extend(_macro_protos(as_of_day, macro_db_path=macro_db_path))
 
     if as_of_day:
         try:
@@ -968,6 +1049,7 @@ def build_dossier(
     episode: dict[str, Any],
     *,
     db_path: Path = DEFAULT_DB_PATH,
+    macro_db_path: Path = DEFAULT_MACRO_DB_PATH,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Assemble the deterministic claim matrix for an admitted Fusion episode.
@@ -978,6 +1060,7 @@ def build_dossier(
     ``now`` defaults to the wall clock; it selects the primary ET window for
     flow/tape/news/catalyst/context (and the since-open upper bound), so it
     affects claim values and ordering as well as freshness.
+    ``macro_db_path`` is the separate macro substrate store (not trading.db).
     """
     now = now or datetime.now(timezone.utc)
     episode_id = str(episode["id"])
@@ -1001,7 +1084,12 @@ def build_dossier(
             symbol, window_day=window_day, opened_day=market_day, db_path=db_path
         ),
         "context": _context_protos(
-            episode, symbol, window_day, state_ts, db_path
+            episode,
+            symbol,
+            window_day,
+            state_ts,
+            db_path,
+            macro_db_path=macro_db_path,
         ),
         "portfolio": _portfolio_protos(symbol, state_ts, db_path),
         "history": _history_protos(symbol, state_ts, now, db_path),
@@ -1030,7 +1118,12 @@ def build_dossier(
                     "value": proto["value"],
                     "ts": proto["ts"],
                     "direction": proto.get("direction", "none"),
-                    "fresh": _is_fresh(angle, proto["ts"], now),
+                    # Proto may declare freshness (macro publication lag); else angle rule.
+                    "fresh": (
+                        proto["fresh"]
+                        if "fresh" in proto
+                        else _is_fresh(angle, proto["ts"], now)
+                    ),
                     "contradicts": [],
                 }
             )
@@ -1049,9 +1142,12 @@ def build_and_store_dossier(
     episode: dict[str, Any],
     *,
     db_path: Path = DEFAULT_DB_PATH,
+    macro_db_path: Path = DEFAULT_MACRO_DB_PATH,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build the dossier and persist it (upsert on episode_id) via db/idea_dossiers."""
-    dossier = build_dossier(episode, db_path=db_path, now=now)
+    dossier = build_dossier(
+        episode, db_path=db_path, macro_db_path=macro_db_path, now=now
+    )
     put_dossier(dossier, db_path=db_path)
     return dossier

@@ -16,6 +16,7 @@ from db import options_flow as options_flow_db
 from db.base import connect
 from db.earnings_calendar import upsert_earnings
 from db.idea_dossiers import get_dossier
+from db.macro import upsert_macro
 from db.social_mentions import record_mentions
 from signals.dossier import (
     ANGLE_ORDER,
@@ -23,6 +24,7 @@ from signals.dossier import (
     build_and_store_dossier,
     build_dossier,
 )
+from signals.macro_substrate import REPORT_AXES
 
 MARKET_DAY = "2026-07-20"
 NOW = datetime(2026, 7, 20, 18, 5, tzinfo=timezone.utc)  # 14:05 ET, on the session
@@ -1030,3 +1032,277 @@ def test_intra_angle_sort_is_freshest_first(db: Path) -> None:
         if c["angle"] == "evidence"
     ]
     assert [c["claim_id"] for c in again] == [c["claim_id"] for c in claims]
+
+
+# --------------------------------------------------------------------------- D4 macro substrate
+
+
+def _seed_macro_axes(
+    macro_db: Path,
+    *,
+    session: str = "2026-07-16",
+    dollar_last: str | None = None,
+) -> None:
+    """Seed history for all four REPORT_AXES.
+
+    ``dollar_last`` caps the dollar series (inclusive) so as-of ``session`` can
+    resolve to an earlier ``date_used`` (FRED lag). ``None`` → dollar tracks
+    the other axes through ``session``.
+    """
+    rows: list[tuple[str, str, float]] = []
+    for i in range(1, 11):
+        d = f"2026-07-{i + 6:02d}"  # 07-07 .. 07-16
+        rows.append(("VIXCLS", d, 15.0 + i))
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
+        rows.append(("DGS2", d, 4.0))
+        rows.append(("DGS10", d, 4.0 + 0.05 * i))
+        if dollar_last is None or d <= dollar_last:
+            rows.append(("DTWEXBGS", d, 120.0 - i))
+    upsert_macro(rows, db_path=macro_db)
+
+
+def _macro_context_claims(dossier: dict) -> list[dict]:
+    return [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "context" and c["statement"].startswith("macro ")
+    ]
+
+
+def test_macro_axes_reach_context_with_date_used_and_depth(
+    db: Path, tmp_path: Path
+) -> None:
+    """D4: four substrate axes land on context; date_used named; depth surfaced."""
+    macro_db = tmp_path / "macro.db"
+    _seed_macro_axes(macro_db, session="2026-07-16", dollar_last="2026-07-10")
+    episode = _seed_episode(db)
+    now = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)
+    dossier = build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+    macros = _macro_context_claims(dossier)
+    assert len(macros) == len(REPORT_AXES)
+    by_prefix = {c["statement"].split(":")[0]: c for c in macros}
+    assert set(by_prefix) == {
+        f"macro {axis} {series}" for axis, series in REPORT_AXES.items()
+    }
+    # Vol observes on session day; dollar lags to 07-10 (≠ window_day).
+    assert "[as of 2026-07-16]" in by_prefix["macro vol VIXCLS"]["statement"]
+    dollar_stmt = by_prefix["macro dollar DTWEXBGS"]["statement"]
+    assert "[as of 2026-07-10]" in dollar_stmt
+    assert dollar_stmt.count("2026-07-16") == 0  # window_day must not appear
+    # Values + depth come from the store (not constants); n=10 from seed for vol.
+    assert by_prefix["macro vol VIXCLS"]["value"] == 25.0
+    assert "n=10" in by_prefix["macro vol VIXCLS"]["statement"]
+    assert "pctile" in by_prefix["macro credit BAMLH0A0HYM2"]["statement"]
+    assert all(c["direction"] == "none" for c in macros)
+    # Old hand-rolled regime line must not survive alongside substrate axes.
+    assert not any(
+        c["statement"].startswith("regime:")
+        for c in dossier["claims"]
+        if c["angle"] == "context"
+    )
+
+
+def test_macro_stale_axis_reported_not_dropped(db: Path, tmp_path: Path) -> None:
+    """D4: an axis past REPORT_STALE_DAYS is stated missing, never omitted."""
+    macro_db = tmp_path / "macro.db"
+    # Vol fresh through 07-16; dollar last seen 07-01 → 15 days before → missing.
+    rows: list[tuple[str, str, float]] = []
+    for i in range(1, 11):
+        d = f"2026-07-{i + 6:02d}"
+        rows.append(("VIXCLS", d, 15.0 + i))
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
+        rows.append(("DGS2", d, 4.0))
+        rows.append(("DGS10", d, 4.0 + 0.05 * i))
+    rows.append(("DTWEXBGS", "2026-07-01", 120.0))
+    upsert_macro(rows, db_path=macro_db)
+    episode = _seed_episode(db)
+    now = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)
+    macros = _macro_context_claims(
+        build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+    )
+    dollar = next(c for c in macros if "dollar" in c["statement"])
+    assert "missing" in dollar["statement"]
+    assert "[as of 2026-07-16]" in dollar["statement"]
+    assert dollar["value"] is None
+    assert len(macros) == 4  # stale axis kept, not dropped
+
+
+def test_macro_absent_db_degrades_without_raising(db: Path, tmp_path: Path) -> None:
+    """D4: missing macro.db → no macro claims, no raise, AND path stays absent.
+
+    Pins the ``is_file()`` guard: ``regime_report`` → ``series_history`` →
+    ``init_macro_table`` CREATES an empty sqlite file on a nonexistent path, so
+    without the guard this read-only module would write stub DBs.
+    """
+    episode = _seed_episode(db)
+    absent = tmp_path / "no_such_macro.db"
+    assert not absent.exists()
+    dossier = build_dossier(episode, db_path=db, macro_db_path=absent, now=NOW)
+    assert _macro_context_claims(dossier) == []
+    assert not absent.exists(), "read path must not create a stub macro.db"
+
+
+def test_macro_fresh_flag_tracks_date_used(db: Path, tmp_path: Path) -> None:
+    """D4 review: ts is ET-noon on date_used; missing never fresh.
+
+    Publication-lag freshness (prior-day vs week-old) is covered by
+    ``test_macro_publication_lag_freshness_contrast`` — this one pins ts shape
+    + the missing-axis path + the UTC-midnight trap on ``_et_noon_iso``.
+    """
+    episode = _seed_episode(db)
+    now = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)  # 14:00 ET on 07-16
+
+    macro_db = tmp_path / "macro.db"
+    _seed_macro_axes(macro_db, session="2026-07-16", dollar_last="2026-07-10")
+    macros = {
+        c["statement"].split(":")[0]: c
+        for c in _macro_context_claims(
+            build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+        )
+    }
+    # ET-noon on date_used (not UTC midnight, not state_ts).
+    assert macros["macro vol VIXCLS"]["ts"] == "2026-07-16T12:00:00-04:00"
+    assert macros["macro dollar DTWEXBGS"]["ts"] == "2026-07-10T12:00:00-04:00"
+    assert "[as of 2026-07-10]" in macros["macro dollar DTWEXBGS"]["statement"]
+
+    stale_db = tmp_path / "macro_stale.db"
+    rows: list[tuple[str, str, float]] = []
+    for i in range(1, 11):
+        d = f"2026-07-{i + 6:02d}"
+        rows.append(("VIXCLS", d, 15.0 + i))
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
+        rows.append(("DGS2", d, 4.0))
+        rows.append(("DGS10", d, 4.0 + 0.05 * i))
+    rows.append(("DTWEXBGS", "2026-07-01", 120.0))
+    upsert_macro(rows, db_path=stale_db)
+    missing = next(
+        c
+        for c in _macro_context_claims(
+            build_dossier(episode, db_path=db, macro_db_path=stale_db, now=now)
+        )
+        if "dollar" in c["statement"] and "missing" in c["statement"]
+    )
+    assert missing["fresh"] is False
+    assert missing["ts"] == ""
+
+
+def test_macro_publication_lag_freshness_contrast(db: Path, tmp_path: Path) -> None:
+    """D4 fix2: prior-day FRED prints are fresh; a week-old axis alone is stale.
+
+    Mirrors real cadence (FRED never publishes same-day mid-session). Assert BOTH
+    sides in one dossier — the point is the contrast the all-stale render erased.
+    """
+    macro_db = tmp_path / "macro.db"
+    # History through 07-30 for vol/credit/curve; dollar stops at 07-24 (7-day gap).
+    rows: list[tuple[str, str, float]] = []
+    for i in range(1, 11):
+        d = f"2026-07-{i + 20:02d}"  # 07-21 .. 07-30
+        rows.append(("VIXCLS", d, 15.0 + i))
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
+        rows.append(("DGS2", d, 4.0))
+        rows.append(("DGS10", d, 4.0 + 0.05 * i))
+        if d <= "2026-07-24":
+            rows.append(("DTWEXBGS", d, 120.0 - i))
+    upsert_macro(rows, db_path=macro_db)
+
+    episode = _seed_episode(db)
+    # Mid-session Friday 07-31 — prior calendar day is 07-30 (real FRED lag).
+    now = datetime(2026, 7, 31, 18, 0, tzinfo=timezone.utc)  # 14:00 ET
+    dossier = build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+    macros = {
+        c["statement"].split(":")[0]: c for c in _macro_context_claims(dossier)
+    }
+    assert macros["macro vol VIXCLS"]["fresh"] is True
+    assert macros["macro credit BAMLH0A0HYM2"]["fresh"] is True
+    assert macros["macro curve DGS10-DGS2"]["fresh"] is True
+    assert macros["macro dollar DTWEXBGS"]["fresh"] is False
+    assert "[as of 2026-07-30]" in macros["macro vol VIXCLS"]["statement"]
+    assert "[as of 2026-07-24]" in macros["macro dollar DTWEXBGS"]["statement"]
+
+    # Summary: week-old dollar alone carries [stale]; prior-day axes do not.
+    summary = dossier["summary"]
+    dollar_line = next(
+        line for line in summary.splitlines() if "macro dollar" in line
+    )
+    vol_line = next(line for line in summary.splitlines() if "macro vol" in line)
+    assert "[stale]" in dollar_line
+    assert "[stale]" not in vol_line
+    assert "[stale]" not in next(
+        line for line in summary.splitlines() if "macro credit" in line
+    )
+
+
+def test_macro_weekend_gap_still_fresh(db: Path, tmp_path: Path) -> None:
+    """D4 fix2: Fri observation → Mon/Tue build stays fresh (weekend ± holiday)."""
+    macro_db = tmp_path / "macro.db"
+    rows: list[tuple[str, str, float]] = []
+    for i in range(1, 11):
+        d = f"2026-07-{i + 14:02d}"  # 07-15 .. 07-24 (Fri)
+        rows.append(("VIXCLS", d, 15.0 + i))
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
+        rows.append(("DGS2", d, 4.0))
+        rows.append(("DGS10", d, 4.0 + 0.05 * i))
+        rows.append(("DTWEXBGS", d, 120.0 - i))
+    upsert_macro(rows, db_path=macro_db)
+    episode = _seed_episode(db)
+
+    # Monday after Friday obs (gap=3).
+    mon = datetime(2026, 7, 27, 18, 0, tzinfo=timezone.utc)
+    mon_macros = _macro_context_claims(
+        build_dossier(episode, db_path=db, macro_db_path=macro_db, now=mon)
+    )
+    assert mon_macros and all(c["fresh"] for c in mon_macros)
+    assert all("[as of 2026-07-24]" in c["statement"] for c in mon_macros)
+
+    # Tuesday after Friday obs (gap=4 — weekend + one market holiday).
+    tue = datetime(2026, 7, 28, 18, 0, tzinfo=timezone.utc)
+    tue_macros = _macro_context_claims(
+        build_dossier(episode, db_path=db, macro_db_path=macro_db, now=tue)
+    )
+    assert tue_macros and all(c["fresh"] for c in tue_macros)
+
+
+def test_proto_without_fresh_still_uses_is_fresh(db: Path) -> None:
+    """D4 fix2: protos that omit ``fresh`` still route through ``_is_fresh``."""
+    episode = _seed_episode(db, market_shock=1)
+    # Prior-day news: session angle, no explicit fresh → must be stale via _is_fresh.
+    _seed_news(
+        db,
+        news_id="n_old",
+        headline="Yesterday's print",
+        published_at="2026-07-30T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    now = datetime(2026, 7, 31, 18, 0, tzinfo=timezone.utc)
+    dossier = build_dossier(
+        episode, db_path=db, macro_db_path=db.parent / "absent.db", now=now
+    )
+    news = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "news" and c["statement"].startswith('"')
+    ]
+    assert news and all(c["fresh"] is False for c in news)
+    shock = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "context" and "market-shock" in c["statement"]
+    ]
+    # market-shock uses state_ts (= now) and does not declare fresh → _is_fresh True.
+    assert shock and shock[0]["fresh"] is True
+
+
+def test_macro_claims_deterministic(db: Path, tmp_path: Path) -> None:
+    """D4: same episode + same now → identical macro claim_ids / statements."""
+    macro_db = tmp_path / "macro.db"
+    _seed_macro_axes(macro_db)
+    episode = _seed_episode(db)
+    now = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)
+    first = build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+    second = build_dossier(episode, db_path=db, macro_db_path=macro_db, now=now)
+    assert first["claims"] == second["claims"]
+    macros = _macro_context_claims(first)
+    assert [c["claim_id"] for c in macros] == [
+        c["claim_id"] for c in _macro_context_claims(second)
+    ]
+    assert all(c["claim_id"].startswith("context:") for c in macros)
