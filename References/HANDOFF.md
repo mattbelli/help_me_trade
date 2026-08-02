@@ -233,11 +233,9 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
 - ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02;
-  **D1 shipped 08-02 on branch `dossier-repair`** — window now off `now`'s ET day + labelled
-  since-open; **D2 truncation + D3 news still open**). The dossier is not merely dark; D2 still
-  truncates every analytic claim out of the summary the LLM would read. Arming first just feeds
-  the lane a 100%-evidence matrix. Brief: `BRIEF_dossier-repair.md` (worktree) /
-  `tools/composer-bridge/briefs/dossier-repair.md`.
+  **D1+D2 shipped 08-02 on branch `dossier-repair`** — window fixed, evidence aggregated + last in
+  `ANGLE_ORDER`, freshest-first; **D3 news-as-first-class angle still open**). Arming still waits
+  on D3 + the contested-wall gate. Brief: `BRIEF_dossier-repair.md` (worktree).
   Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
   dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
   BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22

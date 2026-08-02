@@ -8,8 +8,8 @@ perception ANGLES into a stable claim matrix that the Phase C3 investigator
 VALUES from these claims deterministically and cites claim ids STRICTLY, so:
 
   * ``claim_id`` is deterministic + stable — ``f"{angle}:{n}"`` with ``n`` assigned
-    in a FIXED angle order and a FIXED intra-angle sort (by ts, then value). The
-    same episode state + same ``now`` in yields the same ids out
+    in a FIXED angle order and a FIXED intra-angle sort (freshest-ts first, then
+    value). The same episode state + same ``now`` in yields the same ids out
     (``tests/test_dossier.py``).
   * an angle with nothing to say is OMITTED (no empty claims); a dossier is valid
     with as few as the ``evidence`` angle alone.
@@ -51,9 +51,9 @@ _ET = ZoneInfo("America/New_York")
 
 # Fixed angle order — governs how angles appear in the matrix + summary, and (with
 # claim_id embedding the angle) makes the id scheme stable. Changing this order is a
-# NEW estimand for the investigator, never a silent edit.
+# NEW estimand for the investigator, never a silent edit. ``evidence`` is LAST so the
+# 4,000-char summary cap truncates the (still-redundant) evidence tail, not analysis.
 ANGLE_ORDER: tuple[str, ...] = (
-    "evidence",
     "flow",
     "tape",
     "structure",
@@ -62,6 +62,7 @@ ANGLE_ORDER: tuple[str, ...] = (
     "context",
     "portfolio",
     "history",
+    "evidence",
 )
 
 # Freshness horizons (labeled, deliberately simple). Intraday angles carry
@@ -172,26 +173,56 @@ def _size_bucket(shares: float) -> str:
 
 
 def _evidence_protos(episode_id: str, db_path: Path) -> list[dict[str, Any]]:
-    """The episode's own dots — one claim per dot, its group/direction/points."""
-    protos: list[dict[str, Any]] = []
+    """Episode dots aggregated by ``(component, actor_group, direction)``.
+
+    One claim per key (count + dollar total for actor groups) — never one claim per
+    dot. Aggregation preserves minority surfaces (e.g. news) as counted rows;
+    capping/dropping dots would silently delete them. ``background_crowd`` raw is a
+    multiple (RVOL), never dollars — keep the freshest reading, never sum it.
+    """
+    buckets: dict[tuple[str, str, str], dict[str, Any]] = {}
     for dot in fusion_db.episode_dots(episode_id, db_path=db_path):
         component = str(dot.get("component") or "")
         group = str(dot.get("actor_group") or "")
         direction = str(dot.get("direction") or "none")
-        points = _as_float(dot.get("points"))
-        statement = f"{component} · {group} · {direction} · {points:g} pts"
+        key = (component, group, direction)
+        bucket = buckets.get(key)
+        if bucket is None:
+            bucket = {
+                "count": 0,
+                "points": 0.0,
+                "raw_sum": 0.0,
+                "raw_any": False,
+                "crowd_raw": None,
+                "ts": "",
+            }
+            buckets[key] = bucket
+        bucket["count"] += 1
+        bucket["points"] += _as_float(dot.get("points"))
+        ts = str(dot.get("ts") or "")
         raw = _as_float_or_none(dot.get("raw_value"))
-        if raw is not None and group in ("options_actor", "equity_actor"):
-            statement += f" · ${raw:,.0f}"
-        elif raw is not None and group == "background_crowd":
-            # A multiple, never dollars — the crowd dot's raw_value is an RVOL
-            # ratio, and rendering it as $2 would be a fabricated notional.
-            statement += f" · {raw:.2f}× RVOL-ex-prints"
+        if group in ("options_actor", "equity_actor") and raw is not None:
+            bucket["raw_sum"] += raw
+            bucket["raw_any"] = True
+        if ts >= bucket["ts"]:
+            bucket["ts"] = ts
+            if group == "background_crowd" and raw is not None:
+                bucket["crowd_raw"] = raw
+
+    protos: list[dict[str, Any]] = []
+    for (component, group, direction), bucket in buckets.items():
+        statement = (
+            f"{component} · {group} · {direction} · {bucket['count']:,} dots"
+        )
+        if group in ("options_actor", "equity_actor") and bucket["raw_any"]:
+            statement += f" · ${bucket['raw_sum']:,.0f} total"
+        elif group == "background_crowd" and bucket["crowd_raw"] is not None:
+            statement += f" · {bucket['crowd_raw']:.2f}× RVOL-ex-prints"
         protos.append(
             {
                 "statement": statement,
-                "value": points,
-                "ts": str(dot.get("ts") or ""),
+                "value": bucket["points"],
+                "ts": bucket["ts"],
                 "direction": direction,
             }
         )
@@ -227,12 +258,12 @@ def _flow_protos(
             (symbol,),
         ).fetchall()
 
-    windows: list[tuple[str, str]] = [("primary", window_day)]
+    windows: list[str] = ["primary"]
     if opened_day and window_day and opened_day != window_day:
-        windows.append(("since_open", opened_day))
+        windows.append("since_open")
 
     protos: list[dict[str, Any]] = []
-    for kind, _ in windows:
+    for kind in windows:
         sums = {"bull": 0.0, "bear": 0.0}
         counts = {"bull": 0, "bear": 0}
         last_ts = {"bull": "", "bear": ""}
@@ -245,6 +276,9 @@ def _flow_protos(
                 if day != window_day:
                     continue
             else:
+                # Inclusive of window_day on purpose: since-open is birth..now as one
+                # labelled view, overlapping the primary day. Do not make this
+                # exclusive of today or sum primary+since_open into one number.
                 if not day or day < opened_day or day > window_day:
                     continue
             prem = _as_float(row["premium_usd"])
@@ -303,12 +337,12 @@ def _tape_protos(
             (symbol,),
         ).fetchall()
 
-    windows: list[tuple[str, str]] = [("primary", window_day)]
+    windows: list[str] = ["primary"]
     if opened_day and window_day and opened_day != window_day:
-        windows.append(("since_open", opened_day))
+        windows.append("since_open")
 
     protos: list[dict[str, Any]] = []
-    for kind, _ in windows:
+    for kind in windows:
         sums = {"bull": 0.0, "bear": 0.0}
         counts = {"bull": 0, "bear": 0}
         last_ts = {"bull": "", "bear": ""}
@@ -321,6 +355,9 @@ def _tape_protos(
                 if day != window_day:
                     continue
             else:
+                # Inclusive of window_day on purpose: since-open is birth..now as one
+                # labelled view, overlapping the primary day. Do not make this
+                # exclusive of today or sum primary+since_open into one number.
                 if not day or day < opened_day or day > window_day:
                     continue
             notional = _as_float(row["notional_usd"])
@@ -757,8 +794,8 @@ def build_dossier(
     claims: list[dict[str, Any]] = []
     for angle in ANGLE_ORDER:
         protos = by_angle.get(angle) or []
-        # Fixed intra-angle sort (ts, then value); statement is a stable final
-        # tiebreak so same-ts/same-value state claims still get deterministic ids.
+        # Freshest-first (ts desc), then value, then statement — so a summary-cap
+        # overflow keeps recent claims, not the oldest. Deterministic under same now.
         ordered = sorted(
             protos,
             key=lambda proto: (
@@ -766,6 +803,7 @@ def build_dossier(
                 _value_sort(proto["value"]),
                 str(proto["statement"]),
             ),
+            reverse=True,
         )
         for index, proto in enumerate(ordered):
             claims.append(

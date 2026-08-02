@@ -174,7 +174,7 @@ def test_full_matrix_angles_and_counts(db: Path) -> None:
 
     counts = _angles(dossier["claims"])
     assert set(counts) == {"evidence", "flow", "tape", "structure", "history"}
-    assert counts["evidence"] == 2  # one claim per dot
+    assert counts["evidence"] == 2  # one claim per (component, group, direction)
     assert counts["flow"] == 2  # bull premium total + largest print
     assert counts["tape"] == 2  # bear notional total + largest print
     assert counts["structure"] == 1  # nearest session level (no active alerts)
@@ -184,6 +184,13 @@ def test_full_matrix_angles_and_counts(db: Path) -> None:
     assert "PDH" in structure["statement"]  # nearest to anchor 245 is PDH @ 246
     history = next(c for c in dossier["claims"] if c["angle"] == "history")
     assert "1 won" in history["statement"] and "%" not in history["statement"]
+    # evidence is LAST in ANGLE_ORDER — analytic angles precede it in the matrix.
+    angles_in_order = []
+    for claim in dossier["claims"]:
+        if claim["angle"] not in angles_in_order:
+            angles_in_order.append(claim["angle"])
+    assert angles_in_order[-1] == "evidence"
+    assert angles_in_order.index("flow") < angles_in_order.index("evidence")
 
 
 def test_claim_ids_deterministic(db: Path) -> None:
@@ -223,7 +230,7 @@ def test_background_crowd_raw_value_renders_as_a_multiple(db: Path) -> None:
     assert "2.35× RVOL-ex-prints" in rvol["statement"]
     assert "$" not in rvol["statement"]
     flow = next(c for c in claims if "option_sweep" in c["statement"])
-    assert "$300,000" in flow["statement"]  # actor dollars unchanged
+    assert "$300,000 total" in flow["statement"]  # actor dollars unchanged
 
 
 def test_warming_social_is_omitted(db: Path) -> None:
@@ -252,9 +259,19 @@ def test_contradiction_links_are_reciprocal(db: Path) -> None:
 
 def test_summary_cap_respected_with_marker(db: Path) -> None:
     episode = _seed_episode(db)
+    # Unique (component, group, direction) keys so aggregation cannot collapse the
+    # overflow — many identical dots would become one claim after D2.
     for k in range(250):
-        _seed_dot(db, dot_id=f"d{k}", component="option_sweep", group="options_actor",
-                  direction="bull", points=2.5, raw_value="250000", ts=_utc(18, 0))
+        _seed_dot(
+            db,
+            dot_id=f"d{k}",
+            component=f"option_sweep_{k}",
+            group="options_actor",
+            direction="bull",
+            points=2.5,
+            raw_value="250000",
+            ts=_utc(18, 0),
+        )
 
     dossier = build_dossier(episode, db_path=db, now=NOW)
     summary = dossier["summary"]
@@ -341,13 +358,102 @@ def test_flow_primary_window_is_now_et_day_not_episode_birth(db: Path) -> None:
         c for c in since_open if c["direction"] == "bull" and "premium" in c["statement"]
     )
     assert bull_since["value"] == 450_000  # both days, distinct from primary
-    # Same-day episode must NOT duplicate into a since-open claim.
-    same_day_ep = {**episode, "market_day": later}
-    same_day = build_dossier(same_day_ep, db_path=db, now=now)
+
+
+def test_tape_primary_window_is_now_et_day_not_episode_birth(db: Path) -> None:
+    """D1: tape mirrors flow — primary window is now's ET day, not episode birth."""
+    birth = "2026-07-20"
+    later = "2026-07-22"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_tape(
+        db,
+        event_id="t_birth",
+        direction="buy",
+        notional=50_000,
+        ts=f"{birth}T18:00:00+00:00",
+    )
+    _seed_tape(
+        db,
+        event_id="t_later",
+        direction="buy",
+        notional=400_000,
+        ts=f"{later}T18:00:00+00:00",
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    dossier = build_dossier(episode, db_path=db, now=now)
+    primary = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "tape" and f"[{later}]" in c["statement"]
+    ]
+    since_open = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "tape" and f"since episode opened {birth}" in c["statement"]
+    ]
+    assert primary, "primary window claims must name now's ET date"
+    assert since_open, "multi-day episodes must emit a separate since-open aggregate"
+    bull_primary = next(
+        c for c in primary if c["direction"] == "bull" and "notional" in c["statement"]
+    )
+    assert bull_primary["value"] == 400_000
+    assert "50,000" not in bull_primary["statement"]
+    bull_since = next(
+        c for c in since_open if c["direction"] == "bull" and "notional" in c["statement"]
+    )
+    assert bull_since["value"] == 450_000
+
+
+def test_since_open_emitted_only_for_multi_day_episode(db: Path) -> None:
+    """D1 boundary: multi-day emits labelled since-open; single-day does not."""
+    birth = "2026-07-20"
+    later = "2026-07-22"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_flow(
+        db,
+        event_id="f_birth",
+        right="C",
+        direction="ask",
+        premium=50_000,
+        ts=f"{birth}T18:00:00+00:00",
+    )
+    _seed_flow(
+        db,
+        event_id="f_later",
+        right="C",
+        direction="ask",
+        premium=400_000,
+        ts=f"{later}T18:00:00+00:00",
+    )
+    _seed_tape(
+        db,
+        event_id="t_birth",
+        direction="sell",
+        notional=80_000,
+        ts=f"{birth}T18:00:00+00:00",
+    )
+    _seed_tape(
+        db,
+        event_id="t_later",
+        direction="sell",
+        notional=200_000,
+        ts=f"{later}T18:00:00+00:00",
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    multi = build_dossier(episode, db_path=db, now=now)
+    assert any(
+        f"since episode opened {birth}" in c["statement"]
+        for c in multi["claims"]
+        if c["angle"] in ("flow", "tape")
+    )
+
+    single = build_dossier({**episode, "market_day": later}, db_path=db, now=now)
     assert not any(
         "since episode opened" in c["statement"]
-        for c in same_day["claims"]
-        if c["angle"] == "flow"
+        for c in single["claims"]
+        if c["angle"] in ("flow", "tape")
     )
 
 
@@ -417,3 +523,116 @@ def test_now_selects_window_values_not_only_freshness(db: Path) -> None:
     assert early["claims"] != late["claims"]
     # Same now still deterministic.
     assert build_dossier(episode, db_path=db, now=now_later)["claims"] == late["claims"]
+
+
+def test_evidence_aggregates_by_component_group_direction(db: Path) -> None:
+    """D2: many dots of the same key collapse to one counted claim (news preserved)."""
+    episode = _seed_episode(db)
+    for k in range(5):
+        _seed_dot(
+            db,
+            dot_id=f"sweep{k}",
+            component="option_sweep",
+            group="options_actor",
+            direction="bull",
+            points=2.0,
+            raw_value="100000",
+            ts=_utc(18, k),
+        )
+    for k in range(3):
+        _seed_dot(
+            db,
+            dot_id=f"news{k}",
+            component="news",
+            group="catalyst",
+            direction="none",
+            points=0.0,
+            raw_value=None,
+            ts=_utc(17, k),
+        )
+
+    claims = [
+        c
+        for c in build_dossier(episode, db_path=db, now=NOW)["claims"]
+        if c["angle"] == "evidence"
+    ]
+    assert len(claims) == 2  # not 8
+    sweep = next(c for c in claims if "option_sweep" in c["statement"])
+    news = next(c for c in claims if "news" in c["statement"])
+    assert "5 dots" in sweep["statement"]
+    assert "$500,000 total" in sweep["statement"]
+    assert "3 dots" in news["statement"]
+    assert sweep["value"] == 10.0  # sum of points
+
+
+def test_summary_keeps_analysis_truncates_evidence_tail(db: Path) -> None:
+    """D2: evidence last + aggregation → summary shows analysis, not only evidence."""
+    episode = _seed_full(db)
+    # direction=none so filler keys do not explode cross-angle contradiction
+    # annotations (those alone can fill the 4k cap before structure/history).
+    for k in range(200):
+        _seed_dot(
+            db,
+            dot_id=f"extra{k}",
+            component=f"news_item_{k}",
+            group="catalyst",
+            direction="none",
+            points=0.0,
+            raw_value=None,
+            ts=_utc(18, 0),
+        )
+
+    summary = build_dossier(episode, db_path=db, now=NOW)["summary"]
+    assert len(summary) <= 4000
+    for angle in ("flow", "tape", "structure", "history"):
+        assert f"[{angle}]" in summary, f"missing analytic angle {angle} in summary"
+    # Evidence is last — if truncated, the marker follows evidence lines, not analysis.
+    lines = [line for line in summary.splitlines() if not line.startswith("…")]
+    analytic = [line for line in lines if not line.startswith("[evidence]")]
+    evidence = [line for line in lines if line.startswith("[evidence]")]
+    assert analytic, "analysis must survive the cap"
+    if evidence and analytic:
+        last_analytic = max(lines.index(line) for line in analytic)
+        first_evidence = min(lines.index(line) for line in evidence)
+        assert last_analytic < first_evidence
+    assert summary.rstrip().endswith("claims truncated)") or "[evidence]" in summary
+
+
+def test_intra_angle_sort_is_freshest_first(db: Path) -> None:
+    """D2: claim_id order within an angle is freshest-ts first (cap keeps recent)."""
+    episode = _seed_episode(db)
+    _seed_dot(
+        db,
+        dot_id="old",
+        component="option_sweep",
+        group="options_actor",
+        direction="bull",
+        points=1.0,
+        raw_value="100000",
+        ts=_utc(16, 0),
+    )
+    _seed_dot(
+        db,
+        dot_id="new",
+        component="dark_pool",
+        group="equity_actor",
+        direction="bear",
+        points=2.0,
+        raw_value="200000",
+        ts=_utc(18, 0),
+    )
+    claims = [
+        c
+        for c in build_dossier(episode, db_path=db, now=NOW)["claims"]
+        if c["angle"] == "evidence"
+    ]
+    assert claims[0]["claim_id"] == "evidence:0"
+    assert "dark_pool" in claims[0]["statement"]  # fresher ts first
+    assert "option_sweep" in claims[1]["statement"]
+    # Determinism under the new sort: same inputs → same ids.
+    again = [
+        c
+        for c in build_dossier(episode, db_path=db, now=NOW)["claims"]
+        if c["angle"] == "evidence"
+    ]
+    assert [c["claim_id"] for c in again] == [c["claim_id"] for c in claims]
