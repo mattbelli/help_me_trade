@@ -183,6 +183,15 @@ snapshot per sweep). Open threads only:
   overwrite — treat a SHA mismatch as an incident. ⚠️ If a future re-gate passes: deep
   review of the unseal/analyze paths of `hedge_label_drift.py` MUST complete first
   (gate1 path reviewed; the rest built+tested, not yet line-by-line reviewed).
+  ⏳ **IN FLIGHT (launched 2026-08-02, founder "run it as fast as you can thats safe"):
+  the backfill discovery crawl** — `tools/flow_backfill_crawl.py`, validated 77/77 on
+  all 8 corpus sample sessions, crawling 361 pre-corpus sessions (2024-02-15→2025-07-25)
+  into `data/research/flow_backfill/backfill.db` (checkpointed; `--status` to check;
+  relaunch `--run 2024-02-15 2025-07-25` resumes). ROADMAP "Discovery, round 3" block =
+  the record. After it finishes: stage-1-style selection over discovered prints → the
+  founder-authorized tcbbo drill-down purchase (**EXACT quote before any charged
+  request**, ~$10–30 communicated, credit expected) → new frozen labels via dated
+  addendum → 3.3 re-gate at the grown HIGH stratum.
   ⏳ **Next Phase-3 move: 3.4 spread orientation** — NOT gated on 3.3 (needs only 3.2's
   CONFIRMED direction result); unlocks the ~33% of premium fenced as spreads. Needs its
   own pre-registration round (founder-visible). No collision with the live-pairing

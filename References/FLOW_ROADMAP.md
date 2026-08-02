@@ -3158,6 +3158,37 @@ equivalent; we do not need it.
         polite rates; then the tcbbo drill-down windows for discovered candidates
         (~$10–30, founder-authorized, EXACT quote before the charged request). Next
         round: build the crawler + measure pre-filter recall on truth, all free.
+      - **Discovery, round 3 (2026-08-02, founder: "run it as fast as you can thats
+        safe") — crawler BUILT, VALIDATED 77/77, and LAUNCHED. Two more aggregate
+        nets measured dead on the way; the funnel that survived touches no aggregate
+        between the daily-bar net and the tape.** The kills, both label-correlated
+        blindness: (1) free OPRA `statistics` CLEARED_VOLUME (per-venue ~16:40–17:30
+        ET publishes) simply omits 2/6 truth blocks (VRNS 4,180, BTDR 3,000 — absent
+        through +3 days); (2) Alpaca **1-Min bars exclude cond-'B' prints that the
+        1-Day bars include** — the VRNS 4,180-lot has NO minute bar at all (measured:
+        no 17:46 bar; daily v=8441 includes it). The moneyness/DTE pre-filter idea
+        from round 2 also died honestly: truth tails span DTE 1→1,054 and moneyness
+        −596%→+472%, so a 100%-recall box is barely a filter. **The validated funnel
+        (`tools/flow_backfill_crawl.py`):** (A) daily Databento definitions, free,
+        $0.00 quoted for the whole window (205 GB raw; daily NOT weekly — strikes
+        listed intra-week near expiry are event-adjacent); (B) Alpaca 1-Day bars,
+        which INCLUDE blocks (6/6 measured, both cleared-volume misses included), net
+        = bar exists ∧ (v−n+1)·high·100 ≥ $25,000 — the registered stage-1
+        PREMIUM_MIN, strict superset; v−n+1 provably never under-reports the largest
+        single trade; (C) full-day Alpaca trades for every net survivor, per-fill
+        components summed per 1-ms bucket (gap-chaining welded busy tapes into
+        183,646 pseudo-prints — measured and replaced), keep groups ≥ $25k.
+        Non-Alpaca-grammar roots (leading-digit adjusted series, e.g. 2CLSK) are
+        dropped — population-faithful: the frozen root-classification fence already
+        excludes adjusted from the corpus equity stratum. **Validation: all 8 sample
+        corpus sessions, 77/77 truth prints rediscovered end-to-end from free data
+        only.** Alpaca options rate limit measured 10,000 req/min; crawl paced at
+        4,000. ~45–90 s/session, 361 sessions (2024-02-15→2025-07-25), ~70–180k
+        prints/session stored to `data/research/flow_backfill/backfill.db`
+        (session-checkpointed, resumable). Known superset-inflations, safe direction
+        for discovery: same-ms coincidental merges on busy tapes, and 2024-era Alpaca
+        timestamps that carry no sub-second part (same-second merges). Crawl runs
+        the weekend; selection + the authorized exact-quote tcbbo purchase follow.
 
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
