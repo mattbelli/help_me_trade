@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from brokers.alpaca import AlpacaNotFoundError
 from brokers.base import Order
 from db import order_executions as order_executions_mod
 from trading.fill_tracker import (
@@ -51,6 +52,7 @@ def _seed_pending(
     execution_id: str = "exec_pending1",
     created_at: datetime,
     symbol: str = "AAPL",
+    account_id: str | None = None,
 ) -> None:
     order_executions_mod.create_execution_record(
         execution_id=execution_id,
@@ -64,6 +66,7 @@ def _seed_pending(
         execution_mode="paper",
         status="pending",
         broker="alpaca",
+        account_id=account_id,
         db_path=db_path,
     )
     created_iso = created_at.astimezone(UTC).isoformat()
@@ -372,6 +375,7 @@ async def test_reconcile_pending_rejects_stale_not_found(
         db,
         execution_id="exec_missing",
         created_at=datetime.now(UTC) - timedelta(minutes=3),
+        account_id="acct_a",
     )
 
     class StubAdapter:
@@ -379,16 +383,45 @@ async def test_reconcile_pending_rejects_stale_not_found(
             return None
 
     monkeypatch.setattr(
-        "trading.fill_tracker.get_broker",
-        lambda _name: StubAdapter(),
+        "trading.fill_tracker.get_broker_for_account",
+        lambda _a: StubAdapter(),
     )
 
-    await reconcile_pending_executions("alpaca", db_path=db)
+    await reconcile_pending_executions("alpaca", account_id="acct_a", db_path=db)
 
     row = order_executions_mod.get_execution("exec_missing", db_path=db)
     assert row is not None
     assert row["status"] == "rejected"
-    assert row["risk_checks_json"]["reason"] == "orphan: not found at broker"
+
+
+@pytest.mark.asyncio
+async def test_an_account_less_pending_sweep_never_rejects(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Without an account the sweep runs EVERY account's rows through the default
+    adapter, so "not found" is what a foreign row looks like by construction.
+    Rejecting on that drops the row's sell reservation for a live order."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_pending(
+        db,
+        execution_id="exec_foreign_pending",
+        created_at=datetime.now(UTC) - timedelta(minutes=3),
+    )
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker", lambda _name: StubAdapter()
+    )
+
+    await reconcile_pending_executions("alpaca", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_foreign_pending", db_path=db)
+    assert row is not None
+    assert row["status"] == "pending"
 
 
 @pytest.mark.asyncio
@@ -543,14 +576,14 @@ def test_execution_list_count_filters_by_account(tmp_path: Path) -> None:
     )
     assert [row["id"] for row in listed_a] == ["exec_a_sub"]
 
-    assert order_executions_mod.count_pending_paper_executions("alpaca", db_path=db) == 2
+    assert order_executions_mod.count_pending_executions("alpaca", db_path=db) == 2
     assert (
-        order_executions_mod.count_pending_paper_executions(
+        order_executions_mod.count_pending_executions(
             "alpaca", account_id="acct_b", db_path=db
         )
         == 1
     )
-    stale_a = order_executions_mod.list_stale_pending_paper_executions(
+    stale_a = order_executions_mod.list_stale_pending_executions(
         "alpaca", account_id="acct_a", db_path=db
     )
     assert [row["id"] for row in stale_a] == ["exec_a_pend"]
@@ -663,3 +696,475 @@ async def test_reconcile_pending_orphan_reject_scoped_to_account(
     b = order_executions_mod.get_execution("exec_b_orphan", db_path=db)
     assert a is not None and a["status"] == "rejected"
     assert b is not None and b["status"] == "pending"
+
+
+# --- Stuck rows: nothing outside paper ever terminalised them ------------------
+#
+# `sum_inflight_sell_qty` reserves shares against non-terminal rows, so a row that
+# can never reach a terminal status is a position that can never be exited or
+# re-stopped. Two branches used to loop forever (no broker_order_id; the broker
+# read raising) and the pending sweep only ever looked at paper rows.
+
+
+def _seed_stuck(
+    db_path: Path,
+    *,
+    execution_id: str,
+    status: str,
+    execution_mode: str = "paper",
+    side: str = "buy",
+    broker_order_id: str | None = None,
+    account_id: str = "acct_a",
+    age: timedelta = timedelta(minutes=5),
+) -> None:
+    order_executions_mod.create_execution_record(
+        execution_id=execution_id,
+        proposal_id="prop1",
+        session_id=None,
+        symbol="AAPL",
+        side=side,
+        qty=Decimal("10"),
+        order_type="market",
+        limit_price=None,
+        execution_mode=execution_mode,
+        status=status,
+        broker="alpaca",
+        broker_order_id=broker_order_id,
+        account_id=account_id,
+        db_path=db_path,
+    )
+    stamp = (datetime.now(UTC) - age).isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE order_executions SET created_at = ?, updated_at = ?, "
+            "submitted_at = ? WHERE id = ?",
+            (stamp, stamp, stamp if status != "pending" else None, execution_id),
+        )
+        conn.commit()
+
+
+def _install(monkeypatch, adapter) -> None:
+    monkeypatch.setattr("trading.fill_tracker.get_broker", lambda _n: adapter)
+    monkeypatch.setattr(
+        "trading.fill_tracker.get_broker_for_account", lambda _a: adapter
+    )
+    monkeypatch.setattr(
+        "trading.fill_tracker.notify", AsyncMock(return_value={"id": "n"})
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_sweep_reaches_a_row_that_is_not_paper(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The sweep was `execution_mode='paper'` only — a live row stuck in the
+    orphan window (crash between the broker POST and the status write) had
+    nothing that could ever end it."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_live", status="pending", execution_mode="live")
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_pending_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_live", db_path=db)
+    assert row is not None and row["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_stuck_dry_run_row_is_ended_without_asking_the_broker(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A dry_run row is `pending` between validation and its status write and
+    never reaches a broker, so there is nothing to look up — asking would only
+    burn a request to be told what the mode already says."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_dry", status="pending", execution_mode="dry_run")
+
+    lookup = AsyncMock(return_value=None)
+    _install(monkeypatch, type("Stub", (), {"aget_order_by_client_id": lookup})())
+    await reconcile_pending_executions("alpaca", account_id="acct_a", db_path=db)
+
+    lookup.assert_not_called()
+    row = order_executions_mod.get_execution("exec_dry", db_path=db)
+    assert row is not None and row["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_submitted_row_missing_its_broker_id_is_recovered(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """`submitted` with no broker_order_id used to log and `continue` forever.
+    The client id is our own, so the order is still findable."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_noid", status="submitted")
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            assert client_order_id == "exec_noid"
+            return Order(
+                id="broker-found",
+                symbol="AAPL",
+                qty=10.0,
+                side="buy",
+                order_type="market",
+                status="filled",
+                filled_qty=10.0,
+                limit_price=None,
+            )
+
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AssertionError("must not poll an id we do not have")
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_noid", db_path=db)
+    assert row is not None
+    assert row["broker_order_id"] == "broker-found"
+    assert row["status"] == "filled"
+
+
+@pytest.mark.asyncio
+async def test_submitted_row_the_broker_never_saw_is_ended(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_ghost", status="submitted")
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_ghost", db_path=db)
+    assert row is not None and row["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_broker_denying_the_order_id_ends_the_row(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Ending a row needs BOTH routes to agree it is absent — one 404 is one
+    route's answer, and Alpaca answers a missing ROUTE with the same 404."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_404", status="submitted", broker_order_id="b-1")
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("GET /v2/orders/b-1 failed (404): order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_404", db_path=db)
+    assert row is not None and row["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_a_404_the_client_id_route_contradicts_repoints_the_row(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The stored broker id can be wrong — the old client-id lookup returned an
+    arbitrary order and could write a stranger's id. When the id route denies it
+    but our own client id resolves, the order is real: repoint, never end."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(
+        db, execution_id="exec_wrongid", status="submitted", broker_order_id="b-stranger"
+    )
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return Order(
+                id="b-really-ours",
+                symbol="AAPL",
+                qty=10.0,
+                side="buy",
+                order_type="market",
+                status="new",
+                filled_qty=0.0,
+                limit_price=None,
+            )
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_wrongid", db_path=db)
+    assert row is not None
+    assert row["status"] == "submitted"
+    assert row["broker_order_id"] == "b-really-ours"
+
+
+@pytest.mark.asyncio
+async def test_a_404_the_second_route_cannot_confirm_leaves_the_row_open(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_unsure", status="submitted", broker_order_id="b-9")
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            raise RuntimeError("read timeout")
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_unsure", db_path=db)
+    assert row is not None and row["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_read_never_ends_the_row(monkeypatch, tmp_path: Path) -> None:
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_flaky", status="submitted", broker_order_id="b-2")
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise RuntimeError("read timeout")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_flaky", db_path=db)
+    assert row is not None and row["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_a_just_placed_order_is_never_ended_by_a_404(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A 404 seconds after the place is the broker not having caught up, not an
+    absent order — end the row only once it is past the orphan window."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(
+        db,
+        execution_id="exec_fresh",
+        status="submitted",
+        broker_order_id="b-3",
+        age=timedelta(seconds=5),
+    )
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_fresh", db_path=db)
+    assert row is not None and row["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_a_404_from_the_wrong_account_never_ends_the_row(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Called without an account, the reconciler polls EVERY account's rows
+    through the default adapter — every foreign row then 404s. Killing live
+    orders on that evidence is exactly the oversell the reservation prevents."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(
+        db,
+        execution_id="exec_foreign",
+        status="submitted",
+        broker_order_id="b-4",
+        account_id="acct_other",
+    )
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_foreign", db_path=db)
+    assert row is not None and row["status"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_ending_a_stuck_sell_frees_the_shares_it_reserved(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """A stuck sell row reserves shares against every later sell at the DB level.
+
+    Honest scope (review A LOW-2): production also passes `snapshot_captured_at`,
+    and that rule already excludes a row older than the current snapshot — so
+    this is the reservation the reconcile removes at the source, not a hole the
+    live sell gate had. What terminalising really buys is upstream: the row stops
+    consuming daily-order and notional budget, and stops looking like a resting
+    protective stop.
+    """
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(
+        db,
+        execution_id="exec_stuck_sell",
+        status="submitted",
+        side="sell",
+        broker_order_id="b-stuck",
+    )
+
+    reserved = order_executions_mod.sum_inflight_sell_qty(
+        symbol="AAPL", account_id="acct_a", db_path=db
+    )
+    assert reserved == Decimal("10")
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    assert order_executions_mod.sum_inflight_sell_qty(
+        symbol="AAPL", account_id="acct_a", db_path=db
+    ) == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_timestamp_does_not_kill_the_whole_pass(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The age check parses a stored timestamp, and a raise here would escape the
+    row loop and abandon the reconcile for every OTHER row in the pass."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_corrupt", status="submitted", broker_order_id="b-5")
+    _seed_stuck(db, execution_id="exec_healthy", status="submitted", broker_order_id="b-6")
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE order_executions SET created_at = 'not-a-date', "
+            "submitted_at = NULL WHERE id = 'exec_corrupt'"
+        )
+        conn.commit()
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+        async def aget_order(self, broker_order_id: str) -> Order:
+            if broker_order_id == "b-5":
+                raise AlpacaNotFoundError("404: order not found")
+            return Order(
+                id="b-6",
+                symbol="AAPL",
+                qty=10.0,
+                side="buy",
+                order_type="market",
+                status="filled",
+                filled_qty=10.0,
+                limit_price=None,
+            )
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    corrupt = order_executions_mod.get_execution("exec_corrupt", db_path=db)
+    healthy = order_executions_mod.get_execution("exec_healthy", db_path=db)
+    assert corrupt is not None and corrupt["status"] == "submitted"
+    assert healthy is not None and healthy["status"] == "filled"
+
+
+@pytest.mark.asyncio
+async def test_ending_a_row_keeps_its_risk_check_trail(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """risk_checks_json is the only record of which gates let a real-money order
+    through. The orphan reason is merged in, never written over it."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_trail", status="submitted", broker_order_id="b-t")
+    order_executions_mod.update_execution_status(
+        "exec_trail",
+        "submitted",
+        risk_checks_json={"sell_position": "pass: closing 50 of 50 long"},
+        db_path=db,
+    )
+
+    class StubAdapter:
+        async def aget_order(self, broker_order_id: str) -> Order:
+            raise AlpacaNotFoundError("404: order not found")
+
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return None
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_trail", db_path=db)
+    assert row is not None and row["status"] == "rejected"
+    assert row["risk_checks_json"]["sell_position"] == "pass: closing 50 of 50 long"
+    assert "orphan" in row["risk_checks_json"]["orphan_reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_row_gets_a_submitted_at(monkeypatch, tmp_path: Path) -> None:
+    """sum_inflight_sell_qty bounds an unplaced row by age and a placed one by
+    the snapshot timestamp — a row with a broker id but no submitted_at escapes
+    both, and reserves forever."""
+    db = tmp_path / "fill.db"
+    monkeypatch.setattr(order_executions_mod, "DEFAULT_DB_PATH", db)
+    _seed_stuck(db, execution_id="exec_recovered", status="submitted")
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE order_executions SET submitted_at = NULL WHERE id = 'exec_recovered'"
+        )
+        conn.commit()
+
+    class StubAdapter:
+        async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
+            return Order(
+                id="b-found",
+                symbol="AAPL",
+                qty=10.0,
+                side="buy",
+                order_type="market",
+                status="new",
+                filled_qty=0.0,
+                limit_price=None,
+            )
+
+    _install(monkeypatch, StubAdapter())
+    await reconcile_open_executions("alpaca", account_id="acct_a", db_path=db)
+
+    row = order_executions_mod.get_execution("exec_recovered", db_path=db)
+    assert row is not None
+    assert row["broker_order_id"] == "b-found"
+    assert row["submitted_at"]

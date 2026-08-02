@@ -286,6 +286,8 @@ async def _refresh_snapshot(
     account would gate every later order there against somebody else's portfolio.
     """
     try:
+        # Stamped BEFORE the fetch: see save_snapshot's captured_at note.
+        asked_at = datetime.now(UTC).isoformat()
         account, positions, orders = await adapter.afetch_snapshot()
     except Exception:
         logger.exception("stop release: snapshot refresh failed")
@@ -319,6 +321,7 @@ async def _refresh_snapshot(
             else intent.broker
         ),
         account_id=intent.account_id,
+        captured_at=asked_at,
         db_path=db_path,
     )
     return True
@@ -368,7 +371,21 @@ async def _exit_may_be_live(adapter: Any, exit_execution_id: str) -> bool:
     if lookup is None:
         return True
     try:
-        return await lookup(exit_execution_id) is not None
+        order = await lookup(exit_execution_id)
+        if order is None:
+            return False
+        # EXISTS is not LIVE. The lookup now resolves closed orders too (it asks
+        # the by-client-order-id route), so a place POST that timed out on the
+        # wire but was REJECTED at the broker comes back as a real order — and
+        # reading that as "the exit is resting" leaves the position bare. Only
+        # the states that definitively went nowhere release the stops back;
+        # anything unrecognised still counts as live (adversarial review B).
+        return str(getattr(order, "status", "") or "").strip().lower() not in {
+            "canceled",
+            "cancelled",
+            "expired",
+            "rejected",
+        }
     except Exception:
         logger.exception(
             "stop release: could not check whether exit %s reached the broker",
@@ -657,6 +674,7 @@ class ExecutionService:
             status="pending",
             broker=intent.broker,
             account_id=intent.account_id,
+            occ_symbol=intent.occ_symbol,
             risk_checks_json={},
             db_path=db_path,
         )
@@ -679,7 +697,9 @@ class ExecutionService:
             await lock.acquire()
             lock_held = True
             try:
-                risk = await RiskEngine.validate(intent, db_path=db_path)
+                risk = await RiskEngine.validate(
+                    intent, db_path=db_path, exclude_execution_id=execution_id
+                )
                 if not risk.passed and _release_is_warranted(intent, risk, mode):
                     # Blocked only by our own resting protective stops. Take them
                     # down inside the lock — no other submit may see the window
@@ -696,7 +716,11 @@ class ExecutionService:
                     if released and await _refresh_snapshot(
                         release_adapter, intent, db_path=db_path
                     ):
-                        risk = await RiskEngine.validate(intent, db_path=db_path)
+                        risk = await RiskEngine.validate(
+                            intent,
+                            db_path=db_path,
+                            exclude_execution_id=execution_id,
+                        )
                 if not risk.passed:
                     reason = risk.blocked_reason or "risk check failed"
                     update_execution_status(

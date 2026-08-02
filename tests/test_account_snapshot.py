@@ -220,7 +220,7 @@ async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
         patch.object(main, "get_broker_for_account", return_value=mock_broker),
         patch.object(main, "save_snapshot", side_effect=save_with_test_db),
         patch.object(main, "compute_and_save_snapshot_analytics"),
-        patch.object(main, "count_pending_paper_executions", return_value=0),
+        patch.object(main, "count_pending_executions", return_value=0),
         patch.object(main, "count_submitted_executions", return_value=0),
         patch.object(main, "get_latest_snapshot", return_value=None),
         patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),

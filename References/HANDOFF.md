@@ -15,6 +15,18 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ EDGAR nightly refresh — LIVE since 08-02; one tuning item open
+
+Deployed, seeded and cron-installed 08-02 (see the BUILD_LOG row + card
+`edgar-companyfacts-nightly-refresh`). Only this remains:
+
+- **⏳ After ~3 runs — retune the slot from data, not from my one sample.** 07:10 UTC was set off a
+  single `Last-Modified` reading (04:38:46 UTC on 08-02). Every run logs the snapshot's own
+  `Last-Modified`; if it consistently lands later than ~05:30 UTC, move the slot later. Being early
+  is self-healing (the diff finds nothing, the next run catches up), so this is tuning, not a bug.
+
+---
+
 ## ▶ 2026-08-06 Schwab re-auth — the verdict on the Akamai hardening
 
 Token is healthy (minted 08-01 13:28Z, cliff **2026-08-08**). serv's IP is still edge-blocked from
@@ -45,11 +57,32 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
   stop at the same trigger or an inbox note saying nothing was left to stop. Any CRITICAL
   "UNPROTECTED position" push means a failure path fired — read it, it names which.
-- **⏳ `sell-reservation-snapshot-window`** (card, `next`, high) — pre-existing, reproduced twice this
-  round: for a sell-to-close every exposure gate is skipped, so the snapshot's `open_orders` is the
-  ONLY quantity gate, and two sells inside one 20s poll window can oversell. The release path holds
-  the submit lock to a placed exit and re-polls after, so it is the one sell route that closes its
-  own window; every other one is open.
+- **⏳ The non-atomic snapshot needs BOTH halves moved together — a naive reorder is worse.** Attempted
+  and REVERTED 08-02 (see the log row); read the reasons before re-attempting. Reading positions after
+  the orders read does **not** buy an ordering invariant: measured, it shifts a **~21 ms** probability
+  window, and Alpaca's own fill→position lag is unmeasured and may exceed it. Worse,
+  `_uncommitted_shares` carries a compensation (`held -= exit_qty` when the exit is absent from
+  open_orders) that assumes positions may be the **older** read — make positions the fresher one and
+  it double-counts, zeroing the re-stop budget, and `_restop_residual` skips on `allot <= 0` with **no
+  page**: a bare position plus an inbox note saying nothing was left uncommitted. A real fix changes
+  the read ordering **and** that compensation in one reviewed change, and needs Alpaca's actual
+  propagation lag measured first. A test now pins the concurrent read so the halves cannot drift apart.
+- **⏳ `'rejected'` is the wrong terminal for an orphan, and it is what the reconciler writes.** The
+  terminaliser shipped 08-02 with corroborated absence (two independent routes must agree), so a wrong
+  terminalisation is now unlikely — but the *consequence* is still sharp, because `'rejected'` means
+  "never reached the broker" to four subsystems at once: `list_open_protective_stops` drops the row (a
+  live stop can no longer be RELEASED → position un-exitable while the stop guard pages it bare),
+  `count_executions_today` / `sum_today_notional` / `sum_inflight_notional` all drop it (freeing risk
+  budget a live order still uses), the auto-entry dedup re-opens on a symbol that already has a live
+  order, and `trading/proposals` marks the proposal failed. A distinct `orphaned` terminal that still
+  counts toward the caps would be the honest fix; it touches every status consumer, so it is its own
+  round.
+- **⏳ `get_broker_for_account` silently falls back to DEFAULT credentials** when an account has no
+  connection row, so `_end_orphan_row`'s account-scope guard proves the *call* was scoped, not that the
+  adapter is that account's. Latent today (all 10 `trade_accounts` rows carry `connection_id` and
+  `broker_external_id`, and `_poll_account` returns early on an external-id mismatch); reachable via a
+  newly-added account with a NULL `broker_external_id`. Assert adapter identity rather than trusting
+  the caller three frames up.
 - **⏳ `unprotected-position-monitor`** (card, `next`, high) — now also owns the specific hole that a
   dead stop row removes an entry from the guard's work list for good. ⚠️ The obvious fix was built,
   reviewed and REVERTED 08-01 for three measured reasons (dry_run re-submits forever; a hand cancel
@@ -67,13 +100,6 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
 ---
 
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
-
-- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` is FLAKY, not broken** —
-  it failed (grades `lost=0`) during the data-wiring round and passes now both in isolation and in a
-  full 3,036-test run. Intermittent means shared state leaks between tests, which is *worse* than a
-  hard failure: the GRADING_TIEBREAK law (a bar touching stop AND target grades LOST) is only
-  sometimes guarded, and a green suite is no longer proof. ⏳ Find the leak (suspect a shared DB path
-  or module-level cache, cf. the two known CI shared-DB flakes) — do not close on a passing run.
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.
@@ -223,24 +249,29 @@ flip is founder-gated on the z-vs-outcome audit (~08-05, see fusion section).
 
 ## ▶ Fusion — Horizon Redesign Round 5 + measurement follow-ups
 
-**⚠️ TWO DEPLOYS OWED, and they must land on SEPARATE cohort dates** (news moves catalyst reach UP, the
-attention frozen-peak fix moves legacy scores DOWN up to −3.5 — together the score step is
-uninterpretable; rationale in the two 07-28 BUILD_LOG rows). 07-29 pre-open was missed:
-- ⚠️⚠️ **THE RAM-UPGRADE REBOOT (server down 07-29 evening) DEPLOYS NEWS BY ITSELF — no deploy step is
-  owed.** All four `hmt-*` units are `enabled` at boot and the dev tree already contains `8cf8008`
-  (PR #134), so the first post-upgrade backend start runs the news lane. **FIRST JOB ON THE WAY BACK:
-  record that start time (`systemctl show hmt-backend -p ActiveEnterTimestamp`) — that timestamp, not
-  07-30, IS the news cohort boundary.** If the box returns mid-session, that day is a PARTIAL cohort:
-  label it and never use it as a baseline. (Pre-upgrade the backend had not restarted since 07-28
-  12:33 UTC, so everything before the reboot is clean measurement-round data.)
-- ▶ **PR #135** (rvol_ex_prints + attention fix) is `CONFLICTING` — merge main in, re-verify (full suite
-  + ruff), merge, then deploy on the session AFTER news has had one full clean day. Never the same
-  cohort date as news.
-- ⏳ after the news deploy (RTH): counters `news_dot_minted` / `news_backfill_minted` /
-  `news_roundup_zeroed` / `news_no_open_episode`, and catalyst-group share should rise materially.
-- ⏳ day-2 after the rvol deploy: `rvol_dots` counter; the per-pass write-cost benchmark the review asked
-  for (never done); attention scores stepping DOWN = **the correction, not signal**. Watch the one-time
-  attention migration — it full-scans ~591k `evidence_dots`, so keep it off the lock-starve path.
+**Cohort boundaries — both deploys are now placed, on separate dates** (news moves catalyst reach UP,
+the attention frozen-peak fix moves legacy scores DOWN — together the score step is uninterpretable;
+rationale in the two 07-28 BUILD_LOG rows):
+- ✅ **NEWS COHORT BOUNDARY = 2026-07-30, and it is a CLEAN full session, not a partial one.** Settled
+  by measurement 08-01, not by the restart timestamp: the post-reboot backend start was 07-30
+  03:40:47 UTC, and the first news dot was written 07-30 13:32:09 UTC — 09:32 ET, two minutes after
+  the bell. The 8,550-dot burst in that hour is the backfill (dot `ts` reaches back to 07-22); live
+  minting ran 07-30 and 07-31 (10,958 dots total). Nothing landed mid-session, so no day needs a
+  PARTIAL label.
+- ▶ **RVOL COHORT BOUNDARY = the first session after the #135 deploy (08-03 open).** Deployed
+  08-01 with the market closed, which is a pre-open deploy with no session in between — never
+  mid-session, and a different cohort date from news.
+- ⏳ 08-03+: `rvol_dots` / `rvol_skipped_*` counters, and the per-pass write-cost benchmark the review
+  asked for (still never done). Attention scores stepping DOWN = **the correction, not signal**.
+  ⚠️ **The old "the migration full-scans ~591k `evidence_dots`, keep it off the lock-starve path"
+  warning was wrong and is retired** — measured 08-01 on a copy of the live DB: the table is 158,506
+  rows, the migration UPDATEs **262** of them across 75 episodes (39 still open), deletes nothing,
+  touches no other component, and runs in **37 ms**, idempotent. It is not a lock hazard.
+- ⏳ 08-03+: watch `volume_profile_refresh`. `profile_universe()` now unions open-episode symbols, which
+  took it 1,008 → 1,876 (+868 measured 08-01), so the nightly build is roughly twice as long at its
+  existing 0.6 s spacing. Equities route to **Alpaca** under hybrid (`_child_for` sends only futures to
+  Schwab), so there is no WAF exposure — but that job's `# safely under Schwab's ~120/min` comment is
+  now a stale relic and the pacing is untuned for the provider it actually hits.
 - ⏳ next in this lane: filings → fusion dots — needs `ingest_seq` on `filings_events` plus a founder call
   on insider-buy direction (`none` like news, or a deliberate exception). Congress rows stale since 07-02.
 
@@ -250,6 +281,22 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — changes land as
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
+- ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02;
+  D1–D5 shipped — see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
+  components (one per round: oi_walls, options_chain/IV, DERA segments, filings_events) + the
+  contested-wall gate. Briefs live in the worktree (`BRIEF_D5_fundamentals_angle.md` is the latest).
+  ✅ **D5's watermark dependency is CLOSED** — `research.edgar_bulk.edgar_ingest_watermark` shipped
+  the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
+  round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;
+  unseen → `None`).
+  ✅ **The nightly job is ACTIVE** (deployed + seeded + cron installed 08-02), so `fundamentals`
+  claims now render `[SEC checked <day>]` against a same-day corpus instead of
+  `[SEC recency unknown — corpus never checked]`.
+  Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
+  dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
+  BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22
+  (the episode model D1 conformed to). D1 restored conformance — Round 3 already stamped
+  `market_day … now = OPENING session only, not a key`.
 - ⚠ full pytest suite live-fires outbound HTTPS (suite-hang + WAF risk) — needs a network-marking
   round.
 - wider-stop sibling lane + index-underlying spot (SPX/NDX/RUT/VIX unstampable) deferred on the

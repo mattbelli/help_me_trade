@@ -1,4 +1,4 @@
-"""The five nightly research jobs + their registration — one source of gating truth.
+"""The research jobs + their registration — one source of gating truth.
 
 Extracted from ``api/main.py`` (R1a, References/RESEARCH_WORKER_DESIGN_2026-07-18.md)
 so the same job bodies can be registered by whichever process owns the night
@@ -13,12 +13,17 @@ import asyncio
 import logging
 import os
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from typing import Any
 
 from ai.reflection.scheduler import REFLECTION_INTERVAL_SECONDS, reflection_once
 from api.jobs import Job, register_job
 from brokers.errors import BrokerError
 from brokers.factory import get_broker, get_market_data_provider
+from config.idea_engine import (
+    FUSION_DAY_VOLUME_LATCH_MAX_MIN,
+    FUSION_DAY_VOLUME_REFRESH_S,
+)
 from db.lane_stats import bump, day
 from db.momentum_bars import latest_universe_bar_date
 from db.strategies import list_strategies
@@ -26,7 +31,7 @@ from signals.momentum import refresh_universe_bars
 from signals.universe import all_watchlist_symbols, profile_universe
 from signals.volume_profile import build_profile, profile_dir
 from trading.market_calendar import is_trading_day
-from trading.market_hours import _ET, is_after_close
+from trading.market_hours import _ET, _SESSION_OPEN, is_after_close
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +426,129 @@ async def _volume_profile_refresh_once() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Today's cumulative volume producer (fusion_day_volume read-cache) — the
+# numerator behind the rvol_ex_prints dot. Market-hours only; the intake never
+# fetches, it only reads the cache (the fusion_atr_cache/fusion_spot_cache
+# doctrine).
+# ---------------------------------------------------------------------------
+def _latched_offset(
+    prior: tuple[str, Any, Any] | None, today: str
+) -> tuple[int | None, str | None]:
+    """This symbol's already-latched ``(offset, offset_ts)`` for *today*.
+
+    ``(None, None)`` when there is no row, the row is yesterday's, the offset
+    was never latched, or either field is unusable — every one of those means
+    "no trustworthy offset", never "an offset of zero"."""
+    if prior is None or prior[0] != today:
+        return None, None
+    offset, offset_ts = prior[1], prior[2]
+    if offset is None or not offset_ts:
+        return None, None
+    try:
+        return int(offset), str(offset_ts)
+    except (TypeError, ValueError):
+        return None, None
+
+
+async def _fusion_day_volume_refresh_once(*, now: datetime | None = None) -> int:
+    """``now`` is the clock seam — the latch window is a wall-clock decision,
+    so tests have to be able to stand at 09:31 and at 11:00."""
+    from db.base import DEFAULT_DB_PATH
+    from db.base import connect as _db_connect
+    from db.fusion import init_fusion_tables, put_day_volumes
+    from signals.universe import open_episode_symbols
+
+    symbols = sorted(set(profile_universe()) | set(open_episode_symbols()))
+    if not symbols:
+        return 0
+    # PINNED to alpaca: serv runs MARKET_DATA_PROVIDER=hybrid, which can route
+    # to Schwab — a 200-symbol snapshot burst there trips the Akamai WAF, and
+    # Schwab must never become a hard dependency of a fusion lane.
+    try:
+        provider = get_market_data_provider("alpaca")
+    except BrokerError as exc:
+        logger.warning("Day-volume refresh: alpaca provider unavailable: %s", exc)
+        return 0
+    fetcher = getattr(provider, "aget_day_volumes", None)
+    if fetcher is None:
+        logger.warning("Day-volume refresh: provider has no aget_day_volumes")
+        return 0
+
+    volumes = await fetcher(symbols)
+    if not volumes:
+        return 0
+
+    now = now or datetime.now(timezone.utc)
+    now_et = now.astimezone(_ET)
+    today = now_et.date().isoformat()
+    minutes_since_open = (now_et.hour * 60 + now_et.minute) - (
+        _SESSION_OPEN[0] * 60 + _SESSION_OPEN[1]
+    )
+    # Only the first minutes of the session may latch an offset. Later than
+    # that, a symbol arriving with no row for today (a mid-session episode on a
+    # name outside profile_universe) would latch its ENTIRE day so far as
+    # "premarket" and publish ~0.0x RVOL for the rest of the day — a fabricated
+    # low on exactly the fresh-burst population this lane exists to describe.
+    can_latch = 0 <= minutes_since_open <= FUSION_DAY_VOLUME_LATCH_MAX_MIN
+    # as_of_ts is the FETCH instant, not the daily bar's ``t``: a daily bar is
+    # stamped at the session's START, so fencing freshness on it would make
+    # every row read as hours-stale and the reading would never publish. The
+    # bar stamp stays available on the provider call for callers who want bar
+    # provenance; this cache wants "when was this counter read".
+    fetched_at = now.isoformat()
+    init_fusion_tables(DEFAULT_DB_PATH)
+    with _db_connect(DEFAULT_DB_PATH) as conn:
+        stored = {
+            str(row["symbol"]): (
+                str(row["market_day"] or ""),
+                row["premarket_offset"],
+                row["offset_ts"],
+            )
+            for row in conn.execute(
+                "SELECT symbol, market_day, premarket_offset, offset_ts "
+                "FROM fusion_day_volume"
+            ).fetchall()
+        }
+
+    rows: list[tuple[str, str, str | None, str | None, str, str]] = []
+    unlatched = 0
+    for symbol, (volume, _bar_ts) in volumes.items():
+        prior = stored.get(symbol)
+        prior_offset, prior_offset_ts = _latched_offset(prior, today)
+        # Alpaca's snapshot serves the PREVIOUS session's dailyBar until a
+        # symbol's first trade of the day, so a thin name can latch yesterday's
+        # full-day total and then "shrink" when today's bar starts. A volume
+        # below the latched offset is that, and the offset is not salvageable.
+        regressed = prior_offset is not None and prior_offset > volume
+        if prior is not None and prior[0] == today and not regressed:
+            offset, offset_ts = (
+                (str(prior_offset), prior_offset_ts)
+                if prior_offset is not None
+                else (None, None)
+            )
+        else:
+            # The day's first in-window sample is this symbol's premarket
+            # offset. It necessarily absorbs the first minutes of RTH volume
+            # too (the job wakes on its own cadence, not on the bell) — bounded
+            # by the latch window and deliberately on the conservative side: an
+            # offset that is too HIGH makes the published RVOL too LOW.
+            offset = str(volume) if can_latch else None
+            offset_ts = fetched_at if can_latch else None
+        if offset is None:
+            unlatched += 1
+        rows.append((symbol, str(volume), offset, offset_ts, today, fetched_at))
+    if unlatched:
+        logger.info(
+            "Day-volume refresh: %d/%d symbols have no latched offset today "
+            "(now %d min after the open) — their RVOL reads unavailable",
+            unlatched,
+            len(rows),
+            minutes_since_open,
+        )
+    return put_day_volumes(rows, db_path=DEFAULT_DB_PATH)
+
+
+# ---------------------------------------------------------------------------
 # Daily reflection — at most once per ET day (an LLM run costs real money),
 # restart-safe via the lane_stats day counter: any ownership overlap or
 # same-day restart would otherwise double-charge.
@@ -437,7 +565,7 @@ async def _reflection_once_daily() -> None:
 
 
 def register_research_jobs() -> None:
-    """Register the five nightly research jobs into THIS process's registry.
+    """Register the research jobs into THIS process's registry.
 
     Called by the backend when RESEARCH_WORKER_EXTERNAL is unset, by the
     standalone worker when it is set — the job definitions (gates, intervals,
@@ -476,6 +604,14 @@ def register_research_jobs() -> None:
             fn=_volume_profile_refresh_once,
             interval_s=float(VOLUME_PROFILE_REFRESH_INTERVAL_SECONDS),
             run_on_start=True,
+        )
+    )
+    register_job(
+        Job(
+            name="fusion_day_volume_refresh",
+            fn=_fusion_day_volume_refresh_once,
+            interval_s=float(FUSION_DAY_VOLUME_REFRESH_S),
+            market_hours_only=True,
         )
     )
     register_job(

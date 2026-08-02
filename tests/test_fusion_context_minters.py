@@ -175,10 +175,16 @@ def test_earnings_dot_zeroes_when_window_passes(fusion_db: Path) -> None:
     assert float(dot["points"]) == 1.0
 
     # Same open episode, 4 weekdays after the print — out of the drift window.
-    insert_flow(_flow("flow-later", ts="2026-07-24T14:30:00+00:00"), fusion_db)
+    later = "2026-07-24T14:30:00+00:00"
+    insert_flow(_flow("flow-later", ts=later), fusion_db)
     _run_intake(fusion_db)
     (dot,) = _dots(fusion_db, ep, "earnings_proximity")
     assert float(dot["points"]) == 0.0
+    # The zeroing branch is a raw UPDATE, outside the refresh_state upsert: it
+    # has to clear the READING and advance the stamp too, or the dossier still
+    # reads "0 weekdays out, as of the print" long after the window closed.
+    assert dot["raw_value"] is None
+    assert dot["ts"] == later
     detail = json.loads(dot["detail_json"])
     assert detail["side"] == "none"
     assert detail["as_of"] == "2026-07-24"

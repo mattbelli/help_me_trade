@@ -88,7 +88,13 @@ def _earnings_rationale(ctx: EntryContext, strategy_name: str) -> str:
 
 
 def _vix_spike_check(ctx: EntryContext) -> bool:
-    # SPY-only, regime-driven. FAIL-CLOSED: no fresh regime / not enough VIX history ⇒ don't fire.
+    # Regime-driven: the VIX read says nothing about which symbol to buy, so the target
+    # comes from params["symbol"]. FAIL-CLOSED on: wrong/unset symbol, no fresh regime,
+    # not enough VIX history. Without the symbol gate every name in the universe would
+    # pass on a spike and the scan would auto-buy whichever sorts first.
+    target = str(ctx.params.get("symbol") or "").strip().upper()
+    if not target or ctx.sym.strip().upper() != target:
+        return False
     if not regime_is_fresh(db_path=ctx.db_path):
         return False
     lookback = int(ctx.params.get("vix_calm_lookback", 12))
@@ -127,6 +133,7 @@ EARNINGS_ENTRY_PARAM_KEYS = (
     "max_gap_td",
 )
 VIX_SPIKE_ENTRY_PARAM_KEYS = (
+    "symbol",
     "vix_spike_min",
     "vix_calm_max",
     "vix_calm_lookback",

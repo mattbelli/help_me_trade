@@ -186,3 +186,27 @@ async def test_daily_bars_skip_boats_leg_even_with_extended_hours() -> None:
     )
 
     assert calls == ["sip"]
+
+
+@pytest.mark.asyncio
+async def test_aget_day_volumes_is_partial_and_fail_soft() -> None:
+    """The day-volume producer's only network call. A chunk that raises, a
+    symbol with no dailyBar, a garbage volume and a zero volume must each drop
+    out of the result — never raise, never fabricate a count. A missing symbol
+    leaves its cache row untouched, which the freshness fence then reads as
+    unavailable."""
+    adapter = _adapter(data_feed="sip")
+    adapter._aget_data = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "AAPL": {"dailyBar": {"v": 51_000_000, "t": "2026-07-28T04:00:00Z"}},
+            "MSFT": {"dailyBar": {"v": None}},
+            "TSLA": {"latestTrade": {"p": 320.0}},  # no dailyBar at all
+            "F": {"dailyBar": {"v": 0}},
+        }
+    )
+
+    out = await adapter.aget_day_volumes([" aapl ", "AAPL", "MSFT", "TSLA", "F", "NVDA"])
+    assert out == {"AAPL": (51_000_000, "2026-07-28T04:00:00Z")}
+
+    adapter._aget_data = AsyncMock(side_effect=RuntimeError("502"))  # type: ignore[method-assign]
+    assert await adapter.aget_day_volumes(["AAPL"]) == {}

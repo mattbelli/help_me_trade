@@ -108,6 +108,19 @@ FUSION_EARNINGS_BEHIND_TD = 2  # FOUNDER DIAL — reported earnings within N wee
 FUSION_REGIME_STALE_DAYS = 5  # FOUNDER DIAL — macro series older than this mint nothing (stale context is worse than none)
 FUSION_CONTEXT_REFRESH_S = 60.0  # FOUNDER DIAL — memo TTL for the market-wide context reads
 
+# rvol_ex_prints → background_crowd STATE dots (board fusion-unminted-dots,
+# 2026-07-28) — the last unminted scorer component. ANNOTATE-ONLY by spec §2.2:
+# background_crowd sits in scorer.ANNOTATE_ONLY_GROUPS, so these dots never
+# reach group_scores/breadth/direction. There is deliberately NO points dial —
+# the dot always mints at 0.0 points; its payload is raw_value (the multiple)
+# for lifecycle's rvol_confirm trigger and the dossier. Every value is a
+# FOUNDER DIAL.
+FUSION_RVOL_REFRESH_BUCKET_MIN = 5  # FOUNDER DIAL — write throttle in minutes-since-open buckets; the volume-profile baseline's own resolution is 5 min, so refreshing more often adds no information
+FUSION_RVOL_DAY_VOLUME_MAX_AGE_S = 600.0  # FOUNDER DIAL — a fusion_day_volume row further than this from the event reads as MISSING (state 'stale_volume'), never as a reading
+FUSION_RVOL_WARMUP_MIN = 15  # FOUNDER DIAL — minutes after the open before a reading is published (mirrors volume_profile.WARMUP_MIN: the first buckets are too noisy to divide by)
+FUSION_DAY_VOLUME_REFRESH_S = 300.0  # FOUNDER DIAL — producer cadence for the fusion_day_volume read-cache (market-hours only)
+FUSION_DAY_VOLUME_LATCH_MAX_MIN = 12  # FOUNDER DIAL — the premarket offset may only be latched within N minutes of the open (>= 2 refresh intervals + slack). A symbol first sampled LATER (a mid-session episode on an off-universe name) has no trustworthy offset today: its offset is stored NULL and the reading reads UNAVAILABLE until tomorrow's open latches a real one — latching mid-session would swallow the whole day's volume and publish a fabricated ~0.0 RVOL on exactly the fresh-burst names the lane exists for
+
 # News → catalyst EVENT dots (board news-catalyst-dots, 2026-07-28). Headlines are
 # FACTS, never sentiment: direction is always 'none', so news adds catalyst-group
 # points (and breadth) without ever entering a directional mass. Every value is a
@@ -239,6 +252,14 @@ def validate_config() -> None:
     assert FUSION_EARNINGS_BEHIND_TD >= 0
     assert FUSION_REGIME_STALE_DAYS >= 1
     assert FUSION_CONTEXT_REFRESH_S >= 0
+    # rvol_ex_prints dials.
+    assert FUSION_RVOL_REFRESH_BUCKET_MIN >= 1
+    assert FUSION_RVOL_DAY_VOLUME_MAX_AGE_S > 0
+    assert FUSION_RVOL_WARMUP_MIN >= 0
+    assert FUSION_DAY_VOLUME_REFRESH_S > 0
+    # The latch window must span at least two producer passes, or a restart
+    # inside the window strands every symbol on a NULL offset for the day.
+    assert FUSION_DAY_VOLUME_LATCH_MAX_MIN * 60 >= 2 * FUSION_DAY_VOLUME_REFRESH_S
     # News catalyst dials.
     assert FUSION_NEWS_WINDOW_MIN > 0
     assert FUSION_NEWS_MAX_SYMBOLS >= 1

@@ -88,5 +88,35 @@ def liquid_core_symbols() -> list[str]:
     return sorted(syms)
 
 
+def open_episode_symbols() -> list[str]:
+    """Symbols carrying an OPEN fusion episode — one cheap indexed read.
+
+    Import-guarded and fail-soft: the universe must never hard-depend on the
+    fusion tables existing (out-of-process callers, fresh installs, a worker
+    pointed at a db the fusion schema has not been initialized on)."""
+    try:
+        from db.base import DEFAULT_DB_PATH
+        from db.base import connect as _connect
+
+        with _connect(DEFAULT_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT symbol FROM fusion_episodes WHERE state = 'open'"
+            ).fetchall()
+    except Exception:
+        logger.debug("Open-episode symbols unavailable", exc_info=True)
+        return []
+    return sorted({str(r["symbol"]).strip().upper() for r in rows if r["symbol"]})
+
+
 def profile_universe() -> list[str]:
-    return sorted(set(liquid_core_symbols()) | set(all_watchlist_symbols()))
+    """Symbols worth a precomputed volume profile.
+
+    Open fusion episodes are included (2026-07-28): the rvol_ex_prints dot
+    divides today's volume by that symbol's baseline, so a name the flow lane
+    surfaced from OUTSIDE the watchlist/liquid core has no baseline and no
+    reading at all until its profile is built."""
+    return sorted(
+        set(liquid_core_symbols())
+        | set(all_watchlist_symbols())
+        | set(open_episode_symbols())
+    )

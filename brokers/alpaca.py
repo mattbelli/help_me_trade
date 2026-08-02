@@ -44,7 +44,7 @@ _OVERNIGHT_BARS_FEED = "boats"
 
 
 from brokers.alpaca_tier import data_tier, effective_alpaca_feed
-from brokers.errors import BrokerError
+from brokers.errors import BrokerError, NotFoundError
 from config.settings import alpaca_config, normalize_alpaca_data_feed
 
 
@@ -72,6 +72,21 @@ class AlpacaError(BrokerError):
 
 class AlpacaConflictError(AlpacaError):
     """Alpaca rejected the request due to a conflict (e.g. duplicate client_order_id)."""
+
+
+# Alpaca's order list defaults to 50 rows and silently truncates (measured
+# 2026-08-02: `limit` is honoured, so the default is real). 500 is its maximum.
+_OPEN_ORDERS_LIMIT = 500
+_OPEN_ORDERS_PATH = f"/v2/orders?status=open&limit={_OPEN_ORDERS_LIMIT}"
+
+
+class AlpacaNotFoundError(AlpacaError, NotFoundError):
+    """Alpaca answered 404 — the resource does not exist for this account.
+
+    Separated from the generic error because absence is EVIDENCE and a timeout is
+    not: only a 404 lets a caller conclude an order never reached the broker (or
+    was polled against the wrong account). Everything else has to be retried.
+    """
 
 
 _RANGE_TO_ALPACA: dict[str, tuple[str, str]] = {
@@ -179,6 +194,10 @@ class AlpacaAdapter:
     def _parse_http_response(self, response: httpx.Response, path: str) -> dict | list:
         if response.status_code == 401:
             raise AlpacaError("Authentication failed (401). Check .env keys.")
+        if response.status_code == 404:
+            raise AlpacaNotFoundError(
+                f"GET {path} failed (404): {response.text}"
+            )
         if response.status_code != 200:
             raise AlpacaError(
                 f"GET {path} failed ({response.status_code}): {response.text}"
@@ -360,15 +379,36 @@ class AlpacaAdapter:
         return self._parse_positions(raw if isinstance(raw, list) else [])
 
     def get_open_orders(self) -> list[Order]:
-        return self._parse_orders(self._get("/v2/orders?status=open"))
+        return self._parse_orders(self._get(_OPEN_ORDERS_PATH))
 
     async def aget_open_orders(self) -> list[Order]:
-        raw = await self._aget("/v2/orders?status=open")
-        return self._parse_orders(raw if isinstance(raw, list) else [])
+        raw = await self._aget(_OPEN_ORDERS_PATH)
+        orders = self._parse_orders(raw if isinstance(raw, list) else [])
+        if len(orders) >= _OPEN_ORDERS_LIMIT:
+            # Truncated. This list is what RiskEngine derives pending_sell from,
+            # so a dropped resting sell reads as shares that are free to sell
+            # again. Never let that pass silently (measured: `limit` IS honoured
+            # and defaults to 50 — the path used to send none at all).
+            logger.error(
+                "Open-order read hit the %d cap — pending sells may be missing",
+                _OPEN_ORDERS_LIMIT,
+            )
+        return orders
 
     async def afetch_snapshot(
         self,
     ) -> tuple[Account, list[Position], list[Order]]:
+        """Account, positions and open orders as three CONCURRENT reads.
+
+        Deliberately still concurrent. Reading positions last was tried and
+        reverted 2026-08-02: it does not buy an ordering invariant (measured, it
+        shifts a ~21 ms probability window — Alpaca's fill-to-position lag is
+        unmeasured and may exceed it), and `_uncommitted_shares` carries a
+        compensation that assumes positions may be the OLDER read. Making
+        positions the fresher one turns that compensation into a double-count,
+        which zeroes the re-stop budget and leaves a position unprotected with
+        no page (adversarial review B HIGH-1). Both halves have to move together.
+        """
         account, positions, orders = await asyncio.gather(
             self.aget_account(),
             self.aget_positions(),
@@ -422,11 +462,36 @@ class AlpacaAdapter:
         return self._parse_place_order_response(raw)
 
     async def aget_order_by_client_id(self, client_order_id: str) -> Order | None:
-        raw = await self._aget(
-            "/v2/orders", params={"client_order_ids": client_order_id}
-        )
-        orders = self._parse_orders(raw if isinstance(raw, list) else [])
-        return orders[0] if orders else None
+        """The order we placed under this client id, or None if the broker has none.
+
+        Must be the singular route. `GET /v2/orders` **ignores** a
+        `client_order_ids` param — measured against the live paper API on
+        2026-08-02, a garbage value returned the same four open orders as no
+        filter — so filtering there returns an arbitrary open order for an id the
+        broker never saw, and misses any order that is already closed. Callers
+        treat this answer as evidence about a specific order (bind the row to its
+        broker id, decide an exit is resting, recover a 409), so a wrong order or
+        a false absence is worse than an exception.
+        """
+        try:
+            raw = await self._aget(
+                "/v2/orders:by_client_order_id",
+                params={"client_order_id": client_order_id},
+            )
+        except AlpacaNotFoundError as exc:
+            # Absence only when the broker names the id we asked about. Alpaca
+            # answers a missing ROUTE with the same 404 and the same numeric
+            # code ("endpoint not found") — measured — and reading that as "the
+            # broker has never seen this order" would restore a protective stop
+            # on top of a live sell. Anything else propagates.
+            if client_order_id not in str(exc):
+                raise
+            return None
+        if not isinstance(raw, dict):
+            raise AlpacaError(
+                f"Unexpected order response for client_order_id {client_order_id!r}"
+            )
+        return self._parse_order_item(raw)
 
     async def aget_order(self, broker_order_id: str) -> Order:
         raw = await self._aget(f"/v2/orders/{broker_order_id}")
@@ -1053,6 +1118,58 @@ class AlpacaAdapter:
                 )
                 if parsed is not None:
                     out[sym] = parsed
+        return out
+
+    async def aget_day_volumes(self, symbols: list[str]) -> dict[str, tuple[int, str]]:
+        """Batch today's cumulative share volume: ``{SYMBOL: (volume, ts)}``.
+
+        ``dailyBar.v`` from ``GET /v2/stocks/snapshots``, reusing the same
+        200-symbol chunking as :meth:`aget_ext_quotes`. The volume INCLUDES
+        extended hours (measured 07-28) — callers wanting an RTH-only total
+        subtract their own premarket baseline. ``ts`` is the daily bar's stamp
+        when present, else the snapshot's own. Fail-soft: partial/empty on
+        error, never raises.
+        """
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+        if not cleaned:
+            return {}
+
+        out: dict[str, tuple[int, str]] = {}
+        for start in range(0, len(cleaned), self._EXT_QUOTES_CHUNK):
+            chunk = cleaned[start : start + self._EXT_QUOTES_CHUNK]
+            try:
+                data = await self._aget_data(
+                    "/v2/stocks/snapshots",
+                    params={"symbols": ",".join(chunk), "feed": self._data_feed},
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca day-volume snapshot failed for %d symbols",
+                    len(chunk),
+                    exc_info=True,
+                )
+                continue
+            for sym in chunk:
+                snap = data.get(sym) if isinstance(data, dict) else None
+                if not isinstance(snap, dict):
+                    continue
+                daily_bar = snap.get("dailyBar")
+                if not isinstance(daily_bar, dict):
+                    continue
+                try:
+                    volume = int(float(daily_bar.get("v")))
+                except (TypeError, ValueError):
+                    continue
+                if volume <= 0:
+                    continue
+                ts = str(daily_bar.get("t") or snap.get("t") or "")
+                out[sym] = (volume, ts)
         return out
 
     def get_stock_snapshot_fields(self, symbol: str) -> dict[str, float] | None:

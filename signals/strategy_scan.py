@@ -399,8 +399,18 @@ async def _run_strategy(
     _pct = strategy.get("notional_pct")
     allow_fractional = _pct is not None and float(_pct or 0) > 0
 
+    # A strategy may target ONE explicit symbol (params["symbol"]) instead of a universe —
+    # for regime-driven sleeves whose predicate picks no symbol of its own. Explicit
+    # targeting wins over `universe`. Only honoured for kinds that REGISTER "symbol":
+    # otherwise a stray param would silently narrow a universe-scanning strategy to one
+    # name while its predicate never even sees the key.
+    target_symbol = None
+    if "symbol" in spec.entry_param_keys:
+        target_symbol = (
+            str((strategy.get("params") or {}).get("symbol") or "").strip().upper() or None
+        )
     # The strategy's OWN universe (decoupled from the cockpit's active watchlist).
-    symbols = resolve_universe_spec(strategy.get("universe"))
+    symbols = [target_symbol] if target_symbol else resolve_universe_spec(strategy.get("universe"))
     fetch_symbols = sorted(set(symbols) | {SPY_SYMBOL})
     if not symbols:
         logger.debug(
@@ -483,7 +493,9 @@ async def _run_strategy(
     passed = 0
 
     for sym in symbols:
-        if sym == SPY_SYMBOL:
+        # SPY is fetched as the market benchmark for every strategy, so skip it unless
+        # this strategy explicitly targets it — otherwise it'd be traded just for being fetched.
+        if sym == SPY_SYMBOL and sym != target_symbol:
             continue
         if sym in held:
             logger.debug(

@@ -51,6 +51,9 @@ _STEEPYC_DIP_DEFAULT_PARAMS: dict[str, Any] = {
 
 _VIX_SPIKE_DEFAULT_PARAMS: dict[str, Any] = {
     "side": "long",
+    # The VIX read picks no symbol of its own — without this the sleeve is inert (and
+    # before the symbol gate existed, it passed for EVERY name in the universe).
+    "symbol": "SPY",
     "vix_spike_min": 28.0,
     "vix_calm_max": 22.0,
     "vix_calm_lookback": 12,

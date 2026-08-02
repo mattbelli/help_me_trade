@@ -184,7 +184,7 @@ future enhancement only if wanted. Still open: **M-2 migration-stamp hardening**
 ## Phase A sub-steps (build order; each = tests + adversarial review before commit)
 1. **Schema + migration** (additive, behavior-preserving): `broker_connections` table, extend `trade_accounts`,
    add `account_id` columns + indexes, backfill migration. No flow changes yet — default account == today's
-   primary. ← **first Composer brief.**
+   primary. ← **first coder brief.**
 2. **Account registry + factory** : Account/Connection accessors; `get_broker_for_account`; factory cache by
    connection. Still single default account in use.
 3. **Thread `account_id` through proposal → intent → execution** (no risk-semantics change yet): persist +

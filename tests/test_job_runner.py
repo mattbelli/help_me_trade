@@ -31,6 +31,7 @@ AUDIT_LOOP_NAMES = [
     "regime_refresh",
     "momentum_bars_refresh",
     "volume_profile_refresh",
+    "fusion_day_volume_refresh",
     "rvol_alert",
     "options_flow",
     "options_flow_intraday",
@@ -409,6 +410,7 @@ RESEARCH_JOB_NAMES = {
     "options_flow",
     "momentum_bars_refresh",
     "volume_profile_refresh",
+    "fusion_day_volume_refresh",
     "reflection",
 }
 

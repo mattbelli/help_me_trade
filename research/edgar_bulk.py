@@ -21,6 +21,7 @@ import time
 import zipfile
 from pathlib import Path
 
+from db.base import connect, now_iso
 from research.bars import RESEARCH_DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,139 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
+# When we last CHECKED a filer at SEC, which is NOT when it last filed. From
+# inside the corpus those two are the same silence: a reader that takes the
+# newest row and calls it current cannot tell "nothing newer exists" from "we
+# never looked". This table is the only thing that separates them.
+#
+# `entry_crc`/`entry_size` are that filer's entry in `companyfacts.zip`. They
+# live here rather than in a table of their own because they answer the same
+# question from the other side — "is what SEC holds still what we ingested?" —
+# and the nightly CRC diff (`research.edgar_refresh`) needs both in one lookup.
+#
+# `checked_at` is NULLABLE and that is load-bearing: seeding the CRC ledger from
+# a zip we already ingested tells us WHAT we hold without telling us WHEN we last
+# verified it against SEC. Such a row reads back as `None` — never checked — which
+# is the truth. Nothing here is backfilled with an invented timestamp.
+_CREATE_INGEST_WATERMARK = """
+CREATE TABLE IF NOT EXISTS edgar_ingest_watermark (
+    cik INTEGER NOT NULL PRIMARY KEY,
+    checked_at TEXT,
+    source TEXT NOT NULL,
+    latest_filed TEXT,
+    entry_crc INTEGER,
+    entry_size INTEGER
+)
+"""
+
+# COALESCE, not overwrite: a check that found nothing new carries no
+# `latest_filed` and no entry identity, and must not erase what an earlier one
+# established. That is the whole "checked, nothing new" case — it moves
+# `checked_at` and nothing else.
+_UPSERT_WATERMARK = """
+INSERT INTO edgar_ingest_watermark
+    (cik, checked_at, source, latest_filed, entry_crc, entry_size)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(cik) DO UPDATE SET
+    checked_at = excluded.checked_at,
+    source = excluded.source,
+    latest_filed = COALESCE(excluded.latest_filed, edgar_ingest_watermark.latest_filed),
+    entry_crc = COALESCE(excluded.entry_crc, edgar_ingest_watermark.entry_crc),
+    entry_size = COALESCE(excluded.entry_size, edgar_ingest_watermark.entry_size)
+"""
+
+# Records what a zip we hold contained, WITHOUT claiming we checked SEC:
+# `checked_at` is untouched on an existing row and NULL on a new one.
+_SEED_WATERMARK_ENTRY = """
+INSERT INTO edgar_ingest_watermark
+    (cik, checked_at, source, latest_filed, entry_crc, entry_size)
+VALUES (?, NULL, 'seed', NULL, ?, ?)
+ON CONFLICT(cik) DO UPDATE SET
+    entry_crc = excluded.entry_crc,
+    entry_size = excluded.entry_size
+"""
+
+
+def init_edgar_watermark(db_path: Path = DEFAULT_FACTS_DB_PATH) -> None:
+    """Idempotent create for the ingest watermark table."""
+    conn = connect(db_path)
+    try:
+        conn.execute(_CREATE_INGEST_WATERMARK)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def record_ingest_watermark(
+    conn,
+    cik: int,
+    *,
+    source: str,
+    latest_filed: str | None = None,
+    entry_crc: int | None = None,
+    entry_size: int | None = None,
+) -> None:
+    """Stamp "we verified this filer against SEC just now". The caller commits.
+
+    Only ever called after a check that actually succeeded — a run that errored
+    must leave the previous watermark alone, or the store starts claiming it
+    looked when it could not.
+    """
+    conn.execute(
+        _UPSERT_WATERMARK,
+        (int(cik), now_iso(), source, latest_filed, entry_crc, entry_size),
+    )
+
+
+def record_entry_identity(conn, cik: int, *, crc: int, size: int) -> None:
+    """Record the zip entry we hold for this filer, without stamping a check."""
+    conn.execute(_SEED_WATERMARK_ENTRY, (int(cik), int(crc), int(size)))
+
+
+def edgar_ingest_watermark(
+    cik: int, *, db_path: Path = DEFAULT_FACTS_DB_PATH
+) -> dict | None:
+    """When we last CHECKED SEC for this filer — not when it last filed.
+
+    Returns None when we have never checked it (the honest pre-refresh state),
+    else:
+      {"checked_at": "2026-08-02T11:30:00+00:00",   # ISO 8601, tz-aware UTC
+       "source": "nightly" | "bulk",                # which job last covered it
+       "latest_filed": "2026-07-29" | None}         # newest `filed` seen, or None
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return None
+    conn = connect(path)
+    try:
+        # Asks whether the table exists rather than creating it — unlike the read
+        # paths in `research.fundamentals`, which call `ensure_bulk_schema`. A
+        # reader has no business writing schema into a 16 GB store it does not
+        # own, and "the table isn't there" already has an honest answer here:
+        # nothing has ever been checked, which is exactly what None means.
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'edgar_ingest_watermark'"
+        ).fetchone():
+            return None
+        row = conn.execute(
+            "SELECT checked_at, source, latest_filed FROM edgar_ingest_watermark "
+            "WHERE cik = ?",
+            (int(cik),),
+        ).fetchone()
+    finally:
+        conn.close()
+    # A row with no `checked_at` is a seeded entry identity: we know what we
+    # hold, we do not know when it was last verified. That is "never checked".
+    if row is None or row["checked_at"] is None:
+        return None
+    return {
+        "checked_at": row["checked_at"],
+        "source": row["source"],
+        "latest_filed": row["latest_filed"],
+    }
+
+
 def upsert_facts(conn, rows: list[tuple]) -> None:
     """Write fact rows. Shared with the per-symbol top-up path so both writers
     use identical key semantics — including `accn`, without which same-day
@@ -136,6 +270,7 @@ def ensure_bulk_schema(conn: sqlite3.Connection) -> None:
     conn.execute(_CREATE_CONCEPTS)
     conn.execute(_CREATE_FILERS)
     conn.execute(_CREATE_FACTS)
+    conn.execute(_CREATE_INGEST_WATERMARK)
     conn.commit()
 
 
@@ -237,12 +372,13 @@ def ingest_companyfacts(
 
         batch: list[tuple] = []
         filers: list[tuple] = []
+        marks: list[tuple] = []
         facts_written = 0
         filers_seen = 0
         skipped = 0
 
         def flush() -> None:
-            nonlocal batch, filers
+            nonlocal batch, filers, marks
             flush_concepts()
             if filers:
                 conn.executemany(
@@ -252,24 +388,43 @@ def ingest_companyfacts(
                 filers = []
             upsert_facts(conn, batch)
             batch = []
+            if marks:
+                conn.executemany(_UPSERT_WATERMARK, marks)
+                marks = []
             conn.commit()
 
         with zipfile.ZipFile(zip_path) as archive:
-            names = [n for n in archive.namelist() if n.endswith(".json")]
+            # infolist, not namelist: the entry CRC and size are the identity the
+            # nightly diff compares against, so a full rebuild leaves that ledger
+            # correct instead of making the next night re-fetch all 20k entries.
+            infos = [i for i in archive.infolist() if i.filename.endswith(".json")]
             if limit is not None:
-                names = names[:limit]
-            total = len(names)
-            for index, name in enumerate(names, 1):
+                infos = infos[:limit]
+            total = len(infos)
+            for index, info in enumerate(infos, 1):
+                name = info.filename
                 try:
-                    payload = json.loads(archive.read(name))
+                    payload = json.loads(archive.read(info))
                 except Exception:  # noqa: BLE001 - one bad file must not kill a 20k-file load
                     logger.warning("unparseable companyfacts entry %s — skipping", name)
                     skipped += 1
                     continue
                 rows = fact_rows(payload, concept_id)
                 if payload.get("cik") is not None:
-                    filers.append((int(payload["cik"]), payload.get("entityName")))
+                    cik = int(payload["cik"])
+                    filers.append((cik, payload.get("entityName")))
                     filers_seen += 1
+                    marks.append(
+                        (
+                            cik,
+                            now_iso(),
+                            "bulk",
+                            # Index 3 is `filed` — see `fact_rows`.
+                            max((row[3] for row in rows), default=None),
+                            info.CRC,
+                            info.file_size,
+                        )
+                    )
                 batch.extend(rows)
                 facts_written += len(rows)
                 if len(batch) >= _BATCH_ROWS:

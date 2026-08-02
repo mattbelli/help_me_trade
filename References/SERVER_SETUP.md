@@ -1,7 +1,7 @@
 # Server setup — migrate dev + runtime to the home Linux server (Option B)
 
 > **✅ COMPLETE (2026-06-20).** Migration is done — `serv` runs the always-on stack (uv CPython 3.12 venv,
-> systemd `hmt-backend`/`hmt-frontend`, Tailscale, nightly backups, Composer bridge on Node 22). For **running
+> systemd `hmt-backend`/`hmt-frontend`, Tailscale, nightly backups, Cursor SDK bridge on Node 22). For **running
 > the app + viewing it from your devices**, see `STARTUP.md`. This doc is kept as the migration record; a few
 > steps differ from how it actually went (Ubuntu 26.04 had no apt `python3.12`, so we used **uv**; repo lives
 > at `~/dev/help_me_trade`; tailnet name is `serv.tail78aab8.ts.net`).
@@ -16,7 +16,7 @@ Linux). Python works on 3.12 (matches CI) or 3.13.*
 ```bash
 # Python 3.12+, Node 20+, git, build basics
 sudo apt update && sudo apt install -y python3.12 python3.12-venv python3-pip git curl sqlite3
-# Node 22+ — the Composer bridge needs >=22.13; Node 20 triggers EBADENGINE. (bun optional for the frontend)
+# Node 22+ — the Cursor SDK bridge needs >=22.13; Node 20 triggers EBADENGINE. (bun optional for the frontend)
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
 # Claude Code CLI + Tailscale
 #   - install Claude Code per its docs and run `claude` to auth
@@ -36,8 +36,10 @@ Recreate these files on the server with the SAME values from the Windows desktop
   `API_TOKEN, FRONTEND_ORIGIN, BIND_HOST, APCA_API_KEY_ID, APCA_API_SECRET_KEY, APCA_API_BASE_URL, BROKER,
   SCHWAB_API_KEY, SCHWAB_APP_SECRET, SCHWAB_CALLBACK_URL, SEARXNG_URL`
 - **`frontend/.env.local`** — `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_API_TOKEN` (update the URL in §6).
-- **Composer bridge** — replicate however `CURSOR_API_KEY` is set on the desktop (env var or
-  `tools/composer-bridge/.env`); confirm it's present or Composer dispatch won't run.
+- **Coder access** — two separate credentials, don't confuse them. The **cursor CLI**
+  (`cursor-agent`, the default path per `AGENT_WORKBENCH.md`) uses stored login tokens from
+  `agent login`. The **SDK bridge** (`tools/composer-bridge`, headless fallback) needs
+  `CURSOR_API_KEY` as an env var or in `tools/composer-bridge/.env`.
 Copy example: `scp .env frontend/.env.local user@<tailscale-name>:~/help_me_trade/...`
 
 ## 3. Transfer the data (the source of truth — gitignored)
@@ -145,7 +147,8 @@ at 60s). Roll back by flipping the flag to 0 and reversing the two steps.
 ```
 
 ## 8. Dev loop on the server (Option B)
-- `cd tools/composer-bridge && npm install` (so the Composer bridge runs on Linux).
+- `cd tools/composer-bridge && npm install` (so the headless SDK bridge runs on Linux; the default coder
+  path is the cursor CLI in a herdr pane — see `AGENT_WORKBENCH.md`).
 - Future Claude Code sessions: SSH/remote into the server, run `claude` there — same keep-alive workflow as
   the Windows desktop, now on the always-on Linux box.
 - Pre-push habit carries over: `ruff check .` (whole repo) + `pytest` before pushing.

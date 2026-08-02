@@ -114,6 +114,38 @@ def _migrate_fusion_episodes(conn: Any) -> None:
         COMMIT;
         """
     )
+_ATTENTION_ROLLING_MIGRATION = "attention_rolling_dots_2026_07_28"
+
+
+def _migrate_attention_rolling_dots(conn: Any) -> None:
+    """Zero the legacy hourly-bucket attention dots (one-time, idempotent).
+
+    Attention dots used to be keyed ``{symbol}:{bucket}:{source}`` — a NEW row
+    per ET hour bucket — and the scorer takes latest/best over the group, so an
+    episode's attention score pinned at its all-time PEAK buzz for the episode's
+    whole life. The rolling ``{episode_id}:{source}_buzz`` dot replaces them.
+    Legacy rows are ZEROED, never deleted: the dots are the episode's history
+    and evidence is not rewritten, but a frozen peak must stop scoring. Scoped
+    by the id shape (new rows end in ``_buzz``) so the migration cannot touch a
+    rolling dot even if it runs against a mixed table."""
+    if conn.execute(
+        "SELECT 1 FROM fusion_migrations WHERE name = ?",
+        (_ATTENTION_ROLLING_MIGRATION,),
+    ).fetchone() is None:
+        conn.execute(
+            r"""
+            UPDATE evidence_dots SET points = 0.0
+            WHERE component IN ('reddit_buzz', 'stocktwits_buzz')
+              AND source_event_id NOT LIKE '%\_buzz' ESCAPE '\'
+              AND points != 0
+            """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO fusion_migrations(name, applied_at) VALUES (?, ?)",
+            (_ATTENTION_ROLLING_MIGRATION, now_iso()),
+        )
+
+
 DISPOSITIONS = frozenset({"scored", "collapsed", "shed", "unstampable", "ignored_by_rule"})
 
 
@@ -223,6 +255,32 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 price TEXT NOT NULL,
                 ts TEXT NOT NULL,            -- the print's UTC ISO timestamp
                 updated_at TEXT NOT NULL
+            );
+
+            -- Today's cumulative share volume per symbol (2026-07-28), the
+            -- numerator behind the rvol_ex_prints dot. Producer/read-cache
+            -- doctrine again (fusion_atr_cache/fusion_spot_cache): the
+            -- fusion_day_volume_refresh job does the network snapshot batch,
+            -- the intake only READS. day_volume is Alpaca's dailyBar.v, which
+            -- INCLUDES extended hours (measured 07-28: AAPL +19.5% over the
+            -- RTH-only total, thin names 2x) — premarket_offset is that same
+            -- field sampled at the day's first at/after-09:30 refresh, so
+            -- day_volume - premarket_offset is an RTH-only total on the
+            -- baseline's own definition. market_day fences yesterday's row.
+            -- premarket_offset is NULL when today's offset is UNKNOWN (the
+            -- symbol was first sampled mid-session, or its latched offset was
+            -- proven bogus) — the reading then reads unavailable, never 0.
+            -- offset_ts is WHEN the offset was latched: rth_volume is the
+            -- delta since that instant, so anything subtracted from it (the
+            -- detected prints) has to be windowed from there too.
+            CREATE TABLE IF NOT EXISTS fusion_day_volume (
+                symbol TEXT PRIMARY KEY,
+                day_volume TEXT,
+                premarket_offset TEXT,
+                offset_ts TEXT,
+                market_day TEXT,
+                as_of_ts TEXT,
+                updated_at TEXT
             );
 
             -- Storm-cheap session-levels read-cache, the structure sibling of
@@ -347,8 +405,18 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_reason_runs_day
                 ON reason_runs(market_day);
+
+            -- Applied-once marker for DATA migrations (schema migrations guard
+            -- on the column/table they add; a data backfill has no such
+            -- artifact). Keeps init_fusion_tables — which get_cursor/set_cursor
+            -- call on every pass — from re-scanning evidence_dots forever.
+            CREATE TABLE IF NOT EXISTS fusion_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
             """
         )
+        _migrate_attention_rolling_dots(conn)
         # Rebuild a legacy symbol-day fusion_episodes table (drops the dead
         # UNIQUE(symbol, market_day)) BEFORE the partial index below — the index
         # references the `state` column the migration adds.
@@ -362,6 +430,16 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                     "ALTER TABLE fusion_episodes ADD COLUMN registered_market_day TEXT"
                 )
             except Exception as exc:  # three processes race init on deploy
+                if "duplicate column" not in str(exc).lower():
+                    raise
+        # offset_ts landed after the first fusion_day_volume rows existed on the
+        # dev box; CREATE TABLE IF NOT EXISTS never adds a column to a table
+        # that is already there, and every read would then die on "no such
+        # column". NULL means "offset provenance unknown" = unavailable.
+        if "offset_ts" not in _table_columns(conn, "fusion_day_volume"):
+            try:
+                conn.execute("ALTER TABLE fusion_day_volume ADD COLUMN offset_ts TEXT")
+            except Exception as exc:
                 if "duplicate column" not in str(exc).lower():
                     raise
         conn.executescript(
@@ -591,6 +669,122 @@ def get_spot(
     except (ArithmeticError, ValueError):
         return None
     return price if price.is_finite() and price > 0 else None
+
+
+def put_day_volumes(
+    rows: list[tuple[str, str, str | None, str | None, str, str]],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Batch-upsert ``(symbol, day_volume, premarket_offset, offset_ts,
+    market_day, as_of_ts)`` — ONE transaction, mirroring :func:`put_spots`.
+
+    The producer job owns the offset arithmetic (it is the only caller that
+    knows whether this is the day's first in-window sample); this helper just
+    stores what it is handed, last-write-wins per symbol. ``premarket_offset``
+    /``offset_ts`` of ``None`` mean "no trustworthy offset today" and make the
+    reading unavailable — they are NOT a zero offset."""
+    if not rows:
+        return 0
+    init_fusion_tables(db_path)
+    now = now_iso()
+    with _connect(db_path) as conn:
+        conn.executemany(
+            """
+            INSERT INTO fusion_day_volume(
+                symbol, day_volume, premarket_offset, offset_ts, market_day,
+                as_of_ts, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+                day_volume = excluded.day_volume,
+                premarket_offset = excluded.premarket_offset,
+                offset_ts = excluded.offset_ts,
+                market_day = excluded.market_day,
+                as_of_ts = excluded.as_of_ts,
+                updated_at = excluded.updated_at
+            """,
+            [
+                (s.strip().upper(), v, offset, offset_ts, market_day, as_of_ts, now)
+                for s, v, offset, offset_ts, market_day, as_of_ts in rows
+            ],
+        )
+        conn.commit()
+    return len(rows)
+
+
+def get_day_volume(
+    symbol: str,
+    *,
+    max_age_s: float,
+    as_of: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[Decimal, Decimal, str] | None:
+    """Freshness-fenced ``(rth_volume, raw_day_volume, offset_ts)`` for today.
+
+    ``rth_volume = day_volume - premarket_offset`` — the RTH-only total the
+    volume-profile baseline is built from (Alpaca's ``dailyBar.v`` includes
+    extended hours). ``offset_ts`` is when that offset was latched, i.e. the
+    instant ``rth_volume`` counts FROM; a caller subtracting anything else out
+    of the numerator must window it from there.
+
+    ``None`` — never a number — when:
+    * the row is absent;
+    * ``as_of_ts`` sits more than ``max_age_s`` from ``as_of`` in EITHER
+      direction (the get_spot fence: a stale row must read as missing rather
+      than divide on old volume, and a row far NEWER than the event is
+      lookahead);
+    * ``market_day`` is not the ``as_of`` instant's ET day — yesterday's
+      cumulative volume against today's time-of-day baseline reads as a 5x
+      RVOL at the open;
+    * the offset (or its stamp) is NULL — the producer could not latch a
+      trustworthy premarket baseline today, so there is no RTH-only total to
+      report. Treating NULL as a zero offset would publish an inflated reading;
+    * the offset EXCEEDS day_volume — provably inconsistent (Alpaca's snapshot
+      serves the PREVIOUS session's ``dailyBar`` until a symbol's first trade
+      of the day, so a thin name can latch yesterday's full-day total and then
+      "shrink"). Clamping that to zero would publish a fabricated 0.0x."""
+    _ensure_tables_once(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT day_volume, premarket_offset, offset_ts, market_day, as_of_ts
+            FROM fusion_day_volume WHERE symbol = ?
+            """,
+            (symbol.strip().upper(),),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(row["as_of_ts"]).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=_UTC)
+    ref = datetime.now(_UTC)
+    if as_of:
+        try:
+            parsed = datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+            ref = parsed if parsed.tzinfo else parsed.replace(tzinfo=_UTC)
+        except ValueError:
+            pass  # unparseable event ts → wall-clock fence, never a crash
+    if abs((ref - ts).total_seconds()) > max_age_s:
+        return None
+    if str(row["market_day"] or "") != ref.astimezone(_ET).date().isoformat():
+        return None
+    raw_offset = row["premarket_offset"]
+    offset_ts = str(row["offset_ts"] or "")
+    if raw_offset is None or str(raw_offset).strip() == "" or not offset_ts:
+        return None  # offset unknown today — not a zero offset
+    try:
+        day_volume = Decimal(str(row["day_volume"]))
+        offset = Decimal(str(raw_offset))
+    except (ArithmeticError, ValueError):
+        return None
+    if not day_volume.is_finite() or not offset.is_finite() or day_volume <= 0:
+        return None
+    if offset < 0 or offset > day_volume:
+        return None  # provably inconsistent — never clamp it into a 0.0x reading
+    return day_volume - offset, day_volume, offset_ts
 
 
 def put_session_levels(

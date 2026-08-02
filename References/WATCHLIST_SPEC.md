@@ -99,6 +99,7 @@ accurate regardless — only the *intraday* RVOL number is feed-sensitive.)
 - Put/Call ratio — budget a paid options source eventually, or drop it? (Deferred either way.)
 
 ## Build approach
-Revert the parked watchlist-v2 first (clean slate). Then Phase A as a Composer build against this spec, with
+Revert the parked watchlist-v2 first (clean slate). Then Phase A as a dispatched coder build against this spec
+(routing per `AGENT_WORKBENCH.md`), with
 the server-side signal computation reviewed (it feeds the phone). Salvage + commit the scans/memory widgets
 separately so they leave the parked pile.
