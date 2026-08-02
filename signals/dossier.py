@@ -13,10 +13,18 @@ VALUES from these claims deterministically and cites claim ids STRICTLY, so:
     (``tests/test_dossier.py``).
   * an angle with nothing to say is OMITTED (no empty claims); a dossier is valid
     with as few as the ``evidence`` angle alone.
-    * ``now`` selects the primary ET window for flow/tape/news/catalyst/context
+  * ``now`` selects the primary ET window for flow/tape/news/catalyst/context
     (and the since-open upper bound on multi-day episodes), so it affects claim
     VALUES and ordering — not just freshness. Windowed aggregates name their
     window in the statement text.
+
+★ CONSUMER CONTRACT (founder ruling 2026-08-02): **the investigator builds its prompt
+from ``claims``; ``summary`` is a human/debug rendering.** ``claims`` is complete and
+uncapped (``db/idea_dossiers`` persists the whole matrix in ``claims_json``); only
+``summary`` is truncated at ``DOSSIER_SUMMARY_MAX_CHARS``. A claim whose line falls
+outside that cap is still real and still citable — but a consumer that prompts off
+``summary`` would make it BOTH invisible and uncitable, since the investigator cites
+``claim_id``s it can only see in the text it was given. Build from ``claims``.
 
 This module is INERT: nothing in production imports it yet (C3's investigator becomes
 its caller). It never writes to any store except via ``build_and_store_dossier`` →
