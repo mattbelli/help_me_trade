@@ -311,6 +311,10 @@ Two different axes people conflate: **transactional (OLTP, row-oriented) vs anal
 **Community Rust SDKs evaluated — not adopted (2026-06-17):** [`apca`](https://github.com/d-e-s-o/apca) (crate) + [`apcacli`](https://github.com/d-e-s-o/apcacli) (CLI). Reasons: (1) **Rust** → would force a Rust↔Python bridge, contradicting "Python is the brain" (§7.3); (2) we already have a working Python adapter + official `alpaca-py` (Apache-2.0); (3) **GPL-3.0** copyleft matters if the app is distributed. **`apca` is bookmarked** as connectivity for the *future Rust real-time engine* only (§7.3). `apcacli` = optional personal dev/ops tool (official MCP already covers CLI/agent access). **Right "don't reinvent" audit instead:** prefer `alpaca-py` methods over any hand-rolled `httpx` in `brokers/alpaca.py`.
 
 ### 7.9 Dev workflow — Claude Code as planner, Composer as coder (2026-06-18)
+> ⛔ **SUPERSEDED 2026-08-02 — Composer 2.5 is retired as a coder.** Current doctrine:
+> `References/AGENT_WORKBENCH.md` + CLAUDE.md rule 1 (Grok 4.5 High / Opus 5 via the cursor CLI in
+> visible herdr panes; Sonnet for small mechanical work). Kept below as the decision record.
+
 **Question:** can Claude Code (Anthropic Mac sub + VS Code ext) spawn Composer 2.5 subagents, or must that stay in Cursor?
 
 **Findings:**

@@ -65,7 +65,7 @@ sudo systemctl start hmt-backend hmt-frontend    # restore the always-on stack w
 Environment notes:
 - venv is **uv-managed CPython 3.12** (`.venv/bin/...`). Rebuild:
   `uv venv --seed --python 3.12 .venv && uv pip install -r requirements.txt ruff`.
-- **Node 22** via nvm in interactive shells (the Composer bridge needs ≥22.13).
+- **Node 22** via nvm in interactive shells (the Cursor SDK bridge needs ≥22.13).
 - Backend reads `.env` at repo root (Alpaca keys, `CURSOR_API_KEY`, etc.); `--reload` hot-restarts on `.py`
   edits, but **brand-new modules** may need a full `Ctrl-C` + rerun.
 - **Pre-push:** `ruff check .` + `python -m pytest -q` + `cd frontend && npm run typecheck` (CI runs all three).

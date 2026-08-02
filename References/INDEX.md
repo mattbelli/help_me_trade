@@ -13,6 +13,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `BUILD_LOG.md` | Dated journal, one row per round, newest first (350KB — **grep, never read whole**) |
 | `board.json` | Live kanban (rendered at `/board`) — in-flight work, founder decision lane |
 | `ARCHITECTURE.md` | Plain-English subsystem tour |
+| `AGENT_WORKBENCH.md` | ★ CURRENT — how we actually run coders: herdr exclusively, one worktree per task, coders as VISIBLE pane agents (Grok 4.5 High / Opus 5; Sonnet for small work; **Composer 2.5 retired**). Read before dispatching anyone |
 | `ARCHITECTURE_DIAGRAM.excalidraw` / `ARCHITECTURE_MODULES.excalidraw` | Editable diagrams: concept-level agent loop / module+process level (2026-07-17) |
 | `STARTUP.md` | serv access, tailnet addresses, service basics |
 | `SERVER_SETUP.md` | The always-on Linux box: units, env, collectors |

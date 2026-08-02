@@ -3,7 +3,8 @@
 *Auto-loaded every session: the mission + the working agreements that keep agents consistent here.
 Companions: `AGENTS.md` (codebase map), `References/HANDOFF.md` (OPEN threads — read first),
 `References/BUILD.md` (the plan), `References/BUILD_LOG.md` (dated journal — grep, never read whole),
-`References/ARCHITECTURE.md` (subsystem tour).*
+`References/ARCHITECTURE.md` (subsystem tour), `References/AGENT_WORKBENCH.md` (herdr + worktrees +
+how to launch a coder — read before dispatching anyone).*
 
 ## Mission — judge every feature against this
 help_me_trade is an **autonomous trading agent that works in the background** so the user — a dad with a job —
@@ -46,16 +47,25 @@ methods have failed and the failure is measured, not assumed.
 
 ## How to work (the established cadence)
 1. **Route the CODER by stakes — quality first; writing slop 10x faster loses to well-thought-out slow
-   development every single time** (rewritten 2026-07-16; was "delegate to Composer by default," which
-   enshrined the fast-slop default). The bench, all available: **Claude Max plan** — Opus/Sonnet coding
-   subagents, or the orchestrator hand-editing when full-context surgical work is the right tool; **Cursor
-   plan** — Composer, plus Opus/Sonnet/Grok 4.5 routed through it (`node tools/composer-bridge/dispatch.mjs
-   --brief tools/composer-bridge/briefs/<x>.md`, backgrounded, **one tree-writer at a time** — parallel runs
-   collide in the working tree). Route like rule 4: load-bearing or subtle work → a frontier coder with
-   full context; mechanical/boilerplate → Composer/Sonnet is fine. What never changes regardless of coder:
-   a precise, self-contained brief (exact files, current vs desired behavior, constraints, verify steps),
-   and YOU review the real `git diff` + lint/tests before committing — review is where depth concentrates.
-   You are the orchestrator (plan/brief/review/architecture); pick the coder the work deserves.
+   development every single time** (rewritten 2026-08-02; **Composer 2.5 is RETIRED as a coder** — the
+   earlier "delegate to Composer by default" enshrined the fast-slop default and even the 07-16 rewrite
+   kept it on the bench). The bench now:
+   - **Grok 4.5 High** (`cursor-grok-4.5-high`) or **Opus 5** (`claude-opus-5-thinking-high`) via the
+     cursor CLI — the default for real coding work.
+   - **Sonnet** — small mechanical tasks only (formatting, file sweeps, boilerplate).
+   - **The orchestrator hand-editing** — when full-context surgical work is the right tool.
+   - *Later, if a Codex sub lands:* GPT-5.6 via the codex CLI. Not available today — don't route to it.
+
+   **Coders run as VISIBLE herdr agents — never headless.** The founder must be able to watch, interrupt,
+   and correct a run in progress; a coder he can't see is a coder he can't stop. **One writer per working
+   tree** is the hard invariant (worktrees are how we buy it) — but size the pool to *concurrent writers*,
+   not to tasks, and verify a tree is free before assigning it.
+   Full mechanics in `References/AGENT_WORKBENCH.md` — read it before dispatching. Route like rule 4:
+   load-bearing or subtle work → a frontier coder with full context; mechanical/boilerplate → Sonnet is
+   fine. What never changes regardless of coder: a precise, self-contained brief (exact files, current vs
+   desired behavior, constraints, verify steps), and YOU review the real `git diff` + lint/tests before
+   committing — review is where depth concentrates. You are the orchestrator
+   (plan/brief/review/architecture); pick the coder the work deserves.
 2. **Work autonomously — make the call, don't pose menus.** Pick the sensible default and proceed (investigate
    → brief → dispatch → verify → commit). Reserve questions for a genuinely blocking fork with no reasonable
    default (irreversible data loss, a real product-direction choice). Surface *results + decisions made*, not
@@ -79,10 +89,16 @@ methods have failed and the failure is measured, not assumed.
      board, design inputs) — cheap-model recon may *locate* things, but its assertions are hypotheses
      until verified against code or live state.
    - **Cheap stays right for**: mechanical edits, formatting, file-location sweeps, UI polish iterations.
-     Delegation (Composer for code, Sonnet for sweeps) survives — depth concentrates in the REVIEW of
-     delegated work, which is where it pays.
+     Delegation (Sonnet for small mechanical work and sweeps) survives — depth concentrates in the REVIEW
+     of delegated work, which is where it pays.
    - **Under budget pressure, drop scope — never depth on load-bearing work.** A smaller thing built
      deeply beats a bigger thing built shallow; a shallow mechanism has no edge (see ★ THE BEST IDEAS WIN).
+5. **You run git — and you EXPLAIN it** (founder direction 2026-08-02). The founder is deliberately
+   learning git, not delegating it away. So: run the commands yourself (branch, worktree, stage, commit,
+   merge, push, clean up), and in your reply say plainly *what you ran and why that was the right move* —
+   a sentence or two, in the flow of the answer, not a tutorial. When his mental model is off, correct
+   the model, not just the command (e.g. "worktrees aren't children of a branch — one worktree = one
+   folder = one branch"). Two jobs, one pass: the work lands AND he ends up able to do it himself.
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work; a
@@ -103,7 +119,7 @@ git hook **blocks** any commit that changes product code without also updating `
 - **One card per thread** — if two cards are the same thread, combine on sight.
 - Decisions only the founder can make go in the `founder` lane ("Waiting on you").
 
-## Engineering discipline (default coding posture — applies to your edits AND the briefs you write Composer)
+## Engineering discipline (default coding posture — applies to your edits AND every brief you write a coder)
 Bias toward caution over speed on non-trivial work; use judgment on trivial edits.
 - **Think before coding.** State assumptions explicitly; if multiple interpretations exist, name them — don't
   pick silently. This *sharpens* rule #2, it doesn't undo it: surface ambiguity about **what/why**

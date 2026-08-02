@@ -339,7 +339,7 @@ No `README` or `LICENSE` exists at root today. Proposed `README.md` outline:
    read-only. "Audit it yourself" — link the files.
 7. **Configuration** — the `DEFAULT ← env ← settings.json` layering; execution_mode; the lockdown
    levers.
-8. **Contributing** — Composer/agent cadence is internal; for external contributors: ruff + pytest +
+8. **Contributing** — the agent/coder cadence is internal; for external contributors: ruff + pytest +
    `npm run typecheck` pre-push; adversarial review required on `trading/`.
 9. **License** — see Area 6.
 

@@ -1,13 +1,26 @@
 # composer-bridge
 
-A thin wrapper around the official [Cursor SDK](https://cursor.com/docs/sdk/typescript)
-(`@cursor/sdk`) so the **orchestrator (Claude Code)** can dispatch **Composer 2.5**
-coding agents against this repo — the plan → brief → code → review loop, but with
-Claude as the brain instead of a Cursor interactive agent.
+> ## ⚠️ NOT THE DEFAULT PATH (as of 2026-08-02)
+>
+> **Composer 2.5 is retired as a coder, and headless dispatch is no longer how we run coders.**
+> The current doctrine is `References/AGENT_WORKBENCH.md`: **herdr exclusively**, one worktree per
+> task, and coders launched as **visible pane agents** (Grok 4.5 High / Opus 5; Sonnet for small
+> mechanical work) so the founder can watch and interrupt them. Read that doc first.
+>
+> This bridge is kept as a **headless fallback** — useful when nobody needs to watch (a long
+> mechanical sweep), and it still takes `--model` / `--effort` / `--cwd`. Using it needs a stated
+> reason. ⚠️ Its model ids are the **SDK** namespace (`grok-4.5`, `claude-opus-5`), *not* the
+> cursor-CLI namespace (`cursor-grok-4.5-high`) — the two are not interchangeable.
+>
+> The name is historical. Don't read it as an instruction to use Composer.
 
-This solves the limit problem from the old workflow: the expensive orchestration
-(planning, review) runs on the flat Anthropic subscription via Claude Code, while
-the cheap, high-volume coding runs on Composer 2.5 via this bridge.
+A thin wrapper around the official [Cursor SDK](https://cursor.com/docs/sdk/typescript)
+(`@cursor/sdk`) so the **orchestrator (Claude Code)** can dispatch coding agents against this
+repo — the plan → brief → code → review loop, with Claude as the brain.
+
+The original rationale: the expensive orchestration (planning, review) runs on the flat Anthropic
+subscription via Claude Code, while high-volume coding runs through the Cursor plan. That split
+still holds — what changed is *which* coder and that we now want to see it work.
 
 ## Why this and not `claude-ide-bridge`?
 
