@@ -237,6 +237,11 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   the retired symbol-day model, measured blind to 99.8% of a 12-day-old episode's dots, and the
   evidence angle truncates every analytic claim out of the summary the LLM would read. Arming first
   just feeds the lane stale claims. Brief: `tools/composer-bridge/briefs/dossier-repair.md`.
+  Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
+  dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
+  BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22
+  (the episode model D1 must conform to). Fixing the window RESTORES conformance — Round 3 already
+  stamped `market_day … now = OPENING session only, not a key`.
 - ⚠ full pytest suite live-fires outbound HTTPS (suite-hang + WAF risk) — needs a network-marking
   round.
 - wider-stop sibling lane + index-underlying spot (SPX/NDX/RUT/VIX unstampable) deferred on the
