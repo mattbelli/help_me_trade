@@ -70,11 +70,29 @@ permanently checked out in the live dev tree and no two worktrees may hold the s
 locally to start work from it. Same reason `git branch -d` refuses a branch that a worktree still
 holds: switch off it first.
 
-### Layout
+### Naming: the DIRECTORY is the tree's identity, the BRANCH is the work's identity
 
 ```
-/home/mbelli/worktrees/help_me_trade/<name>      branch <name>, based on origin/main
+/home/mbelli/worktrees/help_me_trade/<tree>      holds branch <task>, based on origin/main
 ```
+
+Trees get **stable, neutral names** (`orch`, `wt-a`, `wt-b`). Branches get **task names**. A tree named
+after a task is a tree nobody will ever reuse — it reads as finished the moment the task is, so the next
+job gets a new folder and the stale pile grows. Naming a tree `coder-routing-doctrine` (2026-08-02) is
+exactly the mistake: the work landed and the folder instantly looked like garbage.
+
+### ⚠️ A herdr *workspace* is for an AGENT to live in — don't make one you won't watch
+
+`herdr worktree create` builds a worktree **and** a herdr workspace with a pane. That pane is the whole
+point *when an agent runs there*. When the **orchestrator itself** is the writer, there is nothing to
+watch — use plain git and leave the workspace list clean:
+
+```bash
+git -C /home/mbelli/dev/help_me_trade worktree add -b <task> \
+  /home/mbelli/worktrees/help_me_trade/orch origin/main
+```
+
+Rule of thumb: **if you can't name the agent that will occupy it, don't create a workspace.**
 
 **A worktree is a folder with a checkout in it.** One worktree = one branch at a time, and no two
 worktrees can have the same branch checked out. They are *not* children of a branch — there is no
@@ -103,7 +121,21 @@ This is the check that prevents the founder's stated failure mode — two agents
 each other's way. The orchestrator owns it: **never point a coder at a tree whose workspace shows
 `working`, and never at one with a dirty status you did not create.**
 
-`herdr worktree remove` cleans up. Prune when the pool grows past what you're actually running.
+### Cleaning up
+
+`herdr worktree remove --workspace <wsID>` (not `--path`) removes a workspace-backed tree; plain
+`git worktree remove <path>` handles the orchestrator's own. Either way **check first** — a tree with
+unpushed commits or a dirty status is someone's unfinished work:
+
+```bash
+git -C <wt> log --oneline origin/main..HEAD    # unpushed
+git -C <wt> status --short                     # uncommitted
+```
+
+Remove a tree when its round lands; keep one only while an agent is actively cycling work through it.
+Trees are cheap to make (~1s, they share the `.git` object store), so on-demand beats hoarding — the six
+stale `worktree-agent-*` checkouts under `dev/help_me_trade/.claude/worktrees/`, two with uncommitted
+work in them, are what hoarding looks like after three days.
 
 ⚠️ **Worktrees do NOT inherit gitignored files.** A fresh worktree has **no `data/` and no `.env`**. Any
 brief whose verify step touches the DB must give the absolute path
