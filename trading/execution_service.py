@@ -371,7 +371,21 @@ async def _exit_may_be_live(adapter: Any, exit_execution_id: str) -> bool:
     if lookup is None:
         return True
     try:
-        return await lookup(exit_execution_id) is not None
+        order = await lookup(exit_execution_id)
+        if order is None:
+            return False
+        # EXISTS is not LIVE. The lookup now resolves closed orders too (it asks
+        # the by-client-order-id route), so a place POST that timed out on the
+        # wire but was REJECTED at the broker comes back as a real order — and
+        # reading that as "the exit is resting" leaves the position bare. Only
+        # the states that definitively went nowhere release the stops back;
+        # anything unrecognised still counts as live (adversarial review B).
+        return str(getattr(order, "status", "") or "").strip().lower() not in {
+            "canceled",
+            "cancelled",
+            "expired",
+            "rejected",
+        }
     except Exception:
         logger.exception(
             "stop release: could not check whether exit %s reached the broker",

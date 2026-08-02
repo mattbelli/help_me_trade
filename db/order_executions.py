@@ -386,9 +386,14 @@ def sum_inflight_sell_qty(
     position it leaves behind can still be oversold. That is the pre-existing
     non-atomic-snapshot problem `_uncommitted_shares` documents, not something this
     reservation creates or can fix; reserving dead rows merely masked it by
-    accident, at the cost of locking positions permanently. The real fix is to
-    terminalise stuck rows in reconcile (it only sweeps `paper` `pending` today),
-    after which the timestamp rule here becomes unnecessary.
+    accident, at the cost of locking positions permanently.
+
+    The reconcile DOES terminalise stuck rows now (2026-08-02: every execution
+    mode, plus recovery by client id and a corroborated absence check). The two
+    bounds below stay anyway, as backstops rather than as the mechanism — they
+    fail toward NOT reserving, so they cannot lock a position, and they are what
+    still holds if the reconcile itself is down. Retiring them needs its own
+    measured round, not a side effect of this one.
     """
     init_execution_tables(db_path)
     clauses = [
@@ -799,7 +804,7 @@ def count_submitted_executions(
     return int(row["cnt"]) if row else 0
 
 
-def count_pending_paper_executions(
+def count_pending_executions(
     broker: str,
     *,
     account_id: str | None = None,
@@ -815,7 +820,6 @@ def count_pending_paper_executions(
             f"""
             SELECT COUNT(*) AS cnt FROM order_executions
             WHERE status = 'pending'
-              AND execution_mode = 'paper'
               AND broker = ?{account_clause}
             """,
             params,
@@ -823,14 +827,20 @@ def count_pending_paper_executions(
     return int(row["cnt"]) if row else 0
 
 
-def list_stale_pending_paper_executions(
+def list_stale_pending_executions(
     broker: str,
     *,
     min_age_seconds: float = 30,
     account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[dict[str, Any]]:
-    """Pending paper rows older than min_age_seconds (avoid racing in-flight submits)."""
+    """Pending rows older than min_age_seconds (avoid racing in-flight submits).
+
+    Every execution mode, not just paper. `submit` writes the row `pending`
+    before it branches on mode, so a crash in that window strands a row of ANY
+    mode — and `sum_inflight_sell_qty` reserves shares against it, which locks
+    the position out of both its exit and its re-stop.
+    """
     init_execution_tables(db_path)
     cutoff = datetime.now(UTC).timestamp() - min_age_seconds
     cutoff_iso = datetime.fromtimestamp(cutoff, tz=UTC).isoformat()
@@ -843,7 +853,6 @@ def list_stale_pending_paper_executions(
             f"""
             SELECT * FROM order_executions
             WHERE status = 'pending'
-              AND execution_mode = 'paper'
               AND broker = ?
               AND created_at < ?{account_clause}
             ORDER BY created_at ASC

@@ -125,7 +125,7 @@ from db.live_activities import init_live_activity_tables
 from db.multi_account import migrate_multi_account
 from db.notifications import init_notifications_tables
 from db.order_executions import (
-    count_pending_paper_executions,
+    count_pending_executions,
     count_submitted_executions,
     entry_dates_by_symbol,
     init_execution_tables,
@@ -357,7 +357,7 @@ async def _poll_account(account: dict) -> bool:
             account_id,
         )
         # Per-account fill reconcile (each account via its own adapter).
-        if count_pending_paper_executions(broker_name, account_id=account_id) > 0:
+        if count_pending_executions(broker_name, account_id=account_id) > 0:
             await reconcile_pending_executions(broker_name, account_id=account_id)
         if count_submitted_executions(broker_name, account_id=account_id) > 0:
             await reconcile_open_executions(broker_name, account_id=account_id)
@@ -438,7 +438,7 @@ async def _poll_broker(broker_name: str) -> bool:
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
         await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)
-        if count_pending_paper_executions(broker_name) > 0:
+        if count_pending_executions(broker_name) > 0:
             await reconcile_pending_executions(broker_name)
         if count_submitted_executions(broker_name) > 0:
             await reconcile_open_executions(broker_name)
@@ -2249,13 +2249,13 @@ async def lifespan(app: FastAPI):
                 continue
         elif not broker_is_configured("alpaca"):
             continue
-        if count_pending_paper_executions("alpaca", account_id=acct_id) > 0:
+        if count_pending_executions("alpaca", account_id=acct_id) > 0:
             await reconcile_pending_executions("alpaca", account_id=acct_id)
     for name in get_enabled_broker_names():
         if (
             name == "schwab"
             and broker_is_configured(name)
-            and count_pending_paper_executions(name) > 0
+            and count_pending_executions(name) > 0
         ):
             await reconcile_pending_executions(name)
     await _poll_once()

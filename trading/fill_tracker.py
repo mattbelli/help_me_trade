@@ -6,11 +6,13 @@ import logging
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
+from brokers.errors import NotFoundError
 from brokers.factory import get_broker, get_broker_for_account
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
-    list_stale_pending_paper_executions,
+    list_stale_pending_executions,
     list_submitted_executions,
     update_execution_status,
 )
@@ -207,14 +209,114 @@ def _execution_age_seconds(created_at: str) -> float:
     return (datetime.now(UTC) - created).total_seconds()
 
 
+def _adopt_broker_order(row: dict[str, Any], order: Any, *, db_path: Path) -> None:
+    """Bind a recovered broker order to its execution row, keeping the status.
+
+    `submitted_at` goes on too when the row lacks one: `sum_inflight_sell_qty`
+    bounds an unplaced row by age and a placed one by the snapshot timestamp, so
+    a row carrying a broker id but no submitted_at escapes BOTH (review A LOW-1).
+    """
+    update_execution_status(
+        str(row["id"]),
+        str(row.get("status")),
+        broker_order_id=order.id,
+        submitted_at=(
+            None if row.get("submitted_at") else datetime.now(UTC).isoformat()
+        ),
+        db_path=db_path,
+    )
+
+
+def _row_age_seconds(row: dict[str, Any]) -> float | None:
+    """Seconds since the row was placed (or created). None if unreadable.
+
+    None must always mean "do not act": a raise here escapes the row loop and
+    abandons the whole account's poll — snapshot analytics, the reconcile AND
+    protective-stop placement — every cycle, permanently (review A MEDIUM-2).
+    """
+    stamp = row.get("submitted_at") or row.get("created_at")
+    try:
+        return _execution_age_seconds(str(stamp))
+    except (TypeError, ValueError):
+        logger.warning(
+            "Execution %s has an unusable timestamp %r — leaving it open",
+            row.get("id"),
+            stamp,
+        )
+        return None
+
+
+def _end_orphan_row(
+    row: dict[str, Any],
+    *,
+    reason: str,
+    account_id: str | None,
+    db_path: Path,
+) -> None:
+    """Terminalise a row the broker has no order for — on positive absence only.
+
+    Until this existed nothing outside paper ever ended a stuck row, and a row
+    that can never reach a terminal status keeps consuming the risk budget its
+    order no longer needs. But ending one WRONGLY is far more expensive than
+    leaving it open, because `'rejected'` is the codebase's word for "this never
+    reached the broker" and four subsystems act on it (adversarial review A):
+    `list_open_protective_stops` stops returning the row, so a live stop can no
+    longer be RELEASED and the position becomes un-exitable while the stop guard
+    pages that it is unprotected; `count_executions_today`, `sum_today_notional`
+    and `sum_inflight_notional` all drop it, freeing risk budget a live order is
+    still using; the auto-entry dedup re-opens on a symbol that already has a
+    live order; and `trading/proposals` marks the proposal failed.
+
+    So absence has to be CORROBORATED before it reaches here — see the caller:
+    the order-id route and the client-id route must independently agree. On top
+    of that, two guards:
+
+    - `account_id is None` means every account's rows were polled through the
+      DEFAULT adapter (the account-less call documented above). A foreign row is
+      absent from that account by construction, and absence proves nothing.
+      KNOWN LIMIT: `get_broker_for_account` silently falls back to the default
+      credentials when an account has no connection, so this proves the CALL was
+      account-scoped, not that the adapter is that account's.
+    - Absence in the seconds after a place is the broker not having caught up.
+      Past the orphan window it is the broker's settled answer.
+    """
+    execution_id = str(row["id"])
+    if account_id is None:
+        logger.warning(
+            "Execution %s: %s, but the poll was not account-scoped — leaving it open",
+            execution_id,
+            reason,
+        )
+        return
+    age = _row_age_seconds(row)
+    if age is None or age < _PENDING_ORPHAN_REJECT_SECONDS:
+        return
+    logger.error("Ending execution %s — %s", execution_id, reason)
+    # Merged, never replaced: the row's risk_checks_json is the record of which
+    # gates let a real-money order through, and it is the only copy.
+    checks = dict(row.get("risk_checks_json") or {})
+    checks["orphan_reason"] = reason
+    update_execution_status(
+        execution_id,
+        "rejected",
+        risk_checks_json=checks,
+        db_path=db_path,
+    )
+
+
 async def reconcile_pending_executions(
     broker_name: str,
     *,
     account_id: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> None:
-    """Recover paper rows stuck at pending after broker POST (orphan window)."""
-    executions = list_stale_pending_paper_executions(
+    """Recover rows stuck at pending after the broker POST (the orphan window).
+
+    Every execution mode, not only paper: `submit` writes the row `pending`
+    before it branches on mode, so a crash in that window strands a row whatever
+    the mode, and a stranded row keeps reserving shares against later sells.
+    """
+    executions = list_stale_pending_executions(
         broker_name,
         min_age_seconds=_PENDING_MIN_AGE_SECONDS,
         account_id=account_id,
@@ -230,6 +332,17 @@ async def reconcile_pending_executions(
     )
     for row in executions:
         execution_id = row["id"]
+        if str(row.get("execution_mode") or "").strip().lower() == "dry_run":
+            # A dry_run row is `pending` only between validation and its own
+            # status write — nothing was ever sent, so there is nothing to ask
+            # the broker about. It still holds a sell reservation until it ends.
+            _end_orphan_row(
+                row,
+                reason="orphan: dry_run row never completed",
+                account_id=account_id,
+                db_path=db_path,
+            )
+            continue
         try:
             order = await adapter.aget_order_by_client_id(execution_id)
         except Exception:
@@ -250,13 +363,12 @@ async def reconcile_pending_executions(
             )
             continue
 
-        if _execution_age_seconds(row["created_at"]) >= _PENDING_ORPHAN_REJECT_SECONDS:
-            update_execution_status(
-                execution_id,
-                "rejected",
-                risk_checks_json={"reason": "orphan: not found at broker"},
-                db_path=db_path,
-            )
+        _end_orphan_row(
+            row,
+            reason="orphan: not found at broker",
+            account_id=account_id,
+            db_path=db_path,
+        )
 
 
 async def reconcile_open_executions(
@@ -291,21 +403,69 @@ async def reconcile_open_executions(
     for row in executions:
         execution_id = row["id"]
         broker_order_id = row.get("broker_order_id")
+        order: Any
         if not broker_order_id:
-            logger.warning(
-                "Execution %s has no broker_order_id — skipping fill check",
-                execution_id,
-            )
-            continue
-        try:
-            order = await adapter.aget_order(broker_order_id)
-        except Exception:
-            logger.exception(
-                "Failed to fetch order %s for execution %s",
-                broker_order_id,
-                execution_id,
-            )
-            continue
+            # Was a warning and a `continue` — forever, since nothing else ever
+            # revisits the row. The client id IS ours, so ask by that instead.
+            try:
+                order = await adapter.aget_order_by_client_id(execution_id)
+            except Exception:
+                logger.exception(
+                    "Failed to look up execution %s by client_order_id", execution_id
+                )
+                continue
+            if order is None:
+                _end_orphan_row(
+                    row,
+                    reason="orphan: no broker order under our client id",
+                    account_id=account_id,
+                    db_path=db_path,
+                )
+                continue
+            _adopt_broker_order(row, order, db_path=db_path)
+        else:
+            try:
+                order = await adapter.aget_order(broker_order_id)
+            except NotFoundError:
+                # One 404 is ONE route's answer, and ending a row wrongly is
+                # expensive enough (see _end_orphan_row) to be worth a second
+                # opinion. Ask the client-id route, which is keyed by an id we
+                # own and resolves any status. Both must say absent.
+                try:
+                    order = await adapter.aget_order_by_client_id(execution_id)
+                except Exception:
+                    logger.exception(
+                        "Execution %s: order %s 404s and the client-id route "
+                        "failed — leaving it open",
+                        execution_id,
+                        broker_order_id,
+                    )
+                    continue
+                if order is None:
+                    _end_orphan_row(
+                        row,
+                        reason=f"orphan: broker has no order {broker_order_id}",
+                        account_id=account_id,
+                        db_path=db_path,
+                    )
+                    continue
+                # The order is real and the stored id was not. Repoint the row —
+                # this is exactly the damage the old client-id lookup could write.
+                logger.error(
+                    "Execution %s pointed at %s, which the broker denies; "
+                    "the client id resolves to %s — repointing",
+                    execution_id,
+                    broker_order_id,
+                    order.id,
+                )
+                _adopt_broker_order(row, order, db_path=db_path)
+            except Exception:
+                logger.exception(
+                    "Failed to fetch order %s for execution %s",
+                    broker_order_id,
+                    execution_id,
+                )
+                continue
 
         new_status = _map_broker_status(
             order.status,

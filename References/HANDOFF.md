@@ -57,18 +57,32 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
   stop at the same trigger or an inbox note saying nothing was left to stop. Any CRITICAL
   "UNPROTECTED position" push means a failure path fired — read it, it names which.
-- **⏳ Stuck execution rows are still only swept in paper.** The sell reservation shipped 08-02 (log
-  row; card `done`) and deliberately leans on two heuristics *because* nothing terminalises a stuck
-  row outside paper: a 120s bound on unplaced `pending` rows, and "submitted before the snapshot yet
-  absent from its open orders ⇒ dead". `list_stale_pending_paper_executions` is
-  `execution_mode='paper'` only, and `reconcile_open_executions` leaves a row `submitted` forever
-  when the broker read raises or the row has no `broker_order_id`. Terminalising those would retire
-  BOTH heuristics — the cleaner endgame, flagged by both reviewers.
-- **⏳ The snapshot is not atomic and one gap remains open.** `afetch_snapshot` reads
-  account/positions/orders concurrently, so a fill landing between the orders and positions reads
-  leaves a stale-high position that can still be oversold. Pre-existing (`_uncommitted_shares`
-  MEDIUM-1); the sell reservation neither introduces nor fixes it, and no longer masks it by
-  accident. Any real fix has to make the position read authoritative, not patch the consumers.
+- **⏳ The non-atomic snapshot needs BOTH halves moved together — a naive reorder is worse.** Attempted
+  and REVERTED 08-02 (see the log row); read the reasons before re-attempting. Reading positions after
+  the orders read does **not** buy an ordering invariant: measured, it shifts a **~21 ms** probability
+  window, and Alpaca's own fill→position lag is unmeasured and may exceed it. Worse,
+  `_uncommitted_shares` carries a compensation (`held -= exit_qty` when the exit is absent from
+  open_orders) that assumes positions may be the **older** read — make positions the fresher one and
+  it double-counts, zeroing the re-stop budget, and `_restop_residual` skips on `allot <= 0` with **no
+  page**: a bare position plus an inbox note saying nothing was left uncommitted. A real fix changes
+  the read ordering **and** that compensation in one reviewed change, and needs Alpaca's actual
+  propagation lag measured first. A test now pins the concurrent read so the halves cannot drift apart.
+- **⏳ `'rejected'` is the wrong terminal for an orphan, and it is what the reconciler writes.** The
+  terminaliser shipped 08-02 with corroborated absence (two independent routes must agree), so a wrong
+  terminalisation is now unlikely — but the *consequence* is still sharp, because `'rejected'` means
+  "never reached the broker" to four subsystems at once: `list_open_protective_stops` drops the row (a
+  live stop can no longer be RELEASED → position un-exitable while the stop guard pages it bare),
+  `count_executions_today` / `sum_today_notional` / `sum_inflight_notional` all drop it (freeing risk
+  budget a live order still uses), the auto-entry dedup re-opens on a symbol that already has a live
+  order, and `trading/proposals` marks the proposal failed. A distinct `orphaned` terminal that still
+  counts toward the caps would be the honest fix; it touches every status consumer, so it is its own
+  round.
+- **⏳ `get_broker_for_account` silently falls back to DEFAULT credentials** when an account has no
+  connection row, so `_end_orphan_row`'s account-scope guard proves the *call* was scoped, not that the
+  adapter is that account's. Latent today (all 10 `trade_accounts` rows carry `connection_id` and
+  `broker_external_id`, and `_poll_account` returns early on an external-id mismatch); reachable via a
+  newly-added account with a NULL `broker_external_id`. Assert adapter identity rather than trusting
+  the caller three frames up.
 - **⏳ `unprotected-position-monitor`** (card, `next`, high) — now also owns the specific hole that a
   dead stop row removes an entry from the guard's work list for good. ⚠️ The obvious fix was built,
   reviewed and REVERTED 08-01 for three measured reasons (dry_run re-submits forever; a hand cancel
@@ -86,13 +100,6 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
 ---
 
 ## ▶ Overdue dated verifies (close out or re-date — oldest first)
-
-- ⚠ **2026-07-30 `test_idea_tracker.py::test_tiebreak_stop_wins_same_bar` is FLAKY, not broken** —
-  it failed (grades `lost=0`) during the data-wiring round and passes now both in isolation and in a
-  full 3,036-test run. Intermittent means shared state leaks between tests, which is *worse* than a
-  hard failure: the GRADING_TIEBREAK law (a bar touching stop AND target grades LOST) is only
-  sometimes guarded, and a green suite is no longer proof. ⏳ Find the leak (suspect a shared DB path
-  or module-level cache, cf. the two known CI shared-DB flakes) — do not close on a passing run.
 
 - ⏳ (was Mon 07-27) flow-EOD: an `options_flow_daily` row landed for 07-27 at 16:xx ET, no 00:1x
   ET run; backfilled rows carry `close_oi IS NULL`.

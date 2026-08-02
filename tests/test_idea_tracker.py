@@ -953,18 +953,33 @@ def test_benchmark_null_when_spy_missing(idea_db) -> None:
     assert row["alpha_pct"] is None
 
 
+def _ambiguous_bars() -> list:
+    """Trigger bar, then one bar touching BOTH stop 98 and target 110."""
+    trigger_day = date(2026, 1, 6) + timedelta(days=1)
+    return [
+        _bar(trigger_day, low=102, high=103),  # trigger
+        _bar(trigger_day + timedelta(days=1), low=97, high=112),  # stop AND target
+    ]
+
+
 def test_tiebreak_stop_wins_same_bar(idea_db) -> None:
     """TIE-BREAK LAW: one bar (after trigger) touching BOTH stop and target
-    grades LOST — stop wins (GRADING_TIEBREAK)."""
+    grades LOST — stop wins (GRADING_TIEBREAK) — WHEN the minute tape cannot
+    order the two touches.
+
+    Only `fetch_daily_bars_since` used to be patched, so the both-touch branch
+    added 2026-07-28 reached the LIVE Alpaca minute API for AAPL. Real AAPL
+    minutes clear a $110 "target" in the first bar and never see a $98 "stop",
+    so the tape answered target-first and the row graded WON — intermittently,
+    on whether the network answered. Pin the fallback by making the tape
+    unavailable, which is the condition the law is actually stated for.
+    """
     assert GRADING_TIEBREAK == "stop"
     _register(idea_db, as_of="2026-01-06T15:00:00+00:00", stop="98", targets=["110"])
-    start = date(2026, 1, 6)
-    trigger_day = start + timedelta(days=1)
-    bars = [
-        _bar(trigger_day, low=102, high=103),  # trigger
-        _bar(trigger_day + timedelta(days=1), low=97, high=112),  # stop 98 AND tgt 110
-    ]
-    with patch("research.idea_tracker.fetch_daily_bars_since", return_value=bars):
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=_ambiguous_bars()),
+        patch("research.idea_tracker._minute_bars_for", return_value=None),
+    ):
         sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
         counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
 
@@ -974,6 +989,29 @@ def test_tiebreak_stop_wins_same_bar(idea_db) -> None:
     assert row["exit_reason"] == "stop"
     assert row["fill_status"] == "filled"
     assert row["resolution_price"] == "97"  # str(bar_low) — the long stop-out
+
+
+def test_minute_tape_ordering_beats_the_pessimistic_tiebreak(idea_db) -> None:
+    """When the minute tape DOES order the touches, it wins over the daily law
+    (2026-07-28, founder-blessed): always-LOST biased the whole lane down."""
+    _register(idea_db, as_of="2026-01-06T15:00:00+00:00", stop="98", targets=["110"])
+    resolved_day = date(2026, 1, 8)
+    minutes = [
+        (datetime(2026, 1, 8, 14, 40), _bar(resolved_day, low=109, high=112)),  # target
+        (datetime(2026, 1, 8, 15, 40), _bar(resolved_day, low=97, high=100)),  # stop
+    ]
+    with (
+        patch("research.idea_tracker.fetch_daily_bars_since", return_value=_ambiguous_bars()),
+        patch("research.idea_tracker._minute_bars_for", return_value=minutes),
+    ):
+        sweep_open_ideas(now=datetime(2026, 1, 8, 12, 0, 0), db_path=idea_db)
+        counts = sweep_open_ideas(now=datetime(2026, 1, 9, 12, 0, 0), db_path=idea_db)
+
+    assert counts["won"] == 1
+    row = list_recent_resolved(db_path=idea_db)[0]
+    assert row["status"] == "won"
+    assert row["exit_reason"] == "target"
+    assert row["grading_resolution"] == "minute_tiebreak"
 
 
 def test_no_fill_on_unfilled_expiry(idea_db) -> None:

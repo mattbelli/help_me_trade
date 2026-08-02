@@ -798,3 +798,37 @@ async def test_dry_run_never_touches_a_real_order(
         await ExecutionService.submit(_sell(), db_path=db)
 
     assert broker.canceled == []
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_exit_puts_the_stops_back(monkeypatch, tmp_path) -> None:
+    """EXISTS is not LIVE. The client-id lookup resolves closed orders now, so a
+    place POST that timed out on the wire but was REJECTED at the broker comes
+    back as a real order — and reading that as "the exit is resting" leaves the
+    position bare. Nothing is resting, so the stops must go back."""
+    from brokers.base import Order
+    from trading.execution_service import _exit_may_be_live
+
+    class Adapter:
+        def __init__(self, status):
+            self._status = status
+
+        async def aget_order_by_client_id(self, client_order_id):
+            if self._status is None:
+                return None
+            return Order(
+                id="ord-x",
+                symbol="AAPL",
+                qty=10.0,
+                side="sell",
+                order_type="market",
+                status=self._status,
+                filled_qty=0.0,
+                limit_price=None,
+            )
+
+    for status in ("canceled", "cancelled", "rejected", "expired"):
+        assert await _exit_may_be_live(Adapter(status), "exec_x") is False, status
+    for status in ("new", "accepted", "partially_filled", "filled", "weird_new_status"):
+        assert await _exit_may_be_live(Adapter(status), "exec_x") is True, status
+    assert await _exit_may_be_live(Adapter(None), "exec_x") is False
