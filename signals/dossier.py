@@ -1,16 +1,22 @@
 """Fusion Phase C2 — the DOSSIER BUILDER (deterministic claim matrix).
 
 Pure code. **Zero LLM calls, zero network — store reads only.** Given an admitted
-Fusion episode (a symbol-day evidence stack, ``db/fusion.py``), assemble the fixed
-set of perception ANGLES into a stable claim matrix that the Phase C3 investigator
+Fusion episode (one open evidence stack per symbol, ``db/fusion.py`` — ``market_day``
+is the episode's *opening* session only, not a day key), assemble the fixed set of
+perception ANGLES into a stable claim matrix that the Phase C3 investigator
 (T1 null-hypothesis triage → REASON v1/v2) consumes. The investigator renders angle
 VALUES from these claims deterministically and cites claim ids STRICTLY, so:
 
   * ``claim_id`` is deterministic + stable — ``f"{angle}:{n}"`` with ``n`` assigned
     in a FIXED angle order and a FIXED intra-angle sort (by ts, then value). The
-    same episode state in yields the same ids out (``tests/test_dossier.py``).
+    same episode state + same ``now`` in yields the same ids out
+    (``tests/test_dossier.py``).
   * an angle with nothing to say is OMITTED (no empty claims); a dossier is valid
     with as few as the ``evidence`` angle alone.
+  * ``now`` selects the primary ET window for flow/tape/catalyst/context (and the
+    since-open upper bound on multi-day episodes), so it affects claim VALUES and
+    ordering — not just freshness. Windowed aggregates name their window in the
+    statement text.
 
 This module is INERT: nothing in production imports it yet (C3's investigator becomes
 its caller). It never writes to any store except via ``build_and_store_dossier`` →
@@ -192,8 +198,27 @@ def _evidence_protos(episode_id: str, db_path: Path) -> list[dict[str, Any]]:
     return protos
 
 
-def _flow_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, Any]]:
-    """Symbol-day options-flow aggregates: total premium by direction + largest print."""
+def _window_label(kind: str, *, window_day: str, opened_day: str) -> str:
+    """Suffix that names the claim's window — undated aggregates hid the birth-day bug."""
+    if kind == "primary":
+        return f"[{window_day}]"
+    return f"since episode opened {opened_day}"
+
+
+def _flow_protos(
+    symbol: str,
+    *,
+    window_day: str,
+    opened_day: str,
+    db_path: Path,
+) -> list[dict[str, Any]]:
+    """Options-flow aggregates for ``now``'s ET day + (when multi-day) since episode open.
+
+    ``market_day`` on the episode is the *birth* session only (Round-3 schema); filtering
+    on it alone blinds a multi-day episode to everything after open. Primary window =
+    ``window_day``; since-open covers ``opened_day``..``window_day`` inclusive and is
+    emitted as a separate labelled claim — never merged into the primary number.
+    """
     options_flow_db.init_db(db_path)
     with _connect(db_path) as conn:
         rows = conn.execute(
@@ -202,57 +227,74 @@ def _flow_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, 
             (symbol,),
         ).fetchall()
 
-    sums = {"bull": 0.0, "bear": 0.0}
-    counts = {"bull": 0, "bear": 0}
-    last_ts = {"bull": "", "bear": ""}
-    largest: dict[str, Any] | None = None
-    largest_prem = -1.0
-    for row in rows:
-        ts = str(row["ts"] or "")
-        if _et_date(ts) != market_day:
-            continue
-        prem = _as_float(row["premium_usd"])
-        direction = options_direction(row["right"], row["direction"])
-        if direction in sums:
-            sums[direction] += prem
-            counts[direction] += 1
-            last_ts[direction] = max(last_ts[direction], ts)
-        if prem > largest_prem:
-            largest_prem, largest = prem, dict(row)
+    windows: list[tuple[str, str]] = [("primary", window_day)]
+    if opened_day and window_day and opened_day != window_day:
+        windows.append(("since_open", opened_day))
 
     protos: list[dict[str, Any]] = []
-    for direction in ("bull", "bear"):
-        if counts[direction]:
-            side = "ask/bull" if direction == "bull" else "bid/bear"
+    for kind, _ in windows:
+        sums = {"bull": 0.0, "bear": 0.0}
+        counts = {"bull": 0, "bear": 0}
+        last_ts = {"bull": "", "bear": ""}
+        largest: dict[str, Any] | None = None
+        largest_prem = -1.0
+        for row in rows:
+            ts = str(row["ts"] or "")
+            day = _et_date(ts)
+            if kind == "primary":
+                if day != window_day:
+                    continue
+            else:
+                if not day or day < opened_day or day > window_day:
+                    continue
+            prem = _as_float(row["premium_usd"])
+            direction = options_direction(row["right"], row["direction"])
+            if direction in sums:
+                sums[direction] += prem
+                counts[direction] += 1
+                last_ts[direction] = max(last_ts[direction], ts)
+            if prem > largest_prem:
+                largest_prem, largest = prem, dict(row)
+
+        label = _window_label(kind, window_day=window_day, opened_day=opened_day)
+        for direction in ("bull", "bear"):
+            if counts[direction]:
+                side = "ask/bull" if direction == "bull" else "bid/bear"
+                protos.append(
+                    {
+                        "statement": (
+                            f"options {side} premium ${sums[direction]:,.0f} across "
+                            f"{counts[direction]} print(s) {label}"
+                        ),
+                        "value": sums[direction],
+                        "ts": last_ts[direction] or window_day,
+                        "direction": direction,
+                    }
+                )
+        if largest is not None and largest_prem > 0:
+            ld = options_direction(largest["right"], largest["direction"])
             protos.append(
                 {
                     "statement": (
-                        f"options {side} premium ${sums[direction]:,.0f} across "
-                        f"{counts[direction]} print(s)"
+                        f"largest options print ${largest_prem:,.0f} "
+                        f"{str(largest['right'] or '?').upper()} {ld} {label}"
                     ),
-                    "value": sums[direction],
-                    "ts": last_ts[direction] or market_day,
-                    "direction": direction,
+                    "value": largest_prem,
+                    "ts": str(largest["ts"] or ""),
+                    "direction": ld,
                 }
             )
-    if largest is not None and largest_prem > 0:
-        ld = options_direction(largest["right"], largest["direction"])
-        protos.append(
-            {
-                "statement": (
-                    f"largest options print ${largest_prem:,.0f} "
-                    f"{str(largest['right'] or '?').upper()} {ld}"
-                ),
-                "value": largest_prem,
-                "ts": str(largest["ts"] or ""),
-                "direction": ld,
-            }
-        )
     return protos
 
 
-def _tape_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, Any]]:
-    """Symbol-day equity-tape aggregates: block/dark-pool notional by direction + largest."""
+def _tape_protos(
+    symbol: str,
+    *,
+    window_day: str,
+    opened_day: str,
+    db_path: Path,
+) -> list[dict[str, Any]]:
+    """Equity-tape aggregates for ``now``'s ET day + (when multi-day) since episode open."""
     equity_tape_db.init_db(db_path)
     with _connect(db_path) as conn:
         rows = conn.execute(
@@ -261,51 +303,62 @@ def _tape_protos(symbol: str, market_day: str, db_path: Path) -> list[dict[str, 
             (symbol,),
         ).fetchall()
 
-    sums = {"bull": 0.0, "bear": 0.0}
-    counts = {"bull": 0, "bear": 0}
-    last_ts = {"bull": "", "bear": ""}
-    largest: dict[str, Any] | None = None
-    largest_notional = -1.0
-    for row in rows:
-        ts = str(row["ts"] or "")
-        if _et_date(ts) != market_day:
-            continue
-        notional = _as_float(row["notional_usd"])
-        direction = tape_direction(row["direction"])
-        if direction in sums:
-            sums[direction] += notional
-            counts[direction] += 1
-            last_ts[direction] = max(last_ts[direction], ts)
-        if notional > largest_notional:
-            largest_notional, largest = notional, dict(row)
+    windows: list[tuple[str, str]] = [("primary", window_day)]
+    if opened_day and window_day and opened_day != window_day:
+        windows.append(("since_open", opened_day))
 
     protos: list[dict[str, Any]] = []
-    for direction in ("bull", "bear"):
-        if counts[direction]:
+    for kind, _ in windows:
+        sums = {"bull": 0.0, "bear": 0.0}
+        counts = {"bull": 0, "bear": 0}
+        last_ts = {"bull": "", "bear": ""}
+        largest: dict[str, Any] | None = None
+        largest_notional = -1.0
+        for row in rows:
+            ts = str(row["ts"] or "")
+            day = _et_date(ts)
+            if kind == "primary":
+                if day != window_day:
+                    continue
+            else:
+                if not day or day < opened_day or day > window_day:
+                    continue
+            notional = _as_float(row["notional_usd"])
+            direction = tape_direction(row["direction"])
+            if direction in sums:
+                sums[direction] += notional
+                counts[direction] += 1
+                last_ts[direction] = max(last_ts[direction], ts)
+            if notional > largest_notional:
+                largest_notional, largest = notional, dict(row)
+
+        label = _window_label(kind, window_day=window_day, opened_day=opened_day)
+        for direction in ("bull", "bear"):
+            if counts[direction]:
+                protos.append(
+                    {
+                        "statement": (
+                            f"equity {direction} tape notional ${sums[direction]:,.0f} "
+                            f"across {counts[direction]} print(s) {label}"
+                        ),
+                        "value": sums[direction],
+                        "ts": last_ts[direction] or window_day,
+                        "direction": direction,
+                    }
+                )
+        if largest is not None and largest_notional > 0:
+            ld = tape_direction(largest["direction"])
             protos.append(
                 {
                     "statement": (
-                        f"equity {direction} tape notional ${sums[direction]:,.0f} "
-                        f"across {counts[direction]} print(s)"
+                        f"largest tape print ${largest_notional:,.0f} "
+                        f"{str(largest['event_type'] or 'block')} {ld} {label}"
                     ),
-                    "value": sums[direction],
-                    "ts": last_ts[direction] or market_day,
-                    "direction": direction,
+                    "value": largest_notional,
+                    "ts": str(largest["ts"] or ""),
+                    "direction": ld,
                 }
             )
-    if largest is not None and largest_notional > 0:
-        ld = tape_direction(largest["direction"])
-        protos.append(
-            {
-                "statement": (
-                    f"largest tape print ${largest_notional:,.0f} "
-                    f"{str(largest['event_type'] or 'block')} {ld}"
-                ),
-                "value": largest_notional,
-                "ts": str(largest["ts"] or ""),
-                "direction": ld,
-            }
-        )
     return protos
 
 
@@ -422,32 +475,40 @@ def _attention_protos(
 
 
 def _catalyst_protos(
-    symbol: str, market_day: str, state_ts: str, db_path: Path
+    symbol: str, as_of_day: str, state_ts: str, db_path: Path
 ) -> list[dict[str, Any]]:
-    """Earnings proximity in trading days (next preferred, else most-recent).
+    """Earnings proximity in trading days as of ``now``'s ET date (not episode birth).
 
     Dates only — never the bmo/amc hour (directionally biased, per the earnings
     store's own warning). No parsing of 8-K timestamps here, so the UTC->ET / CIK
-    traps don't apply: the calendar store already holds normalized ISO dates."""
-    nxt = next_earnings_date(symbol, market_day, db_path=db_path)
+    traps don't apply: the calendar store already holds normalized ISO dates.
+    The as-of day is named in the statement so an undated count cannot silently
+    drift with the episode's birth date."""
+    nxt = next_earnings_date(symbol, as_of_day, db_path=db_path)
     if nxt:
-        td = _trading_days_between(market_day, nxt)
+        td = _trading_days_between(as_of_day, nxt)
         if td >= 0:
             return [
                 {
-                    "statement": f"next earnings in {td} trading day(s) ({nxt})",
+                    "statement": (
+                        f"next earnings in {td} trading day(s) ({nxt}) "
+                        f"[as of {as_of_day}]"
+                    ),
                     "value": td,
                     "ts": state_ts,
                     "direction": "none",
                 }
             ]
-    last = last_earnings_date(symbol, market_day, db_path=db_path)
+    last = last_earnings_date(symbol, as_of_day, db_path=db_path)
     if last:
-        since = _trading_days_between(last, market_day)
+        since = _trading_days_between(last, as_of_day)
         if since >= 0:
             return [
                 {
-                    "statement": f"most recent earnings {since} trading day(s) ago ({last})",
+                    "statement": (
+                        f"most recent earnings {since} trading day(s) ago ({last}) "
+                        f"[as of {as_of_day}]"
+                    ),
                     "value": since,
                     "ts": state_ts,
                     "direction": "none",
@@ -457,11 +518,18 @@ def _catalyst_protos(
 
 
 def _context_protos(
-    episode: dict[str, Any], symbol: str, market_day: str, state_ts: str, db_path: Path
+    episode: dict[str, Any],
+    symbol: str,
+    as_of_day: str,
+    state_ts: str,
+    db_path: Path,
 ) -> list[dict[str, Any]]:
-    """Regime tag + index-pressure state + market-shock flag (riders — never directional)."""
+    """Regime tag + index-pressure state + market-shock flag (riders — never directional).
+
+    Reads are as-of ``now``'s ET date (named in each statement), not the episode birth
+    day — ``market_day`` is opening-session-only under the Round-3 episode model."""
     protos: list[dict[str, Any]] = []
-    as_of = market_day or None
+    as_of = as_of_day or None
     vix = latest_observation("VIXCLS", as_of=as_of, db_path=db_path)
     if vix is not None:
         vix_val = vix[1]
@@ -473,6 +541,8 @@ def _context_protos(
             term = dgs10[1] - dgs2[1]
             curve = "inverted" if term < 0 else "normal"
             statement += f", term spread {term:+.2f} ({curve} curve)"
+        if as_of_day:
+            statement += f" [as of {as_of_day}]"
         protos.append(
             {
                 "statement": statement,
@@ -482,9 +552,9 @@ def _context_protos(
             }
         )
 
-    if market_day:
+    if as_of_day:
         try:
-            pressure = day_summary(market_day, db_path=db_path)
+            pressure = day_summary(as_of_day, db_path=db_path)
         except sqlite3.OperationalError:
             pressure = []
         for entry in pressure:
@@ -493,7 +563,10 @@ def _context_protos(
                 lean = "bull-lean" if net > 0 else ("bear-lean" if net < 0 else "flat")
                 protos.append(
                     {
-                        "statement": f"index-pressure {symbol}: net ${net:,.0f} ({lean})",
+                        "statement": (
+                            f"index-pressure {symbol}: net ${net:,.0f} ({lean}) "
+                            f"[{as_of_day}]"
+                        ),
                         "value": net,
                         "ts": state_ts,
                         "direction": "none",
@@ -651,24 +724,32 @@ def build_dossier(
 
     Returns ``{episode_id, symbol, market_day, claims: [...], summary: str}``. Each
     claim is ``{claim_id, angle, statement, value, ts, direction, fresh,
-    contradicts}``. Pure: same episode state + same ``now`` in -> identical out
-    (``now`` defaults to the wall clock; freshness is the only ``now``-dependent
-    field, and it never affects ids or ordering).
+    contradicts}``. Pure: same episode state + same ``now`` in -> identical out.
+    ``now`` defaults to the wall clock; it selects the primary ET window for
+    flow/tape/catalyst/context (and the since-open upper bound), so it affects
+    claim values and ordering as well as freshness.
     """
     now = now or datetime.now(timezone.utc)
     episode_id = str(episode["id"])
     symbol = str(episode.get("symbol") or "").strip().upper()
-    market_day = str(episode.get("market_day") or "")
+    market_day = str(episode.get("market_day") or "")  # episode birth / opening session
+    window_day = now.astimezone(_ET).date().isoformat()
     state_ts = now.isoformat()  # state-angle reads are as-of build time (deterministic)
 
     by_angle: dict[str, list[dict[str, Any]]] = {
         "evidence": _evidence_protos(episode_id, db_path),
-        "flow": _flow_protos(symbol, market_day, db_path),
-        "tape": _tape_protos(symbol, market_day, db_path),
+        "flow": _flow_protos(
+            symbol, window_day=window_day, opened_day=market_day, db_path=db_path
+        ),
+        "tape": _tape_protos(
+            symbol, window_day=window_day, opened_day=market_day, db_path=db_path
+        ),
         "structure": _structure_protos(episode, symbol, state_ts, db_path),
         "attention": _attention_protos(symbol, state_ts, now, db_path),
-        "catalyst": _catalyst_protos(symbol, market_day, state_ts, db_path),
-        "context": _context_protos(episode, symbol, market_day, state_ts, db_path),
+        "catalyst": _catalyst_protos(symbol, window_day, state_ts, db_path),
+        "context": _context_protos(
+            episode, symbol, window_day, state_ts, db_path
+        ),
         "portfolio": _portfolio_protos(symbol, state_ts, db_path),
         "history": _history_protos(symbol, state_ts, now, db_path),
     }

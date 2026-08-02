@@ -13,9 +13,15 @@ from db import fusion as fusion_db
 from db import idea_outcomes as idea_outcomes_db
 from db import options_flow as options_flow_db
 from db.base import connect
+from db.earnings_calendar import upsert_earnings
 from db.idea_dossiers import get_dossier
 from db.social_mentions import record_mentions
-from signals.dossier import ANGLE_ORDER, build_and_store_dossier, build_dossier
+from signals.dossier import (
+    ANGLE_ORDER,
+    _trading_days_between,
+    build_and_store_dossier,
+    build_dossier,
+)
 
 MARKET_DAY = "2026-07-20"
 NOW = datetime(2026, 7, 20, 18, 5, tzinfo=timezone.utc)  # 14:05 ET, on the session
@@ -290,3 +296,124 @@ def test_get_put_roundtrip(db: Path) -> None:
             "SELECT COUNT(*) FROM idea_dossiers WHERE episode_id = ?", (EP_ID,)
         ).fetchone()[0]
     assert n == 1
+
+
+def test_flow_primary_window_is_now_et_day_not_episode_birth(db: Path) -> None:
+    """D1: market_day is opening-session-only; primary flow reads now's ET day."""
+    birth = "2026-07-20"
+    later = "2026-07-22"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_flow(
+        db,
+        event_id="f_birth",
+        right="C",
+        direction="ask",
+        premium=50_000,
+        ts=f"{birth}T18:00:00+00:00",
+    )
+    _seed_flow(
+        db,
+        event_id="f_later",
+        right="C",
+        direction="ask",
+        premium=400_000,
+        ts=f"{later}T18:00:00+00:00",
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    dossier = build_dossier(episode, db_path=db, now=now)
+    primary = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "flow" and f"[{later}]" in c["statement"]
+    ]
+    since_open = [
+        c
+        for c in dossier["claims"]
+        if c["angle"] == "flow" and f"since episode opened {birth}" in c["statement"]
+    ]
+    assert primary, "primary window claims must name now's ET date"
+    assert since_open, "multi-day episodes must emit a separate since-open aggregate"
+    bull_primary = next(c for c in primary if c["direction"] == "bull" and "premium" in c["statement"])
+    assert bull_primary["value"] == 400_000
+    assert "50,000" not in bull_primary["statement"]  # birth-day alone is not the primary
+    bull_since = next(
+        c for c in since_open if c["direction"] == "bull" and "premium" in c["statement"]
+    )
+    assert bull_since["value"] == 450_000  # both days, distinct from primary
+    # Same-day episode must NOT duplicate into a since-open claim.
+    same_day_ep = {**episode, "market_day": later}
+    same_day = build_dossier(same_day_ep, db_path=db, now=now)
+    assert not any(
+        "since episode opened" in c["statement"]
+        for c in same_day["claims"]
+        if c["angle"] == "flow"
+    )
+
+
+def test_catalyst_as_of_now_not_birth_day(db: Path) -> None:
+    """D1: earnings trading-day count is as-of now, and the statement names that day."""
+    birth = "2026-07-21"
+    as_of = "2026-08-02"
+    earn = "2026-08-26"
+    episode = _seed_episode(db, market_day=birth)
+    upsert_earnings(
+        [{"symbol": SYMBOL, "date": earn, "hour": "amc", "source": "finnhub"}],
+        db_path=db,
+    )
+    now = datetime(2026, 8, 2, 16, 0, tzinfo=timezone.utc)
+
+    catalyst = next(
+        c
+        for c in build_dossier(episode, db_path=db, now=now)["claims"]
+        if c["angle"] == "catalyst"
+    )
+    expected = _trading_days_between(as_of, earn)
+    assert expected == 18  # measured live; pins the kill-switch
+    assert catalyst["value"] == expected
+    assert f"[as of {as_of}]" in catalyst["statement"]
+    assert "26 trading day" not in catalyst["statement"]  # birth-day count must not appear
+
+
+def test_now_selects_window_values_not_only_freshness(db: Path) -> None:
+    """Intentional purity-contract change: now affects claim VALUES, not just fresh."""
+    birth = "2026-07-20"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_flow(
+        db,
+        event_id="f1",
+        right="C",
+        direction="ask",
+        premium=100_000,
+        ts=f"{birth}T18:00:00+00:00",
+    )
+    _seed_flow(
+        db,
+        event_id="f2",
+        right="C",
+        direction="ask",
+        premium=250_000,
+        ts="2026-07-22T18:00:00+00:00",
+    )
+    now_birth = datetime(2026, 7, 20, 18, 5, tzinfo=timezone.utc)
+    now_later = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    early = build_dossier(episode, db_path=db, now=now_birth)
+    late = build_dossier(episode, db_path=db, now=now_later)
+    early_bull = next(
+        c
+        for c in early["claims"]
+        if c["angle"] == "flow" and c["direction"] == "bull" and f"[{birth}]" in c["statement"]
+    )
+    late_bull = next(
+        c
+        for c in late["claims"]
+        if c["angle"] == "flow"
+        and c["direction"] == "bull"
+        and "[2026-07-22]" in c["statement"]
+    )
+    assert early_bull["value"] == 100_000
+    assert late_bull["value"] == 250_000
+    assert early["claims"] != late["claims"]
+    # Same now still deterministic.
+    assert build_dossier(episode, db_path=db, now=now_later)["claims"] == late["claims"]

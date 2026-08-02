@@ -232,16 +232,17 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — changes land as
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
-- ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02).
-  The dossier is not merely dark, it is wrong: 4 angles still filter on the episode's BIRTH day under
-  the retired symbol-day model, measured blind to 99.8% of a 12-day-old episode's dots, and the
-  evidence angle truncates every analytic claim out of the summary the LLM would read. Arming first
-  just feeds the lane stale claims. Brief: `tools/composer-bridge/briefs/dossier-repair.md`.
+- ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02;
+  **D1 shipped 08-02 on branch `dossier-repair`** — window now off `now`'s ET day + labelled
+  since-open; **D2 truncation + D3 news still open**). The dossier is not merely dark; D2 still
+  truncates every analytic claim out of the summary the LLM would read. Arming first just feeds
+  the lane a 100%-evidence matrix. Brief: `BRIEF_dossier-repair.md` (worktree) /
+  `tools/composer-bridge/briefs/dossier-repair.md`.
   Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
   dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
   BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22
-  (the episode model D1 must conform to). Fixing the window RESTORES conformance — Round 3 already
-  stamped `market_day … now = OPENING session only, not a key`.
+  (the episode model D1 conformed to). D1 restored conformance — Round 3 already stamped
+  `market_day … now = OPENING session only, not a key`.
 - ⚠ full pytest suite live-fires outbound HTTPS (suite-hang + WAF risk) — needs a network-marking
   round.
 - wider-stop sibling lane + index-underlying spot (SPX/NDX/RUT/VIX unstampable) deferred on the
