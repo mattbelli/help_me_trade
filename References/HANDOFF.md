@@ -15,6 +15,24 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ EDGAR nightly refresh — built and measured, NOT deployed (two ordered actions on serv)
+
+Branch `edgar-companyfacts-refresh` in worktree `pipeline`, unpushed. Mechanism + measurements on
+card `edgar-companyfacts-nightly-refresh` and the 08-02 BUILD_LOG row.
+
+- **⏳ Seed FIRST, before any cron:** `.venv/bin/python -m research.edgar_refresh --seed-from` on the
+  live checkout. It records the entry CRCs of the `companyfacts.zip` we already ingested (20,122 in
+  0.1s) and stamps no timestamp. ⚠️ **Skip it and the first cron run sees an empty ledger, calls all
+  ~20k entries changed, and does a full 1.33 GB rebuild instead of a 137s diff.**
+- **⏳ Then install the cron line** (also in the script header):
+  `10 7 * * * NTFY_TOPIC=hmt-deadman-0033ce1c5edb753f9932 /home/mbelli/dev/help_me_trade/tools/edgar_nightly_refresh.sh >> /home/mbelli/dev/help_me_trade/data/research/edgar_refresh.log 2>&1`
+- **⏳ After ~3 runs — retune the slot from data, not from my one sample.** 07:10 UTC was set off a
+  single `Last-Modified` reading (04:38:46 UTC on 08-02). Every run logs the snapshot's own
+  `Last-Modified`; if it consistently lands later than ~05:30 UTC, move the slot later. Being early
+  is self-healing (the diff finds nothing, the next run catches up), so this is tuning, not a bug.
+
+---
+
 ## ▶ 2026-08-06 Schwab re-auth — the verdict on the Akamai hardening
 
 Token is healthy (minted 08-01 13:28Z, cliff **2026-08-08**). serv's IP is still edge-blocked from
@@ -236,11 +254,19 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   D1–D5 shipped — see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
   components (one per round: oi_walls, options_chain/IV, DERA segments, filings_events) + the
   contested-wall gate. Briefs live in the worktree (`BRIEF_D5_fundamentals_angle.md` is the latest).
-  ⚠️ **Open from D5:** the §3 EDGAR ingest watermark (`edgar_ingest_watermark`) is imported
-  defensively from `research.edgar_bulk` and does NOT exist yet — until the parallel branch lands,
-  EVERY `fundamentals` claim renders `fresh=False` + `[SEC recency unknown — corpus never checked]`,
-  which is correct but useless. On merge, confirm the reader's module matches that import (one line
-  in `signals/dossier._edgar_ingest_watermark` if it landed elsewhere).
+  ✅ **D5's watermark dependency is CLOSED** — `research.edgar_bulk.edgar_ingest_watermark` shipped
+  the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
+  round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;
+  unseen → `None`).
+  ⚠️ **BUT the nightly job is NOT ACTIVE yet — two manual steps remain, and until both are done every
+  `fundamentals` claim still renders `[SEC recency unknown — corpus never checked]`:**
+  (1) `.venv/bin/python -m research.edgar_refresh --seed-from data/research/edgar/companyfacts.zip`
+  — one-time, records the entry CRCs of the zip we already ingested. **Skip it and the first run
+  calls all ~20k entries changed and does a full 1.33 GB rebuild instead of a diff.**
+  (2) install the crontab line documented in the header of `tools/edgar_nightly_refresh.sh`
+  (`10 7 * * *`, 07:10 UTC — after SEC's ~04:38 UTC snapshot, clear of the Sunday 08:00 DERA run and
+  the 09:15 UTC backup). Both need the code present in `/home/mbelli/dev/help_me_trade`, which lags
+  `origin/main` until someone deploys.
   Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
   dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
   BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22
