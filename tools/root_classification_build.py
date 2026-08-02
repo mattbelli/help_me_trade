@@ -774,15 +774,27 @@ class RootClassification:
         return list(self._splits.get(occ_form(root.strip().upper()), ()))
 
     # -- the fence --------------------------------------------------------
-    def resolve(self, root: str, date: str | None = None) -> str:
+    def resolve(self, root: str, date: str | None = None) -> str | None:
         """Terminal symbol for bars/price/classification reads.
 
         Follows the rename chain (multi-hop) through the segment `date` falls
         in, then hands back the DIRECTORY form so bars stored under `BRK.B` are
         reachable. `date=None` means the pull date.
+
+        Returns None when the identity is UNKNOWABLE: `date` falls in a
+        non-last reuse segment of a root the chain never left — the era's
+        tenant departed without a rename (delisted/acquired), so its history
+        lives under NO current symbol (Alpaca keys bars by the CURRENT asset;
+        the reused ticker serves the successor's history). Ex: Barnes-era `B`
+        (pre-2025-05-09), pre-reuse `ARIS`. Consumers see a bars miss ->
+        drop_no_bars / `unclassified`. Delta-review-A MAJOR, 2026-08-02.
         """
         plain = occ_form(root.strip().upper())
         terminal = _terminal(plain, date, self._renames, self._splits)
+        if date is not None and terminal == plain:
+            bounds = self._splits.get(plain)
+            if bounds and date < bounds[-1]:
+                return None
         return self.directory_form(terminal) or terminal
 
     def classify(self, root: str, date: str | None = None) -> str:
@@ -792,6 +804,8 @@ class RootClassification:
         if self._adjusted.search(raw):
             return "adjusted"
         terminal = self.resolve(raw, date)
+        if terminal is None:
+            return "unclassified"
         plain = occ_form(terminal)
         if terminal in self._test or plain in self._test:
             return "test"
@@ -860,6 +874,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--directory", default=str(DEFAULT_DIRECTORY),
                    help="the COMMITTED directory snapshot")
     p.add_argument("--corpus-db", default=str(DEFAULT_DB_PATH))
+    p.add_argument("--backfill-db", default=None,
+                   help="crawl DB (backfill.db) for extended-span old-side evidence")
     p.add_argument("--pull-date", required=True,
                    help="the obligation-2 pull date, YYYY-MM-DD (never today() — the "
                         "snapshot's identity must not depend on when it was run)")
@@ -909,6 +925,34 @@ def main(argv: list[str] | None = None) -> int:
     premium = corpus_premium(db_path)
     logger.info("corpus underlyings: %d", len(premium))
 
+    dates_fn = corpus_dates_for(db_path)
+    if args.backfill_db:
+        # Extended-span evidence (backfill addendum): the corpus DB starts
+        # 2025-07-25, so renames processed before it have NO old-side premium or
+        # trading dates there — the crawl DB (per-root ≥$25k groups over
+        # 2024-02-15..2025-07-25) supplies both. Roots ARE the contemporaneous
+        # symbols on that side of a rename, which is exactly the old-side
+        # evidence the premium floor and the gap/overlap tests need.
+        bf_path = Path(args.backfill_db)
+        logger.info("merging backfill evidence from %s", bf_path)
+        with _connect_ro(bf_path) as conn:
+            for r in conn.execute(
+                    "SELECT root, SUM(premium) AS p FROM prints GROUP BY root"):
+                premium[r["root"]] = premium.get(r["root"], 0.0) + float(r["p"])
+
+        corpus_dates = dates_fn
+
+        def _merged_dates(symbols):
+            out = corpus_dates(symbols)
+            with _connect_ro(bf_path) as conn:
+                for sym in symbols:
+                    out.setdefault(sym, set()).update(
+                        row[0] for row in conn.execute(
+                            "SELECT DISTINCT session FROM prints WHERE root = ?",
+                            (sym,)))
+            return out
+        dates_fn = _merged_dates
+
     name_changes = fetch_name_changes(
         args.start_date, args.pull_date, api_key=key, api_secret=secret)
     if not name_changes:
@@ -926,7 +970,7 @@ def main(argv: list[str] | None = None) -> int:
         directory_sha256=sha,
         name_changes=name_changes,
         premium=premium,
-        dates_for=corpus_dates_for(db_path),
+        dates_for=dates_fn,
         sessions=corpus_sessions(db_path),
         legacy_etf_set=ETF_SET,
         pull_date=args.pull_date,

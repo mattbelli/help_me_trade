@@ -194,17 +194,40 @@ snapshot per sweep). Open threads only:
   `--g-verdict`); any code change before #5 = dated addendum + re-freeze.
 - ✅ Confirmatory abstention run COMPLETE 07-30 (BUILD_LOG row): 19.97% pooled — 0.03pt below
   the band, recorded as the registered finding. Thread closed.
-- **⏳ Phase 3 (dealer hedge footprint) OPEN — founder go 2026-08-01; 3.1 clock skew DONE;
-  3.2 DONE 2026-08-01 with FINAL verdict FOOTPRINT-AMBIGUOUS (direction-without-size)** —
-  Amendment 2 founder-blessed ("re run blessed"), power gate passed honestly (MDE 0.05/0.10,
-  floors met), direction p=0.0015 at 64g quiet with flat pre-window, size scaling absent at
-  a power that would have seen 10% (BUILD_LOG row + ROADMAP 3.2 result blocks are the
-  record; card `flow-phase3-hedge-footprint`; founder card `flow-32-amendment2-decision`
-  resolved). **Next: 3.3 counterparty label — design it as PER-EVENT footprint
-  presence/absence, not pooled slopes** (the registered read + logged outlier look both
-  point there); needs its own pre-registration, and it is where forward returns finally
-  unseal (tradability question). Cheap first look available: drop the top-5 outlier events
-  and re-check direction (descriptive, data on disk). No collision with the live-pairing
+- **⏳ Phase 3 (dealer hedge footprint): 3.1 + 3.2 DONE (3.2 verdict FOOTPRINT-AMBIGUOUS,
+  direction-without-size — BUILD_LOG rows + ROADMAP result blocks are the record). 3.3
+  REGISTERED 2026-08-01, founder-blessed "Ok lets run it", labels FROZEN** (SHA
+  `104c184e…a089e57`, HIGH 25 / NULL 84 / ANTI 8, `tools/hedge_footprint_freeze.py`).
+  Measurement BUILT (`tools/hedge_label_drift.py` + 177 tests, seal locks in code).
+  **Gate 1 FAILED on both populations — the registered ladder is EXHAUSTED: NO-RUN,
+  forward returns NEVER unsealed. 3.3 is DORMANT-ACCRUING** (ROADMAP Amendments 1–3:
+  narrow 0.18 → wide 0.29 power at the 1.5% floor; MDE 3.0%; binding leg =
+  m-residualized; HIGH accrues ≈3–4/month → meaningful re-gate ~a year out; any earlier
+  re-test = NEW registration, disclosed weaker). Wide artifacts:
+  `hedge_footprint_wide/equity/` (250 events frozen, SHA `c87592df…97264f`).
+  ⚠️ Standing seals: forward returns SEALED (no gate has passed); frozen writers refuse
+  overwrite — treat a SHA mismatch as an incident. ⚠️ If a future re-gate passes: deep
+  review of the unseal/analyze paths of `hedge_label_drift.py` MUST complete first
+  (gate1 path reviewed; the rest built+tested, not yet line-by-line reviewed).
+  ⏳ **OPEN: combined Gate 1 re-run → tranche-2 decision** — backfill labels FROZEN
+  2026-08-02 at **`d0eb07d1…df14`: HIGH 58 / NULL 286 / ANTI 27** (371 cut from 1,110
+  events over the CORRECTED top-10k registration; BUILD_LOG 2026-08-02 fix-round row +
+  ROADMAP round-3 addendum = the record). Two-Opus review ran TWICE: round 1 FAILED the
+  first freeze (fence span missed GOLD→B; split TODAY-basis bars) and round 2 caught
+  the fix round itself (a-side halo desynced the rank-based join — final form clips to
+  the print-tape bounds); final verdicts A PASS-WITH-FIXES (applied) / B PASS ("sound
+  to register"). Returns NEVER unsealed. Open items: (1) re-run Gate 1 pooling corpus
+  31 + backfill 58 = **89 HIGH vs ~124 needed** at the 1.5% MDE floor — pooling MUST
+  disclose population composition (backfill tilts thinner/higher-d); (2) if power still
+  fails (likely): tranche-2-deeper purchase, exact quote first, ~$25 left of the ≤$30
+  envelope ($4.82 spent on the corrected-registration gap); (3) if a gate ever passes,
+  the line-by-line unseal/analyze review of `hedge_label_drift.py` MUST complete before
+  any unseal (standing). ⚠️ Fence note: `resolve()` now returns None for
+  non-last-reuse-segment dates (Barnes-era `B` class); any consumer added later must
+  handle None.
+  ⏳ **Next Phase-3 move: 3.4 spread orientation** — NOT gated on 3.3 (needs only 3.2's
+  CONFIRMED direction result); unlocks the ~33% of premium fenced as spreads. Needs its
+  own pre-registration round (founder-visible). No collision with the live-pairing
   thread (other agent).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.

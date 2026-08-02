@@ -2903,6 +2903,440 @@ equivalent; we do not need it.
 - [ ] **3.3 Counterparty label.** Where a hedge is present, the other side was a **dealer**; where it
       is absent, plausibly another customer — and customer-vs-customer carries no information, just
       disagreement. *This is the direct answer to "there is always a taker on the other side."*
+
+      **3.3 SPEC v2 — REGISTERED 2026-08-01 (founder-blessed "Ok lets run it" after the
+      v1→v2 review round below; the reported-only h4/h_exp legs are the founder's own
+      additions, blessed in the same exchange). This spec IS LAW: any change after this
+      line is a dated amendment. This phase UNSEALS forward returns for the first time;
+      the frozen-label SHA-256 is recorded at the end of this block before any outcome
+      fetch.**
+
+      **Review round record (logged looks — all on already-unblinded 3.2 windows, neutral
+      symbols, or metadata; NO forward returns computed):** v1 carried 13 blockers.
+      Measured en route: (a) raw-quote marks vs `adjustment=all` bars mix price spaces —
+      244–656 bps of pure bookkeeping error on neutral names (KO/JNJ/XOM/PFE), 5–13× the
+      decision floor, sign-imbalanced across strata; (b) HIGH events' own score window
+      carries +21.1 bps aligned mid drift (LOW +1.3) — the score is mechanically coupled to
+      a concurrent price move, and the hedge is still running at the ±300s fetch edge for a
+      minority (late-window HIGH mean z 4.11); (c) the label is arm-sensitive: Jaccard vs
+      the 25-event HIGH set = 0.50 (TRF-incl), 0.57 (tick-rule), 0.27 (16g), 0.27 (165g);
+      (d) 8 of v1's 92 "LOW" events have score ≤ −3 — an ANTI-aligned footprint whose
+      plausible causes (side misclassification, unrecognized package leg, self-hedger) all
+      flip the outcome sign too; (e) event-day realized vol = 1.46× the same name's control
+      days in HIGH (LOW 1.03×) — a controls-only power estimate is optimistic exactly in
+      the stratum that matters; (f) earnings land in the forward window for 4/25 HIGH at
+      h3; (g) benign, measured so a null isn't over-read later: spreads at the mark are
+      fine (median 7–9 bps, zero crossed/locked), zero events have news at the mark, and
+      the strata are already matched on D/contracts/|Δ|/premium (the "HIGH = biggest
+      print" proxy concern is empirically weak); the v1 sign-flip permutation tested the
+      wrong null for a stratum contrast, and the v1 power harness scored only the p-leg of
+      a multi-leg verdict rule (operative α ≈ 0.0013, true power ≈ 56% at the floor).
+
+      **Question (sharpened).** Does the per-event footprint score label the counterparty,
+      and does the label predict aligned forward drift? Thesis: HIGH ⇒ a dealer absorbed a
+      real outside risk-taker's bet (sometimes informed ⇒ drift); NULL ⇒ plausibly
+      customer-vs-customer (no information ⇒ ≈ 0 drift — an equivalence claim, not an
+      accepted null). Training window only (2025-07-28 → 2026-05-05); sealed test split +
+      forward paper remain the confirmation leg; any positive = calibrated hypothesis,
+      never a live signal.
+
+      - **Frozen label file (before ANY outcome fetch):** `hedge_scores_frozen_3p3.json` —
+        per event: symbol, session, ts_ns, instrument_id, h_sign, D, |H|, Ẽ_Z@64g,
+        cluster id, stratum, and every registered covariate below; SHA-256 recorded in the
+        registration block; a pinned test reproduces it from the committed code. Strata:
+        **HIGH s ≥ +3 (25 ev / 23 und), NULL |s| < 3 (84), ANTI s ≤ −3 (8)**. Verdict
+        contrast = **HIGH − NULL**; ANTI is reported separately (registered prediction: a
+        significantly negative aligned return there evidences misclassification, not the
+        thesis) and never pooled. Threshold honesty: outcomes are sealed so the type-I
+        rate is unaffected by how 3.0 was picked; it is NEVER revised after outcomes
+        exist — any re-cut is a new phase on the sealed test split. Strata with n < 15:
+        counts + point estimates only, no p/CI. Tercile boundaries pre-registered from the
+        frozen file. Balance table (ADV, price, trailing vol, control MAD, |Δ|, D,
+        put/call, buy/sell, h_sign mix, exp_days, %OTM moneyness) disclosed at freeze.
+      - **Marks & price space:** M0 = NBBO mid at T+300s (primary anchor; staleness rule:
+        no quote update within 60s → last trade, flagged); **M0_fast = mid at T+60s** and
+        **M_pre = mid at T−1s** reported at every horizon. ONE adjustment space: per-event
+        factor f_i = close_all/close_raw on the event session applied to intraday marks;
+        |f_i − 1| disclosed; hard tripwire |log(first forward close / M0_adj)| < 0.10;
+        unit test on a known dividend payer. Symbols resolved date-scoped via the
+        `name_change` feed (P/ABX/FLG are live rename risks). The v1 claim "the hedge's
+        push is excluded by construction" is retracted: M0 sits after the measured
+        response, so the response is capitalized into M0, not removed.
+      - **Horizons:** h1 = M0 → T+30 min (fixed width; replaces same-session close);
+        **h2 = next-session close [PRIMARY]**; h3 = T+5-session close. **Reported-only
+        legs (founder ask 2026-08-01, no verdict authority, expected underpowered — noise
+        ∝ √t):** h4 = T+21-session close (~30–45 calendar days), and **h_exp = close on
+        the option's own expiry date capped at T+30 sessions** — the trader's self-stated
+        deadline — both also shown σ-standardized so mixed maturities compare. Any
+        forward window crossing the sealed-split boundary (2026-05-05) is truncated there
+        and flagged; the frozen balance table adds each event's exp_days and moneyness
+        (%OTM) so the bet-horizon mix of HIGH is visible before unsealing.
+      - **Outcome y:** customer-direction-aligned log return, SPY-subtracted at IDENTICAL
+        marks and adjustment space (SPY 1-min mark at T+300s, same-close endpoints), minus
+        the median of the same quantity on the event's own PRE-event control sessions
+        (same name, same clock marks; the symmetric all-20-controls version reported).
+        Robustness legs reported: raw, SPY-only, β-adjusted (β̂ from 60 pre-sessions),
+        σ-standardized (÷ pre-event trailing vol ×√horizon — sign agreement required for
+        PREDICTIVE), last-trade mark. **Censoring keep-rule:** halt → first post-resumption
+        or auction price; delisting/acquisition → deal or last price; drop ONLY if no
+        price exists; drops > 5% of either stratum → NO-VERDICT; censored events listed
+        per stratum with returns shown.
+      - **Earnings fence (pre-unseal, from our EDGAR store):** the PRIMARY contrast runs
+        on the earnings-free-forward-window stratum at every horizon; earnings-straddling
+        events form a declared separate stratum, reported, never pooled; exact post-fence
+        n disclosed at freeze (~24 HIGH at h2); ex-ante fenceability (estimated vs actual
+        dates) disclosed for the live version.
+      - **Inference (Look D):** null = **cluster-level stratum-LABEL permutation**
+        (reassign HIGH across underlying×session clusters preserving the HIGH cluster
+        count; the v1 sign-flip null is retained only for one-sample statements), with
+        **calendar-week blocks** at h2/h3 (10.9% of event pairs sit within 5 sessions);
+        one-sided α = 0.01; n_perm ≥ 50,000, seed registered. **Two co-primaries under
+        exact minP/max-statistic FWER on the same draws:** (i) Δ = mean y, HIGH − NULL at
+        the 3.0 split; (ii) Spearman rank correlation of score vs y over HIGH+NULL.
+        PREDICTIVE needs either to clear the adjusted threshold with the other same-signed;
+        conflicting signs ⇒ AMBIGUOUS. CIs by **stratified** cluster bootstrap (preserve
+        per-stratum cluster counts; BCa or percentile-t; > 1% non-finite draws ⇒ CI
+        invalid). **Concurrent-move control (verdict-bearing):** m_i = aligned mid move
+        over [T, T+300s] (measured look above) is a registered covariate; the contrast
+        residualized on (m, m²) must ALSO pass at α, else AMBIGUOUS with the registered
+        reading "label proxies the concurrent order-flow move." **Leave-one-week-out
+        jackknife:** any single week's removal pushing the primary p above α ⇒ AMBIGUOUS.
+        NULL's ≈ 0 claim = equivalence test (95% stratified-bootstrap CI inside ±0.5%),
+        never an accepted null.
+      - **Power, two gates:** **Gate 1 (pre-unseal):** injection harness on pseudo-events
+        built from control-day marks carrying the real labels/signs/clusters; δ injected
+        into HIGH pseudo-events only, grid {0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0}%; a
+        replication counts as detected ONLY if the FULL registered PREDICTIVE conjunction
+        passes; per-stratum dispersion = max(control-day estimate, 20-prior-session daily
+        dispersion), with the measured event/control vol ratio (1.46× HIGH) reported
+        beside the gate; floor **MDE ≤ 1.5% aligned drift at h2, 80% power**. Ladder if
+        failed, in order, all pre-unseal: (1) re-run 3.2 selection at cap 20/underlying +
+        top 600/band — PRIMARY band only (secondary Δ-band is never pooled into the
+        contrast, per 3.2 Amendment 1; it may appear only as its own reported stratum);
+        (2) STOP = NO-RUN, nothing unsealed. **Gate 2 (post-unseal re-gate):** realized
+        MDE recomputed from the actual events' dispersion; realized MDE > 1.5% ⇒ any
+        non-significant result routes NO-VERDICT-UNDERPOWERED and may NEVER route
+        LABEL-EMPTY.
+      - **Floors:** earnings-free primary stratum n_HIGH ≥ 20 events / ≥ 16 underlyings,
+        n_NULL ≥ 65; breach → NO-VERDICT.
+      - **Verdict table:** **LABEL-PREDICTIVE** = minP co-primary pass at h2 on the
+        earnings-free stratum AND the m-residualized contrast passes AND point Δ̂ ≥ 0.5%
+        AND stratified-bootstrap CI lower bound > 0 AND sign agreement across label
+        variants (TRF-incl, tick-rule), anchors (M_pre/M0/M0_fast), and the σ-standardized
+        leg AND the jackknife survives (either M0 or M0_fast may carry it; the other is
+        disclosed). **LABEL-GRADED** = contrast passes but NULL's own mean is
+        significantly positive (sign-flip p < 0.05): the score grades information;
+        "customer-vs-customer carries none" is falsified. **LABEL-INVERTED** = one-sided
+        p < 0.01 in the OPPOSITE direction on the co-primaries: recorded finding, no
+        re-cut, no trade license. **LABEL-EMPTY** (the kill) = floors met AND Gate 2
+        passed AND both co-primaries fail at ALL three horizons under ALL three labellings
+        (primary, TRF-incl, tick-rule) on BOTH marks (M0, M0_fast) → the label carries no
+        drift information in training; kills 3.3 as a tradable angle; does NOT touch 3.4.
+        **AMBIGUOUS** = any other mixed outcome — no kill, no re-cut.
+        **NO-VERDICT[-UNDERPOWERED]** = floors breached, or Gate 2 failed with a
+        non-significant result (Amendment 1 ruling a: a significant co-primary still
+        routes; a failed Gate 2 blocks LABEL-EMPTY only).
+      - **Build discipline:** new code, built + unit-tested BEFORE any outcome fetch:
+        label permutation, return-space injection harness, stratified bootstrap, minP,
+        frozen-file writer. Reused unchanged: `theil_sen`, `hedge_aligned`, cluster-id
+        construction, the snapshot readers. No "machinery verbatim" claim survives.
+      - **Tradability honesty:** returns are gross of borrow/financing/SSR (12/25 HIGH are
+        short-side — BTDR/EOLS/SHLS-class names); long- and short-side subsets reported at
+        every horizon; a short-side-carried PREDICTIVE is a research finding only. Quote
+        SIZES are not in the 3.2 snapshots — any capacity claim requires a size-carrying
+        refetch and is out of scope for this verdict.
+      - **Honest failure modes:** ~25-event tail, one regime, one market; HIGH = "hedged
+        in lit," not "dealer present" (internalization lands in NULL); the label is
+        arm-sensitive (Jaccard table above) — LABEL-EMPTY is deliberately hard to reach
+        and most real outcomes land AMBIGUOUS, which is the honest default.
+      - **LABELS FROZEN 2026-08-01, before any outcome fetch:**
+        `hedge_scores_frozen_3p3.json` **SHA-256
+        `104c184e4a20503c8ee6858b2b6efd5078852e07ee5875ab6d9a5aabba089e57`** — 117 events,
+        strata HIGH 25 / NULL 84 / ANTI 8, written and byte-identically reproduced by
+        `tools/hedge_footprint_freeze.py` (pinned tests
+        `tests/test_hedge_footprint_freeze.py`; the writer REFUSES to overwrite a
+        mismatching on-disk file). One pre-registration correction disclosed: the first
+        write mis-read the ledger's `exp_days` (an EPOCH-day expiry date) as
+        days-to-expiry; caught in the balance table (median "20,560 days"), fixed to
+        `dte`, file deleted + regenerated before this SHA was pinned — nothing had been
+        unsealed. Balance table in `hedge_balance_3p3.json`: HIGH median $1.05M premium,
+        58 DTE, 5.1% OTM, m_bps +18.5 (vs NULL +1.4, ANTI −11.8 — the concurrent-move
+        covariate already separates strata exactly as the review predicted); HIGH
+        earnings-in-forward-window: 1 within 3d, 4 within 9d.
+
+      **3.3 Amendment 1 (2026-08-01) — build-round rulings + GATE 1 RESULT: FAIL, ladder
+      step 1 invoked. Forward returns remain SEALED.**
+      - The measurement tool is `tools/hedge_label_drift.py` (+177 hermetic tests): stages
+        gate1/unseal/analyze; unseal HARD-refuses without a passing gate1 artifact,
+        analyze without the unseal artifact; every stage verifies the frozen-label SHA.
+        Seven spec ambiguities were flagged by the build (echoed into every artifact),
+        ruled here: **(a) Gate 2 wording** — the clause governs (a failed re-gate blocks
+        LABEL-EMPTY and downgrades only NON-significant results; a significant co-primary
+        still routes); the verdict-table one-liner is corrected to match. **(b) Continuity
+        tripwire amended** — the registered form was algebraically BLIND (close_all/(M0_raw
+        ·f_i) ≡ close_raw/M0_raw; the factor cancels — proved by a pinned test). New
+        registered tripwire: same-session RAW-space check |log(close_raw/M0_raw)| < 0.10
+        (wrong-issuer / split-space detector; halts the run; halt-listed events exempt and
+        listed), plus the next-session ratio DISCLOSED per event, non-halting. **(c)**
+        Week-blocks cannot preserve the exact HIGH cluster count (uneven weeks) — blocks
+        move together, realized preservation fraction disclosed; measured NOT
+        power-consequential (session-blocks give the same power within 0.01). **(d)**
+        LABEL-GRADED = full PREDICTIVE conjunction minus the NULL-is-zero claim
+        (confirmed as intended). **(e)** Gate 1's conjunction covers the four simulable
+        legs only ⇒ its MDE is OPTIMISTIC — which strengthens, not weakens, a FAIL.
+        **(f)** Gate-1 SPY leg is close-to-close (conservative). **(g)** Disclosed: the
+        flow corpus already holds daily closes through 07-24, so the seal is PROCEDURAL
+        (no forward return computed), enforced by SQL date bounds strictly before each
+        event's session — stricter than registered.
+      - **GATE 1 RESULT (controls-only, 96 usable pseudo-events, 22 HIGH):** power at the
+        1.5% floor = **0.18**; at δ = 3% = 0.67 — MDE exceeds the whole registered grid.
+        **proceed = false; nothing unsealed.** Type-I calibration measured at 0.010 (the
+        null is honest). **Binding leg = the m-residualized contrast** (pass rate 0.153 at
+        δ=1.5%): because m already separates the strata (+18.5 vs +1.4 bps), partialling
+        it out absorbs most of the HIGH indicator at this n — the design is telling us
+        that with 117 events it cannot distinguish "the label predicts" from "the
+        concurrent move predicts." That is the safeguard working, not a defect.
+      - **Ladder step 1 invoked (registered):** re-run 3.2 selection at cap 20/underlying
+        + top 600/band, PRIMARY band only, into `data/research/hedge_footprint_wide/`
+        (snap cache shared read-only from the 3.2 dir; selection overrides are CLI-flagged
+        and recorded in the stage artifact — registered 3.2 constants untouched). Then:
+        re-freeze the widened labels (new SHA via dated addendum), re-run Gate 1. **If the
+        re-gate fails, the registered ladder ENDS: verdict NO-RUN, forward returns stay
+        sealed, and 3.3 waits for forward corpus accrual** (the collector records daily;
+        the sealed pool grows on its own).
+
+      **3.3 Addendum 2 (2026-08-01) — ladder step 1 executed; WIDE labels frozen.**
+      Wide selection ran clean: 1,200 events fetched (600 primary band), 24,093 windows,
+      0 fetch drops. Wide quiet/primary/64g cut = **250 events: HIGH 31 / NULL 200 /
+      ANTI 19**; frozen BEFORE any outcome fetch to
+      `hedge_footprint_wide/equity/hedge_scores_frozen_3p3.json` **SHA-256
+      `c87592df731b5299bccec0f81a78061d2854c9745a5aff38d67d104c6d97264f`**
+      (byte-identical reproduction verified; the pre-ladder 117-event SHA above remains
+      the step-0 record). Note disclosed before the re-gate: widening grew the comparison
+      stratum far more than the tail (HIGH 25→31, NULL 84→200) — the wide selection
+      admits lower-D prints, which rarely score ≥ 3; effective contrast n grows only
+      ~1.6×, so the re-gate remains a genuine test, not a formality. Re-gate next; its
+      number decides.
+
+      **3.3 backfill-funnel validation (logged look, 2026-08-01, founder-blessed "Yes"
+      — $0 spent, every Databento pull cost-quoted first and free):** can 17.5 months of
+      pre-corpus history (Alpaca options trades exist back to ≥2024-02-15 with ns
+      timestamps + condition codes) be mined for HIGH events at trivial cost? Measured:
+      - **Whole-market naive backfill is dead:** Databento tcbbo ALL_SYMBOLS quotes
+        $28,382/yr ($51,575 for 2yr; schema exists only back to 2023-03). Targeted
+        10-min tcbbo windows in candidate-profile names quote **$0.000–0.018/window ⇒
+        ~$6–12 for a full backfill's drill-down** — the cost problem is discovery, not
+        data.
+      - **⚠️ The free-dailies discovery net is DEAD, measured:** Databento OPRA
+        `ohlcv-1d` EXCLUDES block-style prints — CVNA daily volume = 1 on a day the
+        corpus holds a 5,000-lot; VRT daily volume = 3 vs a 10,000-lot. Only 26/77
+        truth events cleared a $25k daily net despite all having ≥$27.5k premium. Any
+        design leaning on OPRA OHLCV aggregates for large-print discovery is built on
+        sand.
+      - **`definition` and `statistics` schemas are $0.00 whole-market** (per-day
+        id→OSI join verified 7/7). A ΔOI discovery net returned implausible next-day
+        collapses (publish-timing semantics unresolved) — parked, needs its own round.
+      - **Alpaca confirmation leg WORKS: 67/77 truth prints found at exact ns+size;
+        all 10 misses are component-splitting** (Alpaca reports per-fill components
+        where stage-1 groups same-ns prints — GNW 305 = 45+259+1 in-window), so
+        ms-window summing ⇒ ~full recall; condition codes present ('c'/'e'/'I'/'a').
+      - **Discovery, round 2 (same day, founder authorized the buy "just check the
+        exact amount"): every shortcut measured DEAD; the viable path is a free slow
+        crawl.** (1) The ΔOI artifact was OPRA id-reuse across days (CVNA id → a fresh
+        contract next day; the same-day definition check cannot catch it) — corrected
+        to a per-day OSI join, the real ΔOI net then MISSES 3/7 truth prints (CVNA
+        5,000x → ΔOI +1; VRT 10,000x → +36; ARM 5,000x → +18): **open-vs-close netting
+        makes the blindness CORRELATED with counterparty structure — the very label
+        3.3 studies. ΔOI net: dead, and dangerously so.** (2) Parent-scoped tcbbo buy:
+        the 1,200 wide events span 549 roots quoting **$14,689**, and the root set
+        CHURNS — only 47% of second-half events occur in first-half roots — so even
+        that buy misses half of history's candidates. Dead. (3) **Viable: gentle
+        full-universe Alpaca crawl** — free definitions enumerate contracts; pre-filter
+        by moneyness/DTE (truth profile: median 58 DTE, 5% OTM — cuts the universe
+        several-fold; recall of the pre-filter measurable against truth for free);
+        batched trades queries over ~360 sessions ≈ a multi-day background crawl at
+        polite rates; then the tcbbo drill-down windows for discovered candidates
+        (~$10–30, founder-authorized, EXACT quote before the charged request). Next
+        round: build the crawler + measure pre-filter recall on truth, all free.
+      - **Discovery, round 3 (2026-08-02, founder: "run it as fast as you can thats
+        safe") — crawler BUILT, VALIDATED 77/77, and LAUNCHED. Two more aggregate
+        nets measured dead on the way; the funnel that survived touches no aggregate
+        between the daily-bar net and the tape.** The kills, both label-correlated
+        blindness: (1) free OPRA `statistics` CLEARED_VOLUME (per-venue ~16:40–17:30
+        ET publishes) simply omits 2/6 truth blocks (VRNS 4,180, BTDR 3,000 — absent
+        through +3 days); (2) Alpaca **1-Min bars exclude cond-'B' prints that the
+        1-Day bars include** — the VRNS 4,180-lot has NO minute bar at all (measured:
+        no 17:46 bar; daily v=8441 includes it). The moneyness/DTE pre-filter idea
+        from round 2 also died honestly: truth tails span DTE 1→1,054 and moneyness
+        −596%→+472%, so a 100%-recall box is barely a filter. **The validated funnel
+        (`tools/flow_backfill_crawl.py`):** (A) daily Databento definitions, free,
+        $0.00 quoted for the whole window (205 GB raw; daily NOT weekly — strikes
+        listed intra-week near expiry are event-adjacent); (B) Alpaca 1-Day bars,
+        which INCLUDE blocks (6/6 measured, both cleared-volume misses included), net
+        = bar exists ∧ (v−n+1)·high·100 ≥ $25,000 — the registered stage-1
+        PREMIUM_MIN, strict superset; v−n+1 provably never under-reports the largest
+        single trade; (C) full-day Alpaca trades for every net survivor, per-fill
+        components summed per 1-ms bucket (gap-chaining welded busy tapes into
+        183,646 pseudo-prints — measured and replaced), keep groups ≥ $25k.
+        Non-Alpaca-grammar roots (leading-digit adjusted series, e.g. 2CLSK) are
+        dropped — population-faithful: the frozen root-classification fence already
+        excludes adjusted from the corpus equity stratum. **Validation: all 8 sample
+        corpus sessions, 77/77 truth prints rediscovered end-to-end from free data
+        only.** Alpaca options rate limit measured 10,000 req/min; crawl paced at
+        4,000. ~45–90 s/session, 361 sessions (2024-02-15→2025-07-25), ~70–180k
+        prints/session stored to `data/research/flow_backfill/backfill.db`
+        (session-checkpointed, resumable). Known superset-inflations, safe direction
+        for discovery: same-ms coincidental merges on busy tapes, and 2024-era Alpaca
+        timestamps that carry no sub-second part (same-second merges). Crawl runs
+        the weekend; selection + the authorized exact-quote tcbbo purchase follow.
+      - **Phase-A selection + the authorized tcbbo purchase (2026-08-02, same day) —
+        crawl COMPLETE and CLEAN (361/361 sessions, 36.5M ≥$25k groups, 1.64M
+        distinct contracts), phase-A selection run, EXACT quote $18.23, purchase
+        executed under the standing founder authorization** ("buy the data just
+        check the exact amount first" — ~$10–30 communicated; $18.23 is inside).
+        `tools/flow_backfill_select.py`, the disclosed phase-A design: every
+        registered stage-1 filter computable WITHOUT the tcbbo tape, mirrored
+        exactly from `tools/hedge_footprint.py` — equity stratum via the frozen
+        fence date-scoped (**coverage measured: unclassified = 0.20% of groups /
+        0.13% of premium**, all pre-corpus dead names — X, SQ, HES, NKLA, DFS,
+        DWAC…; disclosed drop, fence NOT regenerated), premium ≥$25k, DTE ≥1,
+        T∈[9:35,15:55] ET outside both release fences (**±2s slop at every
+        boundary** — 2024 Alpaca ts are second-grain, phase A may only drop what
+        the registered pipeline would certainly drop), half-days excluded (the
+        corpus pool's own rule), prior_close ≥$5 + ADV20 ≥200k from split-adjusted
+        Alpaca dailies staged for all 3,226 equity underlyings (same strictly-before
+        SQL shape as `db/flow_corpus.py`). Ledger: 36.2M groups → 17.2M phase-A
+        survivors. What phase A cannot compute (side, quote mid, delta, packages,
+        isolation, |h|, d) forces a **disclosed proxy pre-rank: contracts/ADV20**
+        (monotone in |h|/expected-vol up to unobserved |Δ| and time-of-day; built
+        only from fully-observed quantities — nothing label-blind gates anything),
+        per-(name,session) cap 10, **top-10,000 purchased** (corpus stage-1
+        pro-rata wants ~1,700; 10k ≈ 6× slippage margin; the $5.05 top-3,500
+        variant was also quoted — depth chosen because it was affordable inside
+        the authorized range). Windows = ±330s (300s registered snapshot + 30s
+        grain slop), union-merged per (root, session) → **6,656 parent-scoped
+        tcbbo windows, quoted per-window and in total: $18.23** (probes: full-tape
+        tcbbo $111/session — out of the question; OPRA `trades` is METERED
+        $89/session — the "free-trades refinement" was a misreading of the L0
+        license tier). Purchase = exactly the quoted windows, ceiling-asserted,
+        resumable, to `data/research/flow_backfill/tcbbo/`. **Measured slippage
+        check to run post-purchase:** where the true |h|/d ranking lands vs the
+        proxy boundary; saturation ⇒ tranche 2. Next: phase-B — the registered
+        pipeline (side/delta/single-leg via free Alpaca per-print cond re-fetch,
+        the corpus's own multileg provenance; isolation; stage-2 d) over the
+        purchased windows → new frozen labels via dated addendum → re-gate.
+      - **Phase-B stages 1+2 (2026-08-02, same day) — pipeline BUILT, PARITY-GATED
+        925/927, run over all 6,656 windows: 942 stage-1 records → 923 stage-2
+        events. Slippage check: SATURATED.** `tools/flow_backfill_phaseb.py`
+        mirrors stage 1 by IMPORTING every load-bearing primitive (grouping /
+        `_multileg` / `fence_and_classify` from the rollup; `match_prints` ±100ms;
+        `single_leg_groups` / `group_side` / `fit_delta` / all registered
+        constants from `hedge_footprint`); the a-side is the free HISTORICAL
+        Alpaca option-trades endpoint — the same vendor feed the corpus's live
+        capture recorded. Disclosed adaptations (in the tool's docstring): join
+        floor at SESSION aggregate (98% is a session-grain gate; 10-print
+        fragments fail it stochastically); OSI-parsed contract identity;
+        window-internal isolation base with an **edge-context eligibility rule**
+        (full ±120s neighbourhood must lie inside the window — parity measured
+        edge truncation as pure over-keep). **Corpus-parity gate on 2026-03-06:
+        925/927 candidates reproduced with h_select exact to 1e-6, 0 extras**;
+        the road there caught 3 real defects by measurement (ms-floored fetch
+        `end` bound ate the window's last print = the candidate itself, 97/99
+        misses; edge-truncated isolation bases = all 8 extras, verified UPS
+        corpus-side base $20,255 > $19,925 threshold; join-floor grain). The 2
+        residual misses are the CORPUS side under-counting its own isolation
+        base (capture gaps left neighbour prints unjoined; the complete
+        historical a-side is the stricter application). Full run: 6,656/6,656
+        windows, aggregate join 98.8%, 40 sessions (all 2024-Feb–Jun) below the
+        floor → 105 records dropped, **942 final stage-1 records**. Stage 2
+        (imported `minute_profile`/`expected_29s_volume`/`detectability`/news
+        fence; caps scaled rate-preserving 300→1,020, 10→34 for 357 vs 105
+        sessions): **923 selected (729 primary / 194 secondary)** — d≥3 dropped
+        only 11 (the contracts/ADV20 proxy pre-selects detectability), news 2,
+        per-name cap 6. **Slippage check, measured: stage-1 yield per 1,000
+        proxy ranks is FLAT to the purchase boundary** (109 kept in ranks
+        9,000–10,000 vs ~94 average) — the top-10,000 cutoff truncates the
+        population, so tranche 2 IS justified by the data; it is DEFERRED
+        behind the free step: 923 events at the wide set's ~12% HIGH rate ≈
+        ~110 HIGH vs the ~120 target, so label-score first, re-gate, and only
+        buy tranche 2 (exact quote, ≤$30 ceiling) if power still fails. Next:
+        label scoring on the underlying equity tape → new frozen labels via
+        dated addendum (TWO parallel Opus adversarial reviewers before freeze)
+        → re-run Gate 1.
+      - **Phase-B freeze + two-Opus review + fix round (2026-08-02) — backfill
+        labels FROZEN at `d0eb07d1…df14`, review-hardened: HIGH 58 / NULL 286 /
+        ANTI 27 (371 cut). Returns NEVER unsealed.** The first freeze (923
+        events → 285 cut, HIGH 42, SHA `e0e8529…`) FAILED adversarial review on
+        two data-identity blockers (reviewer A): (1) the fence's
+        corporate-actions span began 2025-07-25, so GOLD→B (Barrick, processed
+        2025-05-09) was missing and root GOLD scored against A-Mark's tape;
+        (2) phase-A bars used `adjustment=split` (TODAY basis) against
+        contemporaneous OSI strikes — `drop_iv_sub_intrinsic` inflated to 1,541
+        and the contracts/ADV proxy mis-ranked every post-split name (CHPT 20×).
+        Quarantined, then fixed BY THIS DATED ADDENDUM:
+        **(a) Fence regenerated** — span 2024-02-15..2026-08-02 with
+        `--backfill-db` old-side evidence (crawl-DB premium + per-root session
+        dates); 192 successor pairs (85 added / 0 removed), 14 reuse splits with
+        mechanical gap evidence, 0 topology collisions, CUK→CCL exemption
+        carried verbatim. `resolve()` now returns None when a date falls in a
+        non-last reuse segment the chain never left (review-A MAJOR: Barnes-era
+        `B` / pre-reuse `ARIS` silently borrowed the successor's Alpaca bars;
+        measured 0 affected rows anywhere, closed by class). Disclosed limits:
+        `gap_sessions` is null for pre-corpus seams (the sessions index spans
+        only the corpus era — future exemption adjudications over the extended
+        span need fresh gap evidence); the old-side premium floor mixes measures
+        by era (corpus `flow_rollup` total premium + crawl ≥$25k-group premium —
+        one-way, adds pairs only, every pair still from the Alpaca `name_change`
+        feed); and the parity gate deliberately does NOT exercise the fixed
+        price path (it sources corpus-DB bars for byte-parity) — the split-basis
+        fix is evidenced instead by direct recomputation (7/7 ground-truth
+        names incl. the ex-date==session edge, which is correctly INCLUDED per
+        OCC adjustment timing) and an independent 11/11 split-table
+        completeness audit.
+        **(b) Split basis** — `equity_bars_raw` (`adjustment=raw`, 1.25M rows,
+        3,232 idents) + the corporate-actions splits feed (1,196 records, 19
+        rename-resolved) → `prior_close_adv` computes prior_close/ADV20 on the
+        AS-OF-SESSION basis.
+        **(c) Phase A re-ranked** at the top-10k registration under the
+        corrected basis: 6,651 windows quoted $16.99; the 1,333-window gap
+        (fingerprint roots HEAR/IGT/CHK/CCJ/CVNA) purchased for **$4.82 exact**
+        under the standing ≤$30 authorization so the corrected registration is
+        fully owned; 1,338 round-1-only windows remain on disk unused.
+        **(d) Second review round caught the fix round itself**: reviewer B
+        measured the a-side ±100ms halo desynchronizing `match_prints`' RANK-
+        based join (KSS 2024-09-16: 40 orphan rows → 1,800 lost joins + 158
+        silently wrong condition codes; interim SHA `c077f567…` superseded).
+        Final form: halo stays on the FETCH (defeats the ms-floor bug), a-side
+        CLIPPED to the print tape's own bounds before the join. B's independent
+        desync detector post-fix: 0 surviving orphans / 0 wrong codes over
+        34,171 prints; KSS joins 4,370/4,370.
+        **Final artifacts**: stage 1 = 1,129 records (session joins 0.787–1.000,
+        40 sessions below the 0.98 floor → 132 records dropped), stage 2 =
+        1,110, fetch 1,110/1,110 (control pool = the contiguous half-day-
+        excluded crawl span; every control drop counted incl. the
+        `MissingDailyBar` class), freeze = 371 cut, byte-identical determinism
+        re-runs, parity 925/927 with 0 extras post-clip. Verdicts: reviewer A
+        PASS-WITH-FIXES (all applied), reviewer B PASS — "sound to register."
+        **Next: combined Gate 1** — corpus 31 + backfill 58 = 89 HIGH vs the
+        ~124 the 1.5% MDE floor needs; population-composition disclosure
+        required when pooling (backfill tilts thinner/higher-d than the
+        corpus); if power still fails, tranche-2-deeper (exact quote first,
+        remaining envelope ~$25).
+
+      **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
+      FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
+      Wide-set Gate 1 (250 events, 31 HIGH, frozen SHA c87592df…97264f): **MDE = 3.0%
+      vs floor 1.5%; proceed = false.** Power ladder: 0.29 @ 1.5%, 0.53 @ 2%, 0.94 @ 3%
+      (up from 0.18/—/0.67 on the 117-set — widening worked, just not enough). Binding
+      leg is still the m-residualized contrast (0.31 at the floor). Registered ladder
+      step 2 = STOP. **Standing state: 3.3 is DORMANT-ACCRUING** — the flow collector
+      records daily; HIGH accrues ≈ 3–4/month at wide selection, so a meaningful re-gate
+      needs ~a year unless the true effect is ≥ 2–3% (detectable today — the floor
+      exists precisely so a small real effect is never declared absent by an underpowered
+      test). Any earlier re-test = a NEW registration (weaker protections, must be
+      disclosed as such); the registered path is accrual. **3.4 (spread orientation) is
+      NOT gated on 3.3** — it needs only 3.2's direction result, which is CONFIRMED —
+      and is the natural next Phase-3 move.
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer
