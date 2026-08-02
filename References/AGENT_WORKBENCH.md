@@ -199,9 +199,20 @@ herdr agent explain <name> --json                           # why detection thin
   before reading anything — **even with `--force`**. Answer it *first*
   (`herdr pane send-keys <pane> a`), then send the prompt; the menu swallows anything submitted while
   it's up, and that's what leaves text sitting unsent in the composer.
-- **`agent prompt` submits text AND Enter atomically** (it honors the pane's bracketed-paste mode), so
-  a trailing `send-keys enter` should not be needed. If you do find a prompt parked in the composer —
-  which is what the trust modal causes — `herdr pane send-keys <pane> enter` clears it.
+- ⚠️ **`agent prompt` does NOT reliably submit a multiline prompt to `cursor-agent` — always follow with
+  `enter`.** The skill states that `agent prompt` sends text and Enter atomically, honoring bracketed
+  paste. That is the herdr contract, and it holds for short prompts; it does **not** survive contact with
+  cursor-agent's multiline composer. Measured twice on 2026-08-02 — once with the trust modal up (an
+  obvious confound) and once with no modal at all — the text parked as `[Pasted text #N +19 lines]` and
+  the agent stayed `idle` until an explicit key:
+  ```bash
+  herdr agent prompt <name> '<multiline brief>'
+  herdr pane send-keys <pane> enter        # required for cursor-agent multiline; verify status flips
+  herdr agent get <name>                   # must read `working` — if still `idle`, it never started
+  ```
+  **Always confirm the status flipped to `working` after prompting.** A prompt that silently never ran
+  looks exactly like an agent that finished instantly. (Reported upstream-worthy: the skill's atomic
+  claim is wrong for this agent kind.)
 - **`herdr agent prompt <TARGET> <TEXT>`** takes text positionally. `--text` errors as an unknown option.
 - **Reading a TUI agent.** `cursor-agent` renders on the terminal's **alternate screen**, so rows that
   scroll away never reach herdr's scrollback and raising `--lines` cannot recover them. When a read comes
