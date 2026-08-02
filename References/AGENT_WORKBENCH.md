@@ -58,9 +58,17 @@ turn out to have uncommitted work in them. Create one when there is genuinely an
 **Reuse instead of recreate** — when a task lands, return the worktree to the pool:
 ```bash
 cd /home/mbelli/worktrees/help_me_trade/<wt>
-git switch main && git pull            # sync it to the merged state
-git switch -c <next-task>              # next job, same folder
+git fetch origin
+git switch -c <next-task> origin/main    # next job, same folder, fresh off main
+git branch -d <finished-task>            # drop the merged branch
 ```
+
+⚠️ **Do NOT `git switch main` in a worktree here.** It fails —
+*"fatal: 'main' is already used by worktree at /home/mbelli/dev/help_me_trade"* — because `main` is
+permanently checked out in the live dev tree and no two worktrees may hold the same branch. Branch
+**off `origin/main`** (the fetched remote-tracking ref) instead; you never need `main` checked out
+locally to start work from it. Same reason `git branch -d` refuses a branch that a worktree still
+holds: switch off it first.
 
 ### Layout
 
