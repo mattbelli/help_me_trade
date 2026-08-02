@@ -13,10 +13,10 @@ VALUES from these claims deterministically and cites claim ids STRICTLY, so:
     (``tests/test_dossier.py``).
   * an angle with nothing to say is OMITTED (no empty claims); a dossier is valid
     with as few as the ``evidence`` angle alone.
-  * ``now`` selects the primary ET window for flow/tape/catalyst/context (and the
-    since-open upper bound on multi-day episodes), so it affects claim VALUES and
-    ordering — not just freshness. Windowed aggregates name their window in the
-    statement text.
+    * ``now`` selects the primary ET window for flow/tape/news/catalyst/context
+    (and the since-open upper bound on multi-day episodes), so it affects claim
+    VALUES and ordering — not just freshness. Windowed aggregates name their
+    window in the statement text.
 
 This module is INERT: nothing in production imports it yet (C3's investigator becomes
 its caller). It never writes to any store except via ``build_and_store_dossier`` →
@@ -25,6 +25,8 @@ its caller). It never writes to any store except via ``build_and_store_dossier``
 
 from __future__ import annotations
 
+import html
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +36,7 @@ from zoneinfo import ZoneInfo
 from config.idea_engine import DOSSIER_SUMMARY_MAX_CHARS
 from db import equity_tape as equity_tape_db
 from db import fusion as fusion_db
+from db import news as news_db
 from db import options_flow as options_flow_db
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
@@ -53,12 +56,15 @@ _ET = ZoneInfo("America/New_York")
 # claim_id embedding the angle) makes the id scheme stable. Changing this order is a
 # NEW estimand for the investigator, never a silent edit. ``evidence`` is LAST so the
 # 4,000-char summary cap truncates the (still-redundant) evidence tail, not analysis.
+# ``news`` sits next to ``catalyst`` (same event/catalyst family) — intentional NEW
+# estimand (Evidence Bus §2.9 first post-v1 component, alone).
 ANGLE_ORDER: tuple[str, ...] = (
     "flow",
     "tape",
     "structure",
     "attention",
     "catalyst",
+    "news",
     "context",
     "portfolio",
     "history",
@@ -70,12 +76,21 @@ ANGLE_ORDER: tuple[str, ...] = (
 # mechanical facts that don't stale on this timescale.
 FRESH_INTRADAY_MINUTES = 30
 _INTRADAY_ANGLES = frozenset({"evidence", "flow", "tape"})
-_SESSION_ANGLES = frozenset({"structure", "attention", "context", "portfolio"})
+# ``news`` is SESSION, not intraday: a 30-min horizon would mark same-session
+# headlines stale within the hour, while a 3-day-old headline must not render as
+# ``fresh``. Same-ET-day matches how a reader treats a headline's relevance.
+_SESSION_ANGLES = frozenset({"structure", "attention", "context", "portfolio", "news"})
 _ALWAYS_FRESH_ANGLES = frozenset({"catalyst", "history"})
 
 # Social buzz below this ratio is not worth an attention claim (matches the intake's
 # spike gate spirit — a boring reading is silence, not a dot).
 _ATTENTION_MIN_RATIO = 1.0
+
+# Headline claims: max 3 — slot A = min tag breadth in the window, B/C = freshest
+# remaining (founder 2026-08-02: pure freshest-first favoured wide Benzinga roundups).
+# Remainder counts the rest so the total is never silently deleted.
+_NEWS_HEADLINE_CAP = 3
+_NEWS_HEADLINE_MAX_CHARS = 140
 
 _DIRECTIONAL = frozenset({"bull", "bear"})
 
@@ -554,6 +569,196 @@ def _catalyst_protos(
     return []
 
 
+def _normalize_news_ts(published_at: str) -> str:
+    """Canonical UTC ISO with microseconds — mixed store formats must not be
+    compared or sorted as raw strings (`.` sorts before ``Z``)."""
+    dt = _parse_ts(published_at)
+    if dt is None:
+        return ""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
+
+
+def _format_headline(raw: str) -> str:
+    """HTML-unescape + char-budget truncate; never paraphrase."""
+    text = html.unescape(str(raw or "")).strip()
+    if len(text) <= _NEWS_HEADLINE_MAX_CHARS:
+        return text
+    return text[: _NEWS_HEADLINE_MAX_CHARS - 1].rstrip() + "…"
+
+
+def _news_tag_breadth(symbols_json: Any) -> int:
+    try:
+        symbols = json.loads(symbols_json or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return 0
+    if not isinstance(symbols, list):
+        return 0
+    return len(symbols)
+
+
+def _news_protos(
+    symbol: str,
+    *,
+    window_day: str,
+    opened_day: str,
+    db_path: Path,
+) -> list[dict[str, Any]]:
+    """Symbol-tagged news: windowed counts + selected headlines + remainder count.
+
+    Exact-symbol join via ``news_symbols`` (never headline LIKE). The WHOLE angle
+    is scoped to the episode's windows (same contract as flow/tape): headlines,
+    total, and remainder come from the since-open pool on multi-day episodes (or
+    the primary day alone on a single-day episode) — never all-time store history.
+    Counts are uncapped (full join scan + parse; never ``len(recent_news(...))``).
+    Direction is always ``none``. Tag breadth rides each headline; each headline
+    statement names its ET publish date (``_render_summary`` prints statements
+    only).
+
+    Headline slots (max 3, fewer if the window is thinner): slot A = minimum tag
+    breadth in the window (tie-break freshest-first, then id) so wide roundups
+    cannot crowd out the only company-tagged story; slots B/C = the 2 freshest
+    remaining. No editorial "company-specific" label — breadth is already printed.
+    Angle is OMITTED when nothing falls inside the episode window.
+    """
+    news_db.init_db(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT n.id, n.headline, n.published_at, n.symbols
+            FROM news_items n
+            JOIN news_symbols ns ON ns.news_id = n.id
+            WHERE ns.symbol = ?
+            """,
+            (symbol,),
+        ).fetchall()
+
+    # Parse once — never lexically compare published_at (mixed ms / no-ms formats).
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        published = str(row["published_at"] or "")
+        dt = _parse_ts(published)
+        if dt is None:
+            continue
+        items.append(
+            {
+                "id": str(row["id"]),
+                "headline": str(row["headline"] or ""),
+                "published_at": published,
+                "ts": _normalize_news_ts(published),
+                "day": dt.astimezone(_ET).date().isoformat(),
+                "dt": dt,
+                "breadth": _news_tag_breadth(row["symbols"]),
+            }
+        )
+
+    items.sort(key=lambda item: (item["dt"], item["id"]), reverse=True)
+
+    multi_day = bool(opened_day and window_day and opened_day != window_day)
+
+    def _in_primary(item: dict[str, Any]) -> bool:
+        return item["day"] == window_day
+
+    def _in_since_open(item: dict[str, Any]) -> bool:
+        day = item["day"]
+        return bool(day) and day >= opened_day and day <= window_day
+
+    # Headline/total/remainder pool = episode window only (never pre-open history).
+    pool = (
+        [item for item in items if _in_since_open(item)]
+        if multi_day
+        else [item for item in items if _in_primary(item)]
+    )
+    if not pool:
+        return []
+
+    protos: list[dict[str, Any]] = []
+
+    windows: list[str] = ["primary"]
+    if multi_day:
+        windows.append("since_open")
+
+    for kind in windows:
+        matched = [
+            item
+            for item in items
+            if (_in_primary(item) if kind == "primary" else _in_since_open(item))
+        ]
+        if not matched:
+            continue
+        label = _window_label(kind, window_day=window_day, opened_day=opened_day)
+        freshest_ts = matched[0]["ts"]  # matched preserves freshest-first walk order
+        protos.append(
+            {
+                "statement": f"{len(matched)} news item(s) {label}",
+                "value": len(matched),
+                "ts": freshest_ts or window_day,
+                "direction": "none",
+            }
+        )
+
+    shown = _select_news_headlines(pool, cap=_NEWS_HEADLINE_CAP)
+    for item in shown:
+        headline = _format_headline(item["headline"])
+        breadth = item["breadth"]
+        protos.append(
+            {
+                "statement": (
+                    f'"{headline}" [{item["day"]}] · {breadth} symbol(s) tagged'
+                ),
+                "value": breadth,
+                "ts": item["ts"],
+                "direction": "none",
+            }
+        )
+
+    total = len(pool)
+    remainder = total - len(shown)
+    if remainder > 0:
+        shown_ids = {item["id"] for item in shown}
+        not_shown = [item for item in pool if item["id"] not in shown_ids]
+        rem_ts = not_shown[0]["ts"] if not_shown else shown[-1]["ts"]
+        pool_label = _window_label(
+            "since_open" if multi_day else "primary",
+            window_day=window_day,
+            opened_day=opened_day,
+        )
+        protos.append(
+            {
+                "statement": (
+                    f"+{remainder} more tagged headline(s) "
+                    f"({total} total) {pool_label}"
+                ),
+                "value": total,
+                "ts": rem_ts,
+                "direction": "none",
+            }
+        )
+
+    return protos
+
+
+def _select_news_headlines(
+    pool: list[dict[str, Any]], *, cap: int = _NEWS_HEADLINE_CAP
+) -> list[dict[str, Any]]:
+    """Slot A = min tag breadth (freshest, then id); B/C = freshest remaining.
+
+    Cap is a hard maximum; returns fewer when the window is thinner. No-op shape
+    when every story shares the same breadth (slot A is just the freshest).
+    """
+    if not pool or cap <= 0:
+        return []
+    # Min breadth; among ties, freshest-first then id (matches pool's total order).
+    min_breadth = min(item["breadth"] for item in pool)
+    narrow = [item for item in pool if item["breadth"] == min_breadth]
+    slot_a = max(narrow, key=lambda item: (item["dt"], item["id"]))
+    remaining = [
+        item
+        for item in sorted(pool, key=lambda item: (item["dt"], item["id"]), reverse=True)
+        if item["id"] != slot_a["id"]
+    ]
+    return [slot_a, *remaining[: max(0, cap - 1)]]
+
+
 def _context_protos(
     episode: dict[str, Any],
     symbol: str,
@@ -763,8 +968,8 @@ def build_dossier(
     claim is ``{claim_id, angle, statement, value, ts, direction, fresh,
     contradicts}``. Pure: same episode state + same ``now`` in -> identical out.
     ``now`` defaults to the wall clock; it selects the primary ET window for
-    flow/tape/catalyst/context (and the since-open upper bound), so it affects
-    claim values and ordering as well as freshness.
+    flow/tape/news/catalyst/context (and the since-open upper bound), so it
+    affects claim values and ordering as well as freshness.
     """
     now = now or datetime.now(timezone.utc)
     episode_id = str(episode["id"])
@@ -784,6 +989,9 @@ def build_dossier(
         "structure": _structure_protos(episode, symbol, state_ts, db_path),
         "attention": _attention_protos(symbol, state_ts, now, db_path),
         "catalyst": _catalyst_protos(symbol, window_day, state_ts, db_path),
+        "news": _news_protos(
+            symbol, window_day=window_day, opened_day=market_day, db_path=db_path
+        ),
         "context": _context_protos(
             episode, symbol, window_day, state_ts, db_path
         ),

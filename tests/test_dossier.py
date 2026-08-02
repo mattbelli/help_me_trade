@@ -11,6 +11,7 @@ import pytest
 from db import equity_tape as equity_tape_db
 from db import fusion as fusion_db
 from db import idea_outcomes as idea_outcomes_db
+from db import news as news_db
 from db import options_flow as options_flow_db
 from db.base import connect
 from db.earnings_calendar import upsert_earnings
@@ -596,6 +597,399 @@ def test_summary_keeps_analysis_truncates_evidence_tail(db: Path) -> None:
         first_evidence = min(lines.index(line) for line in evidence)
         assert last_analytic < first_evidence
     assert summary.rstrip().endswith("claims truncated)") or "[evidence]" in summary
+
+
+def _seed_news(
+    db: Path,
+    *,
+    news_id: str,
+    headline: str,
+    published_at: str,
+    symbols: list[str],
+) -> None:
+    news_db.init_db(db)
+    news_db.upsert_news_item(
+        {
+            "id": news_id,
+            "headline": headline,
+            "summary": "",
+            "url": "",
+            "source": "test",
+            "author": "",
+            "symbols": [s.upper() for s in symbols],
+            "image_url": None,
+            "published_at": published_at,
+            "updated_at": None,
+        },
+        db_path=db,
+    )
+
+
+def test_news_primary_window_is_now_et_day_not_episode_birth(db: Path) -> None:
+    """D3/D1 guard: news primary window is now's ET day, not birth market_day."""
+    birth = "2026-07-20"
+    later = "2026-07-22"
+    episode = _seed_episode(db, market_day=birth)
+    # Two on birth, one on later — primary value must be 1 (later), not 2 (birth).
+    _seed_news(
+        db,
+        news_id="n_birth_a",
+        headline="Birth-day headline A",
+        published_at=f"{birth}T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="n_birth_b",
+        headline="Birth-day headline B",
+        published_at=f"{birth}T19:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="n_later",
+        headline="Later-day headline",
+        published_at=f"{later}T18:00:00.331Z",
+        symbols=[SYMBOL],
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    dossier = build_dossier(episode, db_path=db, now=now)
+    news_claims = [c for c in dossier["claims"] if c["angle"] == "news"]
+    primary = [
+        c
+        for c in news_claims
+        if "news item(s)" in c["statement"] and f"[{later}]" in c["statement"]
+    ]
+    since_open = [
+        c
+        for c in news_claims
+        if "news item(s)" in c["statement"]
+        and f"since episode opened {birth}" in c["statement"]
+    ]
+    assert primary, "primary window claims must name now's ET date"
+    assert since_open, "multi-day episodes must emit a separate since-open aggregate"
+    assert primary[0]["value"] == 1  # later day only — not the 2 birth-day rows
+    assert since_open[0]["value"] == 3
+    # Headlines are freshest-first across the join; later-day must appear.
+    assert any("Later-day headline" in c["statement"] for c in news_claims)
+
+
+def test_news_headline_cap_preserves_total_count(db: Path) -> None:
+    """D3: 3 freshest headlines + remainder row; total never silently deleted."""
+    episode = _seed_episode(db)
+    for k in range(5):
+        _seed_news(
+            db,
+            news_id=f"n{k}",
+            headline=f"Headline number {k}",
+            published_at=f"{MARKET_DAY}T18:{k:02d}:00Z",
+            symbols=[SYMBOL, "SPY"] if k == 4 else [SYMBOL],
+        )
+    dossier = build_dossier(episode, db_path=db, now=NOW)
+    news_claims = [c for c in dossier["claims"] if c["angle"] == "news"]
+    headlines = [c for c in news_claims if c["statement"].startswith('"')]
+    remainder = [c for c in news_claims if c["statement"].startswith("+")]
+    assert len(headlines) == 3
+    assert len(remainder) == 1
+    assert "5 total" in remainder[0]["statement"]
+    assert f"[{MARKET_DAY}]" in remainder[0]["statement"]  # remainder names its window
+    assert remainder[0]["value"] == 5
+    # Freshest three: k=4,3,2 — tag breadth rides the claim.
+    assert "2 symbol(s) tagged" in headlines[0]["statement"] or any(
+        "2 symbol(s) tagged" in c["statement"] for c in headlines
+    )
+    assert all(c["direction"] == "none" for c in news_claims)
+
+
+def test_news_scoped_to_episode_window_not_all_time(db: Path) -> None:
+    """D3 defect fix: headlines/total/remainder are episode-windowed, not all-time."""
+    birth = "2026-07-20"
+    later = "2026-07-22"
+    pre = "2026-05-07"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_news(
+        db,
+        news_id="n_pre",
+        headline="Months-old pre-episode headline",
+        published_at=f"{pre}T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    for k in range(4):
+        _seed_news(
+            db,
+            news_id=f"n_win{k}",
+            headline=f"In-window headline {k}",
+            published_at=f"{later}T18:{k:02d}:00Z",
+            symbols=[SYMBOL],
+        )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+
+    news_claims = [
+        c
+        for c in build_dossier(episode, db_path=db, now=now)["claims"]
+        if c["angle"] == "news"
+    ]
+    assert not any("Months-old" in c["statement"] for c in news_claims)
+    since_open = next(
+        c
+        for c in news_claims
+        if "news item(s)" in c["statement"]
+        and f"since episode opened {birth}" in c["statement"]
+    )
+    remainder = next(c for c in news_claims if c["statement"].startswith("+"))
+    assert since_open["value"] == 4
+    assert remainder["value"] == 4  # not 5 (all-time)
+    assert "4 total" in remainder["statement"]
+    assert f"since episode opened {birth}" in remainder["statement"]
+    assert "+1 more" in remainder["statement"]
+
+
+def test_news_omitted_when_only_outside_episode_window(db: Path) -> None:
+    """D3: pre-open news alone must not surface months-old headlines."""
+    birth = "2026-07-20"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_news(
+        db,
+        news_id="n_pre",
+        headline="Ancient headline only",
+        published_at="2026-05-07T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+    dossier = build_dossier(episode, db_path=db, now=now)
+    assert "news" not in _angles(dossier["claims"])
+
+
+def test_news_headlines_name_et_publish_date(db: Path) -> None:
+    """D3: each headline statement carries its ET date (_render_summary is statement-only)."""
+    birth = "2026-07-20"
+    day_a = "2026-07-20"
+    day_b = "2026-07-22"
+    episode = _seed_episode(db, market_day=birth)
+    _seed_news(
+        db,
+        news_id="n_a",
+        headline="Older in-window",
+        published_at=f"{day_a}T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="n_b",
+        headline="Newer in-window",
+        published_at=f"{day_b}T18:00:00.331Z",
+        symbols=[SYMBOL],
+    )
+    now = datetime(2026, 7, 22, 18, 5, tzinfo=timezone.utc)
+    headlines = [
+        c
+        for c in build_dossier(episode, db_path=db, now=now)["claims"]
+        if c["angle"] == "news" and c["statement"].startswith('"')
+    ]
+    assert len(headlines) == 2
+    assert any(f'"Newer in-window" [{day_b}]' in c["statement"] for c in headlines)
+    assert any(f'"Older in-window" [{day_a}]' in c["statement"] for c in headlines)
+
+
+def test_news_angle_omitted_when_symbol_has_no_news(db: Path) -> None:
+    episode = _seed_episode(db)
+    _seed_news(
+        db,
+        news_id="other",
+        headline="About AAPL only",
+        published_at=f"{MARKET_DAY}T18:00:00Z",
+        symbols=["AAPL"],
+    )
+    dossier = build_dossier(episode, db_path=db, now=NOW)
+    assert "news" not in _angles(dossier["claims"])
+
+
+def test_news_direction_is_always_none(db: Path) -> None:
+    episode = _seed_episode(db)
+    _seed_news(
+        db,
+        news_id="n1",
+        headline="Bullish surge sends shares soaring",
+        published_at=f"{MARKET_DAY}T18:00:00Z",
+        symbols=[SYMBOL],
+    )
+    news_claims = [
+        c for c in build_dossier(episode, db_path=db, now=NOW)["claims"] if c["angle"] == "news"
+    ]
+    assert news_claims
+    assert all(c["direction"] == "none" for c in news_claims)
+
+
+def test_news_claim_ids_deterministic(db: Path) -> None:
+    episode = _seed_episode(db)
+    _seed_news(
+        db,
+        news_id="n1",
+        headline="First &#39;quoted&#39; headline",
+        published_at=f"{MARKET_DAY}T18:00:00.331Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="n2",
+        headline="Second headline",
+        published_at=f"{MARKET_DAY}T17:00:00Z",
+        symbols=[SYMBOL, "MSFT", "AMZN"],
+    )
+    first = build_dossier(episode, db_path=db, now=NOW)
+    second = build_dossier(episode, db_path=db, now=NOW)
+    news_first = [c for c in first["claims"] if c["angle"] == "news"]
+    news_second = [c for c in second["claims"] if c["angle"] == "news"]
+    assert news_first
+    assert [c["claim_id"] for c in news_first] == [c["claim_id"] for c in news_second]
+    assert news_first == news_second
+    # HTML entities decoded, not paraphrased; tag breadth + ET date surfaced.
+    assert any("'quoted'" in c["statement"] for c in news_first)
+    assert any("3 symbol(s) tagged" in c["statement"] for c in news_first)
+    assert any(f"[{MARKET_DAY}]" in c["statement"] and c["statement"].startswith('"')
+               for c in news_first)
+    # news sits next to catalyst in ANGLE_ORDER; evidence still last.
+    assert ANGLE_ORDER.index("news") == ANGLE_ORDER.index("catalyst") + 1
+    assert ANGLE_ORDER[-1] == "evidence"
+
+
+def test_news_reserved_slot_surfaces_narrow_breadth(db: Path) -> None:
+    """Founder: slot A = min tag breadth so freshest-first cannot bury company news."""
+    episode = _seed_episode(db)
+    # Three wide freshest roundups would fill a pure freshest-first top-3.
+    for k, breadth_syms in enumerate(
+        [
+            [SYMBOL, "A", "B", "C", "D", "E", "F", "G", "H"],  # 9
+            [SYMBOL, "A", "B", "C", "D", "E", "F", "G", "H"],  # 9
+            [SYMBOL] + [f"S{i}" for i in range(15)],  # 16
+        ]
+    ):
+        _seed_news(
+            db,
+            news_id=f"wide{k}",
+            headline=f"Wide roundup {k}",
+            published_at=f"{MARKET_DAY}T18:{50 - k:02d}:00Z",
+            symbols=breadth_syms,
+        )
+    # Older, narrow — pure freshest-first would drop this.
+    _seed_news(
+        db,
+        news_id="narrow",
+        headline="Company-only filing note",
+        published_at=f"{MARKET_DAY}T12:00:00Z",
+        symbols=[SYMBOL],
+    )
+    headlines = [
+        c
+        for c in build_dossier(episode, db_path=db, now=NOW)["claims"]
+        if c["angle"] == "news" and c["statement"].startswith('"')
+    ]
+    assert len(headlines) == 3
+    assert any("Company-only filing note" in c["statement"] for c in headlines)
+    assert any("1 symbol(s) tagged" in c["statement"] for c in headlines)
+    # No editorial label — breadth alone discriminates.
+    assert not any("company-specific" in c["statement"].lower() for c in headlines)
+
+
+def test_news_reserved_slot_no_duplicate_when_narrow_is_freshest(db: Path) -> None:
+    """When the min-breadth story is also the freshest, it appears once, not twice."""
+    episode = _seed_episode(db)
+    _seed_news(
+        db,
+        news_id="narrow_fresh",
+        headline="Fresh narrow",
+        published_at=f"{MARKET_DAY}T19:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="wide_old",
+        headline="Older wide",
+        published_at=f"{MARKET_DAY}T18:00:00Z",
+        symbols=[SYMBOL, "MSFT", "AMZN", "META"],
+    )
+    _seed_news(
+        db,
+        news_id="wide_older",
+        headline="Oldest wide",
+        published_at=f"{MARKET_DAY}T17:00:00Z",
+        symbols=[SYMBOL, "MSFT", "AMZN", "META"],
+    )
+    headlines = [
+        c
+        for c in build_dossier(episode, db_path=db, now=NOW)["claims"]
+        if c["angle"] == "news" and c["statement"].startswith('"')
+    ]
+    assert len(headlines) == 3
+    assert sum(1 for c in headlines if "Fresh narrow" in c["statement"]) == 1
+    statements = [c["statement"] for c in headlines]
+    assert len(statements) == len(set(statements))
+
+
+def test_news_reserved_slot_remainder_reconciles(db: Path) -> None:
+    """Remainder is still window_total - len(shown) under the reserved-slot policy."""
+    episode = _seed_episode(db)
+    for k in range(6):
+        symbols = [SYMBOL] if k == 5 else [SYMBOL, "SPY", "QQQ", "IWM"]
+        _seed_news(
+            db,
+            news_id=f"n{k}",
+            headline=f"Story {k}",
+            published_at=f"{MARKET_DAY}T18:{k:02d}:00Z",
+            symbols=symbols,
+        )
+    news_claims = [
+        c for c in build_dossier(episode, db_path=db, now=NOW)["claims"] if c["angle"] == "news"
+    ]
+    headlines = [c for c in news_claims if c["statement"].startswith('"')]
+    remainder = next(c for c in news_claims if c["statement"].startswith("+"))
+    assert len(headlines) == 3
+    assert remainder["value"] == 6
+    assert "+3 more" in remainder["statement"]
+    assert "6 total" in remainder["statement"]
+    assert any("Story 5" in c["statement"] and "1 symbol(s) tagged" in c["statement"]
+               for c in headlines)
+
+
+def test_news_reserved_slot_deterministic(db: Path) -> None:
+    """Same pool → identical claim_ids under min-breadth + freshest remaining."""
+    episode = _seed_episode(db)
+    _seed_news(
+        db,
+        news_id="a",
+        headline="Narrow A",
+        published_at=f"{MARKET_DAY}T14:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="b",
+        headline="Narrow B same breadth older",
+        published_at=f"{MARKET_DAY}T13:00:00Z",
+        symbols=[SYMBOL],
+    )
+    _seed_news(
+        db,
+        news_id="w1",
+        headline="Wide 1",
+        published_at=f"{MARKET_DAY}T18:00:00Z",
+        symbols=[SYMBOL, "X", "Y", "Z"],
+    )
+    _seed_news(
+        db,
+        news_id="w2",
+        headline="Wide 2",
+        published_at=f"{MARKET_DAY}T17:00:00Z",
+        symbols=[SYMBOL, "X", "Y", "Z"],
+    )
+    first = build_dossier(episode, db_path=db, now=NOW)
+    second = build_dossier(episode, db_path=db, now=NOW)
+    assert first["claims"] == second["claims"]
+    headlines = [c for c in first["claims"] if c["angle"] == "news" and c["statement"].startswith('"')]
+    # Min breadth tie → freshest narrow (A), not older B; B is not among the 3.
+    assert any("Narrow A" in c["statement"] for c in headlines)
+    assert not any("Narrow B" in c["statement"] for c in headlines)
 
 
 def test_intra_angle_sort_is_freshest_first(db: Path) -> None:
