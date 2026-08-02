@@ -1152,12 +1152,47 @@ def _earnings_hour_suffix(hour: str | None, *, day_of: bool) -> str:
     return ""
 
 
+def _t0_still_ahead(hour: str | None, now_et: datetime) -> bool:
+    """True while a day-of 'reports TODAY' alert is still a heads-up, not a post-mortem.
+
+    BMO prints before the open → useless after 09:30 ET. AMC (and unknown hour)
+    print at/after the close → useless once the regular session has ended.
+    Without this gate, adding a name to the watchlist after the print (or a 6h
+    loop landing post-close) still fires 'reports TODAY' hours late.
+    """
+    from trading.market_hours import session_close_time
+
+    minutes = now_et.hour * 60 + now_et.minute
+    h = (hour or "").strip().lower()
+    if h == "bmo":
+        return minutes < 9 * 60 + 30
+    close_h, close_m = session_close_time(now_et.date())
+    return minutes < close_h * 60 + close_m
+
+
+def _kick_earnings_alert_catchup() -> None:
+    """Fire-and-forget a pass so a mid-day watchlist add doesn't wait up to 6h."""
+
+    async def _run() -> None:
+        try:
+            await _earnings_alert_once()
+        except Exception:
+            logger.exception("Earnings alert catch-up after watchlist edit failed")
+
+    try:
+        asyncio.get_running_loop().create_task(_run())
+    except RuntimeError:
+        # Sync context with no loop (tests) — the periodic job will pick it up.
+        pass
+
+
 async def _earnings_alert_once() -> None:
     """Check watchlist symbols and push earnings milestone alerts (t14/t1/t0)."""
     from db.earnings_alerts import mark_sent, was_sent
     from signals.notify import notify
 
-    today = datetime.now(_ET).date()
+    now_et = datetime.now(_ET)
+    today = now_et.date()
     today_iso = today.isoformat()
     symbols = _all_watchlist_symbols()
     if not symbols:
@@ -1186,7 +1221,7 @@ async def _earnings_alert_once() -> None:
                         f"⏰ {sym} reports tomorrow ({earnings_date_str}{hour_t1})",
                     )
                 )
-            if days_until == 0:
+            if days_until == 0 and _t0_still_ahead(hour, now_et):
                 milestones.append(
                     (
                         "t0",
@@ -2681,6 +2716,8 @@ def api_update_watchlist(list_id: str, body: dict = Body(...)):
         )
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    if symbols is not None:
+        _kick_earnings_alert_catchup()
     return state
 
 
@@ -3529,7 +3566,9 @@ def api_put_watchlist(body: dict = Body(...)):
     symbols = body.get("symbols")
     if not isinstance(symbols, list):
         return JSONResponse({"error": "symbols must be a list"}, status_code=400)
-    return {"symbols": save_watchlist(symbols)}
+    saved = save_watchlist(symbols)
+    _kick_earnings_alert_catchup()
+    return {"symbols": saved}
 
 
 @app.post("/api/watchlist")
@@ -3541,6 +3580,7 @@ def api_add_watchlist_symbol(body: dict = Body(...)):
         symbols = add_watchlist_symbol(symbol)
     except ValueError as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
+    _kick_earnings_alert_catchup()
     return {"symbols": symbols}
 
 
