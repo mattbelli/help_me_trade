@@ -233,9 +233,14 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
 - ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02;
-  **D1+D2 shipped 08-02 on branch `dossier-repair`** — window fixed, evidence aggregated + last in
-  `ANGLE_ORDER`, freshest-first; **D3 news-as-first-class angle still open**). Arming still waits
-  on D3 + the contested-wall gate. Brief: `BRIEF_dossier-repair.md` (worktree).
+  D1–D5 shipped — see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
+  components (one per round: oi_walls, options_chain/IV, DERA segments, filings_events) + the
+  contested-wall gate. Briefs live in the worktree (`BRIEF_D5_fundamentals_angle.md` is the latest).
+  ⚠️ **Open from D5:** the §3 EDGAR ingest watermark (`edgar_ingest_watermark`) is imported
+  defensively from `research.edgar_bulk` and does NOT exist yet — until the parallel branch lands,
+  EVERY `fundamentals` claim renders `fresh=False` + `[SEC recency unknown — corpus never checked]`,
+  which is correct but useless. On merge, confirm the reader's module matches that import (one line
+  in `signals/dossier._edgar_ingest_watermark` if it landed elsewhere).
   Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
   dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
   BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22

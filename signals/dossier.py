@@ -36,6 +36,7 @@ from __future__ import annotations
 import html
 import json
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,8 @@ from db.index_pressure import day_summary
 from db.macro import DEFAULT_MACRO_DB_PATH
 from db.managed_positions import list_open_positions
 from db.social_mentions import get_buzz
+from research.edgar_bulk import DEFAULT_FACTS_DB_PATH
+from research.fundamentals import DEFAULT_FUNDAMENTALS_DB_PATH, FINANCIAL_CONCEPTS
 from signals.fusion.scorer import options_direction, tape_direction
 from signals.macro_substrate import REPORT_AXES, regime_report
 from trading.market_calendar import is_trading_day
@@ -67,6 +70,9 @@ _ET = ZoneInfo("America/New_York")
 # 4,000-char summary cap truncates the (still-redundant) evidence tail, not analysis.
 # ``news`` sits next to ``catalyst`` (same event/catalyst family) — intentional NEW
 # estimand (Evidence Bus §2.9 first post-v1 component, alone).
+# ``fundamentals`` sits immediately before ``context`` — the company's own reported
+# state reads ahead of the market-wide riders it is read against. Also a NEW
+# estimand (Evidence Bus §2.9, one component at a time).
 ANGLE_ORDER: tuple[str, ...] = (
     "flow",
     "tape",
@@ -74,6 +80,7 @@ ANGLE_ORDER: tuple[str, ...] = (
     "attention",
     "catalyst",
     "news",
+    "fundamentals",
     "context",
     "portfolio",
     "history",
@@ -90,6 +97,10 @@ _INTRADAY_ANGLES = frozenset({"evidence", "flow", "tape"})
 # ``fresh``. Same-ET-day matches how a reader treats a headline's relevance.
 _SESSION_ANGLES = frozenset({"structure", "attention", "context", "portfolio", "news"})
 _ALWAYS_FRESH_ANGLES = frozenset({"catalyst", "history"})
+# ``fundamentals`` is in NONE of the three on purpose: every fundamentals proto
+# declares ``fresh`` explicitly (see EDGAR_CHECK_MAX_AGE_DAYS), so the angle-rule
+# fallback never runs for it. Left out rather than guessed at, and the unreached
+# fallback fails SAFE — the session rule would call a months-old 10-Q stale.
 
 # Macro series are daily FRED prints with a publication lag — FRED almost never
 # has a same-ET-day observation during a trading session, so the session-angle
@@ -109,6 +120,49 @@ _ATTENTION_MIN_RATIO = 1.0
 # Remainder counts the rest so the total is never silently deleted.
 _NEWS_HEADLINE_CAP = 3
 _NEWS_HEADLINE_MAX_CHARS = 140
+
+# Fundamentals: four as-reported anchors — top line, bottom line, and two
+# balance-sheet scales. Deliberately narrow. The summary is capped at
+# DOSSIER_SUMMARY_MAX_CHARS and this angle competes with nine others; a wide
+# statement dump would push flow/tape/news out of the render for a reader who is
+# looking at one trade, not auditing a filing. The us-gaap tag preference lists
+# come from ``research.fundamentals.FINANCIAL_CONCEPTS`` (filers are inconsistent,
+# revenue most of all) — reused, never a second list.
+_FUNDAMENTALS_METRICS: tuple[str, ...] = ("revenue", "net_income", "assets", "equity")
+
+# Periodic reports only. 8-Ks and prospectuses carry XBRL facts too, but their
+# facts are not a REPORTING PERIOD — the claim is "the company's latest reported
+# period", and an 8-K earnings exhibit would mislabel that.
+_PERIODIC_FORMS: tuple[str, ...] = ("10-K", "10-Q", "10-K/A", "10-Q/A", "20-F", "40-F")
+_ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "40-F"})
+
+# Expected span of the filing's own reporting period, used to pick the fiscal
+# period out of a filing that ALSO carries year-to-date figures ending on the very
+# same date (a Q3 10-Q reports 3-month AND 9-month revenue for period_end).
+_ANNUAL_PERIOD_DAYS = 365
+_QUARTER_PERIOD_DAYS = 91
+
+# A prior-year comparative as reported IN THE SAME FILING: same tag, same unit,
+# same span (±tolerance for 13-week fiscal calendars), ending about a year back.
+_YOY_MIN_GAP_DAYS = 330
+_YOY_MAX_GAP_DAYS = 400
+_YOY_SPAN_TOLERANCE_DAYS = 10
+
+# How old the EDGAR ingest check may be before a fundamentals claim stops
+# asserting "this IS the latest filed period" (founder ruling 2026-08-02).
+#
+# NOT a horizon on the FILING: a 90-day-old 10-Q *is* the company's current
+# reported state and stays current until the next one lands, so D4's day-count
+# horizon is the wrong tool here. This is a horizon on OUR LOOKING — from inside
+# the store, "no newer filing exists" and "we have not checked" are the same
+# observation, so the only thing that can make the claim honest is knowing when
+# we last asked SEC. Periodic reports land 0–3 days after the earnings release
+# (measured: TSLA/GOOGL/MSFT all +1 day, NVDA same-day), so a check older than 3
+# days is older than the entire release→filing window: a report could have come
+# out AND been filed since we last looked. 3 also spans a normal Friday-check /
+# Monday-build weekend, so a daily ingest never renders stale — while an ingest
+# that has silently stopped does, which is exactly the failure this catches.
+EDGAR_CHECK_MAX_AGE_DAYS = 3
 
 _DIRECTIONAL = frozenset({"bull", "bear"})
 
@@ -865,6 +919,311 @@ def _macro_protos(
     return protos
 
 
+def _ro_connect(path: Path) -> sqlite3.Connection:
+    """Read-only sqlite handle. ``mode=ro`` neither creates the file nor writes to
+    it — ``edgar_facts.db`` is a 16 GB shared corpus and this module is a reader."""
+    conn = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _symbol_cik(symbol: str, fundamentals_db_path: Path) -> int | None:
+    """Symbol -> CIK from the curated ``companies`` table — the ONE mapping in the
+    repo (``research/fundamentals.py`` builds it). Queried directly rather than via
+    that module's ``_company_row``, which runs ``_ensure_schema`` first and would
+    CREATE the file on a read path (D4's stub-DB finding)."""
+    if not symbol or not fundamentals_db_path.is_file():
+        return None
+    try:
+        with closing(_ro_connect(fundamentals_db_path)) as conn:
+            row = conn.execute(
+                "SELECT cik FROM companies WHERE symbol = ?", (symbol,)
+            ).fetchone()
+    except sqlite3.Error:
+        return None
+    try:
+        return int(row["cik"]) if row is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _edgar_ingest_watermark(cik: int) -> dict[str, Any] | None:
+    """When did we last ask SEC about this filer? — Evidence Bus §3 contract.
+
+    The writer + reader land on a parallel branch; here the import simply fails and
+    ``None`` (never checked) is the correct, honest answer. Called with the callee's
+    own default store path so it keeps working wherever that reader lands. Tests
+    fake this function.
+    """
+    try:
+        from research.edgar_bulk import edgar_ingest_watermark
+    except ImportError:
+        return None
+    try:
+        return edgar_ingest_watermark(cik)
+    except (OSError, sqlite3.Error, TypeError, ValueError, KeyError):
+        return None
+
+
+def _edgar_corpus_asof(
+    watermark: dict[str, Any] | None, corpus_latest_filed: Any, as_of_day: str
+) -> tuple[bool, str]:
+    """``(fresh, suffix)`` for the CORPUS — never for the filing's age.
+
+    ``fresh`` asserts "this IS the company's latest filed period", which from
+    inside the store is unknowable: "no newer filing exists" and "we never looked"
+    read identically. So it is True only when the ingest watermark says we checked
+    within ``EDGAR_CHECK_MAX_AGE_DAYS`` AND the corpus is not behind what that
+    check saw. A missing watermark is never-checked, and the suffix says exactly
+    that rather than implying no newer filing exists.
+    """
+    unknown = "[SEC recency unknown — corpus never checked]"
+    checked_at = _parse_ts((watermark or {}).get("checked_at"))
+    if checked_at is None:
+        return False, unknown
+    checked_day = checked_at.astimezone(_ET).date().isoformat()
+    try:
+        gap = (
+            date.fromisoformat(as_of_day[:10]) - date.fromisoformat(checked_day)
+        ).days
+    except ValueError:
+        return False, unknown
+    if not 0 <= gap <= EDGAR_CHECK_MAX_AGE_DAYS:
+        return False, f"[SEC not checked since {checked_day}]"
+    # The check saw filings we have not ingested — the newest period we HOLD is
+    # then not the newest period that EXISTS, whatever the check's own recency.
+    seen = str((watermark or {}).get("latest_filed") or "")
+    held = str(corpus_latest_filed or "")
+    if seen and held and seen > held:
+        return False, (
+            f"[SEC checked {checked_day}; corpus behind SEC "
+            f"(filings through {seen} not ingested)]"
+        )
+    return True, f"[SEC checked {checked_day}]"
+
+
+def _period_span_days(row: Any) -> int:
+    """Duration of a fact's period in days; ``0`` for an instant (no period_start)."""
+    start = str(row["period_start"] or "")
+    if not start:
+        return 0
+    try:
+        return (
+            date.fromisoformat(str(row["period_end"])[:10])
+            - date.fromisoformat(start[:10])
+        ).days
+    except ValueError:
+        return 0
+
+
+def _pick_reported_fact(
+    rows: list[Any],
+    concept_ids: dict[int, str],
+    tags: tuple[str, ...],
+    period_end: str,
+    expected_days: int,
+) -> tuple[str, Any] | None:
+    """First tag (in the filer-preference order) that reports ``period_end``.
+
+    A filing repeats the same concept ending on the same date for several spans —
+    a Q3 10-Q carries both 3-month and 9-month revenue — so the span closest to the
+    filing's own reporting period wins. Instants (balance-sheet dates) have no
+    competing spans, so the same rule passes them through untouched. USD before a
+    second reporting currency; the rest of the key is only for determinism.
+    """
+    for tag in tags:
+        candidates = [
+            row
+            for row in rows
+            if concept_ids.get(int(row["concept_id"])) == tag
+            and str(row["period_end"]) == period_end
+        ]
+        if not candidates:
+            continue
+        candidates.sort(
+            key=lambda row: (
+                abs(_period_span_days(row) - expected_days),
+                0 if str(row["unit"]) == "USD" else 1,
+                str(row["period_start"]),
+                _as_float(row["val"]),
+            )
+        )
+        return tag, candidates[0]
+    return None
+
+
+def _prior_year_fact(
+    rows: list[Any], concept_ids: dict[int, str], tag: str, current: Any
+) -> Any | None:
+    """The prior-year comparative the company reported in the SAME filing.
+
+    Same tag + unit, same span, ending about a year earlier. Instants are excluded:
+    a 10-Q's balance-sheet comparative is the prior FISCAL-YEAR END, not the prior
+    year's same date, and calling that "YoY" would be a mislabel. Returns ``None``
+    when the comparison period is absent — the claim then states the level alone.
+    """
+    span = _period_span_days(current)
+    if span <= 0:
+        return None
+    try:
+        end = date.fromisoformat(str(current["period_end"])[:10])
+    except ValueError:
+        return None
+    candidates: list[tuple[int, Any]] = []
+    for row in rows:
+        if concept_ids.get(int(row["concept_id"])) != tag:
+            continue
+        if str(row["unit"]) != str(current["unit"]):
+            continue
+        if abs(_period_span_days(row) - span) > _YOY_SPAN_TOLERANCE_DAYS:
+            continue
+        try:
+            gap = (end - date.fromisoformat(str(row["period_end"])[:10])).days
+        except ValueError:
+            continue
+        if _YOY_MIN_GAP_DAYS <= gap <= _YOY_MAX_GAP_DAYS:
+            candidates.append((gap, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (abs(item[0] - 365), str(item[1]["period_start"])))
+    return candidates[0][1]
+
+
+def _fiscal_period_label(fy: Any, fp: Any) -> str:
+    """``Q1 FY2027`` / ``FY2026`` / ``period`` — from the filing's own fy/fp."""
+    try:
+        year = f"FY{int(fy)}"
+    except (TypeError, ValueError):
+        return "period"
+    period = str(fp or "").upper()
+    if period == "FY":
+        return year
+    if period.startswith("Q") and period[1:].isdigit():
+        return f"{period} {year}"
+    return year
+
+
+def _fundamentals_protos(
+    symbol: str,
+    as_of_day: str,
+    *,
+    facts_db_path: Path,
+    fundamentals_db_path: Path,
+) -> list[dict[str, Any]]:
+    """As-reported financials from the company's latest periodic filing (EDGAR).
+
+    Store-only, read-only, deterministic: no network, no LLM, and both DBs are
+    opened ``mode=ro`` so a worktree without ``data/`` degrades to zero claims
+    rather than writing stub files. ``direction`` is always ``none`` — reported
+    financials are context, never a directional call.
+
+    Freshness is DECLARED (never ``_is_fresh``): a 90-day-old 10-Q is the current
+    reported state, so what stales the claim is our own ingest recency, not the
+    filing's age. See ``_edgar_corpus_asof`` / ``EDGAR_CHECK_MAX_AGE_DAYS``. Every
+    claim names both its fiscal period and the corpus as-of, so a reader can tell
+    "Q1 FY2027, checked on the 2nd" from "Q1 FY2027, and we never looked".
+    """
+    cik = _symbol_cik(symbol, fundamentals_db_path)
+    if cik is None or not facts_db_path.is_file():
+        return []
+
+    tag_to_metric = {
+        tag: metric
+        for metric in _FUNDAMENTALS_METRICS
+        for tag in FINANCIAL_CONCEPTS[metric]
+    }
+    try:
+        with closing(_ro_connect(facts_db_path)) as conn:
+            # Resolve tags to concept ids first: concept_id is the second column
+            # of the facts primary key, so (cik, concept_id) seeks. Filtering on
+            # the tag name instead would scan every fact the filer ever reported.
+            concept_ids = {
+                int(row["id"]): str(row["tag"])
+                for row in conn.execute(
+                    "SELECT id, tag FROM concepts WHERE taxonomy = 'us-gaap' "
+                    f"AND tag IN ({','.join('?' * len(tag_to_metric))})",
+                    tuple(tag_to_metric),
+                )
+            }
+            if not concept_ids:
+                return []
+            id_q = ",".join("?" * len(concept_ids))
+            form_q = ",".join("?" * len(_PERIODIC_FORMS))
+            filing = conn.execute(
+                f"SELECT filed, accn, fy, fp, form FROM facts "
+                f"WHERE cik = ? AND concept_id IN ({id_q}) AND form IN ({form_q}) "
+                f"ORDER BY filed DESC, accn DESC LIMIT 1",
+                (cik, *concept_ids, *_PERIODIC_FORMS),
+            ).fetchone()
+            if filing is None:
+                return []
+            rows = conn.execute(
+                f"SELECT concept_id, period_start, period_end, unit, val "
+                f"FROM facts WHERE cik = ? AND concept_id IN ({id_q}) "
+                f"AND filed = ? AND accn = ?",
+                (cik, *concept_ids, filing["filed"], filing["accn"]),
+            ).fetchall()
+            corpus_latest_filed = conn.execute(
+                "SELECT max(filed) FROM facts WHERE cik = ?", (cik,)
+            ).fetchone()[0]
+    except sqlite3.Error:
+        return []
+    if not rows:
+        return []
+
+    # The fiscal period end, taken over the REPORTED FINANCIAL rows only. NOT
+    # max(period_end) over the whole filing: a 10-Q also carries cover-page
+    # instants dated near the filing date (measured — NVDA's Q1 FY2027 10-Q filed
+    # 2026-05-20 has facts at 2026-05-15 as well as the real quarter end
+    # 2026-04-26), and taking those would silently mislabel the period.
+    period_end = max(str(row["period_end"]) for row in rows)
+    expected_days = (
+        _ANNUAL_PERIOD_DAYS
+        if str(filing["form"] or "") in _ANNUAL_FORMS
+        or str(filing["fp"] or "").upper() == "FY"
+        else _QUARTER_PERIOD_DAYS
+    )
+    fresh, as_of_note = _edgar_corpus_asof(
+        _edgar_ingest_watermark(cik), corpus_latest_filed, as_of_day
+    )
+    label = _fiscal_period_label(filing["fy"], filing["fp"])
+    filed = str(filing["filed"] or "")
+
+    protos: list[dict[str, Any]] = []
+    for metric in _FUNDAMENTALS_METRICS:
+        picked = _pick_reported_fact(
+            rows, concept_ids, FINANCIAL_CONCEPTS[metric], period_end, expected_days
+        )
+        if picked is None:
+            continue  # a concept this filer does not tag (banks skip Revenues) —
+            # silence, never a substitute figure computed by us
+        tag, row = picked
+        value = _as_float(row["val"])
+        unit = str(row["unit"] or "")
+        amount = f"${value:,.0f}" if unit == "USD" else f"{value:,.0f} {unit}".strip()
+        statement = (
+            f"fundamentals {metric.replace('_', ' ')} {amount} · "
+            f"{label} ended {period_end} ({filing['form']} filed {filed})"
+        )
+        prior = _prior_year_fact(rows, concept_ids, tag, row)
+        prior_value = _as_float(prior["val"]) if prior is not None else 0.0
+        if prior is not None and prior_value:
+            pct = (value - prior_value) / abs(prior_value) * 100.0
+            statement += f" · YoY {pct:+.1f}% (derived vs {prior['period_end']})"
+        protos.append(
+            {
+                "statement": f"{statement} {as_of_note}",
+                "value": value,
+                # Honest observation time: when the company filed it (ET noon, so a
+                # bare date cannot parse to UTC midnight = the previous ET day).
+                "ts": _et_noon_iso(filed) if filed else "",
+                "direction": "none",
+                "fresh": fresh,
+            }
+        )
+    return protos
+
+
 def _context_protos(
     episode: dict[str, Any],
     symbol: str,
@@ -1050,6 +1409,8 @@ def build_dossier(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     macro_db_path: Path = DEFAULT_MACRO_DB_PATH,
+    facts_db_path: Path = DEFAULT_FACTS_DB_PATH,
+    fundamentals_db_path: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Assemble the deterministic claim matrix for an admitted Fusion episode.
@@ -1060,7 +1421,9 @@ def build_dossier(
     ``now`` defaults to the wall clock; it selects the primary ET window for
     flow/tape/news/catalyst/context (and the since-open upper bound), so it
     affects claim values and ordering as well as freshness.
-    ``macro_db_path`` is the separate macro substrate store (not trading.db).
+    ``macro_db_path`` is the separate macro substrate store (not trading.db);
+    ``facts_db_path`` / ``fundamentals_db_path`` are the read-only EDGAR corpus and
+    the curated symbol->CIK cache (both outside trading.db, both may be absent).
     """
     now = now or datetime.now(timezone.utc)
     episode_id = str(episode["id"])
@@ -1082,6 +1445,12 @@ def build_dossier(
         "catalyst": _catalyst_protos(symbol, window_day, state_ts, db_path),
         "news": _news_protos(
             symbol, window_day=window_day, opened_day=market_day, db_path=db_path
+        ),
+        "fundamentals": _fundamentals_protos(
+            symbol,
+            window_day,
+            facts_db_path=facts_db_path,
+            fundamentals_db_path=fundamentals_db_path,
         ),
         "context": _context_protos(
             episode,
@@ -1143,11 +1512,18 @@ def build_and_store_dossier(
     *,
     db_path: Path = DEFAULT_DB_PATH,
     macro_db_path: Path = DEFAULT_MACRO_DB_PATH,
+    facts_db_path: Path = DEFAULT_FACTS_DB_PATH,
+    fundamentals_db_path: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Build the dossier and persist it (upsert on episode_id) via db/idea_dossiers."""
     dossier = build_dossier(
-        episode, db_path=db_path, macro_db_path=macro_db_path, now=now
+        episode,
+        db_path=db_path,
+        macro_db_path=macro_db_path,
+        facts_db_path=facts_db_path,
+        fundamentals_db_path=fundamentals_db_path,
+        now=now,
     )
     put_dossier(dossier, db_path=db_path)
     return dossier

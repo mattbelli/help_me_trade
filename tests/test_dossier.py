@@ -18,8 +18,11 @@ from db.earnings_calendar import upsert_earnings
 from db.idea_dossiers import get_dossier
 from db.macro import upsert_macro
 from db.social_mentions import record_mentions
+from research.edgar_bulk import ensure_bulk_schema
+from signals import dossier as dossier_mod
 from signals.dossier import (
     ANGLE_ORDER,
+    EDGAR_CHECK_MAX_AGE_DAYS,
     _trading_days_between,
     build_and_store_dossier,
     build_dossier,
@@ -42,6 +45,23 @@ def db(tmp_path: Path) -> Path:
     path = tmp_path / "fusion.db"
     fusion_db.init_fusion_tables(path)
     return path
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_edgar(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The EDGAR path defaults point at the checkout's real ``data/research``.
+
+    A test that does not seed its own corpus must read nothing, and no test may
+    behave differently depending on whether this machine happens to hold the
+    16 GB corpus. Tests that DO exercise the angle pass their fixture paths in
+    explicitly, which overrides this.
+    """
+    absent = tmp_path / "no_such_data"
+    for fn in (build_dossier, build_and_store_dossier):
+        monkeypatch.setitem(fn.__kwdefaults__, "facts_db_path", absent / "facts.db")
+        monkeypatch.setitem(
+            fn.__kwdefaults__, "fundamentals_db_path", absent / "fundamentals.db"
+        )
 
 
 def _seed_episode(
@@ -1306,3 +1326,410 @@ def test_macro_claims_deterministic(db: Path, tmp_path: Path) -> None:
         c["claim_id"] for c in _macro_context_claims(second)
     ]
     assert all(c["claim_id"].startswith("context:") for c in macros)
+
+# ------------------------------------------------------- D5: fundamentals angle
+
+# Mirrors the measured shape of a real 10-Q (NVDA's Q1 FY2027, filed 2026-05-20):
+# the fiscal quarter end, the prior-year comparative reported alongside it, the
+# prior fiscal-year-end balance sheet, and a cover-page instant dated AFTER the
+# quarter end — the max(period_end) trap.
+FUND_CIK = 1318605
+FUND_FILED = "2026-05-20"
+FUND_ACCN = 104581026000052
+FUND_PERIOD_END = "2026-04-26"
+FUND_PRIOR_END = "2025-04-27"
+FUND_COVER_PAGE = "2026-05-15"  # dei cover page, dated after the fiscal quarter
+
+_COMPANIES_DDL = """
+CREATE TABLE IF NOT EXISTS companies (
+    symbol TEXT NOT NULL PRIMARY KEY,
+    cik TEXT NOT NULL,
+    sic INTEGER,
+    sic_desc TEXT,
+    sector TEXT
+)
+"""
+
+
+def _fact(
+    tag: str,
+    period_start: str,
+    period_end: str,
+    val: float,
+    *,
+    taxonomy: str = "us-gaap",
+    unit: str = "USD",
+    fy: int | None = 2027,
+    fp: str | None = "Q1",
+    form: str = "10-Q",
+    filed: str = FUND_FILED,
+    accn: int = FUND_ACCN,
+) -> dict:
+    return {
+        "taxonomy": taxonomy, "tag": tag, "period_start": period_start,
+        "period_end": period_end, "unit": unit, "val": val, "fy": fy, "fp": fp,
+        "form": form, "filed": filed, "accn": accn,
+    }
+
+
+def _quarter_facts() -> list[dict]:
+    return [
+        _fact("Revenues", "2026-01-26", FUND_PERIOD_END, 81_615_000_000),
+        _fact("Revenues", "2025-01-27", FUND_PRIOR_END, 44_062_000_000),
+        _fact("NetIncomeLoss", "2026-01-26", FUND_PERIOD_END, 58_321_000_000),
+        _fact("NetIncomeLoss", "2025-01-27", FUND_PRIOR_END, 18_775_000_000),
+        _fact("Assets", "", FUND_PERIOD_END, 259_474_000_000),
+        _fact("Assets", "", "2026-01-25", 206_803_000_000),  # prior FY-end
+        _fact("StockholdersEquity", "", FUND_PERIOD_END, 195_474_000_000),
+        # A real 10-Q's equity roll-forward DOES carry the prior-year quarter-end
+        # instant (measured on NVDA's filing) — an instant a YoY guard must skip.
+        _fact("StockholdersEquity", "", FUND_PRIOR_END, 83_843_000_000),
+        _fact(
+            "EntityCommonStockSharesOutstanding",
+            "", FUND_COVER_PAGE, 24_400_000_000,
+            taxonomy="dei", unit="shares",
+        ),
+    ]
+
+
+def _seed_edgar(
+    tmp_path: Path,
+    *,
+    facts: list[dict] | None = None,
+    symbol: str | None = SYMBOL,
+    cik: int = FUND_CIK,
+) -> tuple[Path, Path]:
+    """Temp (facts_db, fundamentals_db) on the REAL schemas. ``symbol=None`` seeds
+    the company table with no row for the episode's symbol (unmapped)."""
+    facts_db = tmp_path / "edgar_facts.db"
+    fund_db = tmp_path / "fundamentals.db"
+    for path in (facts_db, fund_db):
+        path.unlink(missing_ok=True)  # re-seeding one tmp_path with a different set
+    rows = _quarter_facts() if facts is None else facts
+
+    with connect(facts_db) as conn:
+        ensure_bulk_schema(conn)  # the real corpus schema, not a hand copy
+        conn.execute(
+            "INSERT OR REPLACE INTO filers(cik, entity_name) VALUES (?, ?)",
+            (cik, "Fixture Inc"),
+        )
+        concept_ids: dict[tuple[str, str], int] = {}
+        for row in rows:
+            key = (row["taxonomy"], row["tag"])
+            if key not in concept_ids:
+                concept_ids[key] = len(concept_ids) + 1
+                conn.execute(
+                    "INSERT INTO concepts(id, taxonomy, tag, label, description) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (concept_ids[key], row["taxonomy"], row["tag"], row["tag"], None),
+                )
+            conn.execute(
+                "INSERT OR REPLACE INTO facts(cik, concept_id, period_end, filed, "
+                "unit, period_start, accn, fy, fp, form, frame, val) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    cik, concept_ids[key], row["period_end"], row["filed"],
+                    row["unit"], row["period_start"], row["accn"], row["fy"],
+                    row["fp"], row["form"], None, float(row["val"]),
+                ),
+            )
+        conn.commit()
+
+    with connect(fund_db) as conn:
+        conn.execute(_COMPANIES_DDL)
+        if symbol is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO companies(symbol, cik, sic, sic_desc, sector) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (symbol, str(cik), 3711, "Motor Vehicles", "Manufacturing"),
+            )
+        conn.commit()
+    return facts_db, fund_db
+
+
+@pytest.fixture
+def watermark(monkeypatch: pytest.MonkeyPatch):
+    """Set the §3 ingest watermark. Its real reader lands on a parallel branch, so
+    every fundamentals test states the watermark it means to test — including
+    ``None`` (never checked), which must never silently depend on the import."""
+
+    def _set(value: dict | None) -> None:
+        monkeypatch.setattr(dossier_mod, "_edgar_ingest_watermark", lambda cik: value)
+
+    return _set
+
+
+def _checked(day: str, *, latest_filed: str | None = None) -> dict:
+    # ``source`` is free-form (nightly / bulk / …) and is never branched on —
+    # ``checked_at`` and ``latest_filed`` are the fields the angle reads.
+    return {
+        "checked_at": f"{day}T11:30:00+00:00",
+        "source": "nightly",
+        "latest_filed": latest_filed,
+    }
+
+
+def _fund_claims(dossier: dict) -> list[dict]:
+    return [c for c in dossier["claims"] if c["angle"] == "fundamentals"]
+
+
+def _build_fund(
+    db: Path, tmp_path: Path, *, facts: list[dict] | None = None,
+    symbol: str | None = SYMBOL, now: datetime = NOW,
+    facts_db: Path | None = None, fund_db: Path | None = None,
+) -> dict:
+    # The episode dict, not a seeded row: the angle reads none of the episode's
+    # stored state, and these tests build repeatedly against one db fixture.
+    episode = {
+        "id": EP_ID, "symbol": SYMBOL, "market_day": MARKET_DAY,
+        "anchor_price": "245.00", "market_shock": 0,
+    }
+    if facts_db is None or fund_db is None:
+        facts_db, fund_db = _seed_edgar(tmp_path, facts=facts, symbol=symbol)
+    return build_dossier(
+        episode,
+        db_path=db,
+        macro_db_path=tmp_path / "absent_macro.db",
+        facts_db_path=facts_db,
+        fundamentals_db_path=fund_db,
+        now=now,
+    )
+
+
+def test_fundamentals_angle_lands_before_context(db: Path, tmp_path: Path, watermark) -> None:
+    """D5: new angle, claim_id prefix, and its fixed ANGLE_ORDER position."""
+    watermark(_checked("2026-07-20"))
+    assert ANGLE_ORDER.index("fundamentals") == ANGLE_ORDER.index("news") + 1
+    assert ANGLE_ORDER.index("fundamentals") == ANGLE_ORDER.index("context") - 1
+    assert ANGLE_ORDER[-1] == "evidence"  # D2 truncation absorber stays last
+
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    assert len(claims) == 4  # revenue, net income, assets, equity
+    assert [c["claim_id"] for c in claims] == [f"fundamentals:{i}" for i in range(4)]
+    assert all(c["statement"].startswith("fundamentals ") for c in claims)
+
+
+def test_fundamentals_selects_fiscal_period_not_latest_period_end(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: the reporting period is the fiscal quarter end, NOT max(period_end).
+
+    The same filing carries a cover-page instant dated 2026-05-15 — later than the
+    2026-04-26 quarter end. Taking the filing's max would mislabel every claim.
+    """
+    watermark(_checked("2026-07-20"))
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    assert claims
+    for claim in claims:
+        assert f"ended {FUND_PERIOD_END}" in claim["statement"]
+        assert FUND_COVER_PAGE not in claim["statement"]
+    # The reported values are the quarter's, not a comparative's.
+    revenue = next(c for c in claims if "revenue" in c["statement"])
+    assert revenue["value"] == 81_615_000_000
+    assets = next(c for c in claims if "assets" in c["statement"])
+    assert assets["value"] == 259_474_000_000  # not the 2026-01-25 comparative
+
+
+def test_fundamentals_quarter_wins_over_year_to_date(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: a Q3 10-Q reports 3-month AND 9-month revenue ending the same day."""
+    watermark(_checked("2026-07-20"))
+    facts = [
+        _fact("Revenues", "2026-04-01", "2026-06-30", 28_236_000_000, fp="Q2"),
+        _fact("Revenues", "2026-01-01", "2026-06-30", 55_400_000_000, fp="Q2"),  # YTD
+        _fact("Revenues", "2025-04-01", "2025-06-30", 22_496_000_000, fp="Q2"),
+        _fact("Assets", "", "2026-06-30", 148_524_000_000, fp="Q2"),
+    ]
+    claims = _fund_claims(_build_fund(db, tmp_path, facts=facts))
+    revenue = next(c for c in claims if "revenue" in c["statement"])
+    assert revenue["value"] == 28_236_000_000  # the quarter, never the YTD roll-up
+
+
+def test_fundamentals_annual_filing_picks_the_year(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: a 10-K's reporting period is the year, and it is labelled FY."""
+    watermark(_checked("2026-07-20"))
+    facts = [
+        _fact(
+            "Revenues", "2025-07-01", "2026-06-30", 331_839_000_000,
+            fy=2026, fp="FY", form="10-K",
+        ),
+        _fact(
+            "Revenues", "2026-04-01", "2026-06-30", 90_000_000_000,
+            fy=2026, fp="FY", form="10-K",
+        ),  # some filers also tag the Q4 stub in the 10-K
+        _fact(
+            "Revenues", "2024-07-01", "2025-06-30", 281_724_000_000,
+            fy=2026, fp="FY", form="10-K",
+        ),
+    ]
+    claims = _fund_claims(_build_fund(db, tmp_path, facts=facts))
+    revenue = next(c for c in claims if "revenue" in c["statement"])
+    assert revenue["value"] == 331_839_000_000
+    assert "FY2026 ended 2026-06-30 (10-K filed 2026-05-20)" in revenue["statement"]
+
+
+def test_fundamentals_names_period_and_corpus_asof(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: every claim names its fiscal period AND when we last checked SEC."""
+    watermark(_checked("2026-07-20"))
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    assert claims
+    for claim in claims:
+        assert "Q1 FY2027 ended 2026-04-26 (10-Q filed 2026-05-20)" in claim["statement"]
+        assert "[SEC checked 2026-07-20]" in claim["statement"]
+
+
+def test_fundamentals_fresh_when_recently_checked_despite_old_filing(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5 (the point of the round): freshness tracks OUR CHECK, not the filing.
+
+    The 10-Q was filed 61 days before ``now`` and is still the company's current
+    reported state — a day-count horizon on the filing would be the wrong tool.
+    """
+    watermark(_checked("2026-07-20"))
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    assert claims and all(c["fresh"] is True for c in claims)
+    summary = _build_fund(db, tmp_path)["summary"]
+    fund_lines = [ln for ln in summary.splitlines() if ln.startswith("[fundamentals]")]
+    assert fund_lines and not any("[stale]" in ln for ln in fund_lines)
+
+
+def test_fundamentals_never_checked_says_recency_unknown(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: watermark None -> not fresh, and the statement says we never looked.
+
+    "No newer filing exists" and "we have not checked" are the same observation
+    from inside the store; the claim must never imply the first one.
+    """
+    watermark(None)
+    dossier = _build_fund(db, tmp_path)
+    claims = _fund_claims(dossier)
+    assert claims and all(c["fresh"] is False for c in claims)
+    for claim in claims:
+        assert "[SEC recency unknown — corpus never checked]" in claim["statement"]
+    fund_lines = [
+        ln for ln in dossier["summary"].splitlines() if ln.startswith("[fundamentals]")
+    ]
+    assert fund_lines and all("[stale]" in ln for ln in fund_lines)
+
+
+def test_fundamentals_stale_watermark_not_fresh(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: the check ages out at EDGAR_CHECK_MAX_AGE_DAYS; the boundary is pinned."""
+    watermark(_checked("2026-07-17"))  # gap == 3 == the horizon
+    edge = _fund_claims(_build_fund(db, tmp_path))
+    assert edge and all(c["fresh"] is True for c in edge)
+    assert EDGAR_CHECK_MAX_AGE_DAYS == 3
+
+    watermark(_checked("2026-07-16"))  # gap == 4 — one day past
+    past = _fund_claims(_build_fund(db, tmp_path))
+    assert past and all(c["fresh"] is False for c in past)
+    assert all("[SEC not checked since 2026-07-16]" in c["statement"] for c in past)
+
+
+def test_fundamentals_corpus_behind_sec_not_fresh(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: a recent check that SAW a filing we never ingested is not "latest"."""
+    watermark(_checked("2026-07-20", latest_filed="2026-07-19"))
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    assert claims and all(c["fresh"] is False for c in claims)
+    assert all(
+        "corpus behind SEC (filings through 2026-07-19 not ingested)" in c["statement"]
+        for c in claims
+    )
+
+
+def test_fundamentals_direction_is_never_directional(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: reported financials are context — never a bullish/bearish call."""
+    watermark(_checked("2026-07-20"))
+    dossier = _build_fund(db, tmp_path)
+    claims = _fund_claims(dossier)
+    assert claims and all(c["direction"] == "none" for c in claims)
+    assert all(c["contradicts"] == [] for c in claims)
+
+
+def test_fundamentals_yoy_is_labelled_derived_and_degrades(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: YoY comes from the same filing's comparative, is labelled derived, and
+    is simply absent when the comparison period is not reported."""
+    watermark(_checked("2026-07-20"))
+    claims = _fund_claims(_build_fund(db, tmp_path))
+    revenue = next(c for c in claims if "revenue" in c["statement"])
+    assert "YoY +85.2% (derived vs 2025-04-27)" in revenue["statement"]
+    net_income = next(c for c in claims if "net income" in c["statement"])
+    assert "YoY +210.6% (derived vs 2025-04-27)" in net_income["statement"]
+    # Balance-sheet instants get NO YoY even when the filing carries a
+    # prior-year-dated instant (equity's roll-forward does): an instant is a
+    # point in time, and a 10-Q's own comparative is the prior FISCAL-YEAR END.
+    assets = next(c for c in claims if "assets" in c["statement"])
+    assert "YoY" not in assets["statement"]
+    equity = next(c for c in claims if "equity" in c["statement"])
+    assert "YoY" not in equity["statement"]
+    assert equity["value"] == 195_474_000_000
+
+    no_prior = [f for f in _quarter_facts() if f["period_end"] != FUND_PRIOR_END]
+    degraded = _fund_claims(_build_fund(db, tmp_path, facts=no_prior))
+    revenue = next(c for c in degraded if "revenue" in c["statement"])
+    assert "YoY" not in revenue["statement"]
+    assert revenue["value"] == 81_615_000_000  # the level survives
+
+
+def test_fundamentals_untagged_metric_is_silent(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: a concept the filer does not tag (banks skip Revenues) drops out — we
+    never substitute a figure we computed ourselves."""
+    watermark(_checked("2026-07-20"))
+    facts = [f for f in _quarter_facts() if f["tag"] != "Revenues"]
+    claims = _fund_claims(_build_fund(db, tmp_path, facts=facts))
+    assert len(claims) == 3
+    assert not any("revenue" in c["statement"] for c in claims)
+
+
+def test_fundamentals_absent_dbs_degrade_without_creating_them(
+    db: Path, tmp_path: Path, watermark
+) -> None:
+    """D5: no data/ at all -> zero claims, no raise, and NO stub sqlite files.
+
+    A read path without the ``is_file()`` guard creates an empty DB (D4's review
+    finding); on a 16 GB shared corpus path that is worse than a wrong answer.
+    """
+    watermark(_checked("2026-07-20"))
+    # Parent dir EXISTS on purpose: a writable connect would happily create the
+    # stub here, so the assertion below actually tests the read-only guards.
+    facts_db = tmp_path / "absent_edgar_facts.db"
+    fund_db = tmp_path / "absent_fundamentals.db"
+    dossier = _build_fund(db, tmp_path, facts_db=facts_db, fund_db=fund_db)
+    assert _fund_claims(dossier) == []
+    assert not facts_db.exists()
+    assert not fund_db.exists()
+
+    # Corpus present but the symbol is not in the curated mapping -> same silence.
+    present_facts, present_fund = _seed_edgar(tmp_path, symbol=None)
+    unmapped = _build_fund(
+        db, tmp_path, facts_db=present_facts, fund_db=present_fund
+    )
+    assert _fund_claims(unmapped) == []
+
+
+def test_fundamentals_deterministic(db: Path, tmp_path: Path, watermark) -> None:
+    """D5: same episode + same now -> identical claim_ids and statements."""
+    watermark(_checked("2026-07-20"))
+    facts_db, fund_db = _seed_edgar(tmp_path)
+    first = _build_fund(db, tmp_path, facts_db=facts_db, fund_db=fund_db)
+    second = _build_fund(db, tmp_path, facts_db=facts_db, fund_db=fund_db)
+    assert first["claims"] == second["claims"]
+    assert [c["claim_id"] for c in _fund_claims(first)] == [
+        c["claim_id"] for c in _fund_claims(second)
+    ]
