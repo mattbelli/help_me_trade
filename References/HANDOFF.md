@@ -15,17 +15,11 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ EDGAR nightly refresh — built and measured, NOT deployed (two ordered actions on serv)
+## ▶ EDGAR nightly refresh — LIVE since 08-02; one tuning item open
 
-Branch `edgar-companyfacts-refresh` in worktree `pipeline`, unpushed. Mechanism + measurements on
-card `edgar-companyfacts-nightly-refresh` and the 08-02 BUILD_LOG row.
+Deployed, seeded and cron-installed 08-02 (see the BUILD_LOG row + card
+`edgar-companyfacts-nightly-refresh`). Only this remains:
 
-- **⏳ Seed FIRST, before any cron:** `.venv/bin/python -m research.edgar_refresh --seed-from` on the
-  live checkout. It records the entry CRCs of the `companyfacts.zip` we already ingested (20,122 in
-  0.1s) and stamps no timestamp. ⚠️ **Skip it and the first cron run sees an empty ledger, calls all
-  ~20k entries changed, and does a full 1.33 GB rebuild instead of a 137s diff.**
-- **⏳ Then install the cron line** (also in the script header):
-  `10 7 * * * NTFY_TOPIC=hmt-deadman-0033ce1c5edb753f9932 /home/mbelli/dev/help_me_trade/tools/edgar_nightly_refresh.sh >> /home/mbelli/dev/help_me_trade/data/research/edgar_refresh.log 2>&1`
 - **⏳ After ~3 runs — retune the slot from data, not from my one sample.** 07:10 UTC was set off a
   single `Last-Modified` reading (04:38:46 UTC on 08-02). Every run logs the snapshot's own
   `Last-Modified`; if it consistently lands later than ~05:30 UTC, move the slot later. Being early
@@ -258,15 +252,9 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
   round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;
   unseen → `None`).
-  ⚠️ **BUT the nightly job is NOT ACTIVE yet — two manual steps remain, and until both are done every
-  `fundamentals` claim still renders `[SEC recency unknown — corpus never checked]`:**
-  (1) `.venv/bin/python -m research.edgar_refresh --seed-from data/research/edgar/companyfacts.zip`
-  — one-time, records the entry CRCs of the zip we already ingested. **Skip it and the first run
-  calls all ~20k entries changed and does a full 1.33 GB rebuild instead of a diff.**
-  (2) install the crontab line documented in the header of `tools/edgar_nightly_refresh.sh`
-  (`10 7 * * *`, 07:10 UTC — after SEC's ~04:38 UTC snapshot, clear of the Sunday 08:00 DERA run and
-  the 09:15 UTC backup). Both need the code present in `/home/mbelli/dev/help_me_trade`, which lags
-  `origin/main` until someone deploys.
+  ✅ **The nightly job is ACTIVE** (deployed + seeded + cron installed 08-02), so `fundamentals`
+  claims now render `[SEC checked <day>]` against a same-day corpus instead of
+  `[SEC recency unknown — corpus never checked]`.
   Doc lineage settled 08-02 so it isn't re-hunted: only THREE of the ~15 fusion docs govern the
   dossier — Unified Design 07-16 (component 3 = its entire spec), Evidence Bus 07-17 §1b (hands it
   BACK to Unified; adds §3 Phase C one-archetype sequencing + §2.9 news-dots-first), Round 3 07-22
