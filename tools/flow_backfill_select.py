@@ -19,8 +19,10 @@ tape, mirroring tools/hedge_footprint.py semantics exactly:
     second-grain: phase A may only drop what the registered pipeline would
     certainly drop, so boundary events stay in;
   - half-day sessions excluded (the corpus pool's own rule);
-  - prior_close >= $5 and ADV20 >= 200k shares from split-adjusted Alpaca daily
-    bars, same strictly-before SQL shape as db/flow_corpus.py.
+  - prior_close >= $5 and ADV20 >= 200k shares from RAW Alpaca daily bars on
+    the AS-OF-SESSION split basis (raw x date-scoped split factors — the basis
+    contemporaneous OSI strikes are on; `adjustment=split` today-basis was
+    review blocker 2), same strictly-before window shape as db/flow_corpus.py.
 
 What phase A CANNOT apply (needs the purchased tape, phase B): side unanimity,
 option quote mid, delta band, single-leg/package codes, isolation, |h| ranking,
@@ -95,12 +97,14 @@ def half_days(ap: Alpaca, env: dict) -> set[str]:
 
 
 def fetch_daily_bars(ap: Alpaca, symbols: list[str], con: sqlite3.Connection) -> None:
-    """Split-adjusted daily bars for the backfill window + ADV lookback runway,
-    into backfill.db equity_bars — the same shape db/flow_corpus.py queries."""
-    con.execute("""CREATE TABLE IF NOT EXISTS equity_bars(
+    """RAW (unadjusted) daily bars for the backfill window + ADV lookback runway,
+    into backfill.db equity_bars_raw. Raw + the splits table -> as-of-session
+    basis in prior_close_adv; `adjustment=split` was the review blocker: it
+    returns TODAY-basis prices while OSI strikes are contemporaneous."""
+    con.execute("""CREATE TABLE IF NOT EXISTS equity_bars_raw(
         symbol TEXT, date TEXT, c REAL, v REAL, PRIMARY KEY(symbol, date))""")
     have = {r[0] for r in con.execute(
-        "SELECT DISTINCT symbol FROM equity_bars").fetchall()}
+        "SELECT DISTINCT symbol FROM equity_bars_raw").fetchall()}
     todo = [s for s in symbols if s not in have]
     print(f"bars: {len(have)} cached, fetching {len(todo)}")
     start = (date.fromisoformat(START) - timedelta(days=45)).isoformat()
@@ -109,30 +113,110 @@ def fetch_daily_bars(ap: Alpaca, symbols: list[str], con: sqlite3.Connection) ->
         bars = ap.paged("/v2/stocks/bars", {
             "symbols": ",".join(chunk), "timeframe": "1Day",
             "start": f"{start}T00:00:00Z", "end": f"{END}T23:59:59Z",
-            "adjustment": "split", "feed": "sip", "limit": 10_000,
+            "adjustment": "raw", "feed": "sip", "limit": 10_000,
         }, key="bars")
         rows = [(sym, b["t"][:10], float(b["c"]), float(b["v"]))
                 for sym, bs in bars.items() for b in bs]
         con.executemany(
-            "INSERT OR REPLACE INTO equity_bars VALUES (?,?,?,?)", rows)
+            "INSERT OR REPLACE INTO equity_bars_raw VALUES (?,?,?,?)", rows)
         con.commit()
         print(f"  bars {i + len(chunk)}/{len(todo)} (+{len(rows)} rows)")
 
 
+def fetch_splits(env: dict, rc, con: sqlite3.Connection) -> None:
+    """Every forward/reverse split over the bars span, keyed by the TERMINAL
+    ident (the symbol Alpaca's stitched bar history lives under), so the
+    as-of-session factors join equity_bars_raw directly. The feed's symbol is
+    contemporaneous at ex-date; rc.resolve maps it forward through renames."""
+    import httpx
+    con.execute("""CREATE TABLE IF NOT EXISTS splits(
+        ident TEXT, ex_date TEXT, old_rate REAL, new_rate REAL, feed_symbol TEXT,
+        kind TEXT, PRIMARY KEY(ident, ex_date, feed_symbol))""")
+    headers = {"APCA-API-KEY-ID": env["APCA_API_KEY_ID"],
+               "APCA-API-SECRET-KEY": env["APCA_API_SECRET_KEY"]}
+    start = (date.fromisoformat(START) - timedelta(days=45)).isoformat()
+    out: list[dict] = []
+    token: str | None = None
+    seen: set[str] = set()
+    with httpx.Client(timeout=90.0) as client:
+        for _page in range(200):
+            params: dict[str, object] = {"types": "forward_split,reverse_split",
+                                         "start": start, "end": END, "limit": 1000}
+            if token:
+                params["page_token"] = token
+            r = client.get("https://data.alpaca.markets/v1/corporate-actions",
+                           headers=headers, params=params)
+            r.raise_for_status()
+            payload = r.json()
+            ca = payload.get("corporate_actions") or {}
+            for kind in ("forward_splits", "reverse_splits"):
+                for rec in ca.get(kind) or []:
+                    out.append({**rec, "kind": kind})
+            token = payload.get("next_page_token")
+            if not token:
+                break
+            if token in seen:
+                raise ValueError("corporate-actions pager repeated its token")
+            seen.add(token)
+        else:
+            raise ValueError("corporate-actions pager exceeded the page cap")
+    rows = [(rc.resolve(rec["symbol"], rec["ex_date"]), rec["ex_date"],
+             float(rec["old_rate"]), float(rec["new_rate"]), rec["symbol"],
+             rec["kind"]) for rec in out]
+    con.execute("DELETE FROM splits")
+    con.executemany("INSERT OR REPLACE INTO splits VALUES (?,?,?,?,?,?)", rows)
+    con.commit()
+    print(f"splits: {len(rows)} records staged "
+          f"({sum(1 for r in rows if r[0] != r[4])} resolved through a rename)")
+
+
+_SPLITS: dict[str, list[tuple[str, float, float]]] | None = None
+
+
+def _splits_for(con: sqlite3.Connection) -> dict[str, list[tuple[str, float, float]]]:
+    global _SPLITS
+    if _SPLITS is None:
+        _SPLITS = {}
+        for ident, ex, old_r, new_r in con.execute(
+                "SELECT ident, ex_date, old_rate, new_rate FROM splits"):
+            _SPLITS.setdefault(ident, []).append((ex, float(old_r), float(new_r)))
+    return _SPLITS
+
+
 def prior_close_adv(con: sqlite3.Connection, session: str) -> dict[str, tuple[float, float]]:
-    """symbol -> (prior split-adjusted close strictly before, ADV20 strictly
-    before) — the corpus's own strictly-before window SQL shape."""
+    """symbol -> (prior close strictly before, ADV20 strictly before) on the
+    AS-OF-SESSION split basis: raw bars, each scaled by the splits with
+    bar_date < ex_date <= session — the basis the session's OSI strikes and
+    the corpus's contemporaneous fetch were on. Same strictly-before window
+    shape as db/flow_corpus.py."""
+    splits = _splits_for(con)
     out: dict[str, tuple[float, float]] = {}
-    for sym, c, adv in con.execute(
-        "SELECT symbol, MAX(CASE WHEN rn = 1 THEN c END),"
-        "       AVG(CASE WHEN rn <= ? THEN v END) FROM ("
-        "  SELECT symbol, c, v, ROW_NUMBER() OVER ("
+    cur: str | None = None
+    closes: list[float] = []
+    vols: list[float] = []
+
+    def _flush() -> None:
+        if cur is not None and closes and vols:
+            out[cur] = (closes[0], sum(vols) / len(vols))
+
+    for sym, bar_date, c, v in con.execute(
+        "SELECT symbol, date, c, v FROM ("
+        "  SELECT symbol, date, c, v, ROW_NUMBER() OVER ("
         "    PARTITION BY symbol ORDER BY date DESC) rn"
-        "  FROM equity_bars WHERE date < ?"
-        ") WHERE rn <= ? GROUP BY symbol",
-            (ADV_LOOKBACK, session, ADV_LOOKBACK)):
-        if c is not None and adv is not None:
-            out[sym] = (float(c), float(adv))
+        "  FROM equity_bars_raw WHERE date < ?"
+        ") WHERE rn <= ? ORDER BY symbol, date DESC",
+            (session, ADV_LOOKBACK)):
+        if sym != cur:
+            _flush()
+            cur, closes, vols = sym, [], []
+        pf = vf = 1.0
+        for ex, old_r, new_r in splits.get(sym, ()):
+            if bar_date < ex <= session:
+                pf *= old_r / new_r
+                vf *= new_r / old_r
+        closes.append(float(c) * pf)
+        vols.append(float(v) * vf)
+    _flush()
     return out
 
 
@@ -342,6 +426,7 @@ def main() -> None:
         idents = sorted({rc.resolve(r, s) for r, s in pairs
                          if rc.classify(r, s) == "equity"})
         print(f"{len(idents)} equity underlyings to stage bars for")
+        fetch_splits(env, rc, con)
         fetch_daily_bars(ap, idents, con)
         return
 

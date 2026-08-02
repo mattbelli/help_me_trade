@@ -3,8 +3,10 @@
 purchased tcbbo windows.
 
 Registered context: `References/FLOW_ROADMAP.md` → backfill round 3 (phase-A
-block). Input = the 6,656 purchased ±330s parent windows
-(`data/research/flow_backfill/tcbbo/`) + the phase-A shortlist. Output = the
+block). Input = the 6,651 corrected-registration ±330s parent windows
+(`select/windows.json`, all purchased — the corrected-basis top-10k; 1,338
+round-1-only windows remain on disk unused) + the phase-A shortlist. Output =
+the
 backfill stage-1 candidate set with the same fields the corpus writes, plus a
 per-window provenance record (join rate, drops).
 
@@ -13,10 +15,11 @@ code, never re-implemented:
   - grouping `_order_groups`, package heuristic `_multileg`, quote fence + side
     `fence_and_classify` (tools/flow_corpus_rollup.py — the ONE implementation);
   - condition-code join `match_prints` at the REGISTERED ±100ms tolerance
-    (tools/condition_labels.py) — measured on purchased windows 2026-08-02:
-    2025 joins at 1.000, 2024 at 0.961–1.000 (2024 Alpaca option trade stamps
-    are sub-second precise in practice; the crawl's second-grain observation is
-    a subset). The a-side comes from FREE historical Alpaca option trades — the
+    (tools/condition_labels.py) — measured on the corrected-registration run
+    2026-08-02 (post halo-clip): session-aggregate join rates 0.787–1.000;
+    40 sessions (all 2024) fell below the 0.98 floor and were DROPPED by the
+    session gate (132 records). The a-side comes from FREE historical Alpaca
+    option trades — the
     same vendor feed the corpus's live capture recorded, so this is the
     corpus's own provenance, fetched after the fact;
   - `single_leg_groups`, `group_side`, `fit_delta`, `hedge_shares`,
@@ -37,9 +40,11 @@ Disclosed adaptations for window fragments (the addendum's own clauses):
     (±330s pad); incidental groups near an edge are excluded rather than
     scored on a truncated base (parity measured the truncation as pure
     over-keep);
-  - prior_close/ADV20 read the backfill equity_bars table (split-adjusted
-    Alpaca dailies staged by phase A, same strictly-before SQL shape as
-    db/flow_corpus.py).
+  - prior_close/ADV20 come from `flow_backfill_select.prior_close_adv`: RAW
+    Alpaca dailies (equity_bars_raw) on the AS-OF-SESSION split basis via the
+    date-scoped splits table — the basis the session's OSI strikes are on
+    (`adjustment=split` today-basis was review blocker 2), same
+    strictly-before window shape as db/flow_corpus.py.
 
 Corpus-parity gate (2026-03-06, measured 2026-08-02): 925/927 candidates
 reproduced with h_select exact to 1e-6, 0 extras. The 2 residual misses are
@@ -70,7 +75,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.condition_labels import JOIN_FLOOR, match_prints  # noqa: E402
+from tools.condition_labels import JOIN_FLOOR, TOL_NS, match_prints  # noqa: E402
 from tools.flow_backfill_crawl import (  # noqa: E402
     Alpaca,
     Pacer,
@@ -140,10 +145,13 @@ def fetch_window_conds(ap: Alpaca, contracts: list[str], start_ns: int,
         return datetime.fromtimestamp(ns / 1e9, tz=UTC).strftime(
             "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
-    # iso() floors to milliseconds; a floored `end` excludes trades in the
-    # final partial ms — and the window's LAST print is very often the
-    # candidate itself (isolated blocks in sparse names). Ceil end by 1ms.
-    end_ns += 1_000_000
+    # Halo both bounds by the registered ±100ms join tolerance: an a-side
+    # trade stamped just outside the window can still be the join partner of
+    # a boundary b-side print (review fix). The halo also covers iso()'s
+    # ms-floor, which alone cost the window's LAST print — very often the
+    # candidate itself (isolated blocks in sparse names).
+    start_ns -= TOL_NS
+    end_ns += TOL_NS + 1_000_000
     a_sym, a_t, a_cents, a_size, a_cond = [], [], [], [], []
     for i in range(0, len(contracts), 50):
         js = ap.paged("/v1beta1/options/trades", {
@@ -200,6 +208,22 @@ def window_stage1(df, session: str, root: str, ident: str,
             ap, contracts, int(ts_ev.min()), int(ts_ev.max()) + 1)
     else:
         a_sym, a_t, a_cents, a_size, a_cond = a_side
+    # CLIP the a-side to the print tape's own [min, max] before the join.
+    # match_prints joins on occurrence RANK per (contract, cents, size) key —
+    # a halo-strip a-side trade with no b-side counterpart shifts the rank of
+    # every later same-key trade and can desynchronize an arbitrarily long
+    # run (delta-review-B blocker: KSS 2024-09-16, 40 orphans -> 1,800 lost
+    # joins + 158 silent relabels). The halo stays on the FETCH (it defeats
+    # iso()'s ms floor); measured across 61 A/B windows, zero recovered joins
+    # had a partner outside these bounds (participant-stamp offset = 0 ns).
+    if len(a_t):
+        _at = np.asarray(a_t, dtype=np.int64)
+        keep = (_at >= int(ts_ev.min())) & (_at <= int(ts_ev.max()))
+        a_sym = np.asarray(a_sym)[keep]
+        a_t = _at[keep]
+        a_cents = np.asarray(a_cents, dtype=np.int64)[keep]
+        a_size = np.asarray(a_size, dtype=np.int64)[keep]
+        a_cond = np.asarray(a_cond, dtype="U1")[keep]
     d_cid = np.array([cindex[s] for s in syms], dtype=np.int64)
     a_cid = np.array([cindex.get(s, -1) for s in a_sym], dtype=np.int64)
     d_cents = np.round(price_raw / PX * 100.0).astype(np.int64)
@@ -552,11 +576,14 @@ def stage2() -> None:
     minute profiles → d = |h_select| / expected_29s ≥ 3.0, news fence
     [T−5min, T], rank by d per band, per-underlying + top-N caps.
 
-    Disclosed scaled caps (rate-preserving): the corpus wide run applied
-    STAGE2_TOP=300 and PER_UNDERLYING_CAP=10 over 105 sessions; this backfill
-    spans 357 sessions, so the caps scale pro-rata to 1,020 and 34 — the same
-    per-session selection rate, never a looser one. Every other constant is the
-    corpus's own import.
+    Disclosed scaled caps (rate-preserving): the REGISTERED 3.2 base caps are
+    STAGE2_TOP=300 and PER_UNDERLYING_CAP=10 over the corpus's 105 qualifying
+    sessions; this backfill spans 357 sessions, so the caps scale pro-rata to
+    1,020 and 34 — the same per-session selection rate as the registered base.
+    (The wide run itself selected at DOUBLE that rate — ladder step 1, top-600 /
+    cap-20 — so this scaling is also strictly tighter than the label set it
+    grows.) Measured: neither cap materially binds (0 beyond-top, 6
+    underlying-cap drops). Every other constant is the corpus's own import.
     """
     from datetime import timedelta
 
@@ -659,11 +686,326 @@ def stage2() -> None:
     print(json.dumps(led))
 
 
+def fetch() -> None:
+    """Registered stage-3 fetch over the stage-2 events: [T−300s, T+300s]
+    equity trades+quotes snapshots for each event AND its 20 controls,
+    mirroring `hedge_footprint.stage_fetch` (imported `fetch_window` with its
+    SIP feed assertions, imported `control_sessions` with the registered
+    symmetric-20 rule). Snapshots cache under phaseb/fetch/snap/ — resumable.
+
+    Disclosed adaptations:
+    - control pool = the sessions table's contiguous crawl span
+      (2024-02-15..2025-07-25, status done) with half-days excluded via the
+      trading calendar (review fix: the first run's DISTINCT-prints pool
+      admitted 4 half-days and 8 post-span parity/pilot strays) — NO
+      cond-provenance requirement, because controls consume only the equity
+      tape and the activity filter, never option condition codes;
+    - the PRE-D contamination filter reads the crawl DB's ≥$25k groups — a
+      SUPERSET of the registered single-leg filter set (packages included,
+      the crawl cannot classify them): strictly conservative, it can only
+      skip MORE control sessions, never admit a contaminated one.
+    """
+    import sqlite3
+
+    import httpx
+
+    from tools.hedge_footprint import (
+        FeedAssertionError,
+        MissingDailyBar,
+        alpaca_config,
+        control_sessions,
+        fetch_window,
+        save_json,
+    )
+
+    out_dir = OUT_DIR / "fetch"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    events = json.loads(
+        (OUT_DIR / "stage2" / "stage2_selected.json").read_text())["selected"]
+    rc = load_classification(FENCE_PATH)
+    con = sqlite3.connect(DATA_DIR / "backfill.db", check_same_thread=False)
+    act_cache: dict[date, tuple[np.ndarray, np.ndarray]] = {}
+
+    def _activity(sess: date):
+        if sess not in act_cache:
+            rows = con.execute(
+                "SELECT root, ts_ns FROM prints WHERE session=?",
+                (sess.isoformat(),)).fetchall()
+            idents = {}
+            syms, ts = [], []
+            for root, t in rows:
+                if root not in idents:
+                    idents[root] = rc.resolve(root, sess.isoformat())
+                syms.append(idents[root])
+                ts.append(t)
+            act_cache[sess] = (np.array(syms, dtype="U16"),
+                               np.array(ts, dtype=np.int64))
+            if len(act_cache) > 60:
+                for k in list(act_cache)[:20]:
+                    if k != sess:
+                        del act_cache[k]
+        return act_cache[sess]
+
+    cfg = alpaca_config()
+    if not cfg["api_key_id"]:
+        raise SystemExit("no Alpaca credentials")
+    headers = {"APCA-API-KEY-ID": cfg["api_key_id"],
+               "APCA-API-SECRET-KEY": cfg["api_secret_key"]}
+    # control pool = the crawl's contiguous span with HALF-DAYS EXCLUDED (the
+    # corpus pool's own rule). Review fix: DISTINCT prints sessions admitted 4
+    # half-days (29 empty controls) and 8 post-span parity/pilot strays.
+    cal = httpx.get("https://paper-api.alpaca.markets/v2/calendar",
+                    params={"start": "2024-02-15", "end": "2025-07-25"},
+                    headers=headers, timeout=60)
+    cal.raise_for_status()
+    halfs = {row["date"] for row in cal.json() if row["close"] != "16:00"}
+    pool = [date.fromisoformat(s) for (s,) in con.execute(
+        "SELECT session FROM sessions WHERE status='done' AND session "
+        "BETWEEN '2024-02-15' AND '2025-07-25' ORDER BY session")
+        if s not in halfs]
+    daily_path = out_dir / "daily_volume.json"
+    daily = json.loads(daily_path.read_text()) if daily_path.exists() else {}
+    ledger_path = out_dir / "fetch_ledger.jsonl"
+    done = set()
+    if ledger_path.exists():
+        done = {(json.loads(x)["symbol"], json.loads(x)["ts_ns"])
+                for x in ledger_path.read_text().splitlines() if x}
+    led_f = open(ledger_path, "a")
+    io_lock = threading.Lock()      # ledger + daily dict
+    act_lock = threading.Lock()     # activity cache + sqlite (single conn)
+    counter = [0]
+    todo = [ev for ev in events if (ev["symbol"], ev["ts_ns"]) not in done]
+    # shard by symbol: same-symbol events share one worker, so two events can
+    # never race a np.savez to the same control-snapshot path
+    by_symbol: dict[str, list[dict]] = defaultdict(list)
+    for ev in todo:
+        by_symbol[ev["symbol"]].append(ev)
+    print(f"fetch: {len(todo)}/{len(events)} events across "
+          f"{len(by_symbol)} symbols", flush=True)
+
+    with httpx.Client(headers=headers, timeout=60.0) as client:
+        def one_symbol(evs: list[dict]) -> None:
+            for ev in evs:
+                session = date.fromisoformat(ev["session"])
+                with act_lock:
+                    ctrls = control_sessions(session, ev["symbol"],
+                                             ev["ts_ns"], pool, _activity)
+                base = session_midnight_ns(session)
+                row: dict
+                # a failed window is DROPPED and counted, never admitted:
+                # MissingDailyBar = pre-IPO/halt day; FeedAssertionError = the
+                # registered missing-prints detector (the corpus's crash-and-
+                # investigate default cannot govern 19k windows — the drop
+                # ledger + the spec's 20% STOP rule replace it, disclosed)
+                try:
+                    fetch_window(out_dir, client, cfg["data_base_url"],
+                                 ev["symbol"], ev["ts_ns"], daily)
+                except (MissingDailyBar, FeedAssertionError) as exc:
+                    row = {**ev, "control_sessions": [], "control_ts_ns": [],
+                           "fetch_dropped": str(exc)}
+                else:
+                    kept_sessions, kept_ts = [], []
+                    ctrl_feed_drops = 0
+                    ctrl_bar_drops = 0
+                    for c in ctrls:
+                        ts = session_midnight_ns(c) + int(ev["ts_ns"] - base)
+                        try:
+                            fetch_window(out_dir, client, cfg["data_base_url"],
+                                         ev["symbol"], ts, daily)
+                        except MissingDailyBar:
+                            # counted (review fix: was a bare continue) — an
+                            # Alpaca daily-bar gap, not only pre-IPO/halt days
+                            ctrl_bar_drops += 1
+                            continue
+                        except FeedAssertionError:
+                            ctrl_feed_drops += 1
+                            continue
+                        kept_sessions.append(c.isoformat())
+                        kept_ts.append(ts)
+                    row = {**ev, "control_sessions": kept_sessions,
+                           "control_ts_ns": kept_ts,
+                           "control_feed_drops": ctrl_feed_drops,
+                           "control_bar_drops": ctrl_bar_drops}
+                with io_lock:
+                    led_f.write(json.dumps(row) + "\n")
+                    led_f.flush()
+                    # dict() snapshots under the GIL — other workers mutate
+                    # `daily` outside this lock, and serializing the live dict
+                    # races ("dictionary changed size during iteration")
+                    save_json(daily_path, dict(daily))
+                    counter[0] += 1
+                    if counter[0] % 10 == 0:
+                        print(f"  fetched {counter[0]}/{len(todo)} events",
+                              flush=True)
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            list(ex.map(one_symbol, by_symbol.values()))
+    print(f"FETCH COMPLETE: {len(events)} events")
+
+
+def freeze() -> None:
+    """3.3 backfill label freeze — `hedge_scores_frozen_backfill.json` + SHA.
+
+    Mirrors `tools/hedge_footprint_freeze.py` (build_rows + main) over the
+    backfill fetch ledger: `measure_event` per event, the registered
+    quiet/primary/64g cut, `hedge_aligned` scores, HIGH/NULL/ANTI strata, the
+    same covariates, deterministic canonical bytes, mismatch-guarded write.
+    NO forward price is read — outcomes stay sealed. Disclosed schema
+    difference: rows carry `osi` (the backfill's contract identity, parsed from
+    the raw OPRA symbol) where the corpus rows carry the defs `instrument_id`.
+    """
+    import hashlib
+    from datetime import timedelta
+
+    from db.earnings_calendar import earnings_dates_for
+    from tools.hedge_footprint import (
+        G_NS,
+        PRIMARY_HORIZON_G,
+        _arrays,
+        build_condition_table,
+        hedge_aligned,
+        measure_event,
+    )
+    from tools.hedge_footprint_freeze import (
+        EARNINGS_LOOKAHEAD_DAYS as EARN_45D,
+    )
+    from tools.hedge_footprint_freeze import (
+        HIGH_THRESHOLD,
+        _aligned_z,
+        _mark_covariates,
+        balance_table,
+        canonical_bytes,
+        otm_pct,
+        stratum_for,
+    )
+
+    out_dir = OUT_DIR / "fetch"
+    raw_rows = [json.loads(x)
+                for x in (out_dir / "fetch_ledger.jsonl").read_text().splitlines()
+                if x.strip()]
+    # the jsonl ledger is append-only and resumable — a crashed-then-resumed
+    # fetch can re-append an event; keep-LAST dedup (review fix: duplicates
+    # would be measured twice and double-enter the canonical bytes)
+    by_key = {(ev["symbol"], ev["ts_ns"]): ev for ev in raw_rows}
+    events = list(by_key.values())
+    if len(events) != len(raw_rows):
+        print(f"ledger dedup: {len(raw_rows)} rows -> {len(events)} unique")
+    table = build_condition_table()
+    records = []
+    silent_drops = []
+    for i, ev in enumerate(events, 1):
+        r = measure_event(out_dir, ev, table)
+        if r is not None:
+            records.append(r)
+        else:
+            # measure_event returns bare None when the snapshot is missing or
+            # the event-time NBBO yields no usable mid (locked/crossed/zero —
+            # the ALDX/MPLX class); record it (review fix: was silent)
+            silent_drops.append({"symbol": ev["symbol"],
+                                 "session": ev["session"],
+                                 "ts_ns": ev["ts_ns"],
+                                 "dropped": "no_snapshot_or_no_nbbo_mid"})
+        if i % 100 == 0:
+            print(f"  measured {i}/{len(events)}", flush=True)
+    if silent_drops:
+        print(f"silent measure_event drops (recorded): "
+              f"{[(d['symbol'], d['session']) for d in silent_drops]}")
+    usable = [r for r in records if not r.get("dropped")]
+    dropped = [r for r in records if r.get("dropped")] + silent_drops
+    cut = _arrays(usable, PRIMARY_HORIZON_G, tier="quiet", band="primary")
+    print(f"measured {len(records)}, usable {len(usable)}, dropped {len(dropped)}, "
+          f"cut (quiet/primary/{PRIMARY_HORIZON_G}g): {len(cut['records'])}",
+          flush=True)
+
+    rows = []
+    for rec, score in zip(cut["records"],
+                          hedge_aligned(cut["value"], cut["h_sign"]), strict=True):
+        ev = by_key[(rec["symbol"], rec["ts_ns"])]
+        session = date.fromisoformat(rec["session"])
+        horizon_end = session + timedelta(days=EARN_45D)
+        earnings = [d for d in earnings_dates_for(rec["symbol"])
+                    if session.isoformat() < d <= horizon_end.isoformat()]
+        spot = float(rec["spot_measure"])
+        rows.append({
+            "symbol": rec["symbol"],
+            "session": rec["session"],
+            "ts_ns": int(rec["ts_ns"]),
+            "osi": str(ev["osi"]),
+            "root": ev["root"],
+            "strike": float(ev["strike"]),
+            "is_put": bool(ev["is_put"]),
+            "side_sign": int(ev["side_sign"]),
+            "contracts": int(rec["contracts"]),
+            "premium": float(rec["premium"]),
+            "dte": int(ev["dte"]),
+            "expiry_date": (date(1970, 1, 1)
+                            + timedelta(days=int(ev["exp_days"]))).isoformat(),
+            "h_sign": float(rec["h_sign"]),
+            "abs_h": round(float(rec["abs_h"]), 2),
+            "d": round(float(rec["d"]), 4),
+            "delta_measure": round(float(rec["delta_measure"]), 6),
+            "spot_measure": round(spot, 6),
+            "otm_pct": round(otm_pct(float(ev["strike"]), spot,
+                                     bool(ev["is_put"])), 6),
+            "score": round(float(score), 6),
+            "stratum": stratum_for(float(score)),
+            "cluster": f"{rec['symbol']}|{rec['session']}",
+            "score_trf_incl": round(_aligned_z(rec, PRIMARY_HORIZON_G,
+                                               "trf_incl"), 6),
+            "score_tick": round(_aligned_z(rec, PRIMARY_HORIZON_G, "tick"), 6),
+            "score_16g": round(_aligned_z(rec, 16, "primary"), 6),
+            "score_165g": round(_aligned_z(rec, 165, "primary"), 6),
+            "n_controls": int(rec["n_controls"]),
+            "earnings_dates_45d": earnings,
+            **_mark_covariates(out_dir, rec["symbol"], int(rec["ts_ns"]), table,
+                               ev["control_ts_ns"], float(rec["h_sign"])),
+        })
+    rows.sort(key=lambda r: (r["symbol"], r["ts_ns"]))
+
+    doc = {
+        "spec": ("FLOW_ROADMAP.md 3.3 backfill round 3 — phase-B label freeze "
+                 "(2026-08-02); schema = hedge_scores_frozen_3p3 with `osi` "
+                 "in place of `instrument_id`"),
+        "high_threshold": HIGH_THRESHOLD,
+        "horizon_g": PRIMARY_HORIZON_G,
+        "grain_ns": G_NS,
+        "n_events": len(rows),
+        "events": rows,
+    }
+    payload = canonical_bytes(doc)
+    sha = hashlib.sha256(payload).hexdigest()
+    frozen_path = OUT_DIR / "hedge_scores_frozen_backfill.json"
+    if frozen_path.exists():
+        existing = frozen_path.read_bytes()
+        if hashlib.sha256(existing).hexdigest() != sha:
+            print(f"FROZEN FILE MISMATCH: on-disk != recomputed {sha[:16]} — "
+                  "investigate, never overwrite")
+            raise SystemExit(1)
+        print(f"frozen file reproduced exactly: sha256={sha}")
+    else:
+        frozen_path.write_bytes(payload)
+        print(f"frozen file WRITTEN: sha256={sha}")
+    bal = balance_table(rows)
+    (OUT_DIR / "hedge_balance_backfill.json").write_text(json.dumps(bal, indent=1))
+    # sidecar (NOT in the canonical bytes — schema stays corpus-parallel):
+    # every dropped event with its reason, silent-None drops included
+    (OUT_DIR / "freeze_drops.json").write_text(json.dumps(
+        [{"symbol": r["symbol"], "session": r["session"],
+          "ts_ns": r["ts_ns"], "dropped": r["dropped"]} for r in dropped],
+        indent=1))
+    counts = {s: bal.get(s, {}).get("n_events", 0)
+              for s in ("HIGH", "NULL", "ANTI")}
+    print(f"strata: {counts}")
+    print(f"SHA256 {sha}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--run", action="store_true")
     p.add_argument("--parity", metavar="SESSION")
     p.add_argument("--stage2", action="store_true")
+    p.add_argument("--fetch", action="store_true")
+    p.add_argument("--freeze", action="store_true")
     p.add_argument("--workers", type=int, default=12)
     args = p.parse_args()
     if args.parity:
@@ -672,6 +1014,10 @@ def main() -> None:
         run(args.workers)
     elif args.stage2:
         stage2()
+    elif args.fetch:
+        fetch()
+    elif args.freeze:
+        freeze()
     else:
         p.print_help()
 

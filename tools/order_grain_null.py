@@ -66,7 +66,6 @@ from tools.flow_corpus_rollup import (  # noqa: E402
     multileg_flags,
 )
 from tools.root_classification_build import load as load_classification  # noqa: E402
-from tools.root_classification_build import occ_form  # noqa: E402
 
 OUT_DIR = ROOT / "data" / "order_grain_null"
 # G.9c: "Extract cache versioned to a NEW directory so the fenced re-emission can
@@ -252,18 +251,23 @@ def fenced_orders(session: date, j: _Joined, ml: np.ndarray, closes: dict,
     und_code, right, strike, dte = j.und_code, j.right, j.strike, j.dte
 
     roots = [str(s) for s in uniq_und]
-    ident = np.array([rc.resolve(r, ds) for r in roots])
-    is_equity = np.array([rc.classify(r, ds) == "equity" for r in roots], bool)
-    # G.2's reuse-split rule, the clause a resolver alone does not implement: a
-    # segment whose OWN chain does not carry it forward is UNRESOLVABLE, and is
-    # EXCLUDED rather than merged into the ticker's later occupant. Measured on
-    # the frozen snapshot, ARIS is exactly this shape — its pre-2026-02-19
-    # segment has no rename of its own, so `resolve()` hands back `ARIS` for
-    # BOTH issuers and, without this, the vacated issuer's flow would share one
-    # presence count, one z baseline and one quintile with the new one.
-    orphan = np.array([occ_form(r) == occ_form(t)
-                       and any(b > ds for b in rc.split_boundaries(r))
-                       for r, t in zip(roots, ident)], bool)
+    ident_raw = [rc.resolve(r, ds) for r in roots]
+    # G.2's reuse-split rule: a segment whose OWN chain does not carry it
+    # forward is UNRESOLVABLE, and is EXCLUDED rather than merged into the
+    # ticker's later occupant (ARIS is exactly this shape). Since the fence's
+    # 2026-08-02 regeneration `resolve()` implements the clause itself and
+    # returns None for such a segment — provably the same predicate this
+    # function used to compute locally (terminal == root AND a boundary after
+    # `ds` ⟺ None). The row label falls back to the printed root so the panel
+    # shape is unchanged; the counterfactual class for the orphan-casualty
+    # count reads the root at pull date (the same directory row the old
+    # date-scoped classify returned before the guard existed).
+    orphan = np.array([t is None for t in ident_raw], bool)
+    ident = np.array([r if t is None else t
+                      for r, t in zip(roots, ident_raw)])
+    is_equity = np.array([rc.classify(r, ds if t is not None else None)
+                          == "equity"
+                          for r, t in zip(roots, ident_raw)], bool)
     in_universe = is_equity & ~orphan
     names, ident_code = np.unique(ident, return_inverse=True)
 

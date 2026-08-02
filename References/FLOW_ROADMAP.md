@@ -3263,6 +3263,65 @@ equivalent; we do not need it.
         label scoring on the underlying equity tape → new frozen labels via
         dated addendum (TWO parallel Opus adversarial reviewers before freeze)
         → re-run Gate 1.
+      - **Phase-B freeze + two-Opus review + fix round (2026-08-02) — backfill
+        labels FROZEN at `d0eb07d1…df14`, review-hardened: HIGH 58 / NULL 286 /
+        ANTI 27 (371 cut). Returns NEVER unsealed.** The first freeze (923
+        events → 285 cut, HIGH 42, SHA `e0e8529…`) FAILED adversarial review on
+        two data-identity blockers (reviewer A): (1) the fence's
+        corporate-actions span began 2025-07-25, so GOLD→B (Barrick, processed
+        2025-05-09) was missing and root GOLD scored against A-Mark's tape;
+        (2) phase-A bars used `adjustment=split` (TODAY basis) against
+        contemporaneous OSI strikes — `drop_iv_sub_intrinsic` inflated to 1,541
+        and the contracts/ADV proxy mis-ranked every post-split name (CHPT 20×).
+        Quarantined, then fixed BY THIS DATED ADDENDUM:
+        **(a) Fence regenerated** — span 2024-02-15..2026-08-02 with
+        `--backfill-db` old-side evidence (crawl-DB premium + per-root session
+        dates); 192 successor pairs (85 added / 0 removed), 14 reuse splits with
+        mechanical gap evidence, 0 topology collisions, CUK→CCL exemption
+        carried verbatim. `resolve()` now returns None when a date falls in a
+        non-last reuse segment the chain never left (review-A MAJOR: Barnes-era
+        `B` / pre-reuse `ARIS` silently borrowed the successor's Alpaca bars;
+        measured 0 affected rows anywhere, closed by class). Disclosed limits:
+        `gap_sessions` is null for pre-corpus seams (the sessions index spans
+        only the corpus era — future exemption adjudications over the extended
+        span need fresh gap evidence); the old-side premium floor mixes measures
+        by era (corpus `flow_rollup` total premium + crawl ≥$25k-group premium —
+        one-way, adds pairs only, every pair still from the Alpaca `name_change`
+        feed); and the parity gate deliberately does NOT exercise the fixed
+        price path (it sources corpus-DB bars for byte-parity) — the split-basis
+        fix is evidenced instead by direct recomputation (7/7 ground-truth
+        names incl. the ex-date==session edge, which is correctly INCLUDED per
+        OCC adjustment timing) and an independent 11/11 split-table
+        completeness audit.
+        **(b) Split basis** — `equity_bars_raw` (`adjustment=raw`, 1.25M rows,
+        3,232 idents) + the corporate-actions splits feed (1,196 records, 19
+        rename-resolved) → `prior_close_adv` computes prior_close/ADV20 on the
+        AS-OF-SESSION basis.
+        **(c) Phase A re-ranked** at the top-10k registration under the
+        corrected basis: 6,651 windows quoted $16.99; the 1,333-window gap
+        (fingerprint roots HEAR/IGT/CHK/CCJ/CVNA) purchased for **$4.82 exact**
+        under the standing ≤$30 authorization so the corrected registration is
+        fully owned; 1,338 round-1-only windows remain on disk unused.
+        **(d) Second review round caught the fix round itself**: reviewer B
+        measured the a-side ±100ms halo desynchronizing `match_prints`' RANK-
+        based join (KSS 2024-09-16: 40 orphan rows → 1,800 lost joins + 158
+        silently wrong condition codes; interim SHA `c077f567…` superseded).
+        Final form: halo stays on the FETCH (defeats the ms-floor bug), a-side
+        CLIPPED to the print tape's own bounds before the join. B's independent
+        desync detector post-fix: 0 surviving orphans / 0 wrong codes over
+        34,171 prints; KSS joins 4,370/4,370.
+        **Final artifacts**: stage 1 = 1,129 records (session joins 0.787–1.000,
+        40 sessions below the 0.98 floor → 132 records dropped), stage 2 =
+        1,110, fetch 1,110/1,110 (control pool = the contiguous half-day-
+        excluded crawl span; every control drop counted incl. the
+        `MissingDailyBar` class), freeze = 371 cut, byte-identical determinism
+        re-runs, parity 925/927 with 0 extras post-clip. Verdicts: reviewer A
+        PASS-WITH-FIXES (all applied), reviewer B PASS — "sound to register."
+        **Next: combined Gate 1** — corpus 31 + backfill 58 = 89 HIGH vs the
+        ~124 the 1.5% MDE floor needs; population-composition disclosure
+        required when pooling (backfill tilts thinner/higher-d than the
+        corpus); if power still fails, tranche-2-deeper (exact quote first,
+        remaining envelope ~$25).
 
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**

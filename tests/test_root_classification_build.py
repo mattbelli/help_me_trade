@@ -584,7 +584,11 @@ def test_a_sequential_reuse_of_one_ticker_is_not_a_collision():
     fence = RootClassification(doc)
     assert fence.resolve("COLA") == "TERM"
     assert fence.resolve("COLB") == "TERM"
-    assert fence.resolve("TERM", "2026-03-01") == "TERM"
+    # mid-segment TERM (COLA's successor era, vacated when COLB arrived) is
+    # UNKNOWABLE via the terminal symbol since the 2026-08-02 guard: a
+    # non-last reuse segment the chain never left resolves to None
+    assert fence.resolve("TERM", "2026-03-01") is None
+    assert fence.resolve("TERM", "2026-07-01") == "TERM"
 
 
 def test_a_straight_chain_is_not_a_collision(doc):

@@ -192,11 +192,14 @@ def test_package_print_alone_removes_its_order():
 
 def test_unresolvable_reuse_segment_is_excluded_not_merged():
     """G.2: a reuse segment with no chain of its own is EXCLUDED, never merged
-    into the ticker's later occupant. ARIS is exactly this shape on the frozen
-    snapshot — `resolve()` hands back `ARIS` for BOTH issuers."""
+    into the ticker's later occupant. ARIS is exactly this shape. Since the
+    2026-08-02 fence regeneration, `resolve()` implements the clause itself:
+    the vacated pre-seam segment returns None; the current occupant resolves
+    normally."""
     snap = dict(SNAPSHOT, reuse_splits={"EQA": ["2026-02-19"]})
     rc = RootClassification(snap)
-    assert rc.resolve("EQA", "2025-09-01") == rc.resolve("EQA", "2026-03-02") == "EQA"
+    assert rc.resolve("EQA", "2025-09-01") is None
+    assert rc.resolve("EQA", "2026-03-02") == "EQA"
 
     b, a = TIGHT
     arr, und, right = _prints([(0, 0, 1, 10, 1.02, 10, b, a)])
