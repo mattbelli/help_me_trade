@@ -132,10 +132,26 @@ git -C <wt> log --oneline origin/main..HEAD    # unpushed
 git -C <wt> status --short                     # uncommitted
 ```
 
-Remove a tree when its round lands; keep one only while an agent is actively cycling work through it.
-Trees are cheap to make (~1s, they share the `.git` object store), so on-demand beats hoarding — the six
+⚠️ **Remove the WORKTREE before closing its WORKSPACE — the order is not interchangeable.** Because
+`worktree remove` is keyed to `--workspace <id>`, closing the workspace first strands the handle
+(`open_workspace_id: null`) and the tree can then only be cleaned with plain `git worktree remove`.
+Founder correction 2026-08-02, after I closed first and then went looking for the option that had
+"disappeared."
+
+**Remove a tree when the *thread* ends, not when a round lands.** Founder direction 2026-08-02
+(*"why don't we just make this dossier so we don't change worktrees for each d5 d6 etc"*): a multi-round
+build keeps one tree across all its rounds and recycles the branch (`git fetch origin && git switch -c
+<next> origin/main`). It's the **agent** that's disposable, not the tree — see §3's fresh-agent rule.
+Trees are cheap to make (~1s, shared `.git` object store), so don't hoard *unrelated* ones: the six
 stale `worktree-agent-*` checkouts under `dev/help_me_trade/.claude/worktrees/`, two with uncommitted
 work in them, are what hoarding looks like after three days.
+
+⚠️ **`git worktree move` poisons `__pycache__` and produces PHANTOM test failures.** `.pyc` files bake
+the absolute source path into `co_filename`, so after a move `linecache` can't resolve it and any test
+asserting on a rendered traceback or thread-stack dump fails — deterministically, looking exactly like a
+real regression in code you never touched. Measured 2026-08-02: `tests/test_loop_probe.py` failed 3/3 in
+the renamed tree with the *old* path still in the dump, and passed immediately after
+`find . -name __pycache__ -prune -exec rm -rf {} +`. Clear the cache as the second half of every move.
 
 ⚠️ **Worktrees do NOT inherit gitignored files.** A fresh worktree has **no `data/` and no `.env`**. Any
 brief whose verify step touches the DB must give the absolute path
@@ -199,26 +215,65 @@ herdr agent explain <name> --json                           # why detection thin
   before reading anything — **even with `--force`**. Answer it *first*
   (`herdr pane send-keys <pane> a`), then send the prompt; the menu swallows anything submitted while
   it's up, and that's what leaves text sitting unsent in the composer.
-- ⚠️ **`agent prompt` does NOT reliably submit a multiline prompt to `cursor-agent` — always follow with
-  `enter`.** The skill states that `agent prompt` sends text and Enter atomically, honoring bracketed
-  paste. That is the herdr contract, and it holds for short prompts; it does **not** survive contact with
-  cursor-agent's multiline composer. Measured twice on 2026-08-02 — once with the trust modal up (an
-  obvious confound) and once with no modal at all — the text parked as `[Pasted text #N +19 lines]` and
-  the agent stayed `idle` until an explicit key:
+- ⚠️ **`agent prompt` does NOT submit to `cursor-agent` — on ANY prompt. Always follow with `enter`.**
+  The skill states that `agent prompt` sends text and Enter atomically, honoring bracketed paste. That is
+  the herdr contract; it does **not** survive contact with cursor-agent. **Line count is irrelevant** —
+  an earlier version of this note blamed the "multiline composer" and said short prompts were fine; a
+  later single-line dispatch parked identically. Measured 5× across 2026-08-02, three distinct modes:
+  1. the text parks as `[Pasted text #N +19 lines]`, status stays `idle`;
+  2. a **one-line** prompt parks the same way;
+  3. **the text never lands at all** — the composer is *empty* and a blind `enter` submits nothing,
+     which is the worst case because the agent looks dispatched and simply never runs.
   ```bash
-  herdr agent prompt <name> '<multiline brief>'
-  herdr pane send-keys <pane> enter        # required for cursor-agent multiline; verify status flips
+  herdr agent prompt <name> '<brief>'
+  herdr agent read <name> --source detection --lines 12   # composer must actually hold something
+  herdr pane send-keys <pane> enter
   herdr agent get <name>                   # must read `working` — if still `idle`, it never started
   ```
-  **Always confirm the status flipped to `working` after prompting.** A prompt that silently never ran
-  looks exactly like an agent that finished instantly. (Reported upstream-worthy: the skill's atomic
-  claim is wrong for this agent kind.)
+  ⚠️ **Do not verify by grepping the pane for your brief's literal text** — the composer collapses a
+  paste to `[Pasted text #1 +N lines]`, so the grep finds nothing *even on success* and you'll re-send a
+  prompt that already landed. Grep for `[Pasted text` too; the only trustworthy signal is `agent_status`
+  flipping to `working`. A prompt that silently never ran looks exactly like an agent that finished
+  instantly. (Reported upstream-worthy: the skill's atomic claim is wrong for this agent kind.)
+- ⚠️ **Arm the wait AS PART OF THE DISPATCH, never as a follow-up thought.** A backgrounded
+  `herdr agent wait <name>` is the *only* thing that wakes the orchestrator when an agent finishes —
+  with no wait running, a finished agent sits idle indefinitely and the founder is the one who notices.
+  Measured failure 2026-08-02: armed for the first dispatch of a round, dropped for the next three;
+  founder caught it twice in a row ("is your monitor working?"). Treat `prompt → enter → confirm
+  working → background wait` as one indivisible four-step action.
+- **`--force` (alias `--yolo`) does NOT disable the denylist** — it means "allow unless *explicitly*
+  denied", so yolo + denylist coexist and that combination is the right way to run a dispatched pane
+  agent: no per-command approval stalls, dangerous verbs still blocked. The list lives in
+  `~/.cursor/cli-config.json` (`permissions.deny` / `permissions.allow`); ours denies `git push`,
+  `git merge`, `sudo`, `systemctl`, `npm run build`, `tools/serv-deploy.sh`.
+  **Measure it, don't believe it** — an untested denylist is a belief, not a control. Verified
+  2026-08-02 with a throwaway repo pointed at a real local bare remote (so a push would genuinely
+  succeed if unblocked): `cursor-agent -p --force` told to push returned *"Permission denied: Command
+  blocked by permissions configuration"* with `remote commits: 0`, while an allowed command still
+  auto-ran. **Compensating control:** record `git rev-parse origin/main` before each dispatch and
+  re-check after — across five dispatches, none moved it.
 - **`herdr agent prompt <TARGET> <TEXT>`** takes text positionally. `--text` errors as an unknown option.
 - **Reading a TUI agent.** `cursor-agent` renders on the terminal's **alternate screen**, so rows that
   scroll away never reach herdr's scrollback and raising `--lines` cannot recover them. When a read comes
   back truncated, ask the agent to write its full response to a temp `.md` and reply with only the path,
   then read the file. Fallback only — don't ask for file output in the initial prompt.
 - **CLI error contract:** server errors are JSON on **stderr** with exit 1; syntax errors exit 2.
+
+### ★ One agent per TASK — close the pane when it lands
+
+Founder direction 2026-08-02: *"after each task close the agent pane and spawn a new agent for the next
+task — you handle the worktree opening and closing."* The stated reason is **context-window hygiene**: a
+long-lived agent carries the full history of tasks it already finished, while a fresh one starts clean on
+a self-contained brief. Grok sat at 42.7% context after one round of the dossier work.
+
+- **Review rounds of the same task keep the same agent** — a fix-round dispatch *benefits* from the
+  context and it's still one task. Close only when the task is genuinely done.
+- The **orchestrator** owns worktree lifecycle and the branch; the agent only writes code in the tree
+  it's handed.
+- **Write the brief as a FILE in the worktree** and tell the agent to read it, rather than pasting it:
+  the agent reads it once instead of carrying it in context, and it sidesteps the composer paste bug
+  above entirely. Delete the brief before the round's commit (or leave it untracked).
+- `herdr pane close <paneId>` when done — only panes you created.
 
 **Safety rules (from the skill, not optional):** `--no-focus` for background work; target `--current`, an
 explicit pane ID, or a unique agent name — never another client's focused pane; parse IDs from JSON, never
@@ -249,6 +304,21 @@ Standing loop for a task: create worktree → dispatch coder → review the real
 `ruff check .` + the named tests → BUILD_LOG row + HANDOFF + `board.json` in the same commit → merge to
 `main` → `herdr worktree remove` + delete the branch. Don't leave worktrees or branches lying around;
 stale ones accumulate fast and two of them will always turn out to have uncommitted work in them.
+(For a multi-round build, the tree survives the whole thread — §2.)
+
+⚠️ **`/home/mbelli/dev/help_me_trade` is routinely BEHIND `origin/main` — never conclude a file doesn't
+exist from it.** It's the live deployed checkout and only advances when someone deploys, so it lags every
+round landed from a worktree. Measured 2026-08-02: it sat 11 commits behind while I ran `ls References/`
+there and told the founder **this very document didn't exist**. It did — on `main`, four commits of its
+own history deep. Check the ref, not the disk:
+
+```bash
+git ls-tree origin/main --name-only References/     # what main actually has
+git log --all --oneline -- <path>                   # what history says about it
+```
+
+That's the `dev-tree-vs-orca-worktree-divergence` trap wearing a different hat: run commands where the
+data is, but resolve *questions about the repo* against `origin/main`.
 
 ## 6. Related
 
