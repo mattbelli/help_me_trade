@@ -151,31 +151,68 @@ exactly one writer per tree — we just stopped being limited to one tree.
 
 ## 3. Launching a coder
 
+> **The `herdr` skill is the authority on CLI syntax** — installed at `~/.claude/skills/herdr/SKILL.md`
+> (upstream: `github.com/herdrdev/herdr/skills/herdr/SKILL.md`; companion overview at
+> `herdr.dev/agent-guide.md`). Load it before driving herdr, and prefer `herdr <group>` help output over
+> anything written here. Requires `HERDR_ENV=1`; your own context is in `$HERDR_WORKSPACE_ID` /
+> `$HERDR_TAB_ID` / `$HERDR_PANE_ID`. Herdr is **not** tmux — no tmux commands or config syntax.
+
+**Default topology is a sibling pane in the current tab, not a new workspace.** The skill is explicit:
+don't create a workspace, tab, worktree, or different cwd unless the user asked for it. *Our standing
+exception:* the founder has asked for worktrees, so worktree-backed workspaces are sanctioned **when an
+agent will live there** (§2). For a quick agent alongside your own work, just split:
+
+```bash
+herdr pane layout --pane "$HERDR_PANE_ID"                                  # wide -> right, tall -> down
+herdr pane split --current --direction right --cwd "$PWD" --no-focus
+# new pane id = .result.pane.pane_id  (parse it from JSON, never guess)
+```
+
 ```bash
 # 1. find the pane (a fresh worktree workspace has exactly one, at a shell prompt)
 herdr pane list --workspace <wsID>
 
-# 2. start the agent in it
+# 2. start the agent in it — native agent args go AFTER `--`
 herdr agent start <name> --kind cursor --pane <wsID>:p1 --timeout 120000 \
   -- --model cursor-grok-4.5-high --force
 
 # 3. send the brief (TEXT is POSITIONAL — there is no --text flag)
-herdr agent prompt <name> '<the brief + fences>'
-herdr pane send-keys <wsID>:p1 enter        # multiline pastes do NOT auto-submit
+herdr agent prompt <name> '<the brief + fences>' --wait
 
 # 4. watch / drive
-herdr agent get <name>          # agent_status: idle | working | blocked
-herdr agent read <name>         # transcript
-herdr agent wait <name> --until idle --until blocked --timeout <ms>
-herdr agent attach <name>       # take it over by hand
+herdr agent get <name>                                      # idle | working | blocked | done | unknown
+herdr agent read <name> --source recent-unwrapped --lines 120
+herdr agent wait <name>                                     # bare — see the ⚠ below
+herdr agent attach <name>                                   # take it over by hand
+herdr agent explain <name> --json                           # why detection thinks what it thinks
 ```
 
-**Three gotchas that silently waste a dispatch:**
+**Gotchas that silently waste a dispatch:**
+
+- ⚠️ **NEVER spell out `--until idle` on a wait.** Bare `--wait` / bare `agent wait` already settles on
+  `idle`, `done`, **or** `blocked`. `done` is the same idle state reached after **unseen** background work
+  finishes — and **CLI reads do not mark a tab seen**, so an agent you only ever polled from the CLI
+  lands in `done`, not `idle`. Measured 2026-08-02: `agent wait --until idle --until blocked` hung ~25
+  minutes while the agent sat finished; the bare wait returned instantly. Use `--until` only for a
+  genuinely state-specific workflow (e.g. `--until blocked` to catch an approval prompt).
 - **Workspace-trust menu.** In a *fresh* directory `cursor-agent` blocks on `⚠ Workspace Trust Required`
-  before reading anything — even with `--force`. Answer it (`herdr pane send-keys <pane> a`) and re-send
-  the prompt; the menu swallows whatever was submitted while it was up.
-- **Multiline prompts paste without submitting.** Follow every `herdr agent prompt` with `send-keys enter`.
-- **`herdr agent prompt <TARGET> <TEXT>`** takes text positionally. `--text` errors out as an unknown option.
+  before reading anything — **even with `--force`**. Answer it *first*
+  (`herdr pane send-keys <pane> a`), then send the prompt; the menu swallows anything submitted while
+  it's up, and that's what leaves text sitting unsent in the composer.
+- **`agent prompt` submits text AND Enter atomically** (it honors the pane's bracketed-paste mode), so
+  a trailing `send-keys enter` should not be needed. If you do find a prompt parked in the composer —
+  which is what the trust modal causes — `herdr pane send-keys <pane> enter` clears it.
+- **`herdr agent prompt <TARGET> <TEXT>`** takes text positionally. `--text` errors as an unknown option.
+- **Reading a TUI agent.** `cursor-agent` renders on the terminal's **alternate screen**, so rows that
+  scroll away never reach herdr's scrollback and raising `--lines` cannot recover them. When a read comes
+  back truncated, ask the agent to write its full response to a temp `.md` and reply with only the path,
+  then read the file. Fallback only — don't ask for file output in the initial prompt.
+- **CLI error contract:** server errors are JSON on **stderr** with exit 1; syntax errors exit 2.
+
+**Safety rules (from the skill, not optional):** `--no-focus` for background work; target `--current`, an
+explicit pane ID, or a unique agent name — never another client's focused pane; parse IDs from JSON, never
+from sidebar order; **do not close workspaces/tabs/panes you did not create**; and **never**
+`herdr server stop` on the live session — it kills every pane process, including the founder's.
 
 ## 4. What every dispatch prompt must carry
 
