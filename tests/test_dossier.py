@@ -49,12 +49,16 @@ def db(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _no_ambient_edgar(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The EDGAR path defaults point at the checkout's real ``data/research``.
+    """The EDGAR and macro path defaults point at the checkout's real ``data/``.
 
     A test that does not seed its own corpus must read nothing, and no test may
     behave differently depending on whether this machine happens to hold the
     16 GB corpus. Tests that DO exercise the angle pass their fixture paths in
     explicitly, which overrides this.
+
+    ``macro_db_path`` belongs here too: D4 wired the macro substrate into the
+    context angle behind the same kwdefault, so on a box holding ``data/macro.db``
+    an unseeded episode grew a macro claim and the angle assertions failed.
     """
     absent = tmp_path / "no_such_data"
     for fn in (build_dossier, build_and_store_dossier):
@@ -62,6 +66,7 @@ def _no_ambient_edgar(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setitem(
             fn.__kwdefaults__, "fundamentals_db_path", absent / "fundamentals.db"
         )
+        monkeypatch.setitem(fn.__kwdefaults__, "macro_db_path", absent / "macro.db")
 
 
 def _seed_episode(

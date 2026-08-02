@@ -286,6 +286,8 @@ async def _refresh_snapshot(
     account would gate every later order there against somebody else's portfolio.
     """
     try:
+        # Stamped BEFORE the fetch: see save_snapshot's captured_at note.
+        asked_at = datetime.now(UTC).isoformat()
         account, positions, orders = await adapter.afetch_snapshot()
     except Exception:
         logger.exception("stop release: snapshot refresh failed")
@@ -319,6 +321,7 @@ async def _refresh_snapshot(
             else intent.broker
         ),
         account_id=intent.account_id,
+        captured_at=asked_at,
         db_path=db_path,
     )
     return True
@@ -657,6 +660,7 @@ class ExecutionService:
             status="pending",
             broker=intent.broker,
             account_id=intent.account_id,
+            occ_symbol=intent.occ_symbol,
             risk_checks_json={},
             db_path=db_path,
         )
@@ -679,7 +683,9 @@ class ExecutionService:
             await lock.acquire()
             lock_held = True
             try:
-                risk = await RiskEngine.validate(intent, db_path=db_path)
+                risk = await RiskEngine.validate(
+                    intent, db_path=db_path, exclude_execution_id=execution_id
+                )
                 if not risk.passed and _release_is_warranted(intent, risk, mode):
                     # Blocked only by our own resting protective stops. Take them
                     # down inside the lock — no other submit may see the window
@@ -696,7 +702,11 @@ class ExecutionService:
                     if released and await _refresh_snapshot(
                         release_adapter, intent, db_path=db_path
                     ):
-                        risk = await RiskEngine.validate(intent, db_path=db_path)
+                        risk = await RiskEngine.validate(
+                            intent,
+                            db_path=db_path,
+                            exclude_execution_id=execution_id,
+                        )
                 if not risk.passed:
                     reason = risk.blocked_reason or "risk check failed"
                     update_execution_status(

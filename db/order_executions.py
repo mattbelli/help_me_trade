@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -57,6 +58,13 @@ def init_execution_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         _add_column_if_missing(conn, "order_executions", "filled_qty", "TEXT")
         _add_column_if_missing(conn, "order_executions", "notional_usd", "TEXT")
         _add_column_if_missing(conn, "order_executions", "short_open", "INTEGER DEFAULT 0")
+        # The OCC contract for an option order. `symbol` holds the UNDERLYING there
+        # (submit writes intent.symbol), so it cannot tell an option sell apart from
+        # an equity sell on the same ticker — reserving shares by `symbol` alone would
+        # block a TSLA call exit because a TSLA share sell is in flight. Reservations
+        # key on COALESCE(occ_symbol, symbol), which is the OCC for options and the
+        # ticker for equities.
+        _add_column_if_missing(conn, "order_executions", "occ_symbol", "TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_order_exec_account_created
@@ -88,6 +96,7 @@ def _row_to_execution(row: sqlite3.Row) -> dict[str, Any]:
         "filled_qty": row["filled_qty"] if "filled_qty" in row.keys() else None,
         "notional_usd": row["notional_usd"] if "notional_usd" in row.keys() else None,
         "short_open": int(row["short_open"]) if "short_open" in row.keys() else 0,
+        "occ_symbol": row["occ_symbol"] if "occ_symbol" in row.keys() else None,
     }
 
 
@@ -108,6 +117,7 @@ def create_execution_record(
     broker_order_id: str | None = None,
     submitted_at: str | None = None,
     account_id: str | None = None,
+    occ_symbol: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     init_execution_tables(db_path)
@@ -123,14 +133,18 @@ def create_execution_record(
             INSERT INTO order_executions (
                 id, proposal_id, session_id, symbol, side, qty, order_type,
                 limit_price, execution_mode, status, broker_order_id, broker,
-                risk_checks_json, submitted_at, created_at, updated_at, account_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                risk_checks_json, submitted_at, created_at, updated_at, account_id,
+                occ_symbol
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 execution_id,
                 proposal_id,
                 session_id,
-                symbol,
+                # Normalised at the write: the sell reservation matches on this
+                # column and SQLite's `=` is case-sensitive, so a row stored as
+                # "aapl" would be invisible to it — a silently dead safety gate.
+                symbol.strip().upper(),
                 side,
                 str(qty),
                 order_type,
@@ -144,6 +158,7 @@ def create_execution_record(
                 now,
                 now,
                 account_id,
+                occ_symbol.strip().upper() if occ_symbol else None,
             ),
         )
         conn.commit()
@@ -298,6 +313,150 @@ def sum_inflight_notional(
             params,
         ).fetchall()
     return _sum_notional_rows(rows, context="sum_inflight_notional")
+
+
+# How long a sell with no broker order id may still reserve shares. It covers a
+# submit that is genuinely mid-flight (the row is written before validation, the
+# broker call follows); past it the process that owned the row is gone. Matches
+# the orphan horizon the stale-pending sweeper already uses — and unlike that
+# sweeper, which only reaches `paper` rows, this bound applies in every mode.
+_UNPLACED_RESERVATION_MAX_AGE_SECONDS = 120
+
+
+def _parse_ts(raw: Any) -> datetime | None:
+    """Parse a stored timestamp as UTC-aware, or None if it is unusable."""
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _seconds_since(raw: Any, *, now: datetime) -> float | None:
+    parsed = _parse_ts(raw)
+    return None if parsed is None else (now - parsed).total_seconds()
+
+
+def sum_inflight_sell_qty(
+    *,
+    symbol: str,
+    account_id: str | None = None,
+    exclude_execution_id: str | None = None,
+    known_broker_order_ids: Iterable[str] = (),
+    snapshot_captured_at: datetime | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Decimal:
+    """Shares/contracts already committed to reduce-only sells the snapshot cannot show.
+
+    The stored snapshot only refreshes on the poll loop and stays valid for
+    _SNAPSHOT_MAX_AGE, so two sells submitted in that window both read a position
+    with no pending sells against it and both validate — 12 shares sold against 10
+    held. This is the share-count twin of sum_inflight_notional: the DB knows about
+    an order the moment it is recorded, which is what closes that window.
+
+    ONLY orders the snapshot cannot already account for are counted, because
+    over-reserving is its own harm — it blocks a real exit, and a position that
+    cannot be exited (or re-stopped) is worse than the trade never being taken.
+    A row is counted when:
+
+      * it has no broker order id — it never left this process, so no snapshot
+        could show it. Bounded by _UNPLACED_RESERVATION_MAX_AGE: past that the
+        submit that owned it died, and an orphan must not lock the position
+        forever (nothing terminalises a non-paper `pending` row);
+      * it IS at the broker, is absent from the snapshot's open orders, and was
+        submitted AFTER the snapshot was captured — the genuine race.
+
+    Deliberately NOT counted: a row already among ``known_broker_order_ids`` (the
+    snapshot reserves it, so counting it here too double-subtracts), and a row
+    submitted BEFORE the snapshot yet missing from its open orders — that order
+    filled or died, and the snapshot's own position size already reflects it.
+    Without that second rule every fill double-counted for as long as the row took
+    to reconcile, and a row stuck in `submitted` locked the position permanently
+    (adversarial review HIGH-1, both reviewers).
+
+    Reduce-only only (short_open = 0) — a sell-to-open consumes buying power, not a
+    long, and is handled by the notional path.
+
+    KNOWN LIMIT: afetch_snapshot reads account/positions/orders as three concurrent
+    requests, so a fill landing between the orders read and the positions read
+    leaves an order absent from open_orders while the position is still pre-fill.
+    That row is genuinely dead and is correctly not reserved here — but the stale
+    position it leaves behind can still be oversold. That is the pre-existing
+    non-atomic-snapshot problem `_uncommitted_shares` documents, not something this
+    reservation creates or can fix; reserving dead rows merely masked it by
+    accident, at the cost of locking positions permanently. The real fix is to
+    terminalise stuck rows in reconcile (it only sweeps `paper` `pending` today),
+    after which the timestamp rule here becomes unnecessary.
+    """
+    init_execution_tables(db_path)
+    clauses = [
+        "status IN ('pending', 'submitted', 'partially_filled')",
+        "side = 'sell'",
+        "COALESCE(short_open, 0) = 0",
+        # Options store the UNDERLYING in `symbol`; match on the contract when
+        # there is one so an option exit is never reserved against equity sells.
+        "COALESCE(occ_symbol, symbol) = ?",
+    ]
+    params: list[Any] = [symbol.strip().upper()]
+    if account_id is not None:
+        clauses.append("account_id = ?")
+        params.append(account_id)
+    # NOTE: account_id=None means EVERY account, not "the null-account rows"
+    # (list_open_protective_stops takes the other reading). Unreachable today —
+    # no snapshot is written without an account — but a single NULL-account
+    # snapshot would silently re-arm cross-account reservation here.
+    if exclude_execution_id is not None:
+        # The caller's OWN pending row is written before validation runs — without
+        # this it would reserve against itself and reject every sell.
+        clauses.append("id != ?")
+        params.append(exclude_execution_id)
+    where = " AND ".join(clauses)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""SELECT id, qty, filled_qty, broker_order_id, submitted_at, created_at,
+                       updated_at
+                FROM order_executions WHERE {where}""",
+            params,
+        ).fetchall()
+    known = {str(o) for o in known_broker_order_ids if o is not None}
+    now = datetime.now(UTC)
+    total = Decimal("0")
+    for row in rows:
+        broker_order_id = row["broker_order_id"]
+        if broker_order_id is None:
+            age = _seconds_since(row["created_at"], now=now)
+            if age is not None and age > _UNPLACED_RESERVATION_MAX_AGE_SECONDS:
+                logger.warning(
+                    "order_executions.sum_inflight_sell_qty: row %s has no broker "
+                    "order id after %.0fs — treating as an abandoned submit, not "
+                    "reserving its %s",
+                    row["id"], age, row["qty"],
+                )
+                continue
+        elif str(broker_order_id) in known:
+            continue
+        elif snapshot_captured_at is not None:
+            # submitted_at ONLY — never updated_at, which every status write
+            # re-dates, so an unrelated bookkeeping update could drag a dead row
+            # back across the snapshot boundary and lock the position. A missing
+            # submitted_at leaves placed_at None, which falls through to counting
+            # it: an unnecessary reservation is recoverable, an unintended short
+            # is not (same reason `<` is strict — an exact tie counts).
+            placed_at = _parse_ts(row["submitted_at"])
+            if placed_at is not None and placed_at < snapshot_captured_at:
+                continue
+        filled_raw = row["filled_qty"]
+        filled = (
+            Decimal(str(filled_raw))
+            if filled_raw is not None and str(filled_raw).strip() != ""
+            else Decimal("0")
+        )
+        # Clamp per row: a broker reporting filled > qty must never credit shares
+        # back into the sellable pool (mirrors the snapshot-side clamp).
+        total += max(Decimal("0"), Decimal(str(row["qty"])) - filled)
+    return total
 
 
 def sum_today_notional(

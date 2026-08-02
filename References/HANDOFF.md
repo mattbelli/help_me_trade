@@ -57,11 +57,18 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
   stop at the same trigger or an inbox note saying nothing was left to stop. Any CRITICAL
   "UNPROTECTED position" push means a failure path fired — read it, it names which.
-- **⏳ `sell-reservation-snapshot-window`** (card, `next`, high) — pre-existing, reproduced twice this
-  round: for a sell-to-close every exposure gate is skipped, so the snapshot's `open_orders` is the
-  ONLY quantity gate, and two sells inside one 20s poll window can oversell. The release path holds
-  the submit lock to a placed exit and re-polls after, so it is the one sell route that closes its
-  own window; every other one is open.
+- **⏳ Stuck execution rows are still only swept in paper.** The sell reservation shipped 08-02 (log
+  row; card `done`) and deliberately leans on two heuristics *because* nothing terminalises a stuck
+  row outside paper: a 120s bound on unplaced `pending` rows, and "submitted before the snapshot yet
+  absent from its open orders ⇒ dead". `list_stale_pending_paper_executions` is
+  `execution_mode='paper'` only, and `reconcile_open_executions` leaves a row `submitted` forever
+  when the broker read raises or the row has no `broker_order_id`. Terminalising those would retire
+  BOTH heuristics — the cleaner endgame, flagged by both reviewers.
+- **⏳ The snapshot is not atomic and one gap remains open.** `afetch_snapshot` reads
+  account/positions/orders concurrently, so a fill landing between the orders and positions reads
+  leaves a stale-high position that can still be oversold. Pre-existing (`_uncommitted_shares`
+  MEDIUM-1); the sell reservation neither introduces nor fixes it, and no longer masks it by
+  accident. Any real fix has to make the position read authoritative, not patch the consumers.
 - **⏳ `unprotected-position-monitor`** (card, `next`, high) — now also owns the specific hole that a
   dead stop row removes an entry from the guard's work list for good. ⚠️ The obvious fix was built,
   reviewed and REVERTED 08-01 for three measured reasons (dry_run re-submits forever; a hand cancel

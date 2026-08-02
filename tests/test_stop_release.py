@@ -497,11 +497,15 @@ async def test_an_option_exit_never_touches_the_underlyings_equity_stop(
 async def test_a_genuine_oversell_does_not_release_anything(
     monkeypatch, tmp_path: Path
 ) -> None:
-    # 50 held with a 20-share stop resting ⇒ available 30, and pending sells ARE
-    # non-zero, so the release path genuinely runs. It frees 20 shares; 60 is
-    # still 10 more than exist, so the revalidation must reject and the stop must
-    # come back. (The earlier version of this test had no stop at all, so it
-    # passed no matter what the release path did.)
+    # 50 held with a 20-share stop resting, selling 60. Releasing the stop frees
+    # its 20 shares but the order still needs 60 of 50, so it cannot help.
+    #
+    # This used to release anyway and rely on the restore putting the stop back.
+    # The RiskEngine now reports a block as releasable ONLY when the order would
+    # actually fit afterwards, so the stop is never taken down in the first place
+    # — same end state, minus the window where the position sits unprotected and
+    # minus any dependence on the restore succeeding. Asserting on `canceled`
+    # rather than the restore is the stronger claim: protection was never lost.
     db = tmp_path / "exec.db"
     broker = _StubBroker([_stop_order(qty=20.0)])
     _env(monkeypatch, db, broker)
@@ -510,9 +514,9 @@ async def test_a_genuine_oversell_does_not_release_anything(
     with pytest.raises(RiskRejectedError, match="exceeds available"):
         await ExecutionService.submit(_sell(qty=Decimal("60")), db_path=db)
 
-    restored = [req for req in broker.placed if req.order_type == "stop"]
-    assert len(restored) == 1
-    assert restored[0].qty == "20"
+    assert broker.canceled == []
+    assert [req for req in broker.placed if req.order_type == "stop"] == []
+    assert broker.book["broker-stop-1"].status == "new"
 
 
 @pytest.mark.asyncio

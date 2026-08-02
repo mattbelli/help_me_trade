@@ -133,9 +133,17 @@ def save_snapshot(
     *,
     broker: str = "alpaca",
     account_id: str | None = None,
+    captured_at: str | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> str:
-    captured_at = datetime.now(UTC).isoformat()
+    # Callers pass the instant they asked the BROKER, not the instant we got
+    # round to writing. The rows describe the broker as of the fetch, and the
+    # sell reservation reads captured_at to decide which of our own orders this
+    # snapshot could already know about — stamping it here instead left every
+    # order placed between the fetch and this write invisible to both the
+    # snapshot AND the reservation (adversarial review A HIGH-1). Defaulting to
+    # now keeps the seldom-used callers honest, just less precise.
+    captured_at = captured_at or datetime.now(UTC).isoformat()
     init_db(db_path)
 
     with _connect(db_path) as conn:

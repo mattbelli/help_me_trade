@@ -320,6 +320,8 @@ async def _poll_account(account: dict) -> bool:
 
     try:
         broker = get_broker_for_account(account_id)
+        # Stamped BEFORE the fetch: see save_snapshot's captured_at note.
+        asked_at = datetime.now(timezone.utc).isoformat()
         fetched_account, positions, orders = await broker.afetch_snapshot()
         registered_external_id = account.get("broker_external_id")
         fetched_external_id = str(fetched_account.id)
@@ -346,6 +348,7 @@ async def _poll_account(account: dict) -> bool:
             orders,
             broker=broker_name,
             account_id=account_id,
+            captured_at=asked_at,
         )
         logger.info(
             "Snapshot saved at %s (%s account=%s)",
@@ -420,6 +423,8 @@ async def _poll_broker(broker_name: str) -> bool:
         return False
     try:
         broker = get_broker(broker_name)
+        # Stamped BEFORE the fetch: see save_snapshot's captured_at note.
+        asked_at = datetime.now(timezone.utc).isoformat()
         account, positions, orders = await broker.afetch_snapshot()
         trade_account = get_default_account(broker_name)
         captured_at = await asyncio.to_thread(
@@ -429,6 +434,7 @@ async def _poll_broker(broker_name: str) -> bool:
             orders,
             broker=broker_name,
             account_id=trade_account["id"] if trade_account else None,
+            captured_at=asked_at,
         )
         logger.info("Snapshot saved at %s (%s)", captured_at, broker_name)
         await asyncio.to_thread(compute_and_save_snapshot_analytics, broker_name)

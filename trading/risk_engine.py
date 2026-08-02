@@ -24,6 +24,7 @@ from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
     count_executions_today,
     sum_inflight_notional,
+    sum_inflight_sell_qty,
     sum_today_notional,
 )
 from db.risk_breaker import current_stage, get_or_create_baseline, trip
@@ -50,6 +51,7 @@ class RiskEngine:
         intent: OrderIntent,
         *,
         db_path: Path = DEFAULT_DB_PATH,
+        exclude_execution_id: str | None = None,
     ) -> RiskCheckResult:
         checks: dict[str, str] = {}
         cfg = {**DEFAULT_SETTINGS["trading"], **trading_config()}
@@ -385,7 +387,28 @@ class RiskEngine:
                             Decimal(str(o.get("qty", 0)))
                             - Decimal(str(o.get("filled_qty", 0))),
                         )
-                available = held - pending_sell
+                # The snapshot only covers sells the broker has echoed back, and it
+                # stays valid for _SNAPSHOT_MAX_AGE — so a sell submitted since the
+                # last poll is invisible here and two of them would each validate
+                # against the whole position. Reserve those from our own records.
+                # Kept SEPARATE from pending_sell on purpose: blocked_by_pending_sells
+                # below is the chokepoint's signal that cancelling our own resting
+                # stops could unblock this order, and cancelling a stop does nothing
+                # about an in-flight sell. Folding the two together sent the release
+                # path after a live protective stop it could not help — and the
+                # re-stop was then blocked too, leaving the position bare
+                # (adversarial review HIGH-2, both reviewers).
+                inflight_sell = sum_inflight_sell_qty(
+                    symbol=concentration_symbol,
+                    account_id=intent.account_id,
+                    exclude_execution_id=exclude_execution_id,
+                    known_broker_order_ids=[
+                        o.get("id") for o in open_orders if o.get("id") is not None
+                    ],
+                    snapshot_captured_at=captured_at,
+                    db_path=db_path,
+                )
+                available = held - pending_sell - inflight_sell
                 if qty > available:
                     # Selling MORE than the held long would flip into a short
                     # mid-close. Never do that implicitly — a short must start
@@ -398,13 +421,28 @@ class RiskEngine:
                         checks=checks,
                         blocked_reason=(
                             f"sell qty exceeds available position "
-                            f"(held {held}, pending sells {pending_sell})"
+                            f"(held {held}, pending sells {pending_sell}"
+                            + (
+                                f", in-flight sells {inflight_sell}"
+                                if inflight_sell > 0
+                                else ""
+                            )
+                            + ")"
                         ),
-                        # Reported ONLY when open sells are what consumed the
-                        # position; with none pending this is a plain oversell
-                        # and nothing the chokepoint can release would help.
+                        # Reported ONLY when releasing our resting sells would
+                        # actually let this order through. A release is not free:
+                        # it cancels live downside protection, and the restore
+                        # asks for the stop's FULL original size — so if an
+                        # in-flight sell still blocks the order afterwards, the
+                        # exit fails anyway AND the re-stop is refused, leaving
+                        # the position bare with a critical page. For a
+                        # whole-position stop that was every I > 0
+                        # (adversarial review B HIGH-1). Only claim releasable
+                        # when the order fits in what a release could free.
                         blocked_by_pending_sells=(
-                            pending_sell if pending_sell > 0 else None
+                            pending_sell
+                            if pending_sell > 0 and qty <= held - inflight_sell
+                            else None
                         ),
                     )
                 checks["sell_position"] = f"pass: closing {qty} of {held} long"
