@@ -3189,6 +3189,42 @@ equivalent; we do not need it.
         for discovery: same-ms coincidental merges on busy tapes, and 2024-era Alpaca
         timestamps that carry no sub-second part (same-second merges). Crawl runs
         the weekend; selection + the authorized exact-quote tcbbo purchase follow.
+      - **Phase-A selection + the authorized tcbbo purchase (2026-08-02, same day) —
+        crawl COMPLETE and CLEAN (361/361 sessions, 36.5M ≥$25k groups, 1.64M
+        distinct contracts), phase-A selection run, EXACT quote $18.23, purchase
+        executed under the standing founder authorization** ("buy the data just
+        check the exact amount first" — ~$10–30 communicated; $18.23 is inside).
+        `tools/flow_backfill_select.py`, the disclosed phase-A design: every
+        registered stage-1 filter computable WITHOUT the tcbbo tape, mirrored
+        exactly from `tools/hedge_footprint.py` — equity stratum via the frozen
+        fence date-scoped (**coverage measured: unclassified = 0.20% of groups /
+        0.13% of premium**, all pre-corpus dead names — X, SQ, HES, NKLA, DFS,
+        DWAC…; disclosed drop, fence NOT regenerated), premium ≥$25k, DTE ≥1,
+        T∈[9:35,15:55] ET outside both release fences (**±2s slop at every
+        boundary** — 2024 Alpaca ts are second-grain, phase A may only drop what
+        the registered pipeline would certainly drop), half-days excluded (the
+        corpus pool's own rule), prior_close ≥$5 + ADV20 ≥200k from split-adjusted
+        Alpaca dailies staged for all 3,226 equity underlyings (same strictly-before
+        SQL shape as `db/flow_corpus.py`). Ledger: 36.2M groups → 17.2M phase-A
+        survivors. What phase A cannot compute (side, quote mid, delta, packages,
+        isolation, |h|, d) forces a **disclosed proxy pre-rank: contracts/ADV20**
+        (monotone in |h|/expected-vol up to unobserved |Δ| and time-of-day; built
+        only from fully-observed quantities — nothing label-blind gates anything),
+        per-(name,session) cap 10, **top-10,000 purchased** (corpus stage-1
+        pro-rata wants ~1,700; 10k ≈ 6× slippage margin; the $5.05 top-3,500
+        variant was also quoted — depth chosen because it was affordable inside
+        the authorized range). Windows = ±330s (300s registered snapshot + 30s
+        grain slop), union-merged per (root, session) → **6,656 parent-scoped
+        tcbbo windows, quoted per-window and in total: $18.23** (probes: full-tape
+        tcbbo $111/session — out of the question; OPRA `trades` is METERED
+        $89/session — the "free-trades refinement" was a misreading of the L0
+        license tier). Purchase = exactly the quoted windows, ceiling-asserted,
+        resumable, to `data/research/flow_backfill/tcbbo/`. **Measured slippage
+        check to run post-purchase:** where the true |h|/d ranking lands vs the
+        proxy boundary; saturation ⇒ tranche 2. Next: phase-B — the registered
+        pipeline (side/delta/single-leg via free Alpaca per-print cond re-fetch,
+        the corpus's own multileg provenance; isolation; stage-2 d) over the
+        purchased windows → new frozen labels via dated addendum → re-gate.
 
       **3.3 Addendum 3 (2026-08-01) — RE-GATE FAIL; the registered ladder is EXHAUSTED.
       FINAL for this round: NO-RUN. Forward returns were NEVER unsealed.**
