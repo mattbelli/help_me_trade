@@ -232,6 +232,11 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — changes land as
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
+- ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02).
+  The dossier is not merely dark, it is wrong: 4 angles still filter on the episode's BIRTH day under
+  the retired symbol-day model, measured blind to 99.8% of a 12-day-old episode's dots, and the
+  evidence angle truncates every analytic claim out of the summary the LLM would read. Arming first
+  just feeds the lane stale claims. Brief: `tools/composer-bridge/briefs/dossier-repair.md`.
 - ⚠ full pytest suite live-fires outbound HTTPS (suite-hang + WAF risk) — needs a network-marking
   round.
 - wider-stop sibling lane + index-underlying spot (SPX/NDX/RUT/VIX unstampable) deferred on the
