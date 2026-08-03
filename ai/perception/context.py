@@ -16,6 +16,7 @@ from db.base import DEFAULT_DB_PATH
 from db.chart_features import list_price_alerts
 from db.earnings_calendar import last_earnings_date, next_earnings_date
 from signals.indicators import Bar, atr, closes, distance_from_high, highs, lows, rsi, sma
+from signals.price_levels import compute_extended_levels
 from signals.session_node_strategy import compute_session_levels
 from signals.volume_profile import load_profile, rvol_now
 from trading.market_hours import _ET
@@ -176,19 +177,22 @@ def _compute_technicals(daily_bars: list[StockBar]) -> dict[str, Any] | None:
 
 
 def _flatten_session_nodes(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Flatten the producer's levels to {lowercased name: price}.
+
+    Name-driven, NOT a fixed key list: PWH/PWL shipped to the producer, the chart and
+    the fusion cache on 07-21 and were silently dropped here for two weeks because
+    this function enumerated five keys — the copilot told the founder we had no
+    previous-week high while $420.35 sat in the row it had just fetched. Any level
+    the producer learns to emit now rides through on its own.
+    """
     if not payload:
         return None
     levels = {item["name"]: item["price"] for item in payload.get("levels") or []}
     if not levels:
         return None
-    return {
-        "poc": levels.get("POC"),
-        "vah": levels.get("VAH"),
-        "val": levels.get("VAL"),
-        "pdh": levels.get("PDH"),
-        "pdl": levels.get("PDL"),
-        "session_date": payload.get("session_date"),
-    }
+    flat: dict[str, Any] = {name.lower(): price for name, price in levels.items()}
+    flat["session_date"] = payload.get("session_date")
+    return flat
 
 
 def _compact_decision_score(raw: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -444,6 +448,21 @@ async def build_symbol_context(
                 ctx["technicals"] = technicals
         except Exception:
             logger.debug("Technicals block failed for %s", sym, exc_info=True)
+
+        # Month/year levels off the bars already in hand (no extra fetch). Merged into
+        # session_nodes so the agent has ONE place to look for "what levels matter" —
+        # the key name predates the ladder and is now a slight misnomer.
+        # Equities only, same fence compute_session_levels puts on PWH/PWL: a futures
+        # root's daily history spans contract ROLLS, so a "52-week high" off it is an
+        # artifact of the roll, not a level anyone traded.
+        try:
+            extended = [] if sym.startswith("/") else compute_extended_levels(daily_bars_long)
+            if extended:
+                nodes_block = ctx.setdefault("session_nodes", {})
+                for level in extended:
+                    nodes_block[level["name"].lower()] = level["price"]
+        except Exception:
+            logger.debug("Extended levels block failed for %s", sym, exc_info=True)
 
     if ext_quote:
         try:

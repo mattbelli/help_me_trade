@@ -79,6 +79,7 @@ def test_list_resources_catalog() -> None:
         "flow_report",
         "flow_perception",
         "oi_walls",
+        "bars",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]
@@ -462,3 +463,107 @@ def test_every_resource_is_named_to_the_agent() -> None:
         # ...verbatim, not by coincidence: short keys like `news` and `market` appear
         # in unrelated prose, so a name-by-name check alone could pass a stale list.
         assert _QUERY_RESOURCES in text, f"{surface} does not carry the derived list"
+
+
+# --- bars: shape only, never a substitute for the computed numbers (2026-08-03) ----
+
+
+def _bars_provider(count: int) -> MagicMock:
+    from unittest.mock import AsyncMock
+
+    from brokers.alpaca import StockBar
+
+    bars = [
+        StockBar(
+            time=f"2026-07-{(i % 28) + 1:02d}T20:00:00Z",
+            open=100.0 + i,
+            high=110.0 + i,
+            low=90.0 + i,
+            close=105.0 + i,
+            volume=1_000.0,
+        )
+        for i in range(count)
+    ]
+    provider = MagicMock()
+    provider.aget_stock_bars = AsyncMock(return_value=bars)
+    return provider
+
+
+@pytest.mark.asyncio
+async def test_query_bars_returns_window_and_its_extremes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _bars_provider(60)
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", lambda: provider)
+
+    row = (
+        await query(
+            "bars", {"symbol": "tsm", "timeframe": "1Week", "limit": 10},
+            db_path=tmp_path / "b.db",
+        )
+    )["rows"][0]
+
+    assert row["symbol"] == "TSM" and row["timeframe"] == "1Week"
+    assert row["count"] == 10 and len(row["bars"]) == 10
+    # The window is the LAST 10 bars, and its extremes are computed here — the model
+    # must never have to derive them by reading the candles.
+    assert row["period_high"] == 169.0
+    assert row["period_low"] == 140.0
+    assert row["last_close"] == 164.0
+    assert provider.aget_stock_bars.await_args.kwargs["timeframe"] == "1Week"
+
+
+@pytest.mark.asyncio
+async def test_query_bars_clamps_limit_and_requires_symbol(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _bars_provider(500)
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", lambda: provider)
+
+    capped = (
+        await query("bars", {"symbol": "SPY", "limit": 9999}, db_path=tmp_path / "b.db")
+    )["rows"][0]
+    assert capped["count"] == 120, "limit must clamp — bars are context, not a dump"
+
+    missing = (await query("bars", {}, db_path=tmp_path / "b.db"))["rows"][0]
+    assert "error" in missing
+
+
+@pytest.mark.asyncio
+async def test_query_bars_rejects_unknown_timeframe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unsupported timeframe must name the supported set rather than silently
+    falling back to daily and returning the wrong candles under the right label."""
+    provider = _bars_provider(10)
+    monkeypatch.setattr("brokers.factory.get_market_data_provider", lambda: provider)
+
+    row = (
+        await query(
+            "bars", {"symbol": "SPY", "timeframe": "3Fortnight"}, db_path=tmp_path / "b.db"
+        )
+    )["rows"][0]
+
+    assert "error" in row and "1Week" in row["supported"]
+    provider.aget_stock_bars.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_query_bars_aliases_resolve(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "brokers.factory.get_market_data_provider", lambda: _bars_provider(20)
+    )
+    for alias in ("candles", "ohlc", "ohlcv"):
+        result = await query(alias, {"symbol": "SPY"}, db_path=tmp_path / "b.db")
+        assert result["resource"] == "bars", f"{alias} must resolve to bars"
+
+
+def test_bars_description_forbids_llm_derived_levels() -> None:
+    """The whole point of the resource: candles answer SHAPE, never arithmetic. On
+    08-03 the copilot, denied a prior-week high, reverse-engineered a level out of a
+    rounded percentage. If this steer leaves the description, that returns."""
+    desc = list_resources()["bars"]["description"]
+    assert "Do NOT compute" in desc
+    assert "PWH" in desc and "52WH" in desc

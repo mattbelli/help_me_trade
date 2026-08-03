@@ -58,6 +58,12 @@ export type TickerFacts = {
     val?: number | null;
     pdh?: number | null;
     pdl?: number | null;
+    pwh?: number | null;
+    pwl?: number | null;
+    pmh?: number | null;
+    pml?: number | null;
+    "52wh"?: number | null;
+    "52wl"?: number | null;
     session_date?: string | null;
   };
   technicals?: {

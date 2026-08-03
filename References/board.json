@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "agent-price-levels-and-bars",
+   "title": "Agent price levels: PWH/PWL unblocked, month+52wk added, and a SHAPE-only bars resource",
+   "lane": "done",
+   "type": "fix",
+   "priority": "high",
+   "owner": "orchestrator",
+   "notes": "SHIPPED 2026-08-03. Phone-chat probe (chat_011d7f69de04): asked for TSM's previous-week high, the copilot answered \"our session-node data doesn't carry a PWH field\" while PWH=420.35 / PWL=372.72 sat in the fusion_session_levels row it had just fetched. PWH/PWL shipped 07-21 (ff5bc41) to the producer, the fusion cache and the chart — every surface EXCEPT the agent, because ai/perception/context._flatten_session_nodes enumerated five keys. Denied the level, the model then reverse-engineered '~$437' out of a rounded dist_from_20d_high_pct and presented it as a reference point, and offered to web-search for a weekly high we already hold — the exact failure WIRE IT EVERYWHERE names. Fix, three parts: (1) flattener is name-driven so any level the producer learns to emit rides through, plus the two hand-written level lists in ai/chat/tools.py; (2) new signals/price_levels.compute_extended_levels — PMH/PML (prior COMPLETED calendar month, mirroring PWH's contract) and 52WH/52WL (trailing, INCLUDING today's forming bar), computed off the 420 daily bars perception already fetches so zero extra network calls; kept OUT of compute_session_levels on purpose because that output feeds the live fusion nearest_level path and new levels would silently change which one is 'nearest'; short history OMITS 52wk rather than mislabel a 3-month high. (3) new `bars` perception resource (5Min→1Month, ≤120 bars, aliases candles/ohlc/ohlcv), deliberately thin and described as SHAPE-only — every NUMBER stays with its deterministic producer. Live check: the 1Week candle for w/o 07-27 reads h=420.35 / l=372.72, matching the stored PWH/PWL from an independent path. Founder design calls that shaped it: the LLM must never compute indicators we already compute mechanically, and a small model does NOT belong on the numeric path — retrieval/rerank earns its cost only on corpora that can't fit, now its own thread. Fenced to equities (a futures root's daily history spans contract ROLLS, so a 52-week high off it is a roll artifact) — caught in self-review, pinned by test. 3,963 passed / 1 skipped, ruff + typecheck clean. Open: chart + price-alert surfaces still don't draw PMH/PML/52WH/52WL; opening-range and gap levels not built.",
+   "updated_at": "2026-08-03"
+  },
+  {
    "id": "flow-agent-market-wide-query",
    "title": "Agent flow reads: ranked market-wide queries + full-range summary (50-row recency keyhole fixed)",
    "lane": "done",

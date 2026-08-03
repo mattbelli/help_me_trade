@@ -10,6 +10,7 @@ import pytest
 
 from ai.perception.context import (
     _compact_decision_score,
+    _flatten_session_nodes,
     build_symbol_context,
     list_capabilities,
 )
@@ -68,6 +69,37 @@ def perception_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         repeat=True,
     )
     return db
+
+
+def test_flatten_session_nodes_passes_through_every_level() -> None:
+    """Regression: this flattener enumerated five keys, so PWH/PWL — live in the
+    producer, the chart and the fusion cache since 07-21 — never reached the agent.
+    It told the founder we had no previous-week high while the value sat in the row
+    it had just fetched. A level the producer emits must ride through on its name."""
+    flat = _flatten_session_nodes(
+        {
+            "symbol": "TSM",
+            "session_date": "2026-08-03",
+            "levels": [
+                {"name": "POC", "price": 405.59},
+                {"name": "PDH", "price": 420.35},
+                {"name": "PWH", "price": 420.35},
+                {"name": "PWL", "price": 372.72},
+                {"name": "SOMETHING_NEW", "price": 1.0},
+            ],
+        }
+    )
+
+    assert flat is not None
+    assert flat["pwh"] == 420.35
+    assert flat["pwl"] == 372.72
+    assert flat["session_date"] == "2026-08-03"
+    assert flat["something_new"] == 1.0, "a future level must not need a code change"
+
+
+def test_flatten_session_nodes_empty_payloads() -> None:
+    assert _flatten_session_nodes(None) is None
+    assert _flatten_session_nodes({"levels": []}) is None
 
 
 def test_list_capabilities_manifest() -> None:
@@ -135,6 +167,8 @@ async def test_build_symbol_context_assembles_blocks(
                     {"name": "VAL", "price": 870.0},
                     {"name": "PDH", "price": 895.0},
                     {"name": "PDL", "price": 865.0},
+                    {"name": "PWH", "price": 910.0},
+                    {"name": "PWL", "price": 840.0},
                 ],
             }
         ),
@@ -171,6 +205,8 @@ async def test_build_symbol_context_assembles_blocks(
     assert ctx["symbol"] == "NVDA"
     assert ctx["quote"]["price"] == daily[-1].close
     assert ctx["session_nodes"]["poc"] == 880.0
+    assert ctx["session_nodes"]["pwh"] == 910.0
+    assert ctx["session_nodes"]["pwl"] == 840.0
     assert ctx["technicals"]["sma50"] is not None
     assert ctx["fundamentals"]["pe"] == 45.2
     assert ctx["earnings"]["next"] == "2026-05-28"
@@ -387,3 +423,52 @@ def test_compact_decision_score_keeps_qualifiers_with_a_trustworthy_number() -> 
     # the leak this test exists to catch.
     for key in ("n_samples", "base_rate", "brier", "low_confidence"):
         assert key in out, f"{key} must travel with win_prob"
+
+
+@pytest.mark.asyncio
+async def test_futures_get_no_month_or_52_week_levels(
+    monkeypatch: pytest.MonkeyPatch,
+    perception_db: Path,
+) -> None:
+    """A futures root's daily history spans contract ROLLS, so a '52-week high' off it
+    is an artifact of the roll, not a level anyone traded — the same fence
+    compute_session_levels already puts on PWH/PWL."""
+    monkeypatch.setattr(db_base, "DEFAULT_DB_PATH", perception_db)
+    monkeypatch.setattr("db.chart_features.DEFAULT_DB_PATH", perception_db)
+
+    daily = [_daily_bar(d, 5000.0 + d) for d in range(1, 22)]
+    provider = MagicMock()
+    provider.aget_stock_bars_batch = AsyncMock(
+        side_effect=[{"/ES": daily}, {"/ES": []}]
+    )
+    provider.aget_stock_bars = AsyncMock(return_value=daily * 20)
+    provider.aget_quotes = AsyncMock(return_value={})
+    monkeypatch.setattr(
+        "ai.perception.context.get_market_data_provider", lambda: provider
+    )
+    monkeypatch.setattr(
+        "ai.perception.context.compute_session_levels",
+        AsyncMock(
+            return_value={
+                "symbol": "/ES",
+                "session_date": "2026-01-20",
+                "levels": [{"name": "POC", "price": 5010.0}],
+            }
+        ),
+    )
+    monkeypatch.setattr("ai.perception.context.load_profile", lambda _sym: None)
+
+    called = False
+
+    def _spy(bars):  # noqa: ANN001
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr("ai.perception.context.compute_extended_levels", _spy)
+
+    ctx = await build_symbol_context("/ES", db_path=perception_db)
+
+    assert not called, "extended levels must not be computed for a futures root"
+    assert "pmh" not in ctx.get("session_nodes", {})
+    assert ctx["session_nodes"]["poc"] == 5010.0, "session nodes still resolve"
