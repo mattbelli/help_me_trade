@@ -3547,11 +3547,11 @@ equivalent; we do not need it.
         label-accuracy sweep a ∈ {0.9..0.6} × ≥2× dispersion stress in the power gate;
         isolation ratioed on |H| with the any-size base; per-band caps and single-leg-shaped
         measurement paths rewritten for two legs; MLAT auction-print stratum as the
-        specificity check). (ii) **The one cheap unlock is the o sign-convention validation**
-        — §3's own never-run sanity check; if o's direction validates, the confident slice
-        gets an orientation label WITHOUT the hedge test. It consumes outcome-adjacent data
-        at aggregate grain ⇒ its own founder-visible prereg BEFORE any code (founder-lane
-        card open). (iii) The Phase-3 "active move" pointer clears: nothing in Phase 3 is
+        specificity check). (ii) **The o sign-convention validation is REGISTERED — founder GO 2026-08-03,
+        `O_SIGN_VALIDATION_PREREG_2026-08-03.md` IS LAW** (3 review rounds; the v1
+        next-day-skew design was itself BLOCKED on measured power/artifact grounds and
+        replaced by the tied-to-stock cross-tape design, which consumes NO outcome data —
+        the founder's unseal authorization went deliberately unused). (iii) The Phase-3 "active move" pointer clears: nothing in Phase 3 is
         runnable today without either the founder-gated o validation or years of accrual.
 
 **Honest failure modes, stated in advance:** dealers net across a whole book rather than hedging

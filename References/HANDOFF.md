@@ -218,11 +218,11 @@ snapshot per sweep). Open threads only:
   honest filters vs ~300–500 the power gate demands, ~10× short) AND on validity (the
   o sign convention itself was never validated — §3's own required sanity check never
   ran — and σ_o mechanically couples to the underlying's concurrent move). 3.4 is
-  PARKED-ACCRUAL. **The named unlock, needing a founder GO + its own small prereg: the
-  o sign-convention validation** (does aggregate o-implied direction skew the right way
-  on known-move days?) — if o's direction validates, the confident slice gets a usable
-  orientation label WITHOUT the hedge test; it touches outcome-adjacent data at
-  aggregate grain, hence founder-visible registration first. Any 3.4 revival must
+  PARKED-ACCRUAL. **The unlock is GO'd and REGISTERED: `O_SIGN_VALIDATION_PREREG_2026-08-03.md` IS LAW**
+  (3 rounds, 2×Opus split mandates; the v1 known-move-day design was itself killed by
+  review on measured grounds and replaced by the tied-to-stock cross-tape design, which
+  consumes NO outcome data). ⏳ NEXT: build the pipeline per the prereg's Build
+  obligations, run Step 1 → gates → pilot → gate → Step 2, record the verdict. Any 3.4 revival must
   start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
   two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
   power gate, isolation on |H| not premium, any-size isolation base).

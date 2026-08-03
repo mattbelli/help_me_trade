@@ -11,9 +11,9 @@
  "cards": [
   {
    "id": "o-sign-validation-go",
-   "title": "GO/no-GO: validate the o-band SIGN convention (the cheap unlock left standing after 3.4 round 1)",
-   "lane": "founder",
-   "notes": "OPEN 2026-08-03. The §3 design doc registered a required sanity check that never ran: does aggregate o-implied direction skew the RIGHT way on days with known moves? If YES, the o-confident slice (~3.5% of clean 2-leg packages by count, ~12% of clean-pair premium) gets a usable spread-orientation label TODAY, with no hedge test and no new data spend. It consumes outcome-adjacent data at aggregate grain — so it needs its own small founder-visible prereg BEFORE any code (registered direction-of-skew prediction, dated, one look). Your call: GO → orchestrator writes the prereg for your review; no-GO → 3.4 stays fully parked and the o label stays concentration-only (sign-agnostic).",
+   "title": "o sign validation — GO given; prereg REGISTERED (3 rounds); build + run next",
+   "lane": "in_progress",
+   "notes": "GO 2026-08-03 (\"ok validate the o band\"). Registered as References/O_SIGN_VALIDATION_PREREG_2026-08-03.md after 3 review rounds (v1 next-day-skew BLOCKED on measured power/artifact grounds; v2/v3 tied-to-stock cross-tape design APPROVED-WITH-CHANGES twice, all changes applied verbatim). Consumes NO outcome data — unseal authorization unused. Remaining: build (frame builder, V condition-table entry, fetch/match/sign, placebos, conjunction gate harness, pinned sign tests), then Step 1 → pilot → gate → Step 2 → verdict.",
    "created_at": "2026-08-03",
    "updated_at": "2026-08-03"
   },
