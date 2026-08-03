@@ -7,6 +7,7 @@ See ``research/fable/2026-07-09_options-flow-screener-design.md`` §4 / §6.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,8 @@ from db.base import connect as _connect
 from db.base import now_iso as _now
 from db.schema_helpers import _add_column_if_missing
 from signals.options_flow.constants import DAILY_PRUNE_DAYS, EVENTS_PRUNE_DAYS
+
+logger = logging.getLogger(__name__)
 
 _RECENT_EVENTS_CAP = 250
 
@@ -301,6 +304,103 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
         conn.commit()
 
 
+# Heuristic surfacing rank for order=unusual — SURFACING ONLY, unvalidated
+# (never a signal/win%). Rewards what makes a print interesting per the academic
+# prior (known aggressor, short-dated, swept broadly) and log-tames raw size so
+# a routine $8M SPY print can't outrank a $400k out-of-character equity sweep;
+# discounts index/ETF roots (hedging plumbing) via the registered root fence.
+# spread_penalty is DORMANT today: live events have never carried spread_flag
+# (pairing enrichment is metrics-only) — it activates if that ships.
+_UNUSUAL_WEIGHTS = {
+    "direction_known": 3.0,
+    "dte_leq_7": 2.0,
+    "dte_leq_30": 1.0,
+    "prints_geq_20": 1.5,
+    "prints_geq_5": 0.75,
+    "exchanges_geq_10": 1.0,
+    "aggressive_type": 1.0,  # sweep / directional_pressure over resting blocks
+    "vol_oi_scale": 5.0,  # + min(vol_oi_ratio, 20) / this
+    "zscore_gt_3": 0.5,
+    "index_etf_penalty": -4.0,
+    "spread_penalty": -2.0,
+}
+_UNUSUAL_SCAN_CAP = 200_000
+
+_ROOT_FENCE: Any = None
+
+
+def _root_fence() -> Any:
+    """The one registered root-classification snapshot (frozen; load once)."""
+    global _ROOT_FENCE
+    if _ROOT_FENCE is None:
+        from tools.root_classification_build import load
+
+        _ROOT_FENCE = load(
+            Path(__file__).resolve().parent.parent
+            / "signals"
+            / "options_flow"
+            / "root_classification.json"
+        )
+    return _ROOT_FENCE
+
+
+def _classify_events(events: list[dict]) -> None:
+    """Stamp ``underlying_class`` on each event via the registered fence."""
+    try:
+        fence = _root_fence()
+    except Exception:
+        logger.warning("root fence unavailable — events left unclassified", exc_info=True)
+        for ev in events:
+            ev["underlying_class"] = "unclassified"
+        return
+    cache: dict[tuple[str, str], str] = {}
+    for ev in events:
+        root = str(ev.get("underlying") or "").strip().upper()
+        day = str(ev.get("ts") or "")[:10]
+        key = (root, day)
+        cls = cache.get(key)
+        if cls is None:
+            cls = fence.classify(root, day or None)
+            cache[key] = cls
+        ev["underlying_class"] = cls
+
+
+def _unusual_score(ev: dict) -> float:
+    w = _UNUSUAL_WEIGHTS
+    score = 0.0
+    prem = ev.get("premium_usd")
+    if prem is not None and float(prem) > 1_000:
+        score += math.log(float(prem) / 1_000.0)
+    if ev.get("direction") in ("buy_side", "sell_side"):
+        score += w["direction_known"]
+    dte = ev.get("dte")
+    if dte is not None:
+        if int(dte) <= 7:
+            score += w["dte_leq_7"]
+        elif int(dte) <= 30:
+            score += w["dte_leq_30"]
+    n_prints = ev.get("n_prints") or 0
+    if n_prints >= 20:
+        score += w["prints_geq_20"]
+    elif n_prints >= 5:
+        score += w["prints_geq_5"]
+    if len(ev.get("exchanges") or []) >= 10:
+        score += w["exchanges_geq_10"]
+    if ev.get("event_type") in ("sweep", "directional_pressure"):
+        score += w["aggressive_type"]
+    vol_oi = ev.get("vol_oi_ratio")
+    if vol_oi:
+        score += min(float(vol_oi), 20.0) / w["vol_oi_scale"]
+    zscore = ev.get("vol_zscore")
+    if zscore is not None and float(zscore) > 3:
+        score += w["zscore_gt_3"]
+    if ev.get("underlying_class") in ("index", "etf"):
+        score += w["index_etf_penalty"]
+    if ev.get("spread_flag"):
+        score += w["spread_penalty"]
+    return round(score, 2)
+
+
 def _event_clauses(
     *,
     symbol: str | None,
@@ -340,15 +440,21 @@ def recent_events(
     since: str | None = None,
     until: str | None = None,
     order: str = "recent",
+    universe: str | None = None,
     limit: int = 50,
     db_path: Path | None = None,
 ) -> list[dict]:
     """Event rows; ``limit`` capped at ``_RECENT_EVENTS_CAP``.
 
-    ``order`` is ``recent`` (newest-first, the default) or ``premium``
-    (largest-first) — the latter is what makes a market-wide "biggest prints in
-    this date range" question answerable instead of silently returning whatever
-    happened last.
+    ``order`` is ``recent`` (newest-first, the default), ``premium``
+    (largest-first), or ``unusual`` — the heuristic surfacing rank
+    (``_UNUSUAL_WEIGHTS``) that answers "did anything unusual happen?" without
+    letting routine index/ETF size win by sheer dollars. ``universe`` filters by
+    the registered root class (``equity`` | ``etf`` | ``index``).
+
+    ``order=unusual`` and ``universe`` score/filter in Python over the full
+    matching range (scan capped at ``_UNUSUAL_SCAN_CAP`` newest rows), and each
+    returned row carries ``underlying_class`` (+ ``unusual_score`` when ranked).
 
     ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
     caller can pull just the directional tape (``sweep,block,directional_pressure``)
@@ -364,9 +470,19 @@ def recent_events(
         since=since,
         until=until,
     )
+    needs_python_pass = order == "unusual" or universe is not None
+    if needs_python_pass:
+        sql_cap = _UNUSUAL_SCAN_CAP
+    else:
+        sql_cap = cap
+    if order == "unusual" and event_type is None:
+        # The EOD unusual_volume batch is WATCHLIST-capped day-aggregates —
+        # mixing it into a market-wide unusualness rank re-creates the coverage
+        # artifact this order exists to kill. Ask for it explicitly to see it.
+        where += " AND event_type != 'unusual_volume'"
     # SQLite sorts NULL smallest, so DESC pushes premium-less rows to the end.
     order_by = "premium_usd DESC" if order == "premium" else "ts DESC"
-    params.append(cap)
+    params.append(sql_cap)
     with _connect(resolved) as conn:
         rows = conn.execute(
             f"""
@@ -377,7 +493,17 @@ def recent_events(
             """,
             params,
         ).fetchall()
-    return [_row_to_event(r) for r in rows]
+    events = [_row_to_event(r) for r in rows]
+    if not needs_python_pass:
+        return events
+    _classify_events(events)
+    if universe is not None:
+        events = [e for e in events if e["underlying_class"] == universe]
+    if order == "unusual":
+        for ev in events:
+            ev["unusual_score"] = _unusual_score(ev)
+        events.sort(key=lambda e: e["unusual_score"], reverse=True)
+    return events[:cap]
 
 
 def summarize_events(

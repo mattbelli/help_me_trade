@@ -962,13 +962,15 @@ def _read_options_flow(
     since = filters.get("since")
     until = filters.get("until")
     order = str(filters.get("order") or "recent")
+    universe = filters.get("universe")
     return recent_events(
         symbol=str(symbol).strip().upper() if symbol else None,
         event_type=str(event_type) if event_type else None,
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since) if since else None,
         until=str(until) if until else None,
-        order="premium" if order == "premium" else "recent",
+        order=order if order in ("premium", "unusual") else "recent",
+        universe=str(universe) if universe in ("equity", "etf", "index") else None,
         limit=limit,
         db_path=db_path,
     )
@@ -1250,9 +1252,13 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "Unusual options activity across the WHOLE market (sweeps/blocks/"
             "clusters cover every OPRA name; only event_type=unusual_volume is "
             "watchlist-capped) — facts about the tape, NOT a buy/sell signal; "
-            "carries a caveat, never a win% or confidence. For 'biggest prints "
-            "market-wide in a range' use order=premium with since/until; the "
-            "summary block aggregates the FULL range, not just returned rows."
+            "carries a caveat, never a win% or confidence. For 'did anything "
+            "unusual happen?' use order=unusual — a HEURISTIC surfacing rank "
+            "(rewards known aggressor side, short-dated, multi-exchange/many-"
+            "print sweeps; log-tames raw premium; discounts index/ETF hedging "
+            "noise) — unvalidated, for surfacing only. order=premium is raw "
+            "size. The summary block aggregates the FULL range, not just "
+            "returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",
@@ -1264,7 +1270,15 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "min_premium": "optional float — minimum premium_usd",
             "since": "optional ISO timestamp — events at or after",
             "until": "optional ISO timestamp — events before",
-            "order": "optional — recent (default) | premium (largest first)",
+            "order": (
+                "optional — recent (default) | premium (largest first) | "
+                "unusual (heuristic interestingness rank; rows carry "
+                "unusual_score + underlying_class)"
+            ),
+            "universe": (
+                "optional — equity|etf|index: keep only that root class "
+                "(registered fence); universe=equity drops index/ETF plumbing"
+            ),
             "limit": "optional int — default 20, max 50",
         },
         "read": _read_options_flow,

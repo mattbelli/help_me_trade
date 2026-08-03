@@ -477,3 +477,72 @@ def test_options_flow_summarize_covers_full_range(tmp_path: Path) -> None:
     assert summary["by_underlying"]["NVDA"]["count"] == 30
     assert summary["by_underlying"]["AAPL"]["total_premium_usd"] == 30_000.0
     assert summary["by_underlying"]["NVDA"]["max_single_premium_usd"] == 1_000.0
+
+
+def test_options_flow_order_unusual_beats_raw_size(tmp_path: Path) -> None:
+    """A known-aggressor short-dated equity sweep outranks a bigger anonymous
+    long-dated index block — the '$8M on SPY tells me nothing' fix."""
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(
+        _sample_event(
+            id="spx_block",
+            underlying="SPX",
+            occ_symbol="SPX291221C07000000",
+            ts="2026-07-09T15:00:00Z",
+            event_type="block",
+            premium_usd=200_000_000.0,
+            direction="undetermined",
+            dte=500,
+            n_prints=1,
+            vol_oi_ratio=None,
+        ),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(
+            id="nvda_sweep",
+            underlying="NVDA",
+            ts="2026-07-09T15:01:00Z",
+            event_type="sweep",
+            premium_usd=400_000.0,
+            direction="buy_side",
+            dte=5,
+            n_prints=30,
+            exchanges=["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"],
+            vol_oi_ratio=None,
+        ),
+        db_path=db,
+    )
+
+    read = RESOURCES["options_flow"]["read"]
+    ranked = read({"order": "unusual"}, db_path=db)
+    assert [r["id"] for r in ranked] == ["nvda_sweep", "spx_block"]
+    assert ranked[0]["unusual_score"] > ranked[1]["unusual_score"]
+    assert ranked[0]["underlying_class"] == "equity"
+    assert ranked[1]["underlying_class"] == "index"
+    # premium order still puts raw size first
+    by_size = read({"order": "premium"}, db_path=db)
+    assert by_size[0]["id"] == "spx_block"
+
+
+def test_options_flow_universe_filter(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(
+        _sample_event(id="u_spy", underlying="SPY", occ_symbol="SPY260821C00700000"),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(id="u_wmt", underlying="WMT", occ_symbol="WMT260821C00120000"),
+        db_path=db,
+    )
+
+    read = RESOURCES["options_flow"]["read"]
+    equities = read({"universe": "equity"}, db_path=db)
+    assert [r["id"] for r in equities] == ["u_wmt"]
+    etfs = read({"universe": "etf"}, db_path=db)
+    assert [r["id"] for r in etfs] == ["u_spy"]
+    # bogus universe values are ignored, not an error
+    everything = read({"universe": "bogus"}, db_path=db)
+    assert len(everything) == 2
