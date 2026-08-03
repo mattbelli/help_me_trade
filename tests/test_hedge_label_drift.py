@@ -170,6 +170,58 @@ class TestCombinedGateLocks:
             require_gate1(tmp_path)
 
 
+class TestCombinedUnsealLocks:
+    """Addendum 5's lock chain: unseal-combined needs the PASSED pooled gate
+    carrying BOTH registered SHAs; analyze-combined needs the combined unseal
+    artifact (and the TRIPPED name satisfies nothing)."""
+
+    def test_refuses_without_combined_gate(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        with pytest.raises(SealError, match="run `gate1-combined`"):
+            hld.require_gate1_combined()
+
+    def test_refuses_on_proceed_false(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        (tmp_path / hld.GATE1_COMBINED_NAME).write_text(json.dumps({
+            "proceed": False,
+            "frozen_sha256_corpus": hld.FROZEN_SHA256,
+            "frozen_sha256_backfill": hld.FROZEN_BACKFILL_SHA256}))
+        with pytest.raises(SealError, match="proceed=False"):
+            hld.require_gate1_combined()
+
+    def test_refuses_a_gate_over_different_registrations(self, tmp_path,
+                                                         monkeypatch):
+        # proceed:true but the artifact gated OTHER frozen sets — refused.
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        (tmp_path / hld.GATE1_COMBINED_NAME).write_text(json.dumps({
+            "proceed": True,
+            "frozen_sha256_corpus": "0" * 64,
+            "frozen_sha256_backfill": hld.FROZEN_BACKFILL_SHA256}))
+        with pytest.raises(SealError, match="different study"):
+            hld.require_gate1_combined()
+
+    def test_passing_gate_with_both_shas_unlocks(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        (tmp_path / hld.GATE1_COMBINED_NAME).write_text(json.dumps({
+            "proceed": True, "mde": 0.015,
+            "frozen_sha256_corpus": hld.FROZEN_SHA256,
+            "frozen_sha256_backfill": hld.FROZEN_BACKFILL_SHA256}))
+        assert hld.require_gate1_combined()["mde"] == 0.015
+
+    def test_analyze_combined_refuses_without_unseal(self, tmp_path,
+                                                     monkeypatch):
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        with pytest.raises(SealError, match="run `unseal-combined`"):
+            hld.require_unseal_combined()
+
+    def test_tripped_artifact_satisfies_nothing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(hld, "WIDE_DIR", tmp_path)
+        (tmp_path / "unseal_combined_TRIPPED_3p3.json").write_text(
+            json.dumps({"tripwire_hits": [{"symbol": "X"}]}))
+        with pytest.raises(SealError, match="run `unseal-combined`"):
+            hld.require_unseal_combined()
+
+
 class TestStageGating:
     def test_unseal_refuses_without_gate1(self, tmp_path):
         with pytest.raises(SealError, match="run `gate1`"):
