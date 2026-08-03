@@ -10,6 +10,22 @@
  ],
  "cards": [
   {
+   "id": "o-sign-validation-go",
+   "title": "GO/no-GO: validate the o-band SIGN convention (the cheap unlock left standing after 3.4 round 1)",
+   "lane": "founder",
+   "notes": "OPEN 2026-08-03. The §3 design doc registered a required sanity check that never ran: does aggregate o-implied direction skew the RIGHT way on days with known moves? If YES, the o-confident slice (~3.5% of clean 2-leg packages by count, ~12% of clean-pair premium) gets a usable spread-orientation label TODAY, with no hedge test and no new data spend. It consumes outcome-adjacent data at aggregate grain — so it needs its own small founder-visible prereg BEFORE any code (registered direction-of-skew prediction, dated, one look). Your call: GO → orchestrator writes the prereg for your review; no-GO → 3.4 stays fully parked and the o label stays concentration-only (sign-agnostic).",
+   "created_at": "2026-08-03",
+   "updated_at": "2026-08-03"
+  },
+  {
+   "id": "flow-34-prereg-round1",
+   "title": "3.4 spread-orientation prereg round 1 — census + draft + two-Opus review → BLOCKED; 3.4 PARKED-ACCRUAL",
+   "lane": "done",
+   "notes": "CLOSED 2026-08-03. Stage-0 census (tools/hedge_orientation_census.py, 12/105 code-provenance sessions): 143,944 filtered 2-leg packages, 40% |netΔ|<0.05, o-confident 3.5%, D*>=3 0.5%, validation cell 67 ev/53 und (~586 naive projection, UPPER BOUND — isolation omitted). Draft: hedge-direction vs o-band agreement on the confident∧detectable∧quiet cell. Review (split mandates, both BLOCK, findings MEASURED): honest cell ~30–65 vs ~300–500 the power gate demands (~10× short; isolation kills 98% in 3.2); the o SIGN CONVENTION itself never validated (§3 sanity check never ran) and σ_o mechanically couples to the underlying's concurrent move (∂o/∂S cancels netΔ → σ_o reads sign(δS)); stress leg as drafted algebraically vacuous; cell 75% call-call (least readable per §3c), ~half calendars with netΔ-sign flip hazard, 18–33% out-of-band 'edges'. Banked: COUNT-weighted o-corner enrichment on the 5 fresh OOS sessions = 2.28× spread-edge / 1.85× registered form (vs 4.7×/3.33× premium-weighted; tools/o_corner_count_weighted.py). Full record: ROADMAP 3.4 round-1 block + BUILD_LOG 2026-08-03 row. Revival = fix-list in the ROADMAP block + years of accrual OR the founder-gated o sign validation (see founder card).",
+   "created_at": "2026-08-03",
+   "updated_at": "2026-08-03"
+  },
+  {
    "id": "flow-agent-market-wide-query",
    "title": "Agent flow reads: ranked market-wide queries + full-range summary (50-row recency keyhole fixed)",
    "lane": "done",
