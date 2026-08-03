@@ -1,11 +1,17 @@
-"""Inc 2 live shadow — the streaming matcher fed by both real tapes, metrics only.
+"""Live pairing — the streaming matcher fed by both real tapes, enriching in place.
 
 LIVE_FLOW_PAIRING_SPEC_2026-07-28: replay settled everything deterministic about
-`StreamingCondMatcher`; this module measures ONLY what replay cannot — real
-wire-arrival lag on both sides, live wildcard per-root coverage, enrichment lag
-(how long a Databento print waits for its condition code), and RSS through a
-real open burst. It changes NOTHING about what the collector emits: the spine's
-prints flow exactly as before, and this class never writes any table.
+`StreamingCondMatcher`; Inc 2 ran this class as a metrics-only shadow. Since
+2026-08-03 (Inc 3, first step) it also ENRICHES: the spine registers each
+normalized print dict via `attach_print`, and when the matcher resolves that
+print's condition code the code is stamped onto the dict in place
+(`ref["conditions"] = [code]`) — before the ~1s drain for the ~95% of prints
+whose twin lands inside the flush tick (measured 07-31: 72% ≤100ms). Detectors
+downstream (F-2 spread exclusion, hygiene, ISO sweeps) read `conditions` and
+light up with no changes of their own. This class still never writes any table,
+and a print whose code arrives after the drain simply ships unlabeled — the
+spec's rule: never hold the spine for a label (`metrics_only=True` restores the
+pure Inc-2 shadow behavior).
 
 Two threads feed one matcher, which is why the lock exists and lives HERE (the
 matcher is documented single-threaded, "the caller owns both"):
@@ -80,6 +86,18 @@ ENRICH_EDGES_NS = (10_000_000, 100_000_000, 1_000_000_000, 10_000_000_000)
 ENRICH_LABELS = ("≤10ms", "≤100ms", "≤1s", "≤10s", ">10s")
 # Spec open-item #2: the index roots whose live coverage is the question.
 INDEX_ROOTS = ("SPX", "SPXW", "XSP", "VIX", "VIXW", "NDX", "NDXP")
+# A resolution that lands between `on_dbn` and `attach_print` (inline match —
+# the twin was already waiting) is parked here for the attach to collect;
+# entries older than this are dropped on the 1s sweep. print_id IS arrival
+# time_ns, so age needs no extra bookkeeping. 10s also bounds refs whose code
+# resolved but whose print never attached (meta-gate-skipped prints).
+EARLY_COND_TTL_NS = 10_000_000_000
+# Attached refs whose twin still hasn't arrived are useless past the drain —
+# the detectors consumed the print at the ~1s flush tick, and a stamp at +15s
+# changes nothing anyone will read. Dropping them here (not at the matcher's
+# 10-min expiry) keeps the worst-case pinned-dict population at ~15s of
+# unmatched flow instead of 10 minutes of it (open-burst arithmetic: ~100MB+).
+ATTACH_TTL_NS = 15_000_000_000
 
 
 def _root(sym: str) -> str:
@@ -105,7 +123,7 @@ class ShadowPairing:
     """Feed both live tapes through the frozen join; log what falls out."""
 
     def __init__(self, *, alpaca_key: str, alpaca_secret: str,
-                 ws_url: str = OPRA_WS_URL) -> None:
+                 ws_url: str = OPRA_WS_URL, metrics_only: bool = False) -> None:
         self._key = alpaca_key
         self._secret = alpaca_secret
         self._ws_url = ws_url
@@ -113,6 +131,17 @@ class ShadowPairing:
         self._lock = threading.Lock()
         self._stopping = False
         self._connected_once = False
+        self.metrics_only = metrics_only
+        # print_id → the spine's normalized print dict, awaiting its code.
+        # Entries leave on resolution (matched/expired/evicted — the matcher
+        # emits ALL of those through _absorb) or wholesale on a matcher reset,
+        # so the population is bounded by the matcher's own pending horizon
+        # (measured stress peak 226k entries; these are refs, not copies).
+        self._attached: dict[int, dict] = {}
+        # print_id → code, for the inline-match race (resolved before attach).
+        self._early_cond: dict[int, str] = {}
+        self.enriched = 0
+        self.early_hits = 0
 
         self.dbn_seen = 0
         self.alp_seen = 0
@@ -129,15 +158,20 @@ class ShadowPairing:
 
     # --- ingest (dbn side: called on the databento client thread) -----------
 
-    def on_dbn(self, occ: str, price_raw: int, size: int, ts_event: int) -> None:
+    def on_dbn(self, occ: str, price_raw: int, size: int,
+               ts_event: int) -> int | None:
         """dbn_stream's raw-print tee. MUST NOT raise into the spine's callback.
+
+        Returns the print_id (arrival time_ns) so the caller can register the
+        normalized print for enrichment via `attach_print`, or None when the
+        pairing is stopped/degraded (the caller then simply doesn't attach).
 
         The `_stopping` gate is load-bearing, not tidiness: the tee stays bound
         into the runner after a shadow death, and an unswept matcher grows at a
         measured 484 B/print until the OOM killer takes the whole collector.
         """
         if self._stopping:
-            return
+            return None
         try:
             arrival = time.time_ns()
             cents = int(round(price_raw / PX_SCALE * 100))
@@ -149,12 +183,40 @@ class ShadowPairing:
                 self.d_roots[r] = self.d_roots.get(r, 0) + 1
                 out = self._m.on_dbn_print(key, ts_event, arrival, now_ns=arrival)
                 self._absorb(out, arrival)
+            return arrival
         except Exception:
             self.tee_errors += 1
             if self.tee_errors == 1:
                 logger.exception(
                     "pairing shadow: on_dbn raised — shadow degraded, spine fine"
                 )
+            return None
+
+    def attach_print(self, print_id: int, ref: dict) -> None:
+        """Register the spine's normalized print for in-place code stamping.
+
+        Called on the databento client thread right after `normalize_print`,
+        with the id `on_dbn` returned for the same record. The common inline
+        case — the twin was already waiting when `on_dbn` fed the matcher —
+        resolves before this call, so check the parked codes first. Stamping
+        assigns a FRESH list (never mutates one a reader may hold): the drain
+        thread sees either the old `[]` or the new `[code]`, both coherent.
+        """
+        if self._stopping or self.metrics_only:
+            return
+        try:
+            with self._lock:
+                cond = self._early_cond.pop(print_id, None)
+                if cond is not None:
+                    ref["conditions"] = [cond] if cond else []
+                    self.early_hits += 1
+                    self.enriched += 1
+                else:
+                    self._attached[print_id] = ref
+        except Exception:
+            self.tee_errors += 1
+            if self.tee_errors == 1:
+                logger.exception("pairing: attach_print raised — counted")
 
     # --- ingest (alpaca side: collector asyncio loop) ------------------------
 
@@ -179,10 +241,22 @@ class ShadowPairing:
 
     def _absorb(self, resolutions: list, now_ns: int) -> None:
         # Only matches carry a meaningful wait; expiry/eviction are counted by
-        # the matcher itself. print_id IS the print's arrival time_ns.
-        for print_id, _cond, why in resolutions:
+        # the matcher itself. print_id IS the print's arrival time_ns. Every
+        # resolution — matched or not — releases its attached ref: an expired
+        # print keeps its `[]` and the dict must not pin it any longer.
+        for print_id, cond, why in resolutions:
+            ref = self._attached.pop(print_id, None)
             if why != "matched":
                 continue
+            if not self.metrics_only:
+                if ref is not None:
+                    ref["conditions"] = [cond] if cond else []
+                    self.enriched += 1
+                else:
+                    # Resolved before the spine attached (inline match) — park
+                    # the code for attach_print; the sweep TTLs strays (prints
+                    # the meta gate later drops never attach at all).
+                    self._early_cond[print_id] = cond
             wait = now_ns - print_id
             for i, edge in enumerate(ENRICH_EDGES_NS):
                 if wait <= edge:
@@ -199,6 +273,10 @@ class ShadowPairing:
             dropped_d, dropped_a = self._m.pending_dbn, self._m.pending_alpaca
             self._m = StreamingCondMatcher()
             self.matcher_resets += 1
+            # A fresh matcher will never resolve the old print_ids — release
+            # the refs now or they pin drained prints for the process life.
+            self._attached.clear()
+            self._early_cond.clear()
         logger.warning(
             "pairing shadow: MATCHER RESET #%s after sidecar gap — new epoch; "
             "discarded pending d=%s a=%s (prints during the gap are unmeasured, "
@@ -248,7 +326,16 @@ class ShadowPairing:
 
     def _sweep_once(self) -> None:
         with self._lock:
-            self._absorb(self._m.sweep(time.time_ns()), time.time_ns())
+            now = time.time_ns()
+            self._absorb(self._m.sweep(now), now)
+            if self._early_cond:
+                cutoff = now - EARLY_COND_TTL_NS
+                for pid in [p for p in self._early_cond if p < cutoff]:
+                    del self._early_cond[pid]
+            if self._attached:
+                cutoff = now - ATTACH_TTL_NS
+                for pid in [p for p in self._attached if p < cutoff]:
+                    del self._attached[pid]
 
     async def _periodic(self) -> None:
         last_stats = time.monotonic()
@@ -273,6 +360,7 @@ class ShadowPairing:
                 orphans=m.alpaca_orphans, pend_d=m.pending_dbn,
                 pend_a=m.pending_alpaca, keys_peak=m.keys_peak,
                 dbn_seen=self.dbn_seen, alp_seen=self.alp_seen,
+                enriched=self.enriched, att_pend=len(self._attached),
                 buckets=list(self.enrich_buckets),
                 d_lags=sorted(self._d_lags_ms), a_lags=sorted(self._a_lags_ms),
                 d_roots_n=len(self.d_roots), a_roots_n=len(self.a_roots),
@@ -293,6 +381,7 @@ class ShadowPairing:
         idx = " ".join(f"{r}={d}/{a}" for r, d, a in snap["idx"])
         logger.info(
             "pairing shadow%s: dbn=%s alp=%s matched=%s (%.1f%% of %s resolved) "
+            "enriched=%s att_pend=%s "
             "tol=%s expired=%s evicted=%s late_twin=%s orphans=%s | enrich %s | "
             "wire_lag_ms d p50=%.0f p95=%.0f a p50=%.0f p95=%.0f | pending d=%s "
             "a=%s keys_peak=%s | roots d=%s a=%s idx_d/a: %s | top_a=%s | "
@@ -302,6 +391,7 @@ class ShadowPairing:
             f"{snap['dbn_seen']:,}", f"{snap['alp_seen']:,}",
             f"{snap['matched']:,}",
             100.0 * snap["matched"] / max(resolved, 1), f"{resolved:,}",
+            f"{snap['enriched']:,}", f"{snap['att_pend']:,}",
             f"{snap['tol']:,}", f"{snap['expired']:,}", f"{snap['evicted']:,}",
             f"{snap['late']:,}", f"{snap['orphans']:,}",
             buckets,

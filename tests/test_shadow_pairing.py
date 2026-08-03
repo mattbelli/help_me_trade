@@ -101,6 +101,107 @@ def test_alpaca_guard_swallows_and_counts():
     assert sp.alp_errors == 1
 
 
+def test_attach_then_resolve_stamps_conditions_in_place():
+    # Inc 3 wiring: the spine registers its normalized dict, the twin arrives,
+    # and the code lands on the dict — a fresh list, the old one untouched.
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    assert pid is not None
+    ref = {"occ_symbol": OCC, "conditions": []}
+    old = ref["conditions"]
+    sp.attach_print(pid, ref)
+    sp.on_alpaca(OCC, ts, 500, 10, "f")
+    assert ref["conditions"] == ["f"]
+    assert old == []  # reader holding the pre-stamp list saw no mutation
+    assert sp.enriched == 1 and not sp._attached
+
+
+def test_resolve_before_attach_uses_the_parked_code():
+    # Inline match: the twin was already pending when on_dbn fed the matcher,
+    # so the resolution fires INSIDE on_dbn — before the spine can attach.
+    sp = _shadow()
+    ts = time.time_ns()
+    sp.on_alpaca(OCC, ts, 500, 10, "t")
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    assert sp._m.matched == 1
+    ref = {"conditions": []}
+    sp.attach_print(pid, ref)
+    assert ref["conditions"] == ["t"]
+    assert sp.early_hits == 1 and not sp._early_cond
+
+
+def test_clean_print_stamps_empty_conditions():
+    # A matched twin with no condition code means "clean print", not "unknown"
+    # — the stamp must still happen so consumers can tell the two apart later.
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    ref = {"conditions": []}
+    sp.attach_print(pid, ref)
+    sp.on_alpaca(OCC, ts, 500, 10, "")
+    assert ref["conditions"] == [] and sp.enriched == 1
+
+
+def test_metrics_only_never_touches_the_print():
+    sp = ShadowPairing(alpaca_key="k", alpaca_secret="s", metrics_only=True)
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    ref = {"conditions": []}
+    sp.attach_print(pid, ref)
+    sp.on_alpaca(OCC, ts, 500, 10, "f")
+    assert ref["conditions"] == []
+    assert sp.enriched == 0 and not sp._attached and not sp._early_cond
+    assert sp._m.matched == 1  # the measurement surface is unchanged
+
+
+def test_unmatched_resolution_releases_the_ref_without_stamping():
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    ref = {"conditions": []}
+    sp.attach_print(pid, ref)
+    with sp._lock:
+        sp._absorb([(pid, "", "expired")], time.time_ns())
+    assert not sp._attached and ref["conditions"] == []
+
+
+def test_matcher_reset_releases_attached_refs():
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    sp.attach_print(pid, {"conditions": []})
+    sp._reset_matcher()
+    assert not sp._attached and not sp._early_cond
+    # A twin for the old epoch arriving now must not stamp anything.
+    sp.on_alpaca(OCC, ts, 500, 10, "f")
+    assert sp.enriched == 0
+
+
+def test_sweep_ttls_parked_codes_for_prints_that_never_attach():
+    # Meta-gate-skipped prints feed the matcher (population correctness) but
+    # never attach — their parked codes must not accumulate forever.
+    sp = _shadow()
+    stale_pid = time.time_ns() - 11_000_000_000  # older than EARLY_COND_TTL_NS
+    with sp._lock:
+        sp._early_cond[stale_pid] = "f"
+    sp._sweep_once()
+    assert not sp._early_cond
+
+
+def test_sweep_ttls_attached_refs_past_the_drain_window():
+    # A ref whose twin never came is useless after the ~1s drain — it must not
+    # stay pinned for the matcher's whole 10-min expiry horizon.
+    sp = _shadow()
+    stale_pid = time.time_ns() - 16_000_000_000  # older than ATTACH_TTL_NS
+    fresh_pid = time.time_ns()
+    with sp._lock:
+        sp._attached[stale_pid] = {"conditions": []}
+        sp._attached[fresh_pid] = {"conditions": []}
+    sp._sweep_once()
+    assert stale_pid not in sp._attached and fresh_pid in sp._attached
+
+
 def test_two_thread_feed_is_consistent():
     sp = _shadow()
     base = time.time_ns()

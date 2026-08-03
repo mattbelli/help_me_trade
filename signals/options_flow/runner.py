@@ -227,13 +227,17 @@ class OptionsFlowRunner:
     """
 
     def __init__(self, *, watchlist_symbols: Callable[[], list[str]],
-                 raw_print_tee: Callable[[str, int, int, int], None] | None = None,
+                 raw_print_tee: Callable[[str, int, int, int], int | None] | None = None,
+                 print_attach_tee: Callable[[int, dict], None] | None = None,
                  ) -> None:
         self._watchlist_symbols = watchlist_symbols
-        # Pairing-shadow tee (databento lane only): every symbology-resolved
-        # print, pre-meta-gate. Metrics only — never alters what this runner
-        # emits. See signals/options_flow/shadow_pairing.py.
+        # Pairing tees (databento lane only): every symbology-resolved print,
+        # pre-meta-gate, feeds the matcher via `raw_print_tee`; the normalized
+        # dict is then registered via `print_attach_tee` so the matcher can
+        # stamp its condition code in place before the ~1s drain. See
+        # signals/options_flow/shadow_pairing.py.
         self._raw_print_tee = raw_print_tee
+        self._print_attach_tee = print_attach_tee
         self.stream = None  # OptionsFlowStream | None — set while stream_run is live
         self._intraday_warned = False
 
@@ -332,12 +336,25 @@ class OptionsFlowRunner:
             now_et = datetime.now(_ET)
             today_et = now_et.date().isoformat()
             now_ms = int(now_et.timestamp() * 1000)
+            # Under the databento provider the whole-market spine owns BLK-1
+            # (sweep_loop); the REST lane detecting them too would write a
+            # second row per block (different timestamp → different id). Gated
+            # on config, not stream liveness: if the spine is down, sweeps and
+            # bursts are dark too — a lane quietly half-covering blocks would
+            # look exactly like a quiet market.
+            from config.settings import load_settings
+
+            provider = str(
+                (load_settings().get("options_flow") or {}).get("provider")
+                or "alpaca"
+            ).strip().lower()
             summary = await asyncio.to_thread(
                 run_poll_once,
                 broker,
                 symbols=symbols,
                 today_et=today_et,
                 now_ms=now_ms,
+                emit_blocks=provider != "databento",
             )
             events = summary.pop("events", []) or []
             conv_summary: dict[str, int] = {}
@@ -376,6 +393,7 @@ class OptionsFlowRunner:
         from signals.options_flow.convergence import process_events
         from signals.options_flow.intraday import (
             classify_direction,
+            detect_block,
             is_hygiene_excluded,
             tag_likely_spreads,
         )
@@ -426,6 +444,7 @@ class OptionsFlowRunner:
                     half_day = is_early_close(now_et.date())
                     buffer_day = today_et
 
+                block_events: list[dict] = []
                 if batch:
                     # Tag spreads BEFORE the lab write so the capture carries the
                     # flags (added 2026-07-17: the flow-decomposition report and
@@ -462,6 +481,21 @@ class OptionsFlowRunner:
                                     )
                         p["direction"] = direction
                         p["direction_basis"] = basis
+                        # BLK-1 on the spine (2026-08-03): single-print blocks
+                        # were poll-lane-only, i.e. watchlist-capped, while the
+                        # whole-market feed watched every print go by (and the
+                        # corpus showed daily bars HIDE exactly these). Only on
+                        # the market-wide lane — the poll lane keeps emitting
+                        # blocks under provider=alpaca, so no double detection.
+                        if stream.acked_market_wide:
+                            blk = detect_block(
+                                p,
+                                event_date=today_et,
+                                direction=direction,
+                                direction_basis=basis,
+                            )
+                            if blk is not None:
+                                block_events.append(blk)
                         row = {
                             "ts_ms": p.get("ts_ms"),
                             "occ": p.get("occ_symbol"),
@@ -593,7 +627,9 @@ class OptionsFlowRunner:
                                 "options_flow pressure gauge: %s flush failed", win
                             )
 
-                events = buffer.close_ready(int(time.time() * 1000), today_et)
+                events = block_events + buffer.close_ready(
+                    int(time.time() * 1000), today_et
+                )
                 if not events:
                     continue
 
@@ -711,6 +747,7 @@ class OptionsFlowRunner:
             on_prints=self.on_prints,
             meta_for=self.meta_for,
             on_raw_print=self._raw_print_tee,
+            attach_print=self._print_attach_tee,
         )
         self.stream = stream
         logger.info("options_flow stream: starting Databento OPRA live (DARK collector)")

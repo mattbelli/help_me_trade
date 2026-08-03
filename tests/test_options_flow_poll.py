@@ -571,6 +571,32 @@ def test_block_e2e_trade_quote_direction(tmp_path: Path) -> None:
     assert ev["premium_usd"] == 180_000.0
 
 
+def test_emit_blocks_off_suppresses_blocks_but_nothing_else(tmp_path: Path) -> None:
+    """provider=databento: the whole-market spine owns BLK-1; the REST lane
+    seeing the same trade at a different timestamp must not write a second row.
+    Prints, pressure accrual, and UV stay on — only block emission is gated."""
+    db = tmp_path / "flow.db"
+    ts = f"{TODAY}T14:30:00.123Z"
+    adapter = FakeAdapter(
+        contracts_by_u={"NVDA": [_contract(OCC)]},
+        snapshots_by_u={"NVDA": {OCC: _snapshot_trade(ts=ts, size=500)}},
+        trades_by_occ={OCC: [_trade(ts=ts, price=4.5, size=400)]},
+        quotes_by_occ={OCC: {"bid": 4.0, "ask": 4.5, "ts": ts}},
+    )
+    summary = run_poll_once(
+        adapter,
+        symbols=["NVDA"],
+        today_et=TODAY,
+        now_ms=NOW_MS,
+        state=PollState(),
+        db_path=db,
+        emit_blocks=False,
+    )
+    assert summary["prints"] == 1
+    assert summary["blocks"] == 0
+    assert of_db.recent_events(event_type="block", db_path=db) == []
+
+
 # --- directional pressure ---------------------------------------------------------
 
 

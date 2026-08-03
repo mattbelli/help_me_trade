@@ -87,10 +87,14 @@ async def main() -> int:
         )
         return 2
 
-    # Inc 2 pairing shadow (LIVE_FLOW_PAIRING_SPEC_2026-07-28): matcher +
-    # Alpaca wildcard codes sidecar, metrics only. Opt-in by flag, and its
-    # task is EXCLUDED from the exit wait below — a dead shadow logs and
-    # stays dead; it never takes the spine down with it.
+    # Pairing (LIVE_FLOW_PAIRING_SPEC_2026-07-28): matcher + Alpaca wildcard
+    # codes sidecar. Since 2026-08-03 (Inc 3, first step) it ENRICHES — matched
+    # condition codes are stamped onto the spine's prints in place, so the
+    # F-2 spread/hygiene/ISO gates in the detectors finally see codes on the
+    # databento lane. OPTIONS_FLOW_PAIRING_METRICS_ONLY=1 reverts to the pure
+    # Inc-2 shadow (measure, never touch). Opt-in by flag, and its task is
+    # EXCLUDED from the exit wait below — a dead pairing logs and stays dead;
+    # it never takes the spine down with it.
     shadow = None
     if _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
         try:
@@ -113,7 +117,11 @@ async def main() -> int:
             ap_secret = str(cfg.get("api_secret_key") or "").strip()
             if not ap_key or not ap_secret:
                 raise RuntimeError("Alpaca credentials missing")
-            shadow = ShadowPairing(alpaca_key=ap_key, alpaca_secret=ap_secret)
+            shadow = ShadowPairing(
+                alpaca_key=ap_key,
+                alpaca_secret=ap_secret,
+                metrics_only=_flag("OPTIONS_FLOW_PAIRING_METRICS_ONLY"),
+            )
         except Exception:
             logger.exception(
                 "pairing shadow requested but failed to init — running without"
@@ -122,6 +130,11 @@ async def main() -> int:
     runner = OptionsFlowRunner(
         watchlist_symbols=watchlist_symbols,
         raw_print_tee=shadow.on_dbn if shadow is not None else None,
+        print_attach_tee=(
+            shadow.attach_print
+            if shadow is not None and not shadow.metrics_only
+            else None
+        ),
     )
 
     stop = asyncio.Event()

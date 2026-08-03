@@ -25,6 +25,44 @@ def _stream(sent):
     return s
 
 
+def test_attach_print_receives_the_emitted_dict():
+    """Inc 3 pairing wiring: the tee's returned print_id and the normalized
+    print are handed to attach_print — the SAME dict the drain will emit, so
+    a later in-place condition stamp reaches the detectors."""
+    sent: list = []
+    attached: list = []
+    s = DatabentoFlowStream(
+        key="k", on_prints=sent.extend, meta_for=lambda occ: dict(META),
+        on_raw_print=lambda occ, p, sz, ts: 123,
+        attach_print=lambda pid, ref: attached.append((pid, ref)),
+    )
+    s._client = types.SimpleNamespace(symbology_map={42: META["occ_symbol"]})
+    rec = _rec(7_700_000_000, 7_400_000_000, 8_100_000_000)
+    rec.ts_event = rec.ts_recv
+    s._on_record(rec)
+    batch = s._drain()
+    assert len(attached) == 1 and attached[0][0] == 123
+    assert attached[0][1] is batch[0]
+    attached[0][1]["conditions"] = ["f"]  # the matcher's stamp, simulated
+    assert batch[0]["conditions"] == ["f"]
+
+
+def test_attach_print_failure_never_costs_the_print():
+    def boom(pid, ref):
+        raise RuntimeError("attach died")
+
+    s = DatabentoFlowStream(
+        key="k", on_prints=lambda b: None, meta_for=lambda occ: dict(META),
+        on_raw_print=lambda occ, p, sz, ts: 1, attach_print=boom,
+    )
+    s._client = types.SimpleNamespace(symbology_map={42: META["occ_symbol"]})
+    rec = _rec(7_700_000_000, 7_400_000_000, 8_100_000_000)
+    rec.ts_event = rec.ts_recv
+    s._on_record(rec)
+    assert len(s._drain()) == 1
+    assert s.raw_tee_errors == 1
+
+
 def test_print_carries_provider_provenance():
     sent: list = []
     s = _stream(sent)

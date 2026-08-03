@@ -287,8 +287,14 @@ def run_poll_once(
     now_ms: int,
     state: PollState | None = None,
     db_path: Path | None = None,
+    emit_blocks: bool = True,
 ) -> dict:
-    """One intraday poll cycle. Returns counters; never raises."""
+    """One intraday poll cycle. Returns counters; never raises.
+
+    ``emit_blocks=False`` when the whole-market spine owns BLK-1 (provider=
+    databento since 2026-08-03): both lanes see the same trade with different
+    timestamps, so two detectors means two rows for one block.
+    """
     st = state if state is not None else _default_state
     counters: dict[str, Any] = {
         "prints": 0,
@@ -306,6 +312,7 @@ def run_poll_once(
             state=st,
             db_path=db_path,
             counters=counters,
+            emit_blocks=emit_blocks,
         )
     except Exception:
         logger.exception("options_flow poll: unexpected cycle failure")
@@ -321,6 +328,7 @@ def _run_poll_cycle(
     state: PollState,
     db_path: Path | None,
     counters: dict[str, Any],
+    emit_blocks: bool = True,
 ) -> None:
     if state.day != today_et:
         state.reset()
@@ -475,6 +483,8 @@ def _run_poll_cycle(
             ):
                 continue
 
+            if not emit_blocks:
+                continue
             try:
                 ev = detect_block(
                     p,

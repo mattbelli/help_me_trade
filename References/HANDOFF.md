@@ -143,19 +143,17 @@ snapshot per sweep). Open threads only:
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
-- **⏳ Live flow pairing Inc 2 — shadow session #1 (2026-07-29) CLEAN; Inc 3 gates remain.**
-  Full-day numbers (60s stats line, end of day): dbn=11.71M prints, **matched 98.0%**, expired
-  0.89% (no twin ever), orphans 20,063 (0.17%); **enrich ≤100ms = 86.6%, ≤1s = 98.6%** (the
-  match-first answer); pending drained to 0, keys_peak 476k of the 2M cap, evicted 0; wire lag
-  p50=p95=0ms both sides; **1 reconnect/reset all day** (ping_timeout 60s tamed the 40–48/day
-  keepalive flaps); tee_err=alp_err=0; RSS 1,653 MB end-of-day, unit peak 1.9 GB (above the
-  ~1 GB estimate — fine, but check against unit limits before cutover).
-  **Inc 3 cutover gates, in order:** (1) shadow session #2 rides 07-30 free; (2) the
-  **standing-NBBO consumer audit** — NOT run yet, the real blocker (everything that silently
-  reads the Alpaca quote lane's standing NBBO must be found before that lane turns off);
-  (3) explain the **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the known
-  ~4-min meta-cold open blind; confirm, don't assume). No code-family scoring before
-  1.8-on-truth conclusions are folded in.
+- **⏳ Live flow pairing — enrichment WIRED 2026-08-03 (Inc 3 first step; BUILD_LOG row + card
+  `live-flow-pairing`); the Inc-3 tail remains.** Live events now carry condition codes on the
+  databento lane (F-2 spread/hygiene/ISO gates active; `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1`
+  reverts). OPEN, in order: (1) **first enriched session check** — watch `enriched=`/`att_pend=`
+  on the 60s stats line and confirm sweeps/blocks counts shift plausibly (spread legs now
+  excluded) + spread_flag-bearing package prints appear in the print lab; (2) the
+  **standing-NBBO consumer audit** — still the real cutover blocker; (3) explain the
+  **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the ~4-min meta-cold
+  open blind; confirm, don't assume); (4) nightly live-vs-batch audit alarm. Inc-2 session #1
+  baselines for comparison: matched 98.0%, enrich ≤1s = 98.6%, RSS peak 1.9 GB. No code-family
+  SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).
 - **⏳ Flow perception surface — SCHEDULED (cron 04:30 UTC Tue–Sat), earnings coverage SHIPPED,

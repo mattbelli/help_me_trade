@@ -279,17 +279,22 @@ class DatabentoFlowStream:
         meta_for: Callable[[str], dict | None],
         flush_interval_s: float = 1.0,
         replay_from: Any = None,
-        on_raw_print: Callable[[str, int, int, int], None] | None = None,
+        on_raw_print: Callable[[str, int, int, int], int | None] | None = None,
+        attach_print: Callable[[int, dict], None] | None = None,
     ) -> None:
         self._key = key
         self._on_prints = on_prints
         self._meta_for = meta_for
         self._flush_interval_s = flush_interval_s
-        # Pairing-shadow tee: (occ, price_raw, size, ts_event) per print, after
-        # symbology resolution and BEFORE the meta gate — the shadow measures
+        # Pairing tee: (occ, price_raw, size, ts_event) per print, after
+        # symbology resolution and BEFORE the meta gate — the matcher must see
         # the same whole-market population the batch join labels, not just the
-        # slice with meta. Runs on the databento client thread.
+        # slice with meta (a partial population offsets every k-rank). Returns
+        # a print_id; `attach_print(print_id, normalized)` then registers the
+        # normalized dict for in-place condition-code stamping when the
+        # matcher resolves it. Both run on the databento client thread.
         self._on_raw_print = on_raw_print
+        self._attach_print = attach_print
         self.raw_tee_errors = 0
         # Intraday replay: the live gateway will resend the last ≤24h from a
         # given start time. None in production. It exists so the arming check
@@ -386,11 +391,13 @@ class DatabentoFlowStream:
             return
         occ = occ_from_osi(str(occ))
 
+        print_id = None
         if self._on_raw_print is not None:
             # Guarded because a raise here would also abort THIS record's spine
             # processing below — the tee must never cost the lane a print.
             try:
-                self._on_raw_print(occ, rec.price, rec.size, rec.ts_event)
+                print_id = self._on_raw_print(occ, rec.price, rec.size,
+                                              rec.ts_event)
             except Exception:
                 self.raw_tee_errors += 1
                 if self.raw_tee_errors == 1:
@@ -433,6 +440,18 @@ class DatabentoFlowStream:
             normalized["nbbo"] = (
                 bid / PX_SCALE, ask / PX_SCALE, int(rec.ts_recv // 1_000_000)
             )
+        if print_id is not None and self._attach_print is not None:
+            # Same guard discipline as the tee: enrichment is optional, this
+            # record's spine emit is not.
+            try:
+                self._attach_print(print_id, normalized)
+            except Exception:
+                self.raw_tee_errors += 1
+                if self.raw_tee_errors == 1:
+                    logger.exception(
+                        "dbn stream: attach_print raised — codes will not be "
+                        "stamped; the spine is unaffected"
+                    )
         self.prints += 1
         with self._pending_lock:
             self._pending.append(normalized)

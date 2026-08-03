@@ -124,6 +124,20 @@ Original prerequisites, verified not assumed:
 - **Inc 3 — cutover.** Quote subs off, capped lane off, spine is primary; REST snapshots serve
   standing-NBBO consumers; nightly audit alarm armed (live-vs-batch gap). The Alpaca socket
   carries exactly one subscription: `trades: ["*"]`.
+  - **2026-08-03 — enrichment WIRED (founder-directed: "wire trade matching classification
+    now").** The matcher's resolutions now stamp condition codes onto the spine's normalized
+    prints in place: `on_dbn` returns a print_id, dbn_stream registers the normalized dict via
+    `attach_print`, and the resolution (inline, on the twin's arrival, or on the 1s sweep)
+    assigns `conditions=[code]` — a fresh list, never a mutation, so the drain thread reads
+    either state coherently. Emit rules honored as specced: match-first when the twin is in
+    hand (Inc-2 session #1 measured ≤1s = 98.6%), never hold the spine, late prints ship
+    unlabeled (counted). Downstream F-2 spread-leg exclusion, hygiene exclusion, and the ISO
+    sweep flag activate with zero detector changes. Segregation only — still no code-family
+    scoring before 1.8-on-truth. `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1` reverts to the pure
+    Inc-2 shadow. Same round: BLK-1 moved onto the spine (whole-market blocks; the REST poll
+    lane's block detection is gated off under provider=databento so one block ≠ two rows).
+    Remaining Inc-3 tail: standing-NBBO consumer audit, nightly live-vs-batch audit alarm,
+    retiring the capped-lane code after one clean release.
 
 ## Open items the live shadow (Inc 2) must measure (recorded so they don't become assumptions)
 
