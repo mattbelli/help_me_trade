@@ -128,6 +128,48 @@ class TestFrozenLabelHash:
             verify_frozen(tmp_path)
 
 
+class TestCombinedGateLocks:
+    """The combined gate's own three locks (phase-B freeze addendum
+    2026-08-02, implemented 2026-08-03)."""
+
+    def test_backfill_sha_is_the_registered_one(self):
+        # changing this constant is an AMENDMENT, never an edit.
+        assert hld.FROZEN_BACKFILL_SHA256 == (
+            "d0eb07d1ceeade0a0b0462172afd90631aff136ae38882c95cebf9b64338df14")
+
+    def test_ledger_shas_are_the_registered_ones(self):
+        # the ledgers' control_ts_ns fully determine every pseudo-return —
+        # pinned like the labels; changing these is an AMENDMENT.
+        assert hld.LEDGER_WIDE_SHA256 == (
+            "d08f4de7da92c29479e65c9e461274c872f974bea2a9b4cc7d431d27a40d46c1")
+        assert hld.LEDGER_BACKFILL_SHA256 == (
+            "efa6dccc755d40dffd521aecc97fa0d5b701fd5ca027c884f6443b9a661c08e0")
+
+    def test_closes_before_backfill_is_strictly_before(self, tmp_path):
+        import sqlite3
+        db = tmp_path / "backfill.db"
+        con = sqlite3.connect(db)
+        con.execute("CREATE TABLE equity_bars(symbol TEXT, date TEXT, "
+                    "c REAL, v REAL, PRIMARY KEY(symbol, date))")
+        con.executemany("INSERT INTO equity_bars VALUES (?,?,?,?)", [
+            ("XYZ", "2024-06-14", 10.0, 1.0),
+            ("XYZ", "2024-06-17", 11.0, 1.0),   # the event session itself
+            ("XYZ", "2024-06-18", 12.0, 1.0),   # forward — must never surface
+        ])
+        con.commit()
+        con.close()
+        rows = hld.closes_before_backfill("XYZ", date(2024, 6, 17), db_path=db)
+        assert rows == [("2024-06-14", 10.0)]
+
+    def test_combined_artifact_never_unlocks_unseal(self, tmp_path):
+        # gate1_combined_3p3.json with proceed:true must NOT satisfy the
+        # unseal lock — that lock reads only gate1_3p3.json.
+        (tmp_path / hld.GATE1_COMBINED_NAME).write_text(
+            json.dumps({"proceed": True}))
+        with pytest.raises(SealError, match="run `gate1`"):
+            require_gate1(tmp_path)
+
+
 class TestStageGating:
     def test_unseal_refuses_without_gate1(self, tmp_path):
         with pytest.raises(SealError, match="run `gate1`"):

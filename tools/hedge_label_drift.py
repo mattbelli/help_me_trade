@@ -55,8 +55,9 @@ import hashlib
 import json
 import logging
 import math
+import sqlite3
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -97,6 +98,37 @@ FROZEN_SHA256 = "c87592df731b5299bccec0f81a78061d2854c9745a5aff38d67d104c6d97264
 GATE1_NAME = "gate1_3p3.json"
 UNSEAL_NAME = "unseal_3p3.json"
 RESULTS_NAME = "results_3p3.json"
+
+# --- the combined gate (3.3 backfill addendum, 2026-08-03) --------------------
+# Gate 1 re-run on the POOLED population: the WIDE corpus freeze (250 events,
+# HIGH 31, sessions 2025-07-28..2026-05-05) + the tranche-1 backfill freeze
+# (371 events, HIGH 58, sessions 2024-04-11..2025-07-24). Pooling is legitimate
+# for a POWER gate: both sets carry the same registered scoring law, grain and
+# control design, the spans are disjoint (no shared clusters or weeks), and the
+# gate reads controls only — no forward return of either set is touched.
+# ★ The artifact name is DIFFERENT from GATE1_NAME on purpose: `unseal` reads
+# only gate1_3p3.json, so a passing combined gate CANNOT unlock any unseal.
+# Unsealing the pooled set would be its own registered extension + review.
+WIDE_DIR = ROOT / "data" / "research" / "hedge_footprint_wide" / "equity"
+BACKFILL_DIR = ROOT / "data" / "research" / "flow_backfill" / "phaseb"
+BACKFILL_DB = ROOT / "data" / "research" / "flow_backfill" / "backfill.db"
+BARS_DB = ROOT / "data" / "research" / "bars.db"
+FROZEN_BACKFILL_NAME = "hedge_scores_frozen_backfill.json"
+FROZEN_BACKFILL_SHA256 = \
+    "d0eb07d1ceeade0a0b0462172afd90631aff136ae38882c95cebf9b64338df14"
+GATE1_COMBINED_NAME = "gate1_combined_3p3.json"
+# The fetch ledgers carry control_ts_ns — they fully determine every
+# pseudo-return, so the combined gate pins them like the labels (review A
+# major, 2026-08-03). Changing either constant is an AMENDMENT, never an edit.
+LEDGER_WIDE_SHA256 = \
+    "d08f4de7da92c29479e65c9e461274c872f974bea2a9b4cc7d431d27a40d46c1"
+LEDGER_BACKFILL_SHA256 = \
+    "efa6dccc755d40dffd521aecc97fa0d5b701fd5ca027c884f6443b9a661c08e0"
+# 3.2's review MEASURED event-day realized vol vs the same name's control days:
+# HIGH 1.46x, LOW 1.03x. The corpus gate carried this as a prose caveat (it
+# failed by 2x regardless); at the pooled sample size it is DECISIVE, so the
+# combined gate runs the injection twice and reports both MDEs side by side.
+EVENT_DAY_VOL_INFLATION = {"HIGH": 1.46, "NULL": 1.03}
 
 # --- registered constants (every one is a spec clause) ------------------------
 HIGH_THRESHOLD = 3.0                  # HIGH s ≥ +3, ANTI s ≤ −3, NULL between
@@ -192,20 +224,31 @@ class TripwireError(RuntimeError):
 # the seal
 # =============================================================================
 
-def verify_frozen(out_dir: Path) -> dict:
-    """Load the frozen label file, aborting unless it hashes to the registered
-    SHA-256. Every stage calls this first: the labels are the registration, and
-    a study run against a different label file is a different study."""
-    path = out_dir / FROZEN_NAME
+def _verify_bytes(path: Path, want: str) -> bytes:
+    """Read a pinned file, aborting unless it hashes to the registered
+    SHA-256."""
     if not path.exists():
-        raise SealError(f"frozen label file missing: {path}")
+        raise SealError(f"pinned file missing: {path}")
     raw = path.read_bytes()
     got = hashlib.sha256(raw).hexdigest()
-    if got != FROZEN_SHA256:
+    if got != want:
         raise SealError(
-            f"FROZEN LABEL SHA MISMATCH: {path} hashes to {got}, registered "
-            f"{FROZEN_SHA256} — this is not the registered study")
-    return json.loads(raw)
+            f"PINNED FILE SHA MISMATCH: {path} hashes to {got}, registered "
+            f"{want} — this is not the registered study")
+    return raw
+
+
+def _verify_sha(path: Path, want: str) -> dict:
+    """Load a frozen label file, aborting unless it hashes to the registered
+    SHA-256: the labels are the registration, and a study run against a
+    different label file is a different study."""
+    return json.loads(_verify_bytes(path, want))
+
+
+def verify_frozen(out_dir: Path) -> dict:
+    """Every stage calls this first — the corpus frozen file at its registered
+    SHA."""
+    return _verify_sha(out_dir / FROZEN_NAME, FROZEN_SHA256)
 
 
 def require_gate1(out_dir: Path) -> dict:
@@ -958,20 +1001,66 @@ def closes_before(symbol: str, before: date, db_path: Path = DEFAULT_DB_PATH,
     return out[-limit:] if limit else out
 
 
+def closes_before_backfill(symbol: str, before: date,
+                           db_path: Path = BACKFILL_DB,
+                           limit: int | None = None) -> list[tuple[str, float]]:
+    """`closes_before`, for the backfill population — same contract, same
+    strictly-before seal bound in the SQL, read from the backfill crawl's own
+    bar store. `backfill.db`'s `equity_bars` is split-adjusted to the CURRENT
+    basis exactly like the corpus table (committed producer:
+    `flow_backfill_select.fetch_daily_bars_adjusted`; verified two ways —
+    ANET pre-2024-12-04 closes carry the 4:1, and HON/BN are adjusted across
+    the whole span for splits AFTER it). Events sitting before a later split
+    lose their controls to the registered split-space guard — raw
+    contemporaneous quote mark vs current-basis close — exactly as in the
+    corpus gate; per-event casualties are in the artifact's disclosure, not
+    counted here."""
+    with sqlite3.connect(db_path) as conn:
+        rows = list(conn.execute(
+            "SELECT date, c FROM equity_bars WHERE symbol = ? AND date < ? "
+            "AND c IS NOT NULL ORDER BY date ASC", (symbol, before.isoformat())))
+    out = [(r[0], float(r[1])) for r in rows]
+    return out[-limit:] if limit else out
+
+
+def spy_closes_combined(newest: date) -> dict[str, float]:
+    """SPY closes spanning BOTH populations, still bounded to newest+10d.
+
+    The flow corpus carries SPY only from 2025-07-25; the backfill events need
+    2024. `bars.db` `daily_bars` (same Alpaca source, and SPY has no splits in
+    the span) covers 2016→. Every overlapping session is asserted equal before
+    merging — a source or basis mismatch REFUSES rather than silently mixing —
+    and the corpus value wins on overlap."""
+    bound = (newest + timedelta(days=10)).isoformat()
+    corpus = dict(closes_before("SPY", newest + timedelta(days=10)))
+    with sqlite3.connect(BARS_DB) as conn:
+        older = {d: float(c) for d, c in conn.execute(
+            "SELECT date, c FROM daily_bars WHERE symbol = 'SPY' AND date < ? "
+            "AND c IS NOT NULL AND source = 'alpaca'", (bound,))}
+    for d in set(corpus) & set(older):
+        if abs(corpus[d] - older[d]) > 1e-4 * corpus[d]:
+            raise SealError(
+                f"SPY close mismatch corpus vs bars.db on {d}: "
+                f"{corpus[d]} vs {older[d]} — refusing to mix sources")
+    older.update(corpus)
+    return older
+
+
 # =============================================================================
 # stage 1 — gate1, the controls-only power gate
 # =============================================================================
 
 def _pseudo_returns(out_dir: Path, ev: dict, control_ts: list[int],
                     event_session: date, spy: dict[str, float],
-                    db_path: Path = DEFAULT_DB_PATH) -> tuple[list[float], dict]:
+                    db_path: Path = DEFAULT_DB_PATH,
+                    closes_fn=closes_before) -> tuple[list[float], dict]:
     """Aligned SPY-subtracted h2 pseudo-returns from this event's control days.
 
     A control's pseudo-forward window must end STRICTLY BEFORE the event's own
     session — the youngest controls are dropped for exactly that reason, and the
     count is disclosed.
     """
-    closes = dict(closes_before(ev["symbol"], event_session))
+    closes = dict(closes_fn(ev["symbol"], event_session))
     sessions = sorted(closes)
     led = {"controls_seen": 0, "drop_window_touches_event": 0, "drop_no_bars": 0,
            "drop_no_mark": 0, "drop_split_space": 0}
@@ -1018,10 +1107,11 @@ def _pseudo_returns(out_dir: Path, ev: dict, control_ts: list[int],
 
 
 def _daily_dispersion(symbol: str, event_session: date, spy: dict[str, float],
-                      lookback: int = SIGMA_LOOKBACK) -> float:
+                      lookback: int = SIGMA_LOOKBACK,
+                      closes_fn=closes_before) -> float:
     """The registered second dispersion arm: the 20-prior-session daily-return
     dispersion ending the session BEFORE the event."""
-    rows = closes_before(symbol, event_session, limit=lookback + 1)
+    rows = closes_fn(symbol, event_session, limit=lookback + 1)
     if len(rows) < 3:
         return float("nan")
     rets = []
@@ -1031,17 +1121,12 @@ def _daily_dispersion(symbol: str, event_session: date, spy: dict[str, float],
     return robust_sd(rets)
 
 
-def build_gate1_harness(out_dir: Path, frozen: dict, ledger: dict,
-                        n_perm: int, seed: int) -> tuple[Harness, dict]:
-    """Assemble the pseudo-event bank + the registered null, on-disk only."""
-    # SPY carries no event outcome — the equity stratum never contains an ETF —
-    # so the market leg is the one series that may span every event session. It
-    # is still bounded, and it is only ever paired with a symbol close that came
-    # from a window ending strictly before the event.
-    newest = max(date.fromisoformat(e["session"]) for e in frozen["events"])
-    spy = dict(closes_before("SPY", newest + timedelta(days=10)))
-    spy_sessions = sorted(spy)
-    by_key = {(e["symbol"], e["ts_ns"]): e for e in ledger["events"]}
+def _gate1_rows(out_dir: Path, frozen: dict, by_key: dict,
+                spy: dict[str, float], spy_sessions: list[str],
+                closes_fn, source: str) -> tuple[list[dict], dict]:
+    """The per-event pseudo-row loop, shared verbatim between the corpus gate
+    and the combined gate — only the snapshot dir, the ledger and the daily-bar
+    source differ per population."""
     rows, disclosure = [], {"controls_seen": 0, "drop_window_touches_event": 0,
                             "drop_no_bars": 0, "drop_no_mark": 0,
                             "drop_split_space": 0}
@@ -1056,7 +1141,8 @@ def build_gate1_harness(out_dir: Path, frozen: dict, ledger: dict,
         led_ev = by_key.get((ev["symbol"], ev["ts_ns"]))
         if led_ev is None:
             continue
-        pseudo, led = _pseudo_returns(out_dir, ev, led_ev["control_ts_ns"], session, spy)
+        pseudo, led = _pseudo_returns(out_dir, ev, led_ev["control_ts_ns"],
+                                      session, spy, closes_fn=closes_fn)
         for k in disclosure:
             disclosure[k] += led[k]
         if len(pseudo) < 3:
@@ -1068,8 +1154,34 @@ def build_gate1_harness(out_dir: Path, frozen: dict, ledger: dict,
             "is_high": ev["stratum"] == "HIGH", "score": ev["score"],
             "m": (ev["m_bps"] or 0.0) / 1e4,
             "pseudo": arr - np.median(arr),
-            "sigma_daily": _daily_dispersion(ev["symbol"], session, spy),
+            "sigma_daily": _daily_dispersion(ev["symbol"], session, spy,
+                                             closes_fn=closes_fn),
+            "source": source, "ts_ns": ev["ts_ns"],
+            "adv": led_ev.get("adv"), "d": led_ev.get("d"),
         })
+    return rows, disclosure
+
+
+def build_gate1_harness(out_dir: Path, frozen: dict, ledger: dict,
+                        n_perm: int, seed: int) -> tuple[Harness, dict]:
+    """Assemble the pseudo-event bank + the registered null, on-disk only."""
+    # SPY carries no event outcome — the equity stratum never contains an ETF —
+    # so the market leg is the one series that may span every event session. It
+    # is still bounded, and it is only ever paired with a symbol close that came
+    # from a window ending strictly before the event.
+    newest = max(date.fromisoformat(e["session"]) for e in frozen["events"])
+    spy = dict(closes_before("SPY", newest + timedelta(days=10)))
+    spy_sessions = sorted(spy)
+    by_key = {(e["symbol"], e["ts_ns"]): e for e in ledger["events"]}
+    rows, disclosure = _gate1_rows(out_dir, frozen, by_key, spy, spy_sessions,
+                                   closes_before, "corpus")
+    return _gate1_assemble(rows, disclosure, n_perm, seed)
+
+
+def _gate1_assemble(rows: list[dict], disclosure: dict,
+                    n_perm: int, seed: int) -> tuple[Harness, dict]:
+    """Rows → the injection harness, shared verbatim between the corpus gate
+    and the combined gate."""
     if not rows:
         raise RuntimeError("gate1: no pseudo-events survived — nothing to gate on")
 
@@ -1170,6 +1282,281 @@ def stage_gate1(out_dir: Path, n_perm: int, n_rep: int, seed: int) -> dict:
     if not proceed:
         logger.error("GATE 1 FAILED — the registered ladder, in order:")
         for step in LADDER:
+            logger.error("  %s", step)
+    return doc
+
+
+# =============================================================================
+# stage 1b — gate1-combined: the corpus + backfill pooled power gate
+# =============================================================================
+
+def build_gate1_harness_combined(n_perm: int, seed: int) -> tuple[Harness, dict]:
+    """The pooled pseudo-event bank: both frozen sets, each read through its own
+    ledger, snapshot dir and daily-bar store, assembled by the SAME registered
+    row loop and harness assembly as the corpus gate."""
+    frozen_c = _verify_sha(WIDE_DIR / FROZEN_NAME, FROZEN_SHA256)
+    frozen_b = _verify_sha(BACKFILL_DIR / FROZEN_BACKFILL_NAME,
+                           FROZEN_BACKFILL_SHA256)
+    # the ledgers' control_ts_ns fully determine every pseudo-return, so they
+    # are pinned exactly like the labels
+    ledger_c = json.loads(_verify_bytes(WIDE_DIR / "fetch_ledger_equity.json",
+                                        LEDGER_WIDE_SHA256))
+    by_key_c = {(e["symbol"], e["ts_ns"]): e for e in ledger_c["events"]}
+    by_key_b: dict = {}
+    for line in _verify_bytes(BACKFILL_DIR / "fetch" / "fetch_ledger.jsonl",
+                              LEDGER_BACKFILL_SHA256).decode().splitlines():
+        if line.strip():
+            rec = json.loads(line)
+            # keep-last on the freeze's own dedup convention
+            by_key_b[(rec["symbol"], rec["ts_ns"])] = rec
+
+    newest = max(date.fromisoformat(e["session"])
+                 for e in frozen_c["events"] + frozen_b["events"])
+    spy = spy_closes_combined(newest)
+    spy_sessions = sorted(spy)
+
+    rows_c, disc_c = _gate1_rows(WIDE_DIR, frozen_c, by_key_c, spy,
+                                 spy_sessions, closes_before, "corpus")
+    rows_b, disc_b = _gate1_rows(BACKFILL_DIR / "fetch", frozen_b, by_key_b,
+                                 spy, spy_sessions, closes_before_backfill,
+                                 "backfill")
+    rows = rows_c + rows_b
+    drops = {k: disc_c[k] + disc_b[k] for k in disc_c}
+    harness, disclosure = _gate1_assemble(rows, drops, n_perm, seed)
+
+    # ★ population-composition disclosure — the two sets are NOT the same
+    # animal (the backfill selected far smaller, far more detectable prints),
+    # and the pooled MDE is only honest read next to this. Every number here is
+    # COMPUTED from the usable pseudo-events — never hardcoded, and never from
+    # the wider fetch ledgers (review A major: candidate-pool medians differ
+    # materially from usable-row medians).
+    def _comp(rs: list[dict]) -> dict:
+        advs = np.array([r["adv"] for r in rs if r["adv"] is not None],
+                        dtype=np.float64)
+        ds = np.array([r["d"] for r in rs if r["d"] is not None],
+                      dtype=np.float64)
+        hi_scores = [r["score"] for r in rs if r["is_high"]]
+        return {
+            "n_pseudo_events": len(rs),
+            "n_high": sum(1 for r in rs if r["is_high"]),
+            "n_null": sum(1 for r in rs if not r["is_high"]),
+            "sessions": ([min(r["session"] for r in rs),
+                          max(r["session"] for r in rs)] if rs else None),
+            "adv20_median": float(np.median(advs)) if len(advs) else None,
+            "d_median": float(np.median(ds)) if len(ds) else None,
+            "score_median": (float(np.median([r["score"] for r in rs]))
+                             if rs else None),
+            "score_median_high": (float(np.median(hi_scores))
+                                  if hi_scores else None),
+            "n_weeks": len({r["week"] for r in rs}),
+        }
+
+    # who dropped, and why — a bare aggregate counter can hide a whole HIGH
+    # event (review A blocker follow-through: JBIO). Reasons are re-derived
+    # deterministically for the few missing events.
+    def _dropped(frozen: dict, rs: list[dict], out_dir: Path, by_key: dict,
+                 closes_fn) -> list[dict]:
+        # keyed by (symbol, ts_ns), NOT cluster — 6 backfill clusters hold
+        # 2-3 events, and a dropped event whose cluster-twin survived must
+        # still appear here (both reviewers, v2 round)
+        have = {(r["symbol"], r["ts_ns"]) for r in rs}
+        out = []
+        for ev in frozen["events"]:
+            if ev["stratum"] == "ANTI" or (ev["symbol"], ev["ts_ns"]) in have:
+                continue
+            session = date.fromisoformat(ev["session"])
+            h2_end, _ = horizon_target(spy_sessions, ev["session"], 1)
+            if h2_end and earnings_in_window(ev["earnings_dates_45d"],
+                                             ev["session"], h2_end):
+                reason = "earnings_at_h2"
+            elif (ev["symbol"], ev["ts_ns"]) not in by_key:
+                reason = "no_ledger_row"
+            else:
+                _, led = _pseudo_returns(
+                    out_dir, ev, by_key[(ev["symbol"], ev["ts_ns"])]["control_ts_ns"],
+                    session, spy, closes_fn=closes_fn)
+                parts = ",".join(f"{k}={v}" for k, v in sorted(led.items())
+                                 if k.startswith("drop") and v)
+                reason = f"lt3_pseudo({parts})"
+            out.append({"cluster": ev["cluster"], "stratum": ev["stratum"],
+                        "reason": reason})
+        return out
+
+    # per-(source, stratum) dispersion in the SAME max(control, daily) form the
+    # harness injects, so the pooled blend can be decomposed (review A/B major:
+    # pooling lowers the HIGH sigma vs the corpus gate's own registered value
+    # and inverts the HIGH/NULL ordering — a composition effect, not a property
+    # of HIGH prints).
+    per_src_sigma = {}
+    for src, rs in (("corpus", rows_c), ("backfill", rows_b)):
+        for name in ("HIGH", "NULL"):
+            sub = [r for r in rs if r["is_high"] == (name == "HIGH")]
+            if sub:
+                ctrl = robust_sd(np.concatenate([r["pseudo"] for r in sub]))
+                daily = float(np.nanmedian([r["sigma_daily"] for r in sub]))
+                per_src_sigma[f"{src}_{name}"] = {
+                    "control_day": ctrl, "daily_20_session": daily,
+                    "registered_max": float(np.nanmax([ctrl, daily])),
+                }
+    sigma_blend_pct = {}
+    for name in ("HIGH", "NULL"):
+        pooled = disclosure["stratum_dispersion"][name]["registered_max"]
+        for src in ("corpus", "backfill"):
+            own = per_src_sigma.get(f"{src}_{name}", {}).get("registered_max")
+            if own:
+                sigma_blend_pct[f"pooled_vs_{src}_{name}"] = round(
+                    100.0 * (pooled / own - 1.0), 2)
+
+    n_hi = max(1, sum(1 for r in rows if r["is_high"]))
+    n_nu = max(1, sum(1 for r in rows if not r["is_high"]))
+    disclosure["population_composition"] = {
+        "corpus": _comp(rows_c),
+        "backfill": _comp(rows_b),
+        "dropped_events": {
+            "corpus": _dropped(frozen_c, rows_c, WIDE_DIR, by_key_c,
+                               closes_before),
+            "backfill": _dropped(frozen_b, rows_b, BACKFILL_DIR / "fetch",
+                                 by_key_b, closes_before_backfill),
+        },
+        "shared_calendar_weeks": sorted({r["week"] for r in rows_c}
+                                        & {r["week"] for r in rows_b}),
+        "high_backfill_frac": round(sum(
+            1 for r in rows_b if r["is_high"]) / n_hi, 4),
+        "null_backfill_frac": round(sum(
+            1 for r in rows_b if not r["is_high"]) / n_nu, 4),
+        "per_source_stratum_sigma": per_src_sigma,
+        "sigma_blend_pct": sigma_blend_pct,
+        "note": ("The two populations differ in liquidity, detectability and "
+                 "score distribution (medians above, computed from USABLE "
+                 "pseudo-events) and are disjoint in calendar time. Pooling "
+                 "blends two vol regimes: sigma_blend_pct is the pooled "
+                 "injected sigma vs each population's own (negative = pooling "
+                 "LOWERED the noise injected into that stratum relative to "
+                 "that population's own gate), and the HIGH/NULL dispersion "
+                 "ordering inverts vs the corpus gate — an inversion that "
+                 "already exists inside the backfill population (see "
+                 "per_source_stratum_sigma), AMPLIFIED by composition: HIGH "
+                 "tilts further toward the calmer backfill regime than NULL "
+                 "does (high_backfill_frac vs null_backfill_frac). Not a "
+                 "property of HIGH prints. Read the headline MDE next to "
+                 "event_day_inflated, which prices the measured 1.46x HIGH "
+                 "event-day vol that controls cannot see."),
+    }
+    return harness, disclosure
+
+
+LADDER_COMBINED = [
+    "(1) tranche-2-DEEPER backfill purchase — more windows per already-crawled "
+    "session at deeper phase-A ranks (slippage measured SATURATED, so deeper "
+    "ranks still carry signal); EXACT Databento quote to the founder before "
+    "any charged request; remaining envelope ~$25 per the roadmap record "
+    "(FLOW_ROADMAP 3.3 phase-B freeze addendum, 2026-08-02).",
+    "(2) or sit patient: the live corpus accrues ~3 HIGH/month toward the "
+    "floor at zero cost.",
+    "(3) STOP = NO-RUN. Nothing is unsealed either way.",
+]
+
+
+def stage_gate1_combined(n_perm: int, n_rep: int, seed: int) -> dict:
+    harness, disclosure = build_gate1_harness_combined(n_perm, seed)
+    power = injection_power(harness, n_rep=n_rep, seed=seed)
+    mde = power["mde"]
+    proceed = mde is not None and mde <= GATE_MDE_FLOOR
+
+    # ★ the SAME injection with the 3.2-measured event-day vol inflation
+    # (review B blocker): the corpus gate carried the 1.46x HIGH factor as a
+    # prose caveat because it failed by 2x regardless; at the pooled sample
+    # size the caveat is decisive, so both MDEs are first-class citizens of
+    # the artifact. `proceed` keeps its registered controls-only meaning.
+    sigma_infl = harness.sigma * np.where(
+        harness.is_high > 0.5,
+        EVENT_DAY_VOL_INFLATION["HIGH"], EVENT_DAY_VOL_INFLATION["NULL"])
+    power_infl = injection_power(replace(harness, sigma=sigma_infl),
+                                 n_rep=n_rep, seed=seed)
+
+    vol_ratio = None
+    hi = disclosure["stratum_dispersion"].get("HIGH", {})
+    lo = disclosure["stratum_dispersion"].get("NULL", {})
+    if hi.get("control_day") and lo.get("control_day"):
+        vol_ratio = {"high_control_day_sigma": hi["control_day"],
+                     "null_control_day_sigma": lo["control_day"],
+                     "high_over_null": hi["control_day"] / lo["control_day"],
+                     "registered_measured_event_over_control": 1.46,
+                     "note": "3.2's review measured event-day realized vol at "
+                             "1.46× the same name's control days in HIGH (LOW "
+                             "1.03×) — a controls-only power estimate is "
+                             "OPTIMISTIC exactly in the stratum that matters."}
+    doc = {
+        "spec": SPEC, "stage": "gate1_combined", "sealed": True,
+        "registration": ("FLOW_ROADMAP.md 3.3 phase-B freeze addendum "
+                         "(2026-08-02): combined Gate 1 over the corpus + "
+                         "backfill freezes, population-composition disclosure "
+                         "required when pooling. Implemented 2026-08-03."),
+        "frozen_sha256_corpus": FROZEN_SHA256,
+        "frozen_sha256_backfill": FROZEN_BACKFILL_SHA256,
+        "ledger_sha256_corpus": LEDGER_WIDE_SHA256,
+        "ledger_sha256_backfill": LEDGER_BACKFILL_SHA256,
+        "horizon": PRIMARY_HORIZON, "floor_mde": GATE_MDE_FLOOR,
+        "seed": seed, **power, "proceed": proceed,
+        "mde_equals_floor_exactly": (mde is not None
+                                     and mde == GATE_MDE_FLOOR),
+        "event_day_inflated": {
+            **power_infl, "inflation": EVENT_DAY_VOL_INFLATION,
+            "proceed_under_inflation": (power_infl["mde"] is not None
+                                        and power_infl["mde"] <= GATE_MDE_FLOOR),
+            "note": ("The same injection with per-stratum sigma scaled by the "
+                     "3.2-review-MEASURED event-day/control-day realized-vol "
+                     "ratios. A `proceed` that flips false here is a boundary "
+                     "pass the founder should read as fragile, not clean."),
+        },
+        "unlocks_unseal": False,
+        "unseal_note": (f"This artifact NEVER unlocks `unseal` — that lock "
+                        f"reads only {GATE1_NAME}. Unsealing the pooled "
+                        "population requires its own registered extension and "
+                        "its own review first."),
+        "binding_leg_at_the_floor": leg_pass_rates(harness, GATE_MDE_FLOOR,
+                                                   n_rep=n_rep, seed=seed),
+        "disclosure": disclosure,
+        "event_control_vol_ratio": vol_ratio,
+        "ladder_if_failed": LADDER_COMBINED,
+        "spec_ambiguities": SPEC_AMBIGUITIES + [
+            "backfill.db equity_bars physically holds closes through "
+            "2025-07-25 — forward of essentially every backfill event — so "
+            "the backfill seal is PROCEDURAL exactly like the corpus one "
+            "(see the corpus entry above): the strictly-before SQL bound is "
+            "the only barrier, and no forward return has been computed.",
+            "high_count_preserved_frac roughly halves at the pooled n: the "
+            "week-block wrap penalty of block_source_index shrinks relative "
+            "to n, so part of the pooled power gain is the design artifact "
+            "hurting less, not new information.",
+            "Cross-population seal separation is COINCIDENTAL, not enforced: "
+            "reviewer B measured the closest corpus-control-to-backfill-event "
+            "same-symbol approach at 27 calendar days (~18 sessions), outside "
+            "every verdict horizon; pseudo-returns are median-centred and "
+            "standardized, so only shape survives regardless.",
+            "backfill.db equity_bars is reproducible in METHOD, not in bytes: "
+            "the committed producer skip-caches per symbol, so the store is a "
+            "mixed fetch-date basis (3,218 symbols ~2026-08-02, 14 on "
+            "2026-08-03) and a clean rebuild after any future split would "
+            "yield different closes; the split-space guard is what keeps any "
+            "stale-basis row out of the pseudo-return bank.",
+        ],
+        "seal": ("No forward return of any frozen event in either population "
+                 "was read. Every symbol price came from an on-disk bar store "
+                 "bounded in SQL to STRICTLY BEFORE the event's own session, "
+                 "and every control pseudo-window ends strictly before it too. "
+                 "SPY (index proxy, present in neither event set) is the one "
+                 "series spanning event sessions, exactly as in the corpus "
+                 "gate."),
+    }
+    save_json(WIDE_DIR / GATE1_COMBINED_NAME, doc)
+    logger.info("gate1-combined: MDE=%s (floor %.3f) proceed=%s | "
+                "event-day-inflated MDE=%s proceed=%s", mde, GATE_MDE_FLOOR,
+                proceed, power_infl["mde"],
+                doc["event_day_inflated"]["proceed_under_inflation"])
+    if not proceed:
+        logger.error("COMBINED GATE 1 FAILED — the ladder, in order:")
+        for step in LADDER_COMBINED:
             logger.error("  %s", step)
     return doc
 
@@ -1999,7 +2386,8 @@ def _gate2(cut: dict, n_perm: int, n_rep: int, n_boot: int, seed: int) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("stage", choices=("gate1", "unseal", "analyze"))
+    parser.add_argument("stage",
+                        choices=("gate1", "gate1-combined", "unseal", "analyze"))
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--n-perm", type=int, default=N_PERM)
     parser.add_argument("--n-perm-gate1", type=int, default=5_000)
@@ -2017,6 +2405,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.stage == "gate1":
             doc = stage_gate1(args.out_dir, args.n_perm_gate1, args.n_rep, args.seed)
+            return 0 if doc["proceed"] else 1
+        if args.stage == "gate1-combined":
+            doc = stage_gate1_combined(args.n_perm_gate1, args.n_rep, args.seed)
             return 0 if doc["proceed"] else 1
         if args.stage == "analyze":
             stage_analyze(args.out_dir, args.n_perm, args.n_boot,

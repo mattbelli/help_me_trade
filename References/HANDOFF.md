@@ -205,26 +205,31 @@ snapshot per sweep). Open threads only:
   m-residualized; HIGH accrues ≈3–4/month → meaningful re-gate ~a year out; any earlier
   re-test = NEW registration, disclosed weaker). Wide artifacts:
   `hedge_footprint_wide/equity/` (250 events frozen, SHA `c87592df…97264f`).
-  ⚠️ Standing seals: forward returns SEALED (no gate has passed); frozen writers refuse
-  overwrite — treat a SHA mismatch as an incident. ⚠️ If a future re-gate passes: deep
-  review of the unseal/analyze paths of `hedge_label_drift.py` MUST complete first
-  (gate1 path reviewed; the rest built+tested, not yet line-by-line reviewed).
-  ⏳ **OPEN: combined Gate 1 re-run → tranche-2 decision** — backfill labels FROZEN
-  2026-08-02 at **`d0eb07d1…df14`: HIGH 58 / NULL 286 / ANTI 27** (371 cut from 1,110
-  events over the CORRECTED top-10k registration; BUILD_LOG 2026-08-02 fix-round row +
-  ROADMAP round-3 addendum = the record). Two-Opus review ran TWICE: round 1 FAILED the
-  first freeze (fence span missed GOLD→B; split TODAY-basis bars) and round 2 caught
-  the fix round itself (a-side halo desynced the rank-based join — final form clips to
-  the print-tape bounds); final verdicts A PASS-WITH-FIXES (applied) / B PASS ("sound
-  to register"). Returns NEVER unsealed. Open items: (1) re-run Gate 1 pooling corpus
-  31 + backfill 58 = **89 HIGH vs ~124 needed** at the 1.5% MDE floor — pooling MUST
-  disclose population composition (backfill tilts thinner/higher-d); (2) if power still
-  fails (likely): tranche-2-deeper purchase, exact quote first, ~$25 left of the ≤$30
-  envelope ($4.82 spent on the corrected-registration gap); (3) if a gate ever passes,
-  the line-by-line unseal/analyze review of `hedge_label_drift.py` MUST complete before
-  any unseal (standing). ⚠️ Fence note: `resolve()` now returns None for
-  non-last-reuse-segment dates (Barnes-era `B` class); any consumer added later must
-  handle None.
+  ⚠️ Standing seals: forward returns STILL SEALED — the combined gate PASSING does not
+  unseal anything (its artifact deliberately cannot satisfy `require_gate1`); frozen
+  writers refuse overwrite — treat a SHA mismatch as an incident.
+  ⏳ **OPEN: 3.3 pooled UNSEAL — founder decision + registered extension** — the
+  **combined Gate 1 PASSED BOTH WAYS 2026-08-03** (BUILD_LOG row + ROADMAP combined-
+  gate addendum = the record): registered MDE **1.5% = the floor** (power 0.96 at
+  δ=1.5%; grid has no point between 1.0%@0.67 and 1.5%), and the 3.2-measured
+  event-day-vol-inflated robustness check ALSO passed (power 0.8133 vs 0.80 target —
+  within ~1 MC SE, fragile but a pass). Artifact
+  `hedge_footprint_wide/equity/gate1_combined_3p3.json` (both frozen SHAs + both
+  ledger SHAs pinned; population composition, per-source sigma blend, dropped-events
+  disclosure all inside). Two-Opus split-mandate review of the gate extension ran
+  BEFORE the run (A: data identity — blocker: adjusted-bar store had no committed
+  producer + 10 missing symbols, fixed via `fetch_daily_bars_adjusted`; B: seal/stats —
+  blocker: inflated-sigma second MDE now a first-class artifact field); both VERIFIED
+  the fix delta, then the single registered run. **NO tranche-2 purchase needed.**
+  Remaining before ANY unseal, in order: (1) founder says GO (irreversible — outcomes
+  can't be unread; parked in the founder lane); (2) a dated ROADMAP addendum
+  registering the POOLED unseal/analyze extension (current `unseal` reads only the
+  corpus out_dir; needs both populations' stores + the backfill rename/continuity
+  path); (3) the STANDING line-by-line review of `hedge_label_drift.py`
+  unseal/analyze paths (gate1 path reviewed; the rest built+tested, never line-by-line
+  reviewed) + two-Opus review of the extension itself. ⚠️ Fence note: `resolve()` now
+  returns None for non-last-reuse-segment dates (Barnes-era `B` class); any consumer
+  added later must handle None.
   ⏳ **Next Phase-3 move: 3.4 spread orientation** — NOT gated on 3.3 (needs only 3.2's
   CONFIRMED direction result); unlocks the ~33% of premium fenced as spreads. Needs its
   own pre-registration round (founder-visible). No collision with the live-pairing
