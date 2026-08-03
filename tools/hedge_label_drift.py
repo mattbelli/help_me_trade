@@ -57,6 +57,7 @@ import logging
 import math
 import sqlite3
 import sys
+import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -80,7 +81,12 @@ from tools.hedge_footprint import (  # noqa: E402
     save_json,
     session_midnight_ns,
 )
-from tools.root_classification_build import fetch_name_changes  # noqa: E402
+from tools.root_classification_build import (  # noqa: E402
+    fetch_name_changes,
+)
+from tools.root_classification_build import (
+    load as load_fence,
+)
 
 logger = logging.getLogger("hedge_label_drift")
 
@@ -117,6 +123,45 @@ FROZEN_BACKFILL_NAME = "hedge_scores_frozen_backfill.json"
 FROZEN_BACKFILL_SHA256 = \
     "d0eb07d1ceeade0a0b0462172afd90631aff136ae38882c95cebf9b64338df14"
 GATE1_COMBINED_NAME = "gate1_combined_3p3.json"
+UNSEAL_COMBINED_NAME = "unseal_combined_3p3.json"
+RESULTS_COMBINED_NAME = "results_combined_3p3.json"
+REGISTRATION_COMBINED = ("FLOW_ROADMAP.md 3.3 Addendum 5 (2026-08-03): pooled "
+                         "unseal/analyze — SPEC v2 machinery unchanged, only "
+                         "population mechanics + the lock chain registered; "
+                         "founder GO 2026-08-03.")
+FENCE_PATH = ROOT / "signals" / "options_flow" / "root_classification.json"
+# The registered fence is the ONE rename authority through its own span end:
+# every frozen symbol is (verified at unseal) the fence's terminal ident for
+# its root at its session, so the live name_change chain applies only to
+# renames AFTER this date. Walking hops from the event session instead
+# re-walks another tenant's renames on reused tickers (review-A blocker:
+# frozen GOLD = A-Mark would have fetched Barrick's forward prices via
+# GOLD→B 2025-05-09).
+FENCE_TERMINAL_DATE = "2026-08-02"
+# The pooled-run caveats every combined artifact carries (review-B minor: the
+# verdict artifact, not just the gate, must show them).
+COMBINED_AMBIGUITIES = [
+    "backfill.db equity_bars physically holds closes through "
+    "2025-07-25 — forward of essentially every backfill event — so "
+    "the backfill seal is PROCEDURAL exactly like the corpus one "
+    "(see the corpus entry above): the strictly-before SQL bound is "
+    "the only barrier, and no forward return has been computed.",
+    "high_count_preserved_frac roughly halves at the pooled n: the "
+    "week-block wrap penalty of block_source_index shrinks relative "
+    "to n, so part of the pooled power gain is the design artifact "
+    "hurting less, not new information.",
+    "Cross-population seal separation is COINCIDENTAL, not enforced: "
+    "reviewer B measured the closest corpus-control-to-backfill-event "
+    "same-symbol approach at 27 calendar days (~18 sessions), outside "
+    "every verdict horizon; pseudo-returns are median-centred and "
+    "standardized, so only shape survives regardless.",
+    "backfill.db equity_bars is reproducible in METHOD, not in bytes: "
+    "the committed producer skip-caches per symbol, so the store is a "
+    "mixed fetch-date basis (3,218 symbols ~2026-08-02, 14 on "
+    "2026-08-03) and a clean rebuild after any future split would "
+    "yield different closes; the split-space guard is what keeps any "
+    "stale-basis row out of the pseudo-return bank.",
+]
 # The fetch ledgers carry control_ts_ns — they fully determine every
 # pseudo-return, so the combined gate pins them like the labels (review A
 # major, 2026-08-03). Changing either constant is an AMENDMENT, never an edit.
@@ -264,6 +309,40 @@ def require_gate1(out_dir: Path) -> dict:
             f"SEALED: {path} carries proceed={doc.get('proceed')!r} — the "
             "registered ladder applies; nothing is unsealed.")
     return doc
+
+
+def require_gate1_combined() -> dict:
+    """`unseal-combined`'s lock: the POOLED gate must have passed, and the
+    artifact must be the one that gated THESE two frozen sets — a combined gate
+    run against different registrations satisfies nothing."""
+    path = WIDE_DIR / GATE1_COMBINED_NAME
+    if not path.exists():
+        raise SealError(
+            f"SEALED: {path} does not exist — run `gate1-combined` before "
+            "`unseal-combined`. Forward returns stay sealed until the pooled "
+            "power gate passes.")
+    doc = json.loads(path.read_text())
+    if doc.get("proceed") is not True:
+        raise SealError(
+            f"SEALED: {path} carries proceed={doc.get('proceed')!r} — the "
+            "registered ladder applies; nothing is unsealed.")
+    if (doc.get("frozen_sha256_corpus") != FROZEN_SHA256
+            or doc.get("frozen_sha256_backfill") != FROZEN_BACKFILL_SHA256):
+        raise SealError(
+            f"SEALED: {path} does not carry BOTH registered frozen SHAs — "
+            "it gated a different study.")
+    return doc
+
+
+def require_unseal_combined() -> dict:
+    """`analyze-combined`'s lock: pooled outcomes must have been legitimately
+    fetched by `unseal-combined` (the TRIPPED artifact name satisfies nothing)."""
+    path = WIDE_DIR / UNSEAL_COMBINED_NAME
+    if not path.exists():
+        raise SealError(
+            f"SEALED: {path} does not exist — run `unseal-combined` before "
+            "`analyze-combined`.")
+    return json.loads(path.read_text())
 
 
 def require_unseal(out_dir: Path) -> dict:
@@ -457,8 +536,10 @@ def block_source_index(eblock: np.ndarray, erank: np.ndarray, starts: np.ndarray
     that is the registered cluster-level (and, at h2/h3, calendar-week-level)
     null. When block sizes differ the within-block rank wraps modulo the source
     size, which is the only well-defined way to carry a size-n block's
-    attributes onto a size-m one. Every cluster in the frozen file is a
-    singleton, so the wrap never fires on the registered data.
+    attributes onto a size-m one. The wrap DOES fire on the registered data:
+    always on week blocks (sizes 1..25), and at cluster blocks on the pooled
+    set (6 non-singleton backfill clusters). Measured direction: it biases the
+    permuted HIGH count down and adds null dispersion — conservative.
     """
     src_block = perm[:, eblock]                       # (draws, n)
     return order[starts[src_block] + (erank[None, :] % sizes[src_block])]
@@ -1519,28 +1600,7 @@ def stage_gate1_combined(n_perm: int, n_rep: int, seed: int) -> dict:
         "disclosure": disclosure,
         "event_control_vol_ratio": vol_ratio,
         "ladder_if_failed": LADDER_COMBINED,
-        "spec_ambiguities": SPEC_AMBIGUITIES + [
-            "backfill.db equity_bars physically holds closes through "
-            "2025-07-25 — forward of essentially every backfill event — so "
-            "the backfill seal is PROCEDURAL exactly like the corpus one "
-            "(see the corpus entry above): the strictly-before SQL bound is "
-            "the only barrier, and no forward return has been computed.",
-            "high_count_preserved_frac roughly halves at the pooled n: the "
-            "week-block wrap penalty of block_source_index shrinks relative "
-            "to n, so part of the pooled power gain is the design artifact "
-            "hurting less, not new information.",
-            "Cross-population seal separation is COINCIDENTAL, not enforced: "
-            "reviewer B measured the closest corpus-control-to-backfill-event "
-            "same-symbol approach at 27 calendar days (~18 sessions), outside "
-            "every verdict horizon; pseudo-returns are median-centred and "
-            "standardized, so only shape survives regardless.",
-            "backfill.db equity_bars is reproducible in METHOD, not in bytes: "
-            "the committed producer skip-caches per symbol, so the store is a "
-            "mixed fetch-date basis (3,218 symbols ~2026-08-02, 14 on "
-            "2026-08-03) and a clean rebuild after any future split would "
-            "yield different closes; the split-space guard is what keeps any "
-            "stale-basis row out of the pseudo-return bank.",
-        ],
+        "spec_ambiguities": SPEC_AMBIGUITIES + COMBINED_AMBIGUITIES,
         "seal": ("No forward return of any frozen event in either population "
                  "was read. Every symbol price came from an on-disk bar store "
                  "bounded in SQL to STRICTLY BEFORE the event's own session, "
@@ -1598,20 +1658,40 @@ def resolve_forward(symbol: str, after: str, until: str,
     raise RuntimeError(f"rename chain for {symbol} exceeded {MAX_RENAME_HOPS} hops")
 
 
+def _retry_transient(fn, attempts: int = 6, base_sleep: float = 2.0):
+    """Retry a fetch on TRANSIENT HTTP failures (429/5xx) with exponential
+    backoff — a multi-hour resumable unseal must not die on one gateway
+    timeout. Anything else re-raises immediately."""
+    for k in range(attempts):
+        try:
+            return fn()
+        except RuntimeError as exc:
+            transient = any(f"({c})" in str(exc)
+                            for c in (408, 429, 500, 502, 503, 504))
+            if not transient or k == attempts - 1:
+                raise
+            time.sleep(base_sleep * (2 ** k))
+
+
 def fetch_daily_bars(client, data_base_url: str, symbol: str, start: date,
                      end: date, adjustment: str) -> list[dict]:
-    return _paged_get(
+    return _retry_transient(lambda: _paged_get(
         client, f"{data_base_url}/v2/stocks/{symbol}/bars",
         {"start": start.isoformat(), "end": end.isoformat(), "timeframe": "1Day",
-         "limit": PAGE_LIMIT, "adjustment": adjustment, "feed": FEED}, "bars")
+         "limit": PAGE_LIMIT, "adjustment": adjustment, "feed": FEED}, "bars"))
 
 
 def fetch_minute_window(client, data_base_url: str, symbol: str, lo_ns: int,
                         hi_ns: int) -> list[dict]:
-    return _paged_get(
+    # ★ RAW, not "all": every consumer multiplies the bar by the session's
+    # all/raw factor (f, spy_f, factor_for) — the same raw→all map applied to
+    # the raw snapshot marks. Fetching "all" here double-adjusted (review-A
+    # major, measured: SPY 2024-06-17 minute all/raw = 0.9737, ~2.6% of
+    # accumulated dividends; a split inside the span made it unbounded).
+    return _retry_transient(lambda: _paged_get(
         client, f"{data_base_url}/v2/stocks/{symbol}/bars",
         {"start": _rfc3339(lo_ns), "end": _rfc3339(hi_ns), "timeframe": "1Min",
-         "limit": PAGE_LIMIT, "adjustment": "all", "feed": FEED}, "bars")
+         "limit": PAGE_LIMIT, "adjustment": "raw", "feed": FEED}, "bars"))
 
 
 def _cached(path: Path, produce) -> list[dict]:
@@ -1623,15 +1703,19 @@ def _cached(path: Path, produce) -> list[dict]:
     return rows
 
 
-def stage_unseal(out_dir: Path, client, data_base_url: str,
-                 limit: int | None = None) -> dict:
-    frozen = verify_frozen(out_dir)
-    gate1 = require_gate1(out_dir)
-    ledger = json.loads((out_dir / "fetch_ledger_equity.json").read_text())
-    by_key = {(e["symbol"], e["ts_ns"]): e for e in ledger["events"]}
-    events = frozen["events"][:limit] if limit else frozen["events"]
+def _unseal_core(out_dir: Path, udir: Path, events: list[dict], by_key: dict,
+                 client, data_base_url: str,
+                 rename_after: str | None = None) -> tuple[list, list, int]:
+    """The per-population outcome fetch — everything `stage_unseal` does between
+    its locks and its artifact, shared verbatim with `unseal-combined`. Returns
+    (manifest, tripwire_hits, n_name_change_records); the CALLER decides whether
+    a trip halts the run.
 
-    udir = out_dir / "unseal"
+    `rename_after`: forward-rename hops are followed from this date instead of
+    each event's own session. The combined stage passes FENCE_TERMINAL_DATE —
+    frozen symbols are already the fence's terminal idents, and walking hops
+    from the session re-walks another tenant's renames on reused tickers
+    (review-A blocker: GOLD). None = the registered corpus behavior."""
     today = date.today()
     sessions_all = sorted({e["session"] for e in events})
     start = date.fromisoformat(sessions_all[0]) - timedelta(days=150)
@@ -1663,7 +1747,8 @@ def stage_unseal(out_dir: Path, client, data_base_url: str,
     manifest, tripped = [], []
     for i, ev in enumerate(events, 1):
         sym, ts = ev["symbol"], ev["ts_ns"]
-        fetch_sym = resolve_forward(sym, ev["session"], today.isoformat(), chain)
+        fetch_sym = resolve_forward(sym, rename_after or ev["session"],
+                                    today.isoformat(), chain)
         bars = {}
         for adj in ("all", "raw"):
             bars[adj] = _cached(
@@ -1688,26 +1773,264 @@ def stage_unseal(out_dir: Path, client, data_base_url: str,
         manifest.append(row)
         if i % 10 == 0:
             logger.info("unsealed %s/%s events", i, len(events))
+    return manifest, tripped, len(names)
+
+
+TRIPWIRE_POLICY = (
+    "Addendum 5 amendment (2026-08-03, two-reviewer sign-off): a tripped "
+    "event PROCEEDS only if a coded, outcome-blind verification passes — "
+    "(1) RAW-JOIN: fetched raw closes match the population's own crawl-era "
+    "store to the cent on the event session and >=1 session strictly before "
+    "and after (same vendor/endpoint/feed on a different fetch date: this "
+    "excludes the wrong-asset join and nothing else), and (2) F-UNIFORMITY: "
+    "close_all/close_raw is constant (half-cent tolerance — adjusted closes "
+    "are cent-rounded) from the event session through the h_exp cap, so the "
+    "single f applied to every mark is valid across every horizon — the one "
+    "quantity the trip statistic is structurally blind to. Unverified trips "
+    "still HALT. Corrected rationale (review A): the trip statistic reduces "
+    "to close_raw/M0_raw — a cross-source comparison that WOULD catch a "
+    "wrong-asset join; its true blind spots are that it cannot distinguish "
+    "a join failure from genuine volatility, and that f cancels out of it. "
+    "POST-HOC DISCLOSURE (review B): this rule was authored AFTER the only "
+    "trip fired (JBIO@2024-06-05, backfill HIGH, h_sign +1) and after its "
+    "direction was visible to the adjudicating orchestrator — the event-day "
+    "move was +17.9 pct ALIGNED-POSITIVE, so 'proceed' was the "
+    "outcome-favourable choice at decision time; realised scope = that one "
+    "event of 621. The criteria reference no return and apply identically "
+    "to both populations and directions; the leave-out-tripped sensitivity "
+    "in the results artifact makes the verdict's dependence a published "
+    "number rather than a judgment. Verification availability is "
+    "population-asymmetric (backfill has a raw store; corpus verification "
+    "holds only for names with no split between event and fetch) — inert "
+    "this run: zero corpus trips. JBIO was also excluded from the Gate-1 "
+    "harness (its controls fell to the split guard), so the 1.5 pct MDE "
+    "authorisation was computed on a sample WITHOUT the study's largest "
+    "single-event lever.")
+
+
+def _tripped_join_verified(row: dict, out_dir: Path, udir: Path) -> dict:
+    """The coded admission predicate for a tripped event (see TRIPWIRE_POLICY).
+    Returns evidence + a join_verified verdict; outcome-blind by construction
+    (neither check references any return)."""
+    sym, session = row["fetch_symbol"], row["session"]
+    all_b = daily_map(json.loads(
+        (udir / "daily" / f"{sym}_all.json").read_text()))
+    raw_b = daily_map(json.loads(
+        (udir / "daily" / f"{sym}_raw.json").read_text()))
+
+    # (1) raw-join vs the crawl-era store
+    if str(out_dir).startswith(str(BACKFILL_DIR)):
+        with sqlite3.connect(BACKFILL_DB) as conn:
+            store = {d: float(c) for d, c in conn.execute(
+                "SELECT date, c FROM equity_bars_raw WHERE symbol = ?",
+                (row["symbol"],))}
+        store_name = "backfill.db equity_bars_raw"
+    else:
+        with connect(DEFAULT_DB_PATH) as conn:
+            store = {r["date"]: float(r["c"]) for r in conn.execute(
+                "SELECT date, c FROM equity_bars WHERE symbol = ? "
+                "AND adjustment = 'split' AND c IS NOT NULL",
+                (row["symbol"],))}
+        store_name = ("flow_corpus.db equity_bars[split] — cent-exact vs raw "
+                      "only for names with no split between event and fetch")
+    overlap = sorted(set(store) & set(raw_b))
+    idx = {d: i for i, d in enumerate(overlap)}
+    near = [d for d in overlap
+            if session in idx and abs(idx[d] - idx[session]) <= 3]
+    joins = [{"session": d, "store": store[d], "fetched": raw_b[d],
+              "match": abs(store[d] - raw_b[d]) < 0.005} for d in near]
+    join_ok = (session in idx
+               and any(d < session for d in near)
+               and any(d > session for d in near)
+               and all(j["match"] for j in joins))
+
+    # (2) f-uniformity across the horizon window
+    sess = sorted(set(all_b) & set(raw_b))
+    win = (sess[sess.index(session):sess.index(session)
+                + H_EXP_CAP_SESSIONS + 1]
+           if session in sess else [])
+    ratios = {d: all_b[d] / raw_b[d] for d in win if raw_b[d] > 0}
+    med = float(np.median(list(ratios.values()))) if ratios else float("nan")
+    devs = {d: abs(all_b[d] - raw_b[d] * med) for d in ratios}
+    f_ok = bool(ratios) and all(v <= 0.0051 for v in devs.values())
+
+    return {
+        "join_verified": bool(join_ok and f_ok),
+        "raw_join": {"store": store_name, "sessions": joins, "pass": join_ok},
+        "f_uniformity": {"window_sessions": len(win), "median_ratio": med,
+                         "max_abs_deviation": (max(devs.values())
+                                               if devs else None),
+                         "tolerance": "half a cent on the adjusted close",
+                         "pass": f_ok},
+    }
+
+
+def _tripwire_halt(doc: dict, tripped: list, save_path: Path):
+    """The artifact lands under a DIFFERENT name so the analyze lock still
+    refuses: a tripped run is evidence, not a licence to proceed."""
+    save_json(save_path, doc)
+    raise TripwireError(
+        "continuity tripwire fired — the run HALTS. Events: "
+        + ", ".join(f"{r['symbol']}@{r['session']} "
+                    f"|log(close/M0_adj)|={r['continuity']:.4f}" for r in tripped))
+
+
+def stage_unseal(out_dir: Path, client, data_base_url: str,
+                 limit: int | None = None) -> dict:
+    frozen = verify_frozen(out_dir)
+    gate1 = require_gate1(out_dir)
+    ledger = json.loads((out_dir / "fetch_ledger_equity.json").read_text())
+    by_key = {(e["symbol"], e["ts_ns"]): e for e in ledger["events"]}
+    events = frozen["events"][:limit] if limit else frozen["events"]
+    manifest, tripped, n_names = _unseal_core(
+        out_dir, out_dir / "unseal", events, by_key, client, data_base_url)
 
     doc = {"spec": SPEC, "stage": "unseal",
            "gate1_mde": gate1.get("mde"), "gate1_proceed": gate1.get("proceed"),
            "frozen_sha256": FROZEN_SHA256,
            "boundary": SPLIT_BOUNDARY.isoformat(),
            "n_events": len(manifest), "n_renamed": sum(r["renamed"] for r in manifest),
-           "n_name_change_records": len(names),
+           "n_name_change_records": n_names,
            "events": manifest, "tripwire_hits": tripped,
            "spec_ambiguities": SPEC_AMBIGUITIES}
     if tripped:
-        # the artifact lands under a DIFFERENT name so `analyze` still refuses:
-        # a tripped run is evidence, not a licence to proceed.
-        save_json(out_dir / "unseal_TRIPPED_3p3.json", doc)
-        raise TripwireError(
-            "continuity tripwire fired — the run HALTS. Events: "
-            + ", ".join(f"{r['symbol']}@{r['session']} "
-                        f"|log(close/M0_adj)|={r['continuity']:.4f}" for r in tripped))
+        _tripwire_halt(doc, tripped, out_dir / "unseal_TRIPPED_3p3.json")
     save_json(out_dir / UNSEAL_NAME, doc)
     logger.info("unseal: %s events, %s renamed, 0 tripwire hits", len(manifest),
                 doc["n_renamed"])
+    return doc
+
+
+def _backfill_ledger_events() -> list[dict]:
+    """The pinned backfill fetch ledger, keep-last deduped in file order (the
+    freeze's own convention — currently a no-op: 1,110 unique keys)."""
+    by_key: dict = {}
+    for line in _verify_bytes(BACKFILL_DIR / "fetch" / "fetch_ledger.jsonl",
+                              LEDGER_BACKFILL_SHA256).decode().splitlines():
+        if line.strip():
+            rec = json.loads(line)
+            by_key[(rec["symbol"], rec["ts_ns"])] = rec
+    return list(by_key.values())
+
+
+def stage_unseal_combined(client, data_base_url: str,
+                          limit: int | None = None) -> dict:
+    """THE pooled outcome fetch — the first time this study reads a forward
+    price of either population. Locks: both frozen SHAs, both ledger SHAs, and
+    the PASSED combined gate carrying both registered SHAs."""
+    frozen_c = _verify_sha(WIDE_DIR / FROZEN_NAME, FROZEN_SHA256)
+    frozen_b = _verify_sha(BACKFILL_DIR / FROZEN_BACKFILL_NAME,
+                           FROZEN_BACKFILL_SHA256)
+    gate = require_gate1_combined()
+    ledger_c = json.loads(_verify_bytes(WIDE_DIR / "fetch_ledger_equity.json",
+                                        LEDGER_WIDE_SHA256))
+    by_key_c = {(e["symbol"], e["ts_ns"]): e for e in ledger_c["events"]}
+    by_key_b = {(e["symbol"], e["ts_ns"]): e for e in _backfill_ledger_events()}
+
+    events_c = frozen_c["events"][:limit] if limit else frozen_c["events"]
+    events_b = frozen_b["events"][:limit] if limit else frozen_b["events"]
+
+    # ★ the fence IS the rename authority through its own span (review-A
+    # blocker): assert every frozen symbol is the fence's terminal ident for
+    # its root at its session — a mismatch means the two resolvers disagree
+    # about WHICH COMPANY an event is, and nothing may be fetched.
+    rc = load_fence(FENCE_PATH)
+    span_end = json.loads(Path(FENCE_PATH).read_text())[
+        "corporate_actions_span"]["end"]
+    if span_end != FENCE_TERMINAL_DATE:
+        raise SealError(
+            f"fence corporate_actions_span.end={span_end} != "
+            f"FENCE_TERMINAL_DATE={FENCE_TERMINAL_DATE} — the rename anchor "
+            "is stale (fence regenerated?); re-derive before fetching")
+    mismatches = [
+        f"{ev['root']}@{ev['session']}: frozen={ev['symbol']} "
+        f"fence={rc.resolve(ev['root'], ev['session'])}"
+        for ev in events_c + events_b
+        if rc.resolve(ev["root"], ev["session"]) != ev["symbol"]]
+    if mismatches:
+        raise SealError(
+            "fence/frozen symbol mismatch — refusing to fetch: "
+            + "; ".join(mismatches))
+
+    man_c, trip_c, nn_c = _unseal_core(
+        WIDE_DIR, WIDE_DIR / "unseal", events_c, by_key_c, client,
+        data_base_url, rename_after=FENCE_TERMINAL_DATE)
+    man_b, trip_b, nn_b = _unseal_core(
+        BACKFILL_DIR / "fetch", BACKFILL_DIR / "fetch" / "unseal", events_b,
+        by_key_b, client, data_base_url, rename_after=FENCE_TERMINAL_DATE)
+    for r in trip_c:
+        r.update(_tripped_join_verified(r, WIDE_DIR, WIDE_DIR / "unseal"))
+    for r in trip_b:
+        r.update(_tripped_join_verified(r, BACKFILL_DIR / "fetch",
+                                        BACKFILL_DIR / "fetch" / "unseal"))
+    tripped = trip_c + trip_b
+    unverified = [r for r in tripped if not r.get("join_verified")]
+
+    def _pop(man, nn, udir: Path) -> dict:
+        return {"n_events": len(man),
+                "n_renamed": sum(r["renamed"] for r in man),
+                "n_no_factor": sum(1 for r in man
+                                   if not math.isfinite(r.get("factor",
+                                                              float("nan")))),
+                "n_name_change_records": nn,
+                "name_changes_sha256": hashlib.sha256(
+                    (udir / "name_changes.json").read_bytes()).hexdigest(),
+                "events": man}
+
+    infl = gate.get("event_day_inflated", {})
+    p_floor = infl.get("power_by_delta", {}).get(f"{GATE_MDE_FLOOR}")
+    n_rep = (gate.get("binding_leg_at_the_floor") or {}).get("n_rep")
+    doc = {"spec": SPEC, "stage": "unseal_combined",
+           "registration": REGISTRATION_COMBINED,
+           "gate1_combined_mde": gate.get("mde"),
+           "gate1_combined_proceed": gate.get("proceed"),
+           "gate1_combined_context": {
+               "mde": gate.get("mde"),
+               "mde_equals_floor_exactly": gate.get("mde_equals_floor_exactly"),
+               "event_day_inflated_mde": infl.get("mde"),
+               "inflated_power_at_floor": p_floor,
+               "inflated_power_target": POWER_TARGET,
+               "inflated_power_mc_se": (
+                   math.sqrt(p_floor * (1 - p_floor) / n_rep)
+                   if p_floor is not None and n_rep else None),
+               "note": ("the inflated-sigma gate's margin at the floor is "
+                        "roughly one MC standard error — real but thin; "
+                        "fields computed from the gate artifact, never "
+                        "hardcoded"),
+           },
+           "frozen_sha256_corpus": FROZEN_SHA256,
+           "frozen_sha256_backfill": FROZEN_BACKFILL_SHA256,
+           "ledger_sha256_corpus": LEDGER_WIDE_SHA256,
+           "ledger_sha256_backfill": LEDGER_BACKFILL_SHA256,
+           "fence_sha256": hashlib.sha256(
+               Path(FENCE_PATH).read_bytes()).hexdigest(),
+           "rename_authority": (
+               f"the frozen fence through {FENCE_TERMINAL_DATE} (terminal-ident "
+               "agreement asserted for every event); the live name_change "
+               "chain covers only renames after that date"),
+           "boundary": SPLIT_BOUNDARY.isoformat(),
+           "populations": {
+               "corpus": _pop(man_c, nn_c, WIDE_DIR / "unseal"),
+               "backfill": _pop(man_b, nn_b,
+                                BACKFILL_DIR / "fetch" / "unseal"),
+           },
+           "tripwire_hits": tripped,
+           "tripwire_policy": TRIPWIRE_POLICY,
+           "tripped_artifact_sha256": (
+               hashlib.sha256(
+                   (WIDE_DIR / "unseal_combined_TRIPPED_3p3.json").read_bytes()
+               ).hexdigest()
+               if (WIDE_DIR / "unseal_combined_TRIPPED_3p3.json").exists()
+               else None),
+           "spec_ambiguities": SPEC_AMBIGUITIES + COMBINED_AMBIGUITIES}
+    if unverified:
+        _tripwire_halt(doc, unverified,
+                       WIDE_DIR / "unseal_combined_TRIPPED_3p3.json")
+    save_json(WIDE_DIR / UNSEAL_COMBINED_NAME, doc)
+    logger.info("unseal-combined: corpus %s (%s renamed) + backfill %s (%s "
+                "renamed), %s tripwire hit(s) all join-verified", len(man_c),
+                doc["populations"]["corpus"]["n_renamed"], len(man_b),
+                doc["populations"]["backfill"]["n_renamed"], len(tripped))
     return doc
 
 
@@ -1769,6 +2092,9 @@ class EventOutcome:
     truncated: dict       # horizon → bool
     earnings_free: dict   # horizon → bool
     drops: list
+    source: str = ""      # "corpus" | "backfill" in the pooled stages
+    censor_gap: dict = field(default_factory=dict)  # horizon → resolution detail
+    ts_ns: int = 0        # event identity — (symbol, session) is NOT unique
 
 
 def factor_for(day: str, bars_all: dict[str, float],
@@ -1845,6 +2171,7 @@ def compute_outcomes(out_dir: Path, frozen: dict, ledger: dict,
 
         y: dict[str, float] = {}
         censor: dict[str, str] = {}
+        censor_gap: dict[str, dict] = {}
         truncated: dict[str, bool] = {}
         earnings_free: dict[str, bool] = {}
         for hname, ksess in _horizon_steps(ev, sessions, session):
@@ -1855,6 +2182,16 @@ def compute_outcomes(out_dir: Path, frozen: dict, ledger: dict,
                 continue
             px_end, used, flag = resolve_close(sessions, bars_all, target)
             censor[hname] = flag
+            if flag in ("resumption", "last_price"):
+                # a resumption/last-price close can sit MONTHS past the nominal
+                # target (review-B major: the scan is bounded only by the split
+                # boundary) — record the gap so a multi-month "1-day return"
+                # or an acquisition's deal price never enters the verdict
+                # unseen.
+                gap = (sessions.index(used) - sessions.index(target)
+                       if used in sessions and target in sessions else None)
+                censor_gap[hname] = {"flag": flag, "target": target,
+                                     "used": used, "gap_sessions": gap}
             earnings_free[hname] = not earnings_in_window(
                 ev["earnings_dates_45d"], session, used or target)
             spy_end = spy_all.get(used or target, float("nan"))
@@ -1894,7 +2231,8 @@ def compute_outcomes(out_dir: Path, frozen: dict, ledger: dict,
             week=week_id(session), h_sign=h_sign,
             scores={k: float(ev[k]) for k in LABELLINGS},
             m=(ev["m_bps"] or 0.0) / 1e4, y=y, censor=censor, truncated=truncated,
-            earnings_free=earnings_free, drops=drops))
+            earnings_free=earnings_free, drops=drops, censor_gap=censor_gap,
+            ts_ns=int(ev["ts_ns"])))
     return out
 
 
@@ -2153,14 +2491,10 @@ def jackknife_weeks(cut: dict, horizon: str, n_perm: int, seed: int) -> dict:
     return {"max_p": worst, "per_week": per_week, "survives": bool(worst < ALPHA)}
 
 
-def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
-                  n_rep: int, seed: int) -> dict:
-    frozen = verify_frozen(out_dir)
-    unseal = require_unseal(out_dir)
-    ledger = json.loads((out_dir / "fetch_ledger_equity.json").read_text())
-    outcomes = compute_outcomes(out_dir, frozen, ledger, unseal)
-    logger.info("analyze: %s events with outcomes", len(outcomes))
-
+def _analyze_outcomes(outcomes: list[EventOutcome], n_perm: int, n_boot: int,
+                      n_perm_jack: int, n_rep: int, seed: int) -> dict:
+    """The registered analysis proper — pure over the outcome list, shared
+    verbatim between `analyze` and `analyze-combined`."""
     # --- the full EMPTY grid: 3 horizons × 3 labellings × 2 marks -------------
     grid: dict[str, dict] = {}
     for horizon in VERDICT_HORIZONS:
@@ -2218,11 +2552,22 @@ def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
                        "mde": None, "power_by_delta": {}, "note": "not evaluable"}
 
     censor_frac = _censoring_report(outcomes)
+    # ★ per-population censoring gate (review-B major): the 5% floor applies to
+    # EACH population as well as the pool — pooling must never dilute a
+    # data-integrity floor that one population alone would trip, and every
+    # at-risk (delisted) event sits in the backfill half.
+    censoring_by_population: dict[str, dict] = {}
+    cen_high, cen_null = censor_frac["HIGH"], censor_frac["NULL"]
+    for src in sorted({o.source for o in outcomes if o.source}):
+        sub = _censoring_report([o for o in outcomes if o.source == src])
+        censoring_by_population[src] = sub
+        cen_high = max(cen_high, sub["HIGH"])
+        cen_null = max(cen_null, sub["NULL"])
     vi = VerdictInputs(
         n_high_events=carrier_res.get("n_high", 0),
         n_high_underlyings=carrier_res.get("n_underlyings_high", 0),
         n_null_events=carrier_res.get("n_null", 0),
-        censor_frac_high=censor_frac["HIGH"], censor_frac_null=censor_frac["NULL"],
+        censor_frac_high=cen_high, censor_frac_null=cen_null,
         gate2_mde=gate2.get("mde"),
         coprimary_pass=bool(carrier_res.get("coprimary_pass")),
         coprimary_inverted=bool(carrier_res.get("coprimary_inverted")),
@@ -2242,7 +2587,7 @@ def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
     vd = route_verdict(vi)
 
     result = {
-        "spec": SPEC, "stage": "analyze", "frozen_sha256": FROZEN_SHA256,
+        "spec": SPEC, "stage": "analyze",
         "seed": seed, "n_perm": n_perm, "n_boot": n_boot, "alpha": ALPHA,
         "n_events": len(outcomes),
         "carrier_mark": carrier,
@@ -2253,6 +2598,25 @@ def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
         "sign_agreement": {"agrees": sign_agreement, "point_deltas": signs},
         "gate2": gate2,
         "censoring": censor_frac,
+        "censoring_by_population": censoring_by_population,
+        "censoring_gate_note": ("censor_frac gates on the MAX over the pooled "
+                                "fraction and every population's own — a "
+                                "breach anywhere routes NO-VERDICT"),
+        "censored_resolutions": [
+            {"symbol": o.symbol, "session": o.session, "source": o.source,
+             "horizon": h, **d}
+            for o in outcomes for h, d in sorted(o.censor_gap.items())],
+        "robustness_legs": {
+            leg: _point_delta(_cut(outcomes, "score",
+                                   "M0" if leg == "last_trade" else carrier,
+                                   PRIMARY_HORIZON, leg=leg))
+            for leg in ("raw", "spy_only", "all_controls", "beta_adj",
+                        "last_trade")},
+        "robustness_legs_note": ("carrier-mark h2 point deltas of the "
+                                 "registered non-primary legs; beta_adj "
+                                 "subtracts a beta=1 control median from a "
+                                 "beta-hat event return — read directionally "
+                                 "only"),
         "anti_stratum": _anti_report(outcomes, carrier),
         "reported_only": {
             h: {m: _point_delta(_cut(outcomes, "score", m, h))
@@ -2266,8 +2630,120 @@ def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
             "never a live signal. Returns are gross of borrow/financing/SSR — a "
             "short-side-carried result is a research finding only."),
     }
+    return result
+
+
+def stage_analyze(out_dir: Path, n_perm: int, n_boot: int, n_perm_jack: int,
+                  n_rep: int, seed: int) -> dict:
+    frozen = verify_frozen(out_dir)
+    unseal = require_unseal(out_dir)
+    ledger = json.loads((out_dir / "fetch_ledger_equity.json").read_text())
+    outcomes = compute_outcomes(out_dir, frozen, ledger, unseal)
+    logger.info("analyze: %s events with outcomes", len(outcomes))
+    result = _analyze_outcomes(outcomes, n_perm, n_boot, n_perm_jack, n_rep, seed)
+    result["frozen_sha256"] = FROZEN_SHA256
     save_json(out_dir / RESULTS_NAME, result)
     logger.info("verdict: %s", result["verdict"])
+    return result
+
+
+def stage_analyze_combined(n_perm: int, n_boot: int, n_perm_jack: int,
+                           n_rep: int, seed: int) -> dict:
+    """The registered analysis over the POOLED outcomes — SPEC v2 machinery
+    unchanged; only the population plumbing and disclosure are new
+    (3.3 Addendum 5)."""
+    frozen_c = _verify_sha(WIDE_DIR / FROZEN_NAME, FROZEN_SHA256)
+    frozen_b = _verify_sha(BACKFILL_DIR / FROZEN_BACKFILL_NAME,
+                           FROZEN_BACKFILL_SHA256)
+    unseal = require_unseal_combined()
+    ledger_c = json.loads(_verify_bytes(WIDE_DIR / "fetch_ledger_equity.json",
+                                        LEDGER_WIDE_SHA256))
+    ledger_b = {"events": _backfill_ledger_events()}
+
+    out_c = compute_outcomes(
+        WIDE_DIR, frozen_c, ledger_c,
+        {"events": unseal["populations"]["corpus"]["events"]})
+    for o in out_c:
+        o.source = "corpus"
+    out_b = compute_outcomes(
+        BACKFILL_DIR / "fetch", frozen_b, ledger_b,
+        {"events": unseal["populations"]["backfill"]["events"]})
+    for o in out_b:
+        o.source = "backfill"
+    outcomes = out_c + out_b
+    logger.info("analyze-combined: %s corpus + %s backfill outcomes",
+                len(out_c), len(out_b))
+
+    result = _analyze_outcomes(outcomes, n_perm, n_boot, n_perm_jack, n_rep, seed)
+
+    # ★ the Addendum-5-required per-population breakdown: a pooled verdict
+    # carried by one population must be readable as such.
+    carrier = result["carrier_mark"]
+    per_pop = {}
+    for name, subset in (("corpus", out_c), ("backfill", out_b)):
+        cut = _cut(subset, "score", carrier, PRIMARY_HORIZON)
+        per_pop[name] = {
+            "n_outcomes": len(subset),
+            "n_in_primary_cut": int(len(cut["y"])),
+            "n_high": int(cut["is_high"].sum()) if len(cut["y"]) else 0,
+            "point_delta_carrier_h2": _point_delta(cut),
+            "censoring": _censoring_report(subset),
+            "truncation": _truncation_report(subset),
+        }
+    result.update({
+        "stage": "analyze_combined",
+        "registration": REGISTRATION_COMBINED,
+        "frozen_sha256_corpus": FROZEN_SHA256,
+        "frozen_sha256_backfill": FROZEN_BACKFILL_SHA256,
+        "ledger_sha256_corpus": LEDGER_WIDE_SHA256,
+        "ledger_sha256_backfill": LEDGER_BACKFILL_SHA256,
+        "population_breakdown": per_pop,
+        # via the lock-chained unseal artifact, never a bare file read
+        "gate1_combined_context": unseal.get("gate1_combined_context", {}),
+        "tripwire_policy": unseal.get("tripwire_policy"),
+        "tripwire_hits": unseal.get("tripwire_hits", []),
+        "tripped_artifact_sha256": unseal.get("tripped_artifact_sha256"),
+        "sensitivity_excluding_tripped": None,
+        "tripped_event_weeks": sorted({week_id(t["session"])
+                                       for t in unseal.get("tripwire_hits",
+                                                           [])}),
+        "pooling_caveats": [
+            "Cross-population label exchange at h2/h3: weeks are disjoint by "
+            "population and dispersion differs by regime, so the permutation "
+            "null is ~1-2% wider in sd than the observed statistic's own null "
+            "— mildly CONSERVATIVE for LABEL-PREDICTIVE, mildly permissive "
+            "for the LABEL-EMPTY kill (offset by tripled cell n).",
+            "jackknife_weeks runs over ~103 pooled weeks vs the corpus's 35: "
+            "per-week leverage falls ~3x, so the leave-one-week-out "
+            "robustness leg is structurally EASIER to pass than it was for "
+            "the corpus alone.",
+            "One cross-stratum cluster (RXO|2024-11-25, HIGH+NULL) hits "
+            "stratified_bootstrap_weights' one-stratum-per-cluster "
+            "assignment; measured shift of the BCa lower bound ~1.2e-4 — "
+            "read ci95 near zero with that in mind.",
+            "The registered floors (HIGH>=20 events/16 underlyings, "
+            "NULL>=65) no longer bind at pooled n — they are decorative "
+            "here, not protective.",
+        ],
+        "spec_ambiguities": SPEC_AMBIGUITIES + COMBINED_AMBIGUITIES,
+    })
+
+    # ★ MANDATORY leave-out-tripped sensitivity (review B, amendment 1): the
+    # verdict's dependence on any adjudicated-through event is a PUBLISHED
+    # NUMBER, not a judgment — the full registered analysis re-runs without
+    # the tripped events and both results sit side by side.
+    tripped_keys = {(t["symbol"], t["ts_ns"])
+                    for t in unseal.get("tripwire_hits", [])}
+    if tripped_keys:
+        kept = [o for o in outcomes if (o.symbol, o.ts_ns) not in tripped_keys]
+        logger.info("sensitivity: re-running analysis excluding %s tripped "
+                    "event(s)", len(outcomes) - len(kept))
+        result["sensitivity_excluding_tripped"] = _analyze_outcomes(
+            kept, n_perm, n_boot, n_perm_jack, n_rep, seed)
+    save_json(WIDE_DIR / RESULTS_COMBINED_NAME, result)
+    logger.info("verdict (combined): %s | sensitivity verdict: %s",
+                result["verdict"],
+                (result["sensitivity_excluding_tripped"] or {}).get("verdict"))
     return result
 
 
@@ -2308,7 +2784,8 @@ def _null_equivalence(cut: dict, n_boot: int, seed: int) -> dict:
 
 
 def _anti_report(outcomes: list[EventOutcome], mark: str) -> dict:
-    """ANTI (s ≤ −3): n = 8 < 15, so counts + point estimates only, no p/CI.
+    """ANTI (s ≤ −3): counts + point estimates only, no p/CI — the registered
+    small-n treatment, kept at pooled n (46) as the conservative choice.
 
     Registered prediction: a significantly negative aligned return here
     evidences MISCLASSIFICATION, not the thesis.
@@ -2321,8 +2798,10 @@ def _anti_report(outcomes: list[EventOutcome], mark: str) -> dict:
         out[horizon] = {"n": len(vals),
                         "mean": float(np.mean(vals)) if vals else None,
                         "median": float(np.median(vals)) if vals else None}
-    out["note"] = ("n < 15 — counts and point estimates only, no p/CI, never "
-                   "pooled into the HIGH−NULL contrast")
+    n_anti = sum(1 for o in outcomes
+                 if o.scores["score"] <= -HIGH_THRESHOLD)
+    out["note"] = (f"n = {n_anti} ANTI events — counts and point estimates "
+                   "only, no p/CI, never pooled into the HIGH−NULL contrast")
     return out
 
 
@@ -2387,7 +2866,9 @@ def _gate2(cut: dict, n_perm: int, n_rep: int, n_boot: int, seed: int) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("stage",
-                        choices=("gate1", "gate1-combined", "unseal", "analyze"))
+                        choices=("gate1", "gate1-combined", "unseal",
+                                 "unseal-combined", "analyze",
+                                 "analyze-combined"))
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     parser.add_argument("--n-perm", type=int, default=N_PERM)
     parser.add_argument("--n-perm-gate1", type=int, default=5_000)
@@ -2399,6 +2880,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None,
                         help="cap events (unseal) — smoke runs only")
     args = parser.parse_args(argv)
+    if args.stage.endswith("-combined") and args.out_dir != OUT_DIR:
+        # the combined stages read the two REGISTERED locations only — a
+        # redirected out-dir would silently be ignored (review-B minor).
+        raise SystemExit(
+            f"{args.stage} ignores --out-dir (registered locations only)")
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
 
@@ -2413,17 +2899,30 @@ def main(argv: list[str] | None = None) -> int:
             stage_analyze(args.out_dir, args.n_perm, args.n_boot,
                           args.n_perm_jackknife, args.n_rep, args.seed)
             return 0
-        # ★ both locks fire BEFORE a client, a credential or a URL exists — the
+        if args.stage == "analyze-combined":
+            stage_analyze_combined(args.n_perm, args.n_boot,
+                                   args.n_perm_jackknife, args.n_rep, args.seed)
+            return 0
+        # ★ all locks fire BEFORE a client, a credential or a URL exists — the
         # refusal must not depend on being able to reach Alpaca at all.
-        verify_frozen(args.out_dir)
-        require_gate1(args.out_dir)
+        if args.stage == "unseal-combined":
+            _verify_sha(WIDE_DIR / FROZEN_NAME, FROZEN_SHA256)
+            _verify_sha(BACKFILL_DIR / FROZEN_BACKFILL_NAME,
+                        FROZEN_BACKFILL_SHA256)
+            require_gate1_combined()
+        else:
+            verify_frozen(args.out_dir)
+            require_gate1(args.out_dir)
         cfg = alpaca_config()
         if not cfg["api_key_id"]:
             raise SystemExit("no Alpaca credentials in settings/.env")
         headers = {"APCA-API-KEY-ID": cfg["api_key_id"],
                    "APCA-API-SECRET-KEY": cfg["api_secret_key"]}
         with httpx.Client(headers=headers, timeout=90.0) as client:
-            stage_unseal(args.out_dir, client, cfg["data_base_url"], args.limit)
+            if args.stage == "unseal-combined":
+                stage_unseal_combined(client, cfg["data_base_url"], args.limit)
+            else:
+                stage_unseal(args.out_dir, client, cfg["data_base_url"], args.limit)
         return 0
     except SealError as exc:
         logger.error("SEAL REFUSED: %s", exc)

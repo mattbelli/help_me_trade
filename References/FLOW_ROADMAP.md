@@ -3375,6 +3375,118 @@ equivalent; we do not need it.
       (1) founder GO on unsealing (irreversible); (2) dated addendum registering the
       POOLED unseal/analyze extension; (3) the standing line-by-line unseal/analyze
       review + two-Opus review of that extension; only then `unseal`.**
+
+      **3.3 Addendum 5 (2026-08-03) — POOLED UNSEAL/ANALYZE REGISTRATION. Written
+      BEFORE implementation; founder GO given 2026-08-03 (board card
+      `flow-33-unseal-go`).** The registered unseal and analyze stages run over the
+      POOLED populations exactly as SPEC v2 wrote them for the corpus — nothing about
+      marks, horizons, legs, the control-median subtraction, the verdict grid, the
+      conjunction, Gate 2, censoring, or the verdict table changes. What this
+      addendum registers is ONLY the population mechanics and the lock chain:
+      **Locks.** `unseal-combined` refuses unless (a) BOTH frozen files hash to the
+      registered SHAs (`c87592df…`, `d0eb07d1…`), (b) BOTH fetch ledgers hash to
+      their pinned SHAs, and (c) `gate1_combined_3p3.json` exists with
+      `proceed: true` AND carries both registered frozen SHAs — the per-population
+      `gate1_3p3.json` (proceed false) still guards the corpus-only path, which
+      remains refused. `analyze-combined` refuses without the combined unseal
+      artifact. Tripwire semantics unchanged: any continuity trip in EITHER
+      population halts the whole run with the evidence artifact under a TRIPPED
+      name that satisfies no lock.
+      **Population mechanics.** The existing per-event fetch loop and outcome
+      computation run once per population with that population's own stores:
+      corpus = `hedge_footprint_wide/equity` (snapshots + `unseal/`), backfill =
+      `flow_backfill/phaseb/fetch` (snapshots + `unseal/`); each population fetches
+      its own daily/minute/SPY series over its own span (backfill start
+      2024-04-11−150d), rename-resolved through the same date-scoped `name_change`
+      chain; forward daily fetches remain bounded at `min(SPLIT_BOUNDARY, today)`.
+      Outcomes are then CONCATENATED and the registered analyze machinery runs
+      UNCHANGED over the pooled list (clusters and calendar weeks are disjoint
+      across populations — verified at the gate).
+      **Pooled-specific disclosure (required):** per-population n / censoring /
+      carrier-mark point delta beside the pooled verdict, so a result carried by
+      one population is readable as such. ANTI stays reported-only per spec; the
+      pooled ANTI stratum (19 + 27 = 46 ≥ 15) gains the point-estimate reporting
+      the spec's own small-n clause withheld at n = 8 — still NEVER pooled into
+      the contrast.
+      **Artifacts:** `unseal_combined_3p3.json`, `results_combined_3p3.json`
+      (WIDE_DIR). **Review (before any run):** the standing line-by-line
+      orchestrator review of the unseal/analyze paths + two-Opus split-mandate
+      review of this extension; the unseal runs only after both are green.
+      **Honesty (unchanged from spec):** any positive is a calibrated hypothesis
+      from a training window — the confirmation leg is forward accrual; returns
+      are gross of borrow/financing/SSR.
+
+      **Addendum 5 AMENDMENT (2026-08-03, two-reviewer sign-off) — tripwire
+      admission rule, authored AFTER the guard fired.** The first unseal run
+      HALTED on its single continuity trip: JBIO@2024-06-05 (backfill HIGH,
+      h_sign +1), |log(close/M0)| = 0.1647 — the statistic's OWN documented
+      blind spot (it reduces to close_raw/M0_raw: a cross-source check that
+      WOULD catch a wrong-asset join but cannot distinguish a join failure
+      from genuine volatility, and f cancels out of it entirely). Diagnosis:
+      the join is verifiably correct (fetched raw closes cent-exact vs the
+      crawl store on all surrounding sessions) and the move is real (+17.9%
+      mark→close, continuing next sessions). AMENDED RULE: a tripped event
+      PROCEEDS only if a CODED, outcome-blind predicate passes — (1) raw-join
+      cent-exact vs the population's own crawl store on the event session
+      plus ≥1 session strictly before AND after (scope stated honestly: same
+      vendor/feed on a different fetch date — excludes the wrong-asset join,
+      nothing else); (2) f-uniformity: close_all/close_raw constant
+      (half-cent tolerance; adjusted closes are cent-rounded) from the event
+      session through the h_exp cap — the one quantity the trip statistic is
+      structurally blind to (JBIO measured: single step exactly at its
+      2025-04-29 ex-date, outside every horizon; the 3.657-vs-35.0 vendor
+      factor discrepancy is disclosed and cancels within the window).
+      Unverified trips still HALT; corpus verification holds only for
+      no-split-since names (population asymmetry, inert: zero corpus trips).
+      **POST-HOC DISCLOSURE:** the rule was authored after the trip's
+      direction was visible to the orchestrator (aligned-positive — "proceed"
+      was the outcome-favourable choice at decision time). Its credibility
+      rests on: criteria reference no return; identical application to both
+      populations/directions; and the MANDATORY leave-out-tripped
+      sensitivity — the FULL analysis re-runs without the tripped event(s)
+      and both verdicts publish side by side in results_combined_3p3.json,
+      making the dependence a number, not a judgment. The TRIPPED evidence
+      artifact stays on disk, SHA-referenced from the final artifact. Also
+      recorded: JBIO was excluded from the Gate-1 harness (controls fell to
+      the split guard), so the MDE authorisation was computed on a sample
+      without the study's largest single-event lever.
+
+      **3.3 Addendum 6 (2026-08-03) — THE RESULT: NO-VERDICT-UNDERPOWERED;
+      the point estimate is ~ZERO. The study is CLOSED into dormancy.**
+      First-ever unseal (founder GO 2026-08-03; both populations, 621 events;
+      artifacts `unseal_combined_3p3.json` + `results_combined_3p3.json`).
+      Registered numbers, carrier M0 @ h2: n = 561 (HIGH 88 / NULL 473),
+      **Δ̂ = +0.05%** (BCa 95% CI **−0.90%..+1.13%**), minP adjusted p =
+      **0.60**, co-primaries CONFLICT in sign (Spearman −0.012), residualized
+      FAIL, jackknife FAIL (max p 0.81), sign agreement FAIL (labellings
+      split ±). **Gate 2 realized MDE = 3.0% vs the 1.5% floor** → the
+      registered routing: a non-significant result at failed realized power
+      is NO-VERDICT-UNDERPOWERED and may NEVER route LABEL-EMPTY. ★ The
+      structural lesson, now doctrine: REALIZED event-day dispersion ran ~2×
+      the controls-only estimate — the 3.2-measured 1.46× HIGH inflation was
+      directionally right and still too small; controls-only power gates are
+      systematically optimistic and every future gate must carry a
+      realized-vol stress at ≥2×. Sensitivity excluding the one
+      adjudicated-through tripped event (JBIO): SAME verdict, Δ̂ = −0.22% —
+      the amendment was immaterial to the outcome. Per-population carrier
+      deltas: corpus +0.43% / backfill −0.18% (opposite signs, both ≪
+      noise). NULL mean +0.18% (NOT equivalent to zero at the ±0.5% band);
+      ANTI (n=46, reported-only) drifts POSITIVE (+1.13% at h3) — against
+      the label's own sign prediction there too. Censoring 0.0 in every
+      stratum of both populations; 0 censored-resolution events at verdict
+      horizons; tripwire 1/621 (JBIO, coded predicate 7/7 cent-exact +
+      f-uniform, fully disclosed). **Honest interpretation:** at the
+      realized noise this design cannot see effects < 3%; the observed
+      contrast is ~0 and the CI excludes the ≥ 1.5% effects the registration
+      cared about — the big-effect world is disfavored, not formally killed.
+      **Program consequences:** (1) NO tranche-2 — depth cannot fix realized
+      event-day noise; 1.5% realized MDE needs ~4× the HIGH count (~350),
+      i.e. years of accrual or spend far outside any current authorization;
+      (2) 3.3 DORMANT-ACCRUING again, re-gate only on a step-change in HIGH
+      count or thesis; (3) **3.4 spread orientation is the active Phase-3
+      move**; (4) the hedge-footprint label stays a PERCEPTION signal only —
+      never a scored/validated input (connect-the-dots doctrine: built,
+      labeled honestly, no fabricated win%).
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer
