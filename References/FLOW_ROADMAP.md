@@ -3337,6 +3337,44 @@ equivalent; we do not need it.
       disclosed as such); the registered path is accrual. **3.4 (spread orientation) is
       NOT gated on 3.3** — it needs only 3.2's direction result, which is CONFIRMED —
       and is the natural next Phase-3 move.
+
+      **3.3 Addendum 4 (2026-08-03) — COMBINED GATE 1 PASSED, both ways. Returns
+      remain SEALED pending the pooled-unseal registration + founder GO.**
+      This is the "NEW registration, disclosed as such" that Addendum 3 anticipated,
+      authorized by the phase-B freeze addendum (2026-08-02): Gate 1 re-run on the
+      POOLED populations — WIDE corpus freeze (250 ev, 31 HIGH, `c87592df…97264f`) +
+      backfill freeze (371 ev, 58 HIGH, `d0eb07d1…df14`), disjoint in clusters AND
+      calendar weeks. Implementation = `hedge_label_drift.py` stage `gate1-combined`:
+      the registered row loop + harness assembly extracted VERBATIM into shared
+      helpers (corpus-only path reproduces the registered gate1_3p3 disclosure to the
+      last float digit — reviewer-verified twice); backfill closes from the crawl's
+      own store via a NEW COMMITTED producer `fetch_daily_bars_adjusted` (review A
+      blocker: the adjusted table had been populated ad-hoc and silently lacked 10
+      symbols = all 29 `drop_no_bars`, one HIGH event JBIO among the casualties —
+      refilled; JBIO now falls to the REGISTERED split-space guard instead, named in
+      the artifact's `dropped_events`); SPY 2024-25 merged from `bars.db` with
+      bit-exact overlap assertion; BOTH fetch ledgers SHA-pinned like the labels.
+      Two-Opus split-mandate review BEFORE the run; both re-VERIFIED the fix delta
+      (A: "clear to run"; B: "clear to run"), 181 hermetic tests. **Result (single
+      registered run, seed 20260801, n=547 usable: HIGH 84 / NULL 463):
+      MDE = 1.5% = the floor, proceed = TRUE** — power 0.043/0.203/0.380/0.670/
+      **0.960**/1.0/1.0 across the registered δ grid (no grid point between 1.0% and
+      1.5%; the true MDE sits in ~1.1–1.3%). Review-B-mandated robustness check —
+      sigma inflated by the 3.2-MEASURED event-day/control ratios (HIGH 1.46×,
+      NULL 1.03×) — **ALSO passed: power 0.8133 @ 1.5% vs 0.80 target** (within ~1 MC
+      SE at n_rep=300 — a pass, flagged fragile in the artifact). Disclosed limits,
+      all first-class artifact fields: pooling LOWERS the injected HIGH sigma −12.3%
+      vs the corpus gate's own registered value and the HIGH/NULL dispersion ordering
+      inverts (intrinsic to backfill, amplified by composition — HIGH is 66.7%
+      backfill vs NULL 60.3%); `high_count_preserved_frac` halves (wrap penalty
+      shrinks with n); both stores' seals are PROCEDURAL (strictly-before SQL bounds);
+      the adjusted store is reproducible in method, not bytes. Artifact:
+      `hedge_footprint_wide/equity/gate1_combined_3p3.json` — which by construction
+      CANNOT satisfy `require_gate1`; nothing is unsealed by this pass. **No tranche-2
+      purchase needed** (envelope untouched, ~$25 remains). **Next, in order:
+      (1) founder GO on unsealing (irreversible); (2) dated addendum registering the
+      POOLED unseal/analyze extension; (3) the standing line-by-line unseal/analyze
+      review + two-Opus review of that extension; only then `unseal`.**
 - [ ] **3.4 Spread orientation — the payoff.** A bull call spread and a bear call spread are the same
       two contracts, which is why four research lenses agreed direction is unrecoverable *from the
       option prints*. But they have **opposite net delta**: bull → dealer buys stock, bear → dealer

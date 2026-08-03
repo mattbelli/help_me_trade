@@ -123,6 +123,42 @@ def fetch_daily_bars(ap: Alpaca, symbols: list[str], con: sqlite3.Connection) ->
         print(f"  bars {i + len(chunk)}/{len(todo)} (+{len(rows)} rows)")
 
 
+def fetch_daily_bars_adjusted(ap: Alpaca, symbols: list[str],
+                              con: sqlite3.Connection) -> None:
+    """CURRENT-basis split-adjusted daily bars into backfill.db equity_bars —
+    the store the combined Gate 1 reads through `closes_before_backfill` (same
+    adjustment space as flow_corpus equity_bars adjustment='split').
+
+    This is the committed producer for a table that was first populated by an
+    ad-hoc command (review A blocker, 2026-08-03): same shape as its raw twin
+    above, `adjustment=split` instead. Skip-cached like the twin, so a rerun
+    fills only symbols the table lacks — it never re-bases rows already
+    verified. NOTE the basis is CURRENT AS OF THE FETCH DATE: a split occurring
+    after a symbol's rows were fetched shifts the live basis away from the
+    stored one; the gate's split-space guard (mark-vs-close, tripwire 0.10)
+    is what keeps stale-basis rows out of the pseudo-return bank."""
+    con.execute("""CREATE TABLE IF NOT EXISTS equity_bars(
+        symbol TEXT, date TEXT, c REAL, v REAL, PRIMARY KEY(symbol, date))""")
+    have = {r[0] for r in con.execute(
+        "SELECT DISTINCT symbol FROM equity_bars").fetchall()}
+    todo = [s for s in symbols if s not in have]
+    print(f"adjusted bars: {len(have)} cached, fetching {len(todo)}")
+    start = (date.fromisoformat(START) - timedelta(days=45)).isoformat()
+    for i in range(0, len(todo), BARS_BATCH):
+        chunk = todo[i:i + BARS_BATCH]
+        bars = ap.paged("/v2/stocks/bars", {
+            "symbols": ",".join(chunk), "timeframe": "1Day",
+            "start": f"{start}T00:00:00Z", "end": f"{END}T23:59:59Z",
+            "adjustment": "split", "feed": "sip", "limit": 10_000,
+        }, key="bars")
+        rows = [(sym, b["t"][:10], float(b["c"]), float(b["v"]))
+                for sym, bs in bars.items() for b in bs]
+        con.executemany(
+            "INSERT OR REPLACE INTO equity_bars VALUES (?,?,?,?)", rows)
+        con.commit()
+        print(f"  adjusted bars {i + len(chunk)}/{len(todo)} (+{len(rows)} rows)")
+
+
 def fetch_splits(env: dict, rc, con: sqlite3.Connection) -> None:
     """Every forward/reverse split over the bars span, keyed by the TERMINAL
     ident (the symbol Alpaca's stitched bar history lives under), so the
@@ -428,6 +464,7 @@ def main() -> None:
         print(f"{len(idents)} equity underlyings to stage bars for")
         fetch_splits(env, rc, con)
         fetch_daily_bars(ap, idents, con)
+        fetch_daily_bars_adjusted(ap, idents, con)
         return
 
     kept = phase_a(con, skip)
