@@ -10,6 +10,12 @@
  ],
  "cards": [
   {
+   "id": "flow-agent-market-wide-query",
+   "title": "Agent flow reads: ranked market-wide queries + full-range summary (50-row recency keyhole fixed)",
+   "lane": "done",
+   "notes": "SHIPPED 2026-08-03. Phone-chat probe showed the agent claiming market-wide flow access it couldn't exercise: ingest IS whole-tape (Databento ALL_SYMBOLS, 4,038 roots on Jul 31; events table 870 names/day) but the perception reader returned newest-first hard-capped at 50 rows and the summary grouped that same 50-row slice — a week-scale 'what stood out market-wide' question silently degraded to Friday's last minutes. Fix: db recent_events grew order=premium + until (largest-first ranking over any date range); new summarize_events aggregates in SQL over EVERY matching row (totals + top-30 underlyings by premium, with total_events/n_underlyings so truncation is visible); resource description de-staled ('on the watchlist' was false — only unusual_volume is watchlist-capped) and filter docs teach the ranked mode. Verified on real data: Jul 27-31 = 65,020 events / 1,526 underlyings / $30.5B premium; top prints $234M SPX Dec-26 call block, $97M META Jan-28 put block, $84.9M MU put block — none surfaceable before. Tests: 2 new in test_options_flow_detect.py, old summarize test passes unchanged against SQL path. Follow-up noted: duplicate identical SPX 291221C07000000 block rows in events table (possible detector double-insert) — not investigated this round."
+  },
+  {
    "id": "flow-33-unseal-go",
    "title": "Flow 3.3: unseal the forward returns? (combined Gate 1 PASSED)",
    "lane": "founder",

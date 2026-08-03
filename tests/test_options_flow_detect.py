@@ -420,3 +420,60 @@ def test_options_flow_summarize_groups(tmp_path: Path) -> None:
     assert aapl["count"] == 1
     assert aapl["total_premium_usd"] == 25_000.0
     assert aapl["has_spread_dominated"] is False
+
+
+def test_options_flow_order_premium_and_until(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(
+        _sample_event(id="p_small", ts="2026-07-09T14:00:00Z", premium_usd=10_000.0),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(id="p_big", ts="2026-07-09T15:00:00Z", premium_usd=900_000.0),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(id="p_none", ts="2026-07-09T16:00:00Z", premium_usd=None),
+        db_path=db,
+    )
+
+    read = RESOURCES["options_flow"]["read"]
+
+    # premium order: largest first, premium-less rows last
+    ranked = read({"order": "premium"}, db_path=db)
+    assert [r["id"] for r in ranked] == ["p_big", "p_small", "p_none"]
+
+    # default stays newest-first
+    recent = read({}, db_path=db)
+    assert [r["id"] for r in recent] == ["p_none", "p_big", "p_small"]
+
+    # until is exclusive
+    windowed = read({"until": "2026-07-09T16:00:00Z"}, db_path=db)
+    assert {r["id"] for r in windowed} == {"p_small", "p_big"}
+
+
+def test_options_flow_summarize_covers_full_range(tmp_path: Path) -> None:
+    """The summary must aggregate every row in range, not a 50-row slice."""
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    for i in range(60):
+        of_db.insert_event(
+            _sample_event(
+                id=f"bulk_{i}",
+                underlying="NVDA" if i % 2 == 0 else "AAPL",
+                ts=f"2026-07-09T14:{i:02d}:00Z",
+                premium_usd=1_000.0,
+            ),
+            db_path=db,
+        )
+
+    summarize = RESOURCES["options_flow"]["summarize"]
+    summary = summarize({"since": "2026-07-09T00:00:00Z"}, db_path=db)
+    assert summary["total_events"] == 60
+    assert summary["n_underlyings"] == 2
+    assert summary["underlyings_shown"] == 2
+    assert summary["total_premium_usd"] == 60_000.0
+    assert summary["by_underlying"]["NVDA"]["count"] == 30
+    assert summary["by_underlying"]["AAPL"]["total_premium_usd"] == 30_000.0
+    assert summary["by_underlying"]["NVDA"]["max_single_premium_usd"] == 1_000.0

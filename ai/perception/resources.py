@@ -960,11 +960,15 @@ def _read_options_flow(
     event_type = filters.get("event_type")
     min_premium = filters.get("min_premium")
     since = filters.get("since")
+    until = filters.get("until")
+    order = str(filters.get("order") or "recent")
     return recent_events(
         symbol=str(symbol).strip().upper() if symbol else None,
         event_type=str(event_type) if event_type else None,
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since) if since else None,
+        until=str(until) if until else None,
+        order="premium" if order == "premium" else "recent",
         limit=limit,
         db_path=db_path,
     )
@@ -973,47 +977,29 @@ def _read_options_flow(
 def _summarize_options_flow(
     filters: dict[str, Any], *, db_path: Path
 ) -> dict[str, Any]:
-    """Today's flow events grouped by underlying (facts only — no win%/EV)."""
+    """Flow events grouped by underlying (facts only — no win%/EV).
+
+    Aggregates in SQL over EVERY row in the filter range — the old version
+    grouped a 50-row recency slice and presented it as the range's summary.
+    """
     from datetime import UTC, datetime
 
-    from db.options_flow import recent_events
+    from db.options_flow import summarize_events
 
     today = datetime.now(UTC).date().isoformat()
     since = filters.get("since") or f"{today}T00:00:00Z"
+    until = filters.get("until")
     symbol = filters.get("symbol")
     event_type = filters.get("event_type")
     min_premium = filters.get("min_premium")
-    rows = recent_events(
+    return summarize_events(
         symbol=str(symbol).strip().upper() if symbol else None,
         event_type=str(event_type) if event_type else None,
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since),
-        limit=_MAX_ROWS,
+        until=str(until) if until else None,
         db_path=db_path,
     )
-    by_underlying: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        u = str(row.get("underlying") or "").strip().upper() or "?"
-        bucket = by_underlying.get(u)
-        if bucket is None:
-            bucket = {
-                "count": 0,
-                "total_premium_usd": 0.0,
-                "event_types": [],
-                "has_spread_dominated": False,
-            }
-            by_underlying[u] = bucket
-        bucket["count"] += 1
-        prem = row.get("premium_usd")
-        if prem is not None:
-            bucket["total_premium_usd"] += float(prem)
-        et = row.get("event_type")
-        if et and et not in bucket["event_types"]:
-            bucket["event_types"].append(et)
-        # F-2 demotion lands as spread_flag=True (or event_type marker).
-        if row.get("spread_flag") or et == "spread_dominated":
-            bucket["has_spread_dominated"] = True
-    return {"by_underlying": by_underlying, "n_underlyings": len(by_underlying)}
 
 
 def _read_equity_tape(
@@ -1261,14 +1247,24 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "options_flow": {
         "description": (
-            "Unusual options activity on the watchlist — facts about the tape, "
-            "NOT a buy/sell signal; carries a caveat, never a win% or confidence"
+            "Unusual options activity across the WHOLE market (sweeps/blocks/"
+            "clusters cover every OPRA name; only event_type=unusual_volume is "
+            "watchlist-capped) — facts about the tape, NOT a buy/sell signal; "
+            "carries a caveat, never a win% or confidence. For 'biggest prints "
+            "market-wide in a range' use order=premium with since/until; the "
+            "summary block aggregates the FULL range, not just returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",
-            "event_type": "optional — unusual_volume|block|sweep|directional_pressure",
+            "event_type": (
+                "optional — sweep|block|flow_cluster|flow_burst|"
+                "directional_pressure|unusual_volume (comma-list OK; "
+                "unusual_volume is the one watchlist-capped type)"
+            ),
             "min_premium": "optional float — minimum premium_usd",
             "since": "optional ISO timestamp — events at or after",
+            "until": "optional ISO timestamp — events before",
+            "order": "optional — recent (default) | premium (largest first)",
             "limit": "optional int — default 20, max 50",
         },
         "read": _read_options_flow,

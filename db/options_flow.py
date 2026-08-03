@@ -301,24 +301,14 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
         conn.commit()
 
 
-def recent_events(
+def _event_clauses(
     *,
-    symbol: str | None = None,
-    event_type: str | None = None,
-    min_premium: float | None = None,
-    since: str | None = None,
-    limit: int = 50,
-    db_path: Path | None = None,
-) -> list[dict]:
-    """Newest-first event rows; ``limit`` capped at ``_RECENT_EVENTS_CAP``.
-
-    ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
-    caller can pull just the directional tape (``sweep,block,directional_pressure``)
-    without the nightly ``unusual_volume`` batch burying it in the recency window.
-    """
-    resolved = _db_path(db_path)
-    init_db(resolved)
-    cap = max(1, min(int(limit), _RECENT_EVENTS_CAP))
+    symbol: str | None,
+    event_type: str | None,
+    min_premium: float | None,
+    since: str | None,
+    until: str | None,
+) -> tuple[str, list[Any]]:
     clauses = ["1=1"]
     params: list[Any] = []
     if symbol is not None:
@@ -336,19 +326,132 @@ def recent_events(
     if since is not None:
         clauses.append("ts >= ?")
         params.append(since)
-    where = " AND ".join(clauses)
+    if until is not None:
+        clauses.append("ts < ?")
+        params.append(until)
+    return " AND ".join(clauses), params
+
+
+def recent_events(
+    *,
+    symbol: str | None = None,
+    event_type: str | None = None,
+    min_premium: float | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    order: str = "recent",
+    limit: int = 50,
+    db_path: Path | None = None,
+) -> list[dict]:
+    """Event rows; ``limit`` capped at ``_RECENT_EVENTS_CAP``.
+
+    ``order`` is ``recent`` (newest-first, the default) or ``premium``
+    (largest-first) — the latter is what makes a market-wide "biggest prints in
+    this date range" question answerable instead of silently returning whatever
+    happened last.
+
+    ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
+    caller can pull just the directional tape (``sweep,block,directional_pressure``)
+    without the nightly ``unusual_volume`` batch burying it in the recency window.
+    """
+    resolved = _db_path(db_path)
+    init_db(resolved)
+    cap = max(1, min(int(limit), _RECENT_EVENTS_CAP))
+    where, params = _event_clauses(
+        symbol=symbol,
+        event_type=event_type,
+        min_premium=min_premium,
+        since=since,
+        until=until,
+    )
+    # SQLite sorts NULL smallest, so DESC pushes premium-less rows to the end.
+    order_by = "premium_usd DESC" if order == "premium" else "ts DESC"
     params.append(cap)
     with _connect(resolved) as conn:
         rows = conn.execute(
             f"""
             SELECT * FROM options_flow_events
             WHERE {where}
-            ORDER BY ts DESC
+            ORDER BY {order_by}
             LIMIT ?
             """,
             params,
         ).fetchall()
     return [_row_to_event(r) for r in rows]
+
+
+def summarize_events(
+    *,
+    symbol: str | None = None,
+    event_type: str | None = None,
+    min_premium: float | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    top: int = 30,
+    db_path: Path | None = None,
+) -> dict[str, Any]:
+    """Full-range aggregate by underlying — SQL over EVERY matching row.
+
+    Exists because grouping a row-capped ``recent_events`` slice silently
+    summarized the newest 50 events as if they were the range. Totals here cover
+    the whole filter range; only the per-underlying breakdown is trimmed to the
+    ``top`` groups by premium, and ``distinct_underlyings`` says what was left.
+    """
+    resolved = _db_path(db_path)
+    init_db(resolved)
+    where, params = _event_clauses(
+        symbol=symbol,
+        event_type=event_type,
+        min_premium=min_premium,
+        since=since,
+        until=until,
+    )
+    top_n = max(1, min(int(top), 100))
+    with _connect(resolved) as conn:
+        total_row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS n, COUNT(DISTINCT underlying) AS names,
+                   COALESCE(SUM(premium_usd), 0) AS premium
+            FROM options_flow_events WHERE {where}
+            """,
+            params,
+        ).fetchone()
+        group_rows = conn.execute(
+            f"""
+            SELECT underlying,
+                   COUNT(*) AS n_events,
+                   COALESCE(SUM(premium_usd), 0) AS total_premium_usd,
+                   MAX(premium_usd) AS max_single_premium_usd,
+                   GROUP_CONCAT(DISTINCT event_type) AS event_types,
+                   MAX(spread_flag) AS has_spread_dominated
+            FROM options_flow_events WHERE {where}
+            GROUP BY underlying
+            ORDER BY total_premium_usd DESC
+            LIMIT ?
+            """,
+            [*params, top_n],
+        ).fetchall()
+    by_underlying = {
+        str(r["underlying"]): {
+            "count": int(r["n_events"]),
+            "total_premium_usd": round(float(r["total_premium_usd"]), 2),
+            "max_single_premium_usd": (
+                round(float(r["max_single_premium_usd"]), 2)
+                if r["max_single_premium_usd"] is not None
+                else None
+            ),
+            "event_types": sorted((r["event_types"] or "").split(",")),
+            "has_spread_dominated": bool(r["has_spread_dominated"]),
+        }
+        for r in group_rows
+    }
+    return {
+        "total_events": int(total_row["n"]),
+        "n_underlyings": int(total_row["names"]),
+        "total_premium_usd": round(float(total_row["premium"]), 2),
+        "by_underlying": by_underlying,
+        "underlyings_shown": len(by_underlying),
+    }
 
 
 def upsert_daily(rows: list[dict], db_path: Path | None = None) -> int:
