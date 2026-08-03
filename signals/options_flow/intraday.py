@@ -260,6 +260,11 @@ def detect_block(
         return None
 
     conditions = print_.get("conditions") or []
+    # Read the codes directly, not only the drain-time tags: on the paired
+    # databento lane a code can land on the print AFTER tag_likely_spreads
+    # ran (2026-08-03 late-enrichment round).
+    if is_multileg(conditions):
+        return None
     if is_hygiene_excluded(conditions):
         return None
 

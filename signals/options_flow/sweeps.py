@@ -35,16 +35,26 @@ from signals.options_flow.intraday import (
     _caveat_for_direction,
     _ts_ms_to_iso,
     is_hygiene_excluded,
+    is_multileg,
 )
 
 ISO_SWEEP_CONDITION = "S"  # OPRA intermarket-sweep condition (probe 2026-07-09)
 
 
 def _print_eligible(p: dict) -> bool:
-    """F-1/F-2/F-3 per-print gates, mirroring ``detect_block``."""
+    """F-1/F-2/F-3 per-print gates, mirroring ``detect_block``.
+
+    Reads the condition codes directly as well as the drain-time tags: on the
+    paired databento lane a code can land on the print AFTER
+    ``tag_likely_spreads`` ran, and this gate is re-applied at cluster close
+    (2026-08-03 late-enrichment round).
+    """
     if p.get("spread_leg") or p.get("likely_spread"):
         return False
-    if is_hygiene_excluded(p.get("conditions") or []):
+    conditions = p.get("conditions") or []
+    if is_multileg(conditions):
+        return False
+    if is_hygiene_excluded(conditions):
         return False
     sym = str(p.get("underlying") or "").strip().upper()
     dte = int(p.get("dte") or 0)
@@ -202,11 +212,19 @@ class SweepBuffer:
                 j = i
                 while j < n and int(bucket[j]["ts_ms"]) - anchor <= SWEEP_WINDOW_MS:
                     j += 1
-                cluster = bucket[i:j]
+                # Re-filter at close: a condition code that arrived after
+                # add()'s gate (late pairing enrichment) excludes the print
+                # here, while the cluster is still open.
+                cluster = [p for p in bucket[i:j] if _print_eligible(p)]
                 if now_ms - anchor > SWEEP_WINDOW_MS + SWEEP_CLOSE_GRACE_MS:
-                    ev = _cluster_event(cluster, event_date)
+                    ev = _cluster_event(cluster, event_date) if cluster else None
                     if ev is not None:
                         events.append(ev)
+                        # Backref for the late-enrichment repair: a code that
+                        # lands on one of these prints after THIS point can
+                        # only be applied by flagging the stored event row.
+                        for p in cluster:
+                            p["_event_id"] = ev["id"]
                 else:
                     remaining.extend(bucket[i:])
                     break

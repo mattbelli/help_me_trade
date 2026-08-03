@@ -304,6 +304,32 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
         conn.commit()
 
 
+def flag_events_spread(event_ids: list[str], db_path: Path | None = None) -> int:
+    """Late-enrichment repair: set spread_flag=1 on already-written events.
+
+    A MULTILEG condition code that lands on a print after its event was
+    emitted can no longer change the event's composition — the honest repair
+    is the flag, which the unusual-rank penalty and summarize's
+    has_spread_dominated both read. Idempotent; returns rows changed.
+    """
+    if not event_ids:
+        return 0
+    changed = 0
+    resolved = _db_path(db_path)
+    with _connect(resolved) as conn:
+        for i in range(0, len(event_ids), 500):
+            chunk = [str(e) for e in event_ids[i:i + 500]]
+            cur = conn.execute(
+                "UPDATE options_flow_events SET spread_flag = 1 WHERE id IN "
+                f"({','.join('?' * len(chunk))}) "
+                "AND (spread_flag IS NULL OR spread_flag = 0)",
+                chunk,
+            )
+            changed += cur.rowcount
+        conn.commit()
+    return changed
+
+
 # Heuristic surfacing rank for order=unusual — SURFACING ONLY, unvalidated
 # (never a signal/win%). Rewards what makes a print interesting per the academic
 # prior (known aggressor, short-dated, swept broadly) and log-tames raw size so

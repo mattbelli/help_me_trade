@@ -189,17 +189,55 @@ def test_sweep_ttls_parked_codes_for_prints_that_never_attach():
     assert not sp._early_cond
 
 
-def test_sweep_ttls_attached_refs_past_the_drain_window():
-    # A ref whose twin never came is useless after the ~1s drain — it must not
-    # stay pinned for the matcher's whole 10-min expiry horizon.
+def test_sweep_ttls_attached_refs_past_the_repair_window():
+    # A ref whose twin never came is dropped once even the late repair can't
+    # use it — never pinned for the matcher's whole 10-min expiry horizon.
     sp = _shadow()
-    stale_pid = time.time_ns() - 16_000_000_000  # older than ATTACH_TTL_NS
+    stale_pid = time.time_ns() - 31_000_000_000  # older than ATTACH_TTL_NS
     fresh_pid = time.time_ns()
     with sp._lock:
         sp._attached[stale_pid] = {"conditions": []}
         sp._attached[fresh_pid] = {"conditions": []}
     sp._sweep_once()
     assert stale_pid not in sp._attached and fresh_pid in sp._attached
+
+
+def test_late_multileg_code_queues_the_event_repair():
+    # The print's event was already written (_event_id backref) when the twin
+    # finally arrives with a package code → the stored row must be flagged.
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    ref = {"conditions": [], "_event_id": "of_2026-08-03_SPY_x_blk_1"}
+    sp.attach_print(pid, ref)
+    sp.on_alpaca(OCC, ts, 500, 10, "f")  # f = MULTILEG code
+    assert ref["conditions"] == ["f"]
+    assert sp.drain_repairs() == ["of_2026-08-03_SPY_x_blk_1"]
+    assert sp.drain_repairs() == []  # drained is drained
+    assert sp.repairs_queued == 1
+
+
+def test_clean_or_hygiene_late_codes_do_not_queue_repairs():
+    sp = _shadow()
+    for code in ("", "S", "C"):  # clean, ISO, cancel — none are MULTILEG
+        ts = time.time_ns()
+        pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+        ref = {"conditions": [], "_event_id": "of_x"}
+        sp.attach_print(pid, ref)
+        sp.on_alpaca(OCC, ts, 500, 10, code)
+    assert sp.drain_repairs() == []
+
+
+def test_multileg_code_without_event_backref_queues_nothing():
+    # Code landed before any event was built — the in-place stamp is the
+    # whole fix; there is no row to repair.
+    sp = _shadow()
+    ts = time.time_ns()
+    pid = sp.on_dbn(OCC, 5_000_000_000, 10, ts)
+    ref = {"conditions": []}
+    sp.attach_print(pid, ref)
+    sp.on_alpaca(OCC, ts, 500, 10, "f")
+    assert ref["conditions"] == ["f"] and sp.drain_repairs() == []
 
 
 def test_two_thread_feed_is_consistent():

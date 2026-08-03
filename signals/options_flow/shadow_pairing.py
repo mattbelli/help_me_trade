@@ -61,6 +61,7 @@ from collections import deque
 import msgpack
 import websockets
 
+from signals.options_flow.intraday import is_multileg
 from signals.options_flow.live_pairing import StreamingCondMatcher
 
 logger = logging.getLogger(__name__)
@@ -92,12 +93,16 @@ INDEX_ROOTS = ("SPX", "SPXW", "XSP", "VIX", "VIXW", "NDX", "NDXP")
 # time_ns, so age needs no extra bookkeeping. 10s also bounds refs whose code
 # resolved but whose print never attached (meta-gate-skipped prints).
 EARLY_COND_TTL_NS = 10_000_000_000
-# Attached refs whose twin still hasn't arrived are useless past the drain —
-# the detectors consumed the print at the ~1s flush tick, and a stamp at +15s
-# changes nothing anyone will read. Dropping them here (not at the matcher's
-# 10-min expiry) keeps the worst-case pinned-dict population at ~15s of
-# unmatched flow instead of 10 minutes of it (open-burst arithmetic: ~100MB+).
-ATTACH_TTL_NS = 15_000_000_000
+# Attached refs live long enough for the late-enrichment repair, then drop
+# (not at the matcher's 10-min expiry — that would pin drained prints for
+# ~100MB+ across an open burst). 30s covers the measured open-burst lag
+# (08-03 bell: wire p95 = 13.7s; 07-14 probe: per-print peak 6–10s) with
+# margin; a code later than this is counted in the >10s bucket but no longer
+# repairs the stored event.
+ATTACH_TTL_NS = 30_000_000_000
+# Late-repair queue bound — event ids awaiting a spread_flag UPDATE. Sized far
+# above any real day's block+sweep event count; overflow drops oldest, counted.
+REPAIR_QUEUE_MAX = 10_000
 
 
 def _root(sym: str) -> str:
@@ -142,6 +147,13 @@ class ShadowPairing:
         self._early_cond: dict[int, str] = {}
         self.enriched = 0
         self.early_hits = 0
+        # Event ids needing spread_flag=1 because a MULTILEG code landed on a
+        # print AFTER its event was already emitted. The runner drains this
+        # every ~1s cycle and applies the UPDATE — this class still never
+        # writes a table itself.
+        self._repairs: deque[str] = deque()
+        self.repairs_queued = 0
+        self.repairs_dropped = 0
 
         self.dbn_seen = 0
         self.alp_seen = 0
@@ -252,6 +264,16 @@ class ShadowPairing:
                 if ref is not None:
                     ref["conditions"] = [cond] if cond else []
                     self.enriched += 1
+                    # The print's event already exists and this code says
+                    # package leg → the stored row is wrong; queue the
+                    # id-exact repair (applied by the runner within ~1s).
+                    ev_id = ref.get("_event_id")
+                    if ev_id and cond and is_multileg([cond]):
+                        if len(self._repairs) >= REPAIR_QUEUE_MAX:
+                            self._repairs.popleft()
+                            self.repairs_dropped += 1
+                        self._repairs.append(str(ev_id))
+                        self.repairs_queued += 1
                 else:
                     # Resolved before the spine attached (inline match) — park
                     # the code for attach_print; the sweep TTLs strays (prints
@@ -264,6 +286,15 @@ class ShadowPairing:
                     break
             else:
                 self.enrich_buckets[-1] += 1
+
+    def drain_repairs(self) -> list[str]:
+        """Take (and clear) the queued late-repair event ids. Runner-called."""
+        with self._lock:
+            if not self._repairs:
+                return []
+            out = list(self._repairs)
+            self._repairs.clear()
+            return out
 
     def _reset_matcher(self) -> None:
         """New measurement epoch after a sidecar gap. See module docstring —
@@ -361,6 +392,7 @@ class ShadowPairing:
                 pend_a=m.pending_alpaca, keys_peak=m.keys_peak,
                 dbn_seen=self.dbn_seen, alp_seen=self.alp_seen,
                 enriched=self.enriched, att_pend=len(self._attached),
+                repairs=self.repairs_queued,
                 buckets=list(self.enrich_buckets),
                 d_lags=sorted(self._d_lags_ms), a_lags=sorted(self._a_lags_ms),
                 d_roots_n=len(self.d_roots), a_roots_n=len(self.a_roots),
@@ -381,7 +413,7 @@ class ShadowPairing:
         idx = " ".join(f"{r}={d}/{a}" for r, d, a in snap["idx"])
         logger.info(
             "pairing shadow%s: dbn=%s alp=%s matched=%s (%.1f%% of %s resolved) "
-            "enriched=%s att_pend=%s "
+            "enriched=%s att_pend=%s repairs=%s "
             "tol=%s expired=%s evicted=%s late_twin=%s orphans=%s | enrich %s | "
             "wire_lag_ms d p50=%.0f p95=%.0f a p50=%.0f p95=%.0f | pending d=%s "
             "a=%s keys_peak=%s | roots d=%s a=%s idx_d/a: %s | top_a=%s | "
@@ -392,6 +424,7 @@ class ShadowPairing:
             f"{snap['matched']:,}",
             100.0 * snap["matched"] / max(resolved, 1), f"{resolved:,}",
             f"{snap['enriched']:,}", f"{snap['att_pend']:,}",
+            f"{snap['repairs']:,}",
             f"{snap['tol']:,}", f"{snap['expired']:,}", f"{snap['evicted']:,}",
             f"{snap['late']:,}", f"{snap['orphans']:,}",
             buckets,

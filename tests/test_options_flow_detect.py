@@ -546,3 +546,47 @@ def test_options_flow_universe_filter(tmp_path: Path) -> None:
     # bogus universe values are ignored, not an error
     everything = read({"universe": "bogus"}, db_path=db)
     assert len(everything) == 2
+
+
+def test_flag_events_spread_repairs_only_named_rows(tmp_path: Path) -> None:
+    """Late-enrichment repair: flips spread_flag on exactly the listed ids,
+    idempotently, leaving other rows untouched."""
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(
+        _sample_event(id="fix_me", ts="2026-07-09T14:00:00Z", spread_flag=None),
+        db_path=db,
+    )
+    of_db.insert_event(
+        _sample_event(id="leave_me", ts="2026-07-09T14:01:00Z", spread_flag=None),
+        db_path=db,
+    )
+    assert of_db.flag_events_spread(["fix_me", "missing_id"], db_path=db) == 1
+    rows = {r["id"]: r for r in of_db.recent_events(db_path=db)}
+    assert rows["fix_me"]["spread_flag"] is True
+    assert rows["leave_me"]["spread_flag"] is None
+    # Idempotent: already-flagged rows report 0 changed.
+    assert of_db.flag_events_spread(["fix_me"], db_path=db) == 0
+
+
+def test_detect_block_reads_multileg_codes_directly() -> None:
+    """A MULTILEG code excludes a block even when tag_likely_spreads never
+    ran (late pairing enrichment stamps codes, not tags)."""
+    from signals.options_flow.intraday import detect_block
+
+    base = {
+        "underlying": "NVDA",
+        "occ_symbol": "NVDA260821C00190000",
+        "right": "call",
+        "strike": 190.0,
+        "expiry": "2026-08-21",
+        "dte": 43,
+        "ts_ms": 1_752_000_000_000,
+        "price": 5.0,
+        "size": 400,
+        "exchange": "C",
+        "conditions": ["f"],
+    }
+    assert detect_block(base, event_date="2026-07-09") is None
+    clean = dict(base, conditions=[])
+    assert detect_block(clean, event_date="2026-07-09") is not None

@@ -135,6 +135,11 @@ async def main() -> int:
             if shadow is not None and not shadow.metrics_only
             else None
         ),
+        pairing_repairs=(
+            shadow.drain_repairs
+            if shadow is not None and not shadow.metrics_only
+            else None
+        ),
     )
 
     stop = asyncio.Event()

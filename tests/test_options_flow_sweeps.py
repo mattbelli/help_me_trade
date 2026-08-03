@@ -202,3 +202,46 @@ def test_cluster_held_until_grace_elapses_then_closed_once() -> None:
 
 def test_sweep_reaches_convergence_event_types() -> None:
     assert "sweep" in convergence._FLOW_EVENT_TYPES
+
+
+def test_late_multileg_code_excludes_print_at_cluster_close() -> None:
+    """Late pairing enrichment: a MULTILEG code that lands AFTER add() but
+    before the cluster closes must drop the leg — eligibility re-runs at
+    close, not only at drain."""
+    buf = SweepBuffer()
+    prints = [
+        _print(ts_ms=BASE_MS, exchange="C", direction="buy_side", basis="stream_quote"),
+        _print(ts_ms=BASE_MS + 100, exchange="N", direction="buy_side", basis="stream_quote"),
+        _print(ts_ms=BASE_MS + 200, exchange="M", direction="buy_side", basis="stream_quote"),
+        _print(ts_ms=BASE_MS + 300, exchange="A", direction="buy_side", basis="stream_quote"),
+    ]
+    buf.add(prints)
+    prints[3]["conditions"] = ["f"]  # the matcher's late stamp
+    events = _closed(buf)
+    assert len(events) == 1
+    assert events[0]["n_prints"] == 3  # the coded leg fell out
+    # And a fully-late-coded cluster yields nothing at all.
+    buf2 = SweepBuffer()
+    pair = [
+        _print(ts_ms=BASE_MS, exchange="C"),
+        _print(ts_ms=BASE_MS + 100, exchange="N"),
+    ]
+    buf2.add(pair)
+    for p in pair:
+        p["conditions"] = ["g"]
+    assert _closed(buf2) == []
+
+
+def test_closed_cluster_prints_carry_the_event_backref() -> None:
+    """Every print of an emitted sweep gets _event_id, so a code arriving
+    after close can repair the stored row by exact id."""
+    buf = SweepBuffer()
+    prints = [
+        _print(ts_ms=BASE_MS, exchange="C", direction="buy_side", basis="stream_quote"),
+        _print(ts_ms=BASE_MS + 100, exchange="N", direction="buy_side", basis="stream_quote"),
+        _print(ts_ms=BASE_MS + 200, exchange="M", direction="buy_side", basis="stream_quote"),
+    ]
+    buf.add(prints)
+    events = _closed(buf)
+    assert len(events) == 1
+    assert all(p.get("_event_id") == events[0]["id"] for p in prints)

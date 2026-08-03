@@ -229,6 +229,7 @@ class OptionsFlowRunner:
     def __init__(self, *, watchlist_symbols: Callable[[], list[str]],
                  raw_print_tee: Callable[[str, int, int, int], int | None] | None = None,
                  print_attach_tee: Callable[[int, dict], None] | None = None,
+                 pairing_repairs: Callable[[], list[str]] | None = None,
                  ) -> None:
         self._watchlist_symbols = watchlist_symbols
         # Pairing tees (databento lane only): every symbology-resolved print,
@@ -238,6 +239,11 @@ class OptionsFlowRunner:
         # signals/options_flow/shadow_pairing.py.
         self._raw_print_tee = raw_print_tee
         self._print_attach_tee = print_attach_tee
+        # Late-enrichment repair source: event ids whose prints turned out to
+        # carry a MULTILEG code after the event was written. Drained every
+        # sweep cycle (~1s) so the stored row is honest within a second or
+        # two of the code arriving.
+        self._pairing_repairs = pairing_repairs
         self.stream = None  # OptionsFlowStream | None — set while stream_run is live
         self._intraday_warned = False
 
@@ -429,6 +435,23 @@ class OptionsFlowRunner:
                 if stream is None:
                     continue
 
+                # Apply late-enrichment repairs FIRST each cycle: anything
+                # queued during cycle N was inserted by N's end, so this
+                # lands within ~1s of the code arriving and never races an
+                # insert.
+                if self._pairing_repairs is not None:
+                    try:
+                        repair_ids = self._pairing_repairs()
+                        if repair_ids:
+                            n_fixed = of_db.flag_events_spread(repair_ids)
+                            logger.info(
+                                "options_flow pairing repair: %s late MULTILEG "
+                                "codes → %s event rows flagged spread",
+                                len(repair_ids), n_fixed,
+                            )
+                    except Exception:
+                        logger.exception("options_flow pairing repair failed")
+
                 batch: list[dict] = []
                 while stream.collected_prints:
                     batch.append(stream.collected_prints.popleft())
@@ -496,6 +519,8 @@ class OptionsFlowRunner:
                             )
                             if blk is not None:
                                 block_events.append(blk)
+                                # Backref for the late-enrichment repair.
+                                p["_event_id"] = blk["id"]
                         row = {
                             "ts_ms": p.get("ts_ms"),
                             "occ": p.get("occ_symbol"),

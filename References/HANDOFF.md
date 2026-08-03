@@ -146,9 +146,10 @@ snapshot per sweep). Open threads only:
 - **⏳ Live flow pairing — enrichment WIRED 2026-08-03 (Inc 3 first step; BUILD_LOG row + card
   `live-flow-pairing`); the Inc-3 tail remains.** Live events now carry condition codes on the
   databento lane (F-2 spread/hygiene/ISO gates active; `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1`
-  reverts). OPEN, in order: (1) **first enriched session check** — watch `enriched=`/`att_pend=`
-  on the 60s stats line and confirm sweeps/blocks counts shift plausibly (spread legs now
-  excluded) + spread_flag-bearing package prints appear in the print lab; (2) the
+  reverts). OPEN, in order: (1) **first enriched session check** — watch `enriched=`/`att_pend=`/
+  `repairs=` on the 60s stats line and confirm sweeps/blocks counts shift plausibly (spread legs
+  now excluded), late-repair UPDATEs land ("pairing repair" log lines, spread_flag=1 rows on
+  open-window events), and spread_flag-bearing package prints appear in the print lab; (2) the
   **standing-NBBO consumer audit** — still the real cutover blocker; (3) explain the
   **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the ~4-min meta-cold
   open blind; confirm, don't assume); (4) nightly live-vs-batch audit alarm. Inc-2 session #1
