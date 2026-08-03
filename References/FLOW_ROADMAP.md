@@ -3493,6 +3493,67 @@ equivalent; we do not need it.
       sells. The hedge direction reveals the orientation from outside, never touching the corrupted
       leg prices. *If 3.2 works, this may unlock the 33% of premium currently fenced off.*
 
+      **3.4 prereg round 1 (2026-08-03): BLOCKED by both reviewers — design NOT registered;
+      3.4 → PARKED-ACCRUAL.** The round, in order, all before any registration:
+      - **Stage-0 census** (`tools/hedge_orientation_census.py`, 12 of the 105 code-provenance
+        training sessions, on-disk only): 7.49M exactly-2-leg equal-size clusters → 143,944 after
+        the 3.2-style filters ($21.5B pair premium); 40% of pairs have |netΔ| < 0.05 per contract
+        (spreads are small-hedge BY CONSTRUCTION — the phase's central adversity, now measured);
+        o-confident (spread-edge@0.10) 3.5%; detectability-proxy D* ≥ 3 just 0.5%; intersection
+        (the would-be validation cell) 67 events / 53 underlyings → ~586 naively projected. ⚠️ The
+        census omitted isolation/news/caps/half-days — see the review verdicts; its numbers are
+        UPPER BOUNDS and its header now carries the reviewer-measured gap list.
+      - **Draft design:** validate hedge-footprint DIRECTION (3.2's live result) against the
+        independent §3c o-band label on the o-confident ∧ D ≥ 3 ∧ quiet cell; cluster-permutation
+        on mean Ẽ_o = Z·σ_o at 64g; controls-only power gate with 3.2's measured Ẽ as the
+        injected effect + a half-effect stress leg; floors n ≥ 60 / 25 underlyings.
+      - **Two-Opus split-mandate review: BLOCK + BLOCK (8 + 6 blockers, 8 + 11 majors), the
+        decisive ones measured against real artifacts, not argued:**
+        (1) POWER — the registered floors were 6–8× below what the registered gate demands
+        (n ≈ 280–300 primary / 460–500 stressed, simulated from 3.2's own frozen score
+        distribution); isolation (98.0% of 3.2 candidates die there — its dominant filter) was
+        missing from the census, and applying even the draft's weakened rule on 2025-09-16 cut
+        that session's cell 6 → 4; honest expected quiet cell ≈ 30–65 events — an order of
+        magnitude short, with no registered lever that closes it.
+        (2) VALIDITY — the o sign convention ("o near 1 ⇒ bought A") rests on the §3 allocation
+        assumption the design doc itself flags UNVERIFIED, and §3's own required sanity check
+        (aggregate o-implied direction must skew the right way on known-move days) HAS NEVER
+        RUN; a wholesale booking-convention inversion would produce the identical §3c
+        concentration. So the draft validated one unvalidated label against an instrument
+        sharing a mechanical confound with it: ∂o_diff/∂S = netΔ/width and sign(H_pred) =
+        sign(netΔ) cancel, so σ_o → sign(δS) — the o-implied sign partially READS OUT the
+        underlying's concurrent move, which the equity-side Z then agrees with for free
+        (the 3.3 drift coupling, third appearance; Spearman(score, m_bps) = 0.243 re-measured
+        on the 117 frozen 3.2 events).
+        (3) The stress leg as drafted was algebraically VACUOUS (sign-flip permutation is
+        scale-invariant — p identical at ×1, ×0.5, ×0.01; verified numerically), the same
+        degeneracy class as 3.2 Amendment 1's Look-C repair.
+        (4) Cell composition, measured on 2025-09-16: 75% call-call (the structure §3c measured
+        LEAST readable — the 3.33×/4.7× is carried by mixed pairs), ~43–50% calendars/diagonals
+        (whose netΔ SIGN can flip between selection spot and measurement spot), 24.6% of the
+        confident cell = multi-print clusters that can blend two opposing packages into one
+        "clean pair", and 18–33% out-of-band o_diff counted as the MOST confident edge when
+        out-of-band is only reachable via stale/mispaired quotes.
+      - **New measurement banked en route (scratch probe on the five fresh §3c OOS sessions):
+        COUNT-weighted o-corner enrichment = spread-edge 2.28× / registered one-coord form
+        1.85×** (vs 4.7×/3.33× premium-weighted) — the o effect is real per-event, weaker than
+        the premium-weighted number the draft over-quoted, and never an accuracy figure: the
+        §3c null is a MISPAIRING null; per-event directional accuracy `a` is UNMEASURED and the
+        agreement statistic attenuates by (2a − 1).
+      - **Consequences, registered:** (i) 3.4 is PARKED-ACCRUAL — the corpus adds ~5–6
+        pre-shrinkage cell events/session, so the honest gate arms in years, not weeks; any
+        revival starts from THIS round's fix-list ((m, m²)-residualized verdict statistic;
+        two-sided inference with ORIENTATION-INVERTED in the table; in-band edges only;
+        label-accuracy sweep a ∈ {0.9..0.6} × ≥2× dispersion stress in the power gate;
+        isolation ratioed on |H| with the any-size base; per-band caps and single-leg-shaped
+        measurement paths rewritten for two legs; MLAT auction-print stratum as the
+        specificity check). (ii) **The one cheap unlock is the o sign-convention validation**
+        — §3's own never-run sanity check; if o's direction validates, the confident slice
+        gets an orientation label WITHOUT the hedge test. It consumes outcome-adjacent data
+        at aggregate grain ⇒ its own founder-visible prereg BEFORE any code (founder-lane
+        card open). (iii) The Phase-3 "active move" pointer clears: nothing in Phase 3 is
+        runnable today without either the founder-gated o validation or years of accrual.
+
 **Honest failure modes, stated in advance:** dealers net across a whole book rather than hedging
 trade by trade; hedges get worked algorithmically over minutes and smear; **reverse causality** — an
 informed trader buying stock *and* calls looks identical to a hedge, and only the size test
