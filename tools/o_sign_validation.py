@@ -830,7 +830,7 @@ def _load_frame(session: date) -> dict[str, np.ndarray] | None:
 
 
 def _fetch_events(sessions: list[date], pool: list[date], events_of,
-                  label: str) -> None:
+                  label: str, placebo: bool = True) -> None:
     client, url = _client()
     daily_path = OUT_DIR / "daily_volume.json"
     daily = json.loads(daily_path.read_text()) if daily_path.exists() else {}
@@ -856,6 +856,8 @@ def _fetch_events(sessions: list[date], pool: list[date], events_of,
                     RuntimeError) as exc:
                 ledger["fault"] += 1
                 ledger["faults"].append(f"{s_} {t_}: {exc}")
+                continue
+            if not placebo:
                 continue
             t_alt = alt_base + (int(t_) - base)
             try:
@@ -1195,6 +1197,167 @@ def _step1_verdict(gates: dict, a_cal: float, ci: tuple, p: float,
     if p < 0.01 and lb >= ts:
         return "LIVE"
     return "INSTRUMENT-WEAK"
+
+
+# =============================================================================
+# Step-1 required diagnostic — a_cal on strict vs NON-strict prints
+# =============================================================================
+
+def _nonstrict_events(session: date, rc) -> dict | None:
+    """Single-leg tied events signable by the MIDPOINT side rule but NOT
+    strict-unanimous — the comparison arm of the registered a_p≈1 diagnostic.
+    Same filters/cap/dedupe as Step 1 otherwise."""
+    loaded = load_session_fixed(session)
+    if loaded is None:
+        return None
+    defs, fx, ts, iid, size, cond, bidf, askf, didx, jr = loaded
+    und = defs.und_code[didx]
+    tied = np.isin(cond, list(TIED_CODES))
+    if not tied.any():
+        return None
+    order = np.lexsort((ts[tied], und[tied]))
+
+    def col(a):
+        return a[tied][order]
+
+    t_ts, t_iid, t_und = col(ts), col(iid), col(und)
+    t_prem = col(fx.premium)
+    t_side, t_strict = col(fx.side), col(fx.strict)
+    t_def = col(didx)
+    new = np.empty(len(t_ts), dtype=bool)
+    new[0] = True
+    new[1:] = (t_und[1:] != t_und[:-1]) | ((t_ts[1:] - t_ts[:-1]) > W_NS)
+    gid = np.cumsum(new) - 1
+    n_g = int(gid[-1]) + 1
+    o2 = np.lexsort((t_ts, t_iid, gid))
+    g2, i2 = gid[o2], t_iid[o2]
+    first = np.empty(len(g2), dtype=bool)
+    first[0] = True
+    first[1:] = (g2[1:] != g2[:-1]) | (i2[1:] != i2[:-1])
+    leg_gid = g2[first]
+    fidx = np.flatnonzero(first)
+    leg_def = t_def[o2][fidx]
+    legs_per = np.bincount(leg_gid, minlength=n_g)
+    c_prem = np.bincount(gid, weights=t_prem, minlength=n_g)
+    g_first_row = np.r_[0, 1 + np.flatnonzero(gid[1:] != gid[:-1])]
+    g_ts = t_ts[g_first_row]
+    g_und = t_und[g_first_row]
+
+    ambig = np.zeros(n_g, dtype=bool)
+    ord_g = np.lexsort((g_ts, g_und))
+    su, st_ = g_und[ord_g], g_ts[ord_g]
+    same_prev = np.r_[False, (su[1:] == su[:-1])
+                      & ((st_[1:] - st_[:-1]) <= 2 * PRIMARY_W_NS)]
+    ambig[ord_g] = same_prev | np.r_[same_prev[1:], False]
+
+    n_all = np.bincount(gid, minlength=n_g)
+    n_s0 = np.bincount(gid, weights=(t_side == 0).astype(float), minlength=n_g)
+    n_s1 = np.bincount(gid, weights=(t_side == 1).astype(float), minlength=n_g)
+    mid_side = np.full(n_g, -1, dtype=np.int8)
+    mid_side[n_s0 == n_all] = 0
+    mid_side[n_s1 == n_all] = 1
+    n_t0 = np.bincount(gid, weights=(t_strict == 0).astype(float), minlength=n_g)
+    n_t1 = np.bincount(gid, weights=(t_strict == 1).astype(float), minlength=n_g)
+    strict_unani = (n_t0 == n_all) | (n_t1 == n_all)
+
+    g1 = np.flatnonzero(legs_per == 1)
+    l1 = np.searchsorted(leg_gid, g1)
+    ds = session.isoformat()
+    roots = [str(s) for s in defs.roots]
+    cls = np.array([rc.classify(r, ds) for r in roots])
+    ident = np.array([str(rc.resolve(r, ds) or "") for r in roots])
+    rootc = defs.und_code[leg_def[l1]]
+    mid = session_midnight_ns(session)
+    keep = ((mid_side[g1] >= 0) & ~strict_unani[g1]
+            & (c_prem[g1] >= PREM_MIN_S1)
+            & in_trading_window(et_second_of_day(g_ts[g1], mid))
+            & (cls[rootc] == "equity") & (ident[rootc] != "")
+            & ~ambig[g1])
+    k = np.flatnonzero(keep)
+    if not len(k):
+        return None
+    sel = k[_stratified_cap(c_prem[g1][k])]
+    return {"ts_ns": g_ts[g1][sel].astype(np.int64),
+            "sym": ident[rootc[sel]].astype("U16"),
+            "side": mid_side[g1][sel].astype(np.int8),
+            "is_put": defs.is_put[leg_def[l1[sel]]].astype(bool)}
+
+
+def stage_diag_fetch() -> None:
+    pool, _ = qualifying_sessions()
+    sample = step1_sample_sessions(pool)
+    rc = load_classification(ROOT / "signals" / "options_flow"
+                             / "root_classification.json")
+    cache: dict[date, dict | None] = {}
+
+    def events_of_factory(session):
+        if session not in cache:
+            cache[session] = _nonstrict_events(session, rc)
+        return cache[session]
+
+    client, url = _client()
+    daily_path = OUT_DIR / "daily_volume.json"
+    daily = json.loads(daily_path.read_text()) if daily_path.exists() else {}
+    ledger = {"label": "diag_nonstrict", "events": 0, "fetched": 0, "fault": 0}
+    rows = []
+    for session in sample:
+        ev = events_of_factory(session)
+        if ev is None:
+            continue
+        for i in range(len(ev["ts_ns"])):
+            ledger["events"] += 1
+            try:
+                fetch_window(OUT_DIR, client, url, str(ev["sym"][i]),
+                             int(ev["ts_ns"][i]), daily)
+                ledger["fetched"] += 1
+            except (MissingDailyBar, FeedAssertionError, PageCapError,
+                    RuntimeError):
+                ledger["fault"] += 1
+            rows.append({"session": session.isoformat(),
+                         "sym": str(ev["sym"][i]), "ts_ns": int(ev["ts_ns"][i]),
+                         "side": int(ev["side"][i]),
+                         "is_put": bool(ev["is_put"][i])})
+        save_json(daily_path, daily)
+        print(f"{session}: diag events cum {ledger['events']} "
+              f"(faults {ledger['fault']})")
+    save_json(OUT_DIR / "diag_events.json", rows)
+    save_json(OUT_DIR / "fetch_ledger_diag.json", ledger)
+
+
+def stage_diag() -> None:
+    """Publish a_cal strict vs non-strict side by side (required diagnostic:
+    a null difference is evidence AGAINST the a_p≈1 named assumption)."""
+    rows = json.loads((OUT_DIR / "diag_events.json").read_text())
+    pred, obs, sess = [], [], []
+    for r in rows:
+        win = _load_window(r["sym"], r["ts_ns"])
+        if win is None:
+            continue
+        trades, quotes = win
+        m = match_event(trades, quotes, r["ts_ns"], PRIMARY_W_NS)
+        if not m["signable"]:
+            continue
+        pred.append(taker_stock_side(r["side"], r["is_put"]))
+        obs.append(m["obs_side"])
+        sess.append(r["session"])
+    pred, obs, sess = map(np.array, (pred, obs, sess))
+    step1 = json.loads((OUT_DIR / "step1.json").read_text())
+    art = {
+        "nonstrict": {"n_signable": int(len(pred)),
+                      "a_cal": agreement(pred, obs),
+                      "ci_session_bootstrap": session_bootstrap_ci(pred, obs, sess)
+                      if len(pred) else None,
+                      "kappa": kappa(pred, obs)},
+        "strict": {"n_signable": step1["rates"]["signable"],
+                   "a_cal": step1["a_cal"],
+                   "ci_session_bootstrap": step1["a_cal_ci_session_bootstrap"],
+                   "kappa": step1["kappa"]},
+        "reading": "null strict-vs-nonstrict difference = evidence against "
+                   "a_p≈1; strict >> nonstrict = a_p≈1 credible and the "
+                   "stock-leg instrument itself carries no direction",
+    }
+    save_json(OUT_DIR / "step1_diag.json", art)
+    print(json.dumps(art, indent=1, default=str))
 
 
 # =============================================================================
@@ -1546,8 +1709,8 @@ def _step2_verdict(inf_p: dict, inf_m: dict, realized_power: float,
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("stage", choices=["frame", "verify", "fetch1", "step1",
-                                      "pilot_fetch", "pilot", "gate", "fetch2",
-                                      "step2"])
+                                      "diag_fetch", "diag", "pilot_fetch",
+                                      "pilot", "gate", "fetch2", "step2"])
     ap.add_argument("--limit", type=int, default=None,
                     help="session limit (frame/fetch smoke runs)")
     args = ap.parse_args()
@@ -1556,6 +1719,8 @@ def main() -> None:
         "frame": lambda: stage_frame(args.limit),
         "verify": lambda: stage_verify(args.limit),
         "fetch1": lambda: stage_fetch1(args.limit),
+        "diag_fetch": stage_diag_fetch,
+        "diag": stage_diag,
         "step1": stage_step1,
         "pilot_fetch": stage_pilot_fetch,
         "pilot": stage_pilot,

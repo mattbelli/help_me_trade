@@ -3551,8 +3551,22 @@ equivalent; we do not need it.
         `O_SIGN_VALIDATION_PREREG_2026-08-03.md` IS LAW** (3 review rounds; the v1
         next-day-skew design was itself BLOCKED on measured power/artifact grounds and
         replaced by the tied-to-stock cross-tape design, which consumes NO outcome data —
-        the founder's unseal authorization went deliberately unused). (iii) The Phase-3 "active move" pointer clears: nothing in Phase 3 is
-        runnable today without either the founder-gated o validation or years of accrual.
+        the founder's unseal authorization went deliberately unused). **RAN 2026-08-04 —
+        Step-1 verdict at the registered arm: INSTRUMENT-DEAD (a_cal 0.545, session-bootstrap
+        CI [0.484, 0.606] ∋ 0.5, perm p 0.020; T+60s placebo c 0.0216 > 0.01 while the
+        alt-session placebo passed at 0.0046 — rows (i)/(ii) both terminal either way);
+        Step 2 never ran, zero Step-2 fetches, nothing unsealed. The REQUIRED
+        strict-vs-non-strict diagnostic then INVERTED the named a_p≈1 assumption:
+        midpoint-signed non-strict tied prints read a_cal 0.726 [0.687, 0.765] κ 0.45
+        (n=4,326), and at match |Δt| ≤ 2 ms a_cal 0.858 (n=2,695) — at/through-quote
+        position on package legs is allocation noise (the corpus's own package-leg
+        doctrine, now measured); midpoint side at ~ms match latency is a strongly live
+        cross-tape instrument the registered ±100 ms strict design could not see. Any
+        successor (midpoint calibration arm + ~±2 ms primary window, then Step 2) is a
+        dated amendment + two-Opus review BEFORE any stage runs — founder-lane GO on
+        card `o-sign-validation-go`. See BUILD_LOG 2026-08-04.** (iii) The Phase-3
+        "active move" pointer clears: nothing in Phase 3 is runnable today without
+        either the founder-gated o-validation successor or years of accrual.
 
 **Honest failure modes, stated in advance:** dealers net across a whole book rather than hedging
 trade by trade; hedges get worked algorithmically over minutes and smear; **reverse causality** — an

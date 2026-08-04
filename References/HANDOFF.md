@@ -218,11 +218,16 @@ snapshot per sweep). Open threads only:
   honest filters vs ~300–500 the power gate demands, ~10× short) AND on validity (the
   o sign convention itself was never validated — §3's own required sanity check never
   ran — and σ_o mechanically couples to the underlying's concurrent move). 3.4 is
-  PARKED-ACCRUAL. **The unlock is GO'd and REGISTERED: `O_SIGN_VALIDATION_PREREG_2026-08-03.md` IS LAW**
-  (3 rounds, 2×Opus split mandates; the v1 known-move-day design was itself killed by
-  review on measured grounds and replaced by the tied-to-stock cross-tape design, which
-  consumes NO outcome data). ⏳ NEXT: build the pipeline per the prereg's Build
-  obligations, run Step 1 → gates → pilot → gate → Step 2, record the verdict. Any 3.4 revival must
+  PARKED-ACCRUAL. **The o sign validation RAN 2026-08-04 (BUILD_LOG row + ROADMAP 3.4
+  consequence (ii)): Step-1 verdict INSTRUMENT-DEAD at the registered strict/±100ms arm
+  (a_cal 0.545, CI ∋ 0.5; T+60s placebo c over bound); Step 2 never ran, nothing
+  unsealed. The registered diagnostic INVERTED the a_p≈1 assumption — midpoint-signed
+  tied prints at |Δt| ≤ 2ms read a_cal 0.858 (n=2,695): the cross-tape instrument is
+  strongly LIVE under the corrected arm the registration didn't bet on.** ⏳ NEXT
+  (founder GO on card `o-sign-validation-go`): register the successor as a dated
+  amendment (midpoint calibration arm + ~±2ms primary window, then Step 2 on σ_net;
+  fetched snapshots reusable for Step 1', Step 2 needs new fetches) + two-Opus review
+  BEFORE any stage runs. Any 3.4 revival must
   start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
   two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
   power gate, isolation on |H| not premium, any-size isolation base).
