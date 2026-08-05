@@ -223,11 +223,15 @@ snapshot per sweep). Open threads only:
   (a_cal 0.545, CI ∋ 0.5; T+60s placebo c over bound); Step 2 never ran, nothing
   unsealed. The registered diagnostic INVERTED the a_p≈1 assumption — midpoint-signed
   tied prints at |Δt| ≤ 2ms read a_cal 0.858 (n=2,695): the cross-tape instrument is
-  strongly LIVE under the corrected arm the registration didn't bet on.** ⏳ NEXT
-  (founder GO on card `o-sign-validation-go`): register the successor as a dated
-  amendment (midpoint calibration arm + ~±2ms primary window, then Step 2 on σ_net;
-  fetched snapshots reusable for Step 1', Step 2 needs new fetches) + two-Opus review
-  BEFORE any stage runs. Any 3.4 revival must
+  strongly LIVE under the corrected arm the registration didn't bet on.** Founder GO
+  2026-08-05; **Amendment 1 REGISTERED + APPROVED same day**
+  (`O_SIGN_VALIDATION_AMENDMENT1_2026-08-05.md`, 4 rounds, v4 APPROVE×2 — BUILD_LOG
+  row). ⏳ NEXT: build the amendment's **15 Build-obligation deltas** (signed-window
+  params, CLAIMANT_R_NS decouple, Step-1′ midpoint loader + 6-cell cap, frame-npz SHAs,
+  seeded terciles, reweighted bootstrap-t LB, θ-grid + row (viii), placebo law, skew
+  diagnostics, inter-leg span precondition) with pinned tests green, THEN run Step 1′
+  (17 fresh sessions `pool[3::6]`, fresh fetches — 08-04 snapshots are selection data,
+  barred) → pilot → gate → Step 2. Any 3.4 revival must
   start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
   two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
   power gate, isolation on |H| not premium, any-size isolation base).
