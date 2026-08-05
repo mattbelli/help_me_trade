@@ -226,12 +226,14 @@ snapshot per sweep). Open threads only:
   strongly LIVE under the corrected arm the registration didn't bet on.** Founder GO
   2026-08-05; **Amendment 1 REGISTERED + APPROVED same day**
   (`O_SIGN_VALIDATION_AMENDMENT1_2026-08-05.md`, 4 rounds, v4 APPROVE×2 — BUILD_LOG
-  row). ⏳ NEXT: build the amendment's **15 Build-obligation deltas** (signed-window
-  params, CLAIMANT_R_NS decouple, Step-1′ midpoint loader + 6-cell cap, frame-npz SHAs,
-  seeded terciles, reweighted bootstrap-t LB, θ-grid + row (viii), placebo law, skew
-  diagnostics, inter-leg span precondition) with pinned tests green, THEN run Step 1′
-  (17 fresh sessions `pool[3::6]`, fresh fetches — 08-04 snapshots are selection data,
-  barred) → pilot → gate → Step 2. Any 3.4 revival must
+  row). **All 15 Build-obligation deltas BUILT 2026-08-05** (BUILD_LOG row: +20 pinned
+  tests, module 34/34 green, full suite 3,980 green). ⏳ NEXT: RUN the amended stages
+  in order on serv (scripts run from `dev/help_me_trade`): `record_shas` → `s2meta`
+  (persists inter-leg spans + leg classes; the p90 ≤ 1 ms precondition then gates every
+  Step-2 stage) → `fetch1p` (17 fresh sessions `pool[3::6]` — 08-04 snapshots barred by
+  construction) → `step1p` (provisional verdict; rows (iv)–(viii) finalize at the gate
+  on the composition-reweighted LB) → `pilot_fetch` → `pilot` → `gate` → `fetch2`/`step2`
+  only on LIVE′. Any 3.4 revival must
   start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
   two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
   power gate, isolation on |H| not premium, any-size isolation base).
