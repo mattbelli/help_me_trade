@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "flow-history-agent-reach",
+   "title": "flow_history: the 16GB flow corpus reaches the agent — marginals by default, measurable rarity, no edge claims",
+   "lane": "next",
+   "type": "feature",
+   "priority": "high",
+   "owner": "orchestrator",
+   "notes": "BRIEFED 2026-08-03, not started. data/flow_corpus.db = 16.2GB / 86,938,743 rollup rows / 255 sessions (2025-07-28 to 2026-07-31) / 7,004 underlyings — the whole market — and ai/ + research/ reference it ZERO times (only the nightly signals/flow_perception scan reads it). So the agent sees a live $2M sweep with NO baseline: options_flow reads db/options_flow, which begins at 'now'. Largest dataset we own, invisible to every agent surface. SHAPE OF THE FIX — filtering alone can't work: symbol narrows 86.9M to 307,312 rows for NVDA and ONE session is still 1,315 rows (grain = right x dte x mny x side x strict_side x multileg x cond). So return MARGINALS — each dimension collapsed separately, never crossed: measured 60ms / 7.8KB / 14 rows + a 255-point daily series. Agent sees where weight sits on every axis, then drills ONE named projection. symbol REQUIRED (only index is (underlying,date); a market-wide group-by is a measured 65s full scan — flow_perception stays the market-wide entry point). Exact bucket vocabulary goes IN the description and a bad value returns the valid set, per the measured market_regime failure (weak mobile model does not recover from an empty result). RARITY: founder call 08-03 — 'unusual isn't an edge'. Rarity is measurable, significance is not; flow_perception already records the split (BACKWARDS 1.4-1.7x vs liquidity-matched peers = real; FORWARD 1.14c/1.14d pre-registered NULL twice — 'DESCRIBES big-move windows without SELECTING them'). Ship empirical rank with its denominator attached, rank inside the (underlying,right,dte,mny) bucket not the blob, count-based never z-score (premium is fat-tailed). Forbidden: direction words, probability/win%, a score key, and ordering by interestingness (that sort IS an edge claim). FOOTGUN: pair premium_sq_orders with orders, NEVER premium_sq (pairs with prints) — mixing grains breaks Cauchy-Schwarz and 1.55% of rows go negative-variance/NaN (measured, caught in review 07-27; flagged in the db/flow_corpus.py DDL). Brief: References/FLOW_HISTORY_BRIEF_2026-08-05.md (self-contained; exact files, vocabulary table, 7 verify steps). Follow-ups NOT in scope: news FTS5 search (10,845 rows, zero text index today — the only FTS in the DB serves 30 memories); IV history wiring (volatility_history 1.88M rows, but live iv_daily holds only 5 sessions); threshold-based push surfacing (7,004 names/day makes a 1-in-1,000 event fire ~7x/day by construction); any UI.",
+   "updated_at": "2026-08-05"
+  },
+  {
    "id": "agent-price-levels-and-bars",
    "title": "Agent price levels: PWH/PWL unblocked, month+52wk added, and a SHAPE-only bars resource",
    "lane": "done",
