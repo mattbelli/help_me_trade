@@ -227,13 +227,17 @@ snapshot per sweep). Open threads only:
   2026-08-05; **Amendment 1 REGISTERED + APPROVED same day**
   (`O_SIGN_VALIDATION_AMENDMENT1_2026-08-05.md`, 4 rounds, v4 APPROVE×2 — BUILD_LOG
   row). **All 15 Build-obligation deltas BUILT 2026-08-05** (BUILD_LOG row: +20 pinned
-  tests, module 34/34 green, full suite 3,980 green). ⏳ NEXT: RUN the amended stages
-  in order on serv (scripts run from `dev/help_me_trade`): `record_shas` → `s2meta`
-  (persists inter-leg spans + leg classes; the p90 ≤ 1 ms precondition then gates every
-  Step-2 stage) → `fetch1p` (17 fresh sessions `pool[3::6]` — 08-04 snapshots barred by
-  construction) → `step1p` (provisional verdict; rows (iv)–(viii) finalize at the gate
-  on the composition-reweighted LB) → `pilot_fetch` → `pilot` → `gate` → `fetch2`/`step2`
-  only on LIVE′. Any 3.4 revival must
+  tests, module 34/34 green, full suite 3,980 green). ✅ CLOSED 2026-08-05: **Step 1′
+  RAN — final verdict INSTRUMENT-WEAK′; the o-sign family is DEAD (arm 2 of 2 per the
+  family ledger — no further arm without a NEW prereg); forward returns NEVER unsealed**
+  (BUILD_LOG row). The instrument REPLICATED out-of-sample (mixture a_cal 0.845
+  bootstrap-t [0.780, 0.878], perm p 2×10⁻⁵, κ 0.69 on 17 fresh disjoint `pool[3::6]`
+  sessions, 5,100 events 0 fetch faults; placebo law + positive control passed; regime
+  post-Feb STRONGER 0.910 vs 0.821) — but the composition-reweighted LB of record
+  0.769 < θ* 0.90 (pilot-refined; keep-rate 0.29), and the conjunction gate failed
+  independently: power 0.505 (0.145 at the registered 2× stress), premium-range
+  containment FAILED. Step 2: ZERO fetches. Artifacts `data/research/o_sign/`
+  (step1p.json, s2_leg_meta.json, gate output). Any 3.4 revival must
   start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
   two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
   power gate, isolation on |H| not premium, any-size isolation base).
