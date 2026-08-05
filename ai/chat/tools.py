@@ -105,12 +105,14 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     "get_context": {
         "title": "Symbol context",
         "description": (
-            "Read everything the app knows about a symbol — quote, RVOL, session-node "
-            "levels (POC/VAH/VAL/PDH/PDL), technicals (vs 50/200-DMA, RSI, ATR), "
-            "fundamentals, earnings, recent news headlines, strategy playbook signals, "
-            "the calibrated decision score, and active alerts. "
+            "Read everything the app knows about a symbol — quote, RVOL, price levels "
+            "(POC/VAH/VAL, prior day PDH/PDL, prior week PWH/PWL, prior month PMH/PML, "
+            "52-week 52WH/52WL), technicals (vs 50/200-DMA, RSI, ATR), fundamentals, "
+            "earnings, recent news headlines, strategy playbook signals, the calibrated "
+            "decision score, and active alerts. "
             "Use this FIRST for any question about a symbol's data/levels/signals — "
-            "do NOT web_search for our own data."
+            "do NOT web_search for our own data, and do NOT derive a level by "
+            "arithmetic when one of these is the answer."
         ),
     },
     "list_capabilities": {
@@ -223,8 +225,8 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Create a price alert (a notification, not an order). direction: "
             "above|below|cross (default cross); repeat=true for a persistent alert "
             "that re-arms after each crossing. To set an alert at a named level "
-            "(VAL/POC/VAH/PDH/PDL), first call get_context(symbol) to read that "
-            "level's price."
+            "(VAL/POC/VAH/PDH/PDL/PWH/PWL/PMH/PML/52WH/52WL), first call "
+            "get_context(symbol) to read that level's price."
         ),
     },
     "update_price_alert": {

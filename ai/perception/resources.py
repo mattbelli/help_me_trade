@@ -1055,6 +1055,97 @@ async def _read_options_chain(
     return [chain]
 
 
+_BARS_MAX = 120
+# Calendar days spanned per bar, used to size the fetch window from the bar count asked
+# for. Intraday factors are 1/(bars per RTH session); daily+ carry weekend/holiday slack.
+_BARS_DAY_SPAN: dict[str, float] = {
+    "5Min": 1 / 78,
+    "15Min": 1 / 26,
+    "1Hour": 1 / 7,
+    "1Day": 1.5,
+    "1Week": 7.5,
+    "1Month": 32.0,
+}
+_BARS_TIMEFRAMES: dict[str, str] = {
+    "5min": "5Min",
+    "15min": "15Min",
+    "1hour": "1Hour",
+    "hourly": "1Hour",
+    "1day": "1Day",
+    "daily": "1Day",
+    "1week": "1Week",
+    "weekly": "1Week",
+    "1month": "1Month",
+    "monthly": "1Month",
+}
+
+
+async def _read_bars(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    """Bounded OHLC candles for SHAPE questions — basing, gaps, what-happened-after.
+
+    Deliberately thin. Every NUMBER the agent quotes must come from a deterministic
+    producer (get_context technicals + session_nodes), never from the model doing
+    arithmetic over these rows: on 08-03 the copilot, denied a prior-week high,
+    reverse-engineered "~$437" out of a rounded percentage and presented it as a
+    level. Bars answer "what did this do", not "what is the number".
+    """
+    del db_path
+    import math
+
+    from brokers.factory import get_market_data_provider
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        return [{"error": 'symbol filter required (e.g. {"symbol": "TSM"})'}]
+
+    raw_tf = str(filters.get("timeframe") or "1Day").strip().lower()
+    timeframe = _BARS_TIMEFRAMES.get(raw_tf)
+    if timeframe is None:
+        return [
+            {
+                "error": f"unsupported timeframe {raw_tf!r}",
+                "supported": sorted(set(_BARS_TIMEFRAMES.values())),
+            }
+        ]
+
+    try:
+        limit = min(max(int(filters.get("limit") or 30), 1), _BARS_MAX)
+    except (TypeError, ValueError):
+        limit = 30
+
+    provider = get_market_data_provider()
+    span = _BARS_DAY_SPAN[timeframe]
+    pad = 3 if span < 1 else 7
+    days = max(2, math.ceil(limit * span) + pad)
+    bars = await provider.aget_stock_bars(symbol, timeframe=timeframe, days=days)
+    if not bars:
+        return [{"symbol": symbol, "timeframe": timeframe, "count": 0, "bars": []}]
+
+    window = bars[-limit:]
+    return [
+        {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "count": len(window),
+            "period_high": round(max(b.high for b in window), 4),
+            "period_low": round(min(b.low for b in window), 4),
+            "first_open": round(window[0].open, 4),
+            "last_close": round(window[-1].close, 4),
+            "bars": [
+                {
+                    "t": b.time,
+                    "o": round(b.open, 4),
+                    "h": round(b.high, 4),
+                    "l": round(b.low, 4),
+                    "c": round(b.close, 4),
+                    "v": b.volume,
+                }
+                for b in window
+            ],
+        }
+    ]
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -1392,6 +1483,27 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_oi_walls,
     },
+    "bars": {
+        "description": (
+            "OHLC candles for ONE symbol — 5Min/15Min/1Hour/1Day/1Week/1Month, "
+            "newest last, plus the returned window's high/low/first-open/last-close. "
+            "Use these for SHAPE questions the numbers can't answer: has it been "
+            "basing, did it gap and fill, what did it do after the last earnings. "
+            "Do NOT compute indicators, moving averages or levels from these rows — "
+            "get_context already returns those computed exactly (sma50/sma200/rsi14/"
+            "atr14/trend under technicals, and POC/VAH/VAL/PDH/PDL/PWH/PWL/PMH/PML/"
+            "52WH/52WL under session_nodes). A level derived by reading candles is a "
+            "guess wearing the clothes of data; quote the computed one instead."
+        ),
+        "filters": {
+            "symbol": "required — ticker",
+            "timeframe": (
+                "optional — 5Min | 15Min | 1Hour | 1Day (default) | 1Week | 1Month"
+            ),
+            "limit": "optional int — bars returned, default 30, max 120",
+        },
+        "read": _read_bars,
+    },
 }
 
 
@@ -1447,6 +1559,11 @@ _RESOURCE_ALIASES = {
     "oi": "oi_walls",
     "walls": "oi_walls",
     "strike_walls": "oi_walls",
+    "candles": "bars",
+    "candlesticks": "bars",
+    "ohlc": "bars",
+    "ohlcv": "bars",
+    "weekly_candle": "bars",
     "unusual_flow": "flow_perception",
     "unusual_options_flow": "flow_perception",
     "flow_scan": "flow_perception",
