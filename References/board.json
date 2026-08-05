@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-03",
+ "updated_at": "2026-08-05",
  "lanes": [
   "inbox",
   "founder",
@@ -27,6 +27,22 @@
    "priority": "high",
    "owner": "orchestrator",
    "notes": "SHIPPED 2026-08-03. Phone-chat probe (chat_011d7f69de04): asked for TSM's previous-week high, the copilot answered \"our session-node data doesn't carry a PWH field\" while PWH=420.35 / PWL=372.72 sat in the fusion_session_levels row it had just fetched. PWH/PWL shipped 07-21 (ff5bc41) to the producer, the fusion cache and the chart — every surface EXCEPT the agent, because ai/perception/context._flatten_session_nodes enumerated five keys. Denied the level, the model then reverse-engineered '~$437' out of a rounded dist_from_20d_high_pct and presented it as a reference point, and offered to web-search for a weekly high we already hold — the exact failure WIRE IT EVERYWHERE names. Fix, three parts: (1) flattener is name-driven so any level the producer learns to emit rides through, plus the two hand-written level lists in ai/chat/tools.py; (2) new signals/price_levels.compute_extended_levels — PMH/PML (prior COMPLETED calendar month, mirroring PWH's contract) and 52WH/52WL (trailing, INCLUDING today's forming bar), computed off the 420 daily bars perception already fetches so zero extra network calls; kept OUT of compute_session_levels on purpose because that output feeds the live fusion nearest_level path and new levels would silently change which one is 'nearest'; short history OMITS 52wk rather than mislabel a 3-month high. (3) new `bars` perception resource (5Min→1Month, ≤120 bars, aliases candles/ohlc/ohlcv), deliberately thin and described as SHAPE-only — every NUMBER stays with its deterministic producer. Live check: the 1Week candle for w/o 07-27 reads h=420.35 / l=372.72, matching the stored PWH/PWL from an independent path. Founder design calls that shaped it: the LLM must never compute indicators we already compute mechanically, and a small model does NOT belong on the numeric path — retrieval/rerank earns its cost only on corpora that can't fit, now its own thread. Fenced to equities (a futures root's daily history spans contract ROLLS, so a 52-week high off it is a roll artifact) — caught in self-review, pinned by test. 3,963 passed / 1 skipped, ruff + typecheck clean. Open: chart + price-alert surfaces still don't draw PMH/PML/52WH/52WL; opening-range and gap levels not built.",
+   "updated_at": "2026-08-03"
+  },
+  {
+   "id": "o-sign-validation-go",
+   "title": "GO/no-GO: validate the o-band SIGN convention (the cheap unlock left standing after 3.4 round 1)",
+   "lane": "founder",
+   "notes": "OPEN 2026-08-03. The §3 design doc registered a required sanity check that never ran: does aggregate o-implied direction skew the RIGHT way on days with known moves? If YES, the o-confident slice (~3.5% of clean 2-leg packages by count, ~12% of clean-pair premium) gets a usable spread-orientation label TODAY, with no hedge test and no new data spend. It consumes outcome-adjacent data at aggregate grain — so it needs its own small founder-visible prereg BEFORE any code (registered direction-of-skew prediction, dated, one look). Your call: GO → orchestrator writes the prereg for your review; no-GO → 3.4 stays fully parked and the o label stays concentration-only (sign-agnostic).",
+   "created_at": "2026-08-03",
+   "updated_at": "2026-08-03"
+  },
+  {
+   "id": "flow-34-prereg-round1",
+   "title": "3.4 spread-orientation prereg round 1 — census + draft + two-Opus review → BLOCKED; 3.4 PARKED-ACCRUAL",
+   "lane": "done",
+   "notes": "CLOSED 2026-08-03. Stage-0 census (tools/hedge_orientation_census.py, 12/105 code-provenance sessions): 143,944 filtered 2-leg packages, 40% |netΔ|<0.05, o-confident 3.5%, D*>=3 0.5%, validation cell 67 ev/53 und (~586 naive projection, UPPER BOUND — isolation omitted). Draft: hedge-direction vs o-band agreement on the confident∧detectable∧quiet cell. Review (split mandates, both BLOCK, findings MEASURED): honest cell ~30–65 vs ~300–500 the power gate demands (~10× short; isolation kills 98% in 3.2); the o SIGN CONVENTION itself never validated (§3 sanity check never ran) and σ_o mechanically couples to the underlying's concurrent move (∂o/∂S cancels netΔ → σ_o reads sign(δS)); stress leg as drafted algebraically vacuous; cell 75% call-call (least readable per §3c), ~half calendars with netΔ-sign flip hazard, 18–33% out-of-band 'edges'. Banked: COUNT-weighted o-corner enrichment on the 5 fresh OOS sessions = 2.28× spread-edge / 1.85× registered form (vs 4.7×/3.33× premium-weighted; tools/o_corner_count_weighted.py). Full record: ROADMAP 3.4 round-1 block + BUILD_LOG 2026-08-03 row. Revival = fix-list in the ROADMAP block + years of accrual OR the founder-gated o sign validation (see founder card).",
+   "created_at": "2026-08-03",
    "updated_at": "2026-08-03"
   },
   {

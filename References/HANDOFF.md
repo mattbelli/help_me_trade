@@ -212,10 +212,20 @@ snapshot per sweep). Open threads only:
   controls-only power estimates are ~2× optimistic — carry a realized-vol stress.
   ⚠️ Fence note stands: `resolve()` returns None for non-last-reuse-segment dates;
   any consumer added later must handle None.
-  ⏳ **Next Phase-3 move (now the ACTIVE one): 3.4 spread orientation** — NOT gated on
-  3.3 (needs only 3.2's CONFIRMED direction result); unlocks the ~33% of premium
-  fenced as spreads. Needs its own pre-registration round (founder-visible). No
-  collision with the live-pairing thread (other agent).
+  ⏳ **3.4 spread orientation: prereg round 1 ran 2026-08-03 and closed BLOCKED — see
+  ROADMAP 3.4 round-1 block + BUILD_LOG row.** Two-Opus split-mandate review killed the
+  o-band-agreement design at today's corpus size (validation cell ~30–65 events after
+  honest filters vs ~300–500 the power gate demands, ~10× short) AND on validity (the
+  o sign convention itself was never validated — §3's own required sanity check never
+  ran — and σ_o mechanically couples to the underlying's concurrent move). 3.4 is
+  PARKED-ACCRUAL. **The named unlock, needing a founder GO + its own small prereg: the
+  o sign-convention validation** (does aggregate o-implied direction skew the right way
+  on known-move days?) — if o's direction validates, the confident slice gets a usable
+  orientation label WITHOUT the hedge test; it touches outcome-adjacent data at
+  aggregate grain, hence founder-visible registration first. Any 3.4 revival must
+  start from the round-1 fix-list in the ROADMAP block (residualization on (m, m²),
+  two-sided verdict incl. INVERTED, in-band-only edges, label-accuracy sweep in the
+  power gate, isolation on |H| not premium, any-size isolation base).
 - **⏳ Deferred until a consumer exists:** wire `by_measure` calls into the idea ledger so grading
   can rank the three weightings ordinally.
 - **⏳ Two known guard holes** (deliberate, close later): 16:00–16:15 ET index-settlement window
