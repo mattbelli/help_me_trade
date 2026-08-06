@@ -255,7 +255,13 @@ const RowBody = memo(function RowBody({
         jiggle,
       ]}
     >
-      <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={250} unstable_pressDelay={70}>
+      {/* LONG-PRESS TIMING IS LOAD-BEARING: RN fires onLongPress at
+          delayLongPress + unstable_pressDelay (Pressability), and the list's
+          panActivateAfterLongPress={280} cancels this responder the moment the
+          drag pan activates. 180+70 = 250ms keeps edit mode ahead of it by the
+          same 30ms margin the pre-pressDelay build had; at 250+70 = 320ms the
+          pan won and edit mode never opened. Change one, re-check the other. */}
+      <PressableScale onPress={onPress} onLongPress={onLongPress} delayLongPress={180} unstable_pressDelay={70}>
         <Row align="center" gap={0} style={{ paddingVertical: ROW_PV, paddingLeft: PAD_L, paddingRight: PAD_R }}>
           {editing ? (
             <Pressable onPress={onDelete} hitSlop={12} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: PAD_L, alignItems: 'center', justifyContent: 'center', zIndex: 4 }}>

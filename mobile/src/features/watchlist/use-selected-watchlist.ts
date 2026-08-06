@@ -9,11 +9,18 @@
  * WS) MUST agree, or the app displays list A while streaming list B — frozen
  * rows, no error. Do not lift this back into per-instance useState.
  *
+ * It is read through useSyncExternalStore, NOT by touching `sharedId` during
+ * render. React Compiler is on (app.json experiments.reactCompiler) and cannot
+ * see a mutable module variable as a dependency: reading it directly let the
+ * compiler cache `selected` against `state`, so tapping a list re-rendered the
+ * screen but handed back the previous list — the picker only appeared to work
+ * after an app restart (fresh mount = empty memo cache).
+ *
  * Fallback order when the stored id is missing or its list was deleted:
  * server-active list → first list.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 import type { WatchlistList, WatchlistsState } from '@/api/types';
 
@@ -28,35 +35,40 @@ function setSharedId(id: string) {
   listeners.forEach((notify) => notify());
 }
 
+// Stable module-level store fns — useSyncExternalStore resubscribes if these
+// change identity.
+function subscribe(notify: () => void): () => void {
+  listeners.add(notify);
+  if (!hydrateStarted) {
+    hydrateStarted = true;
+    void AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
+      // A user tap that raced the read wins over the persisted value.
+      if (saved && sharedId == null) setSharedId(saved);
+    });
+  }
+  return () => {
+    listeners.delete(notify);
+  };
+}
+
+function getSnapshot(): string | null {
+  return sharedId;
+}
+
+function select(id: string): void {
+  setSharedId(id);
+  void AsyncStorage.setItem(STORAGE_KEY, id);
+}
+
 export function useSelectedWatchlist(state: WatchlistsState | undefined): {
   selected: WatchlistList | undefined;
   select: (id: string) => void;
 } {
-  const [, bump] = useState(0);
-
-  useEffect(() => {
-    const notify = () => bump((n) => n + 1);
-    listeners.add(notify);
-    if (!hydrateStarted) {
-      hydrateStarted = true;
-      void AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
-        // A user tap that raced the read wins over the persisted value.
-        if (saved && sharedId == null) setSharedId(saved);
-      });
-    }
-    return () => {
-      listeners.delete(notify);
-    };
-  }, []);
-
-  const select = (id: string) => {
-    setSharedId(id);
-    void AsyncStorage.setItem(STORAGE_KEY, id);
-  };
+  const selectedId = useSyncExternalStore(subscribe, getSnapshot);
 
   const lists = state?.lists ?? [];
   const selected =
-    lists.find((l) => l.id === sharedId) ??
+    lists.find((l) => l.id === selectedId) ??
     lists.find((l) => l.id === state?.active_id) ??
     lists[0];
 
