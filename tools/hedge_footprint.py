@@ -175,6 +175,10 @@ def build_condition_table() -> dict[str, dict[str, list[str]]]:
     `qct` is NOT part of the exclusion set proper: a Qualified Contingent Trade
     is ANOTHER party's tied stock leg and is reported separately rather than
     read as this event's hedge.
+
+    `stock_option` ('V', both tapes) marks the stock leg of a stock-option
+    trade — registered by the o sign-validation prereg (2026-08-03): the
+    '7'∧'V' conjunction is that study's stock-leg universe. Not an exclusion.
     """
     common_oos = ["P", "Z", "U", "T"]     # prior-reference-price + out-of-sequence
     return {
@@ -186,6 +190,7 @@ def build_condition_table() -> dict[str, dict[str, list[str]]]:
             "derivatively_priced": ["4"],
             "excluded": sorted(set(common_oos + ["B", "4"])),
             "qct": ["7"],
+            "stock_option": ["V"],
         },
         "UTP": {
             "regular": ["@"],
@@ -195,6 +200,7 @@ def build_condition_table() -> dict[str, dict[str, list[str]]]:
             "derivatively_priced": ["4"],
             "excluded": sorted(set(common_oos + ["W", "4"])),
             "qct": ["7"],
+            "stock_option": ["V"],
         },
     }
 
