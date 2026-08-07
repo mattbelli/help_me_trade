@@ -10,6 +10,15 @@
  ],
  "cards": [
   {
+   "id": "report-generation-mobile-handoff",
+   "title": "Report generation: 4 generator-side fixes from the mobile client's handoff",
+   "lane": "in_progress",
+   "type": "fix",
+   "priority": "high",
+   "owner": "orchestrator",
+   "notes": "OPEN 2026-08-07, branch feat/report-generation, one commit per fix. Source: References/SERV_HANDOFF_reports.md (2026-08-06), written after the RN app replaced its report viewer — four things that are generator-side, not rendering-side, with evidence from 25 live reports. (1) DONE - decision-block dump: _DECISION_CONTRACT REQUIRES the model to end with a fenced json block, and run_book_cycle saved that whole stream as the reader-facing body (92% of the 08-06 Deep Seek report, 71% of 07-30); no prompt change could fix it, so the save path strips the block it already parsed. Session-driven books were never affected - they submit report and decision as separate args. (2) candidates as payload DATA (payload stores only a COUNT today, so the phone regexes tickers and prices back out of prose). (3) report-format block into BOTH prompts - neither says anything about structure beyond one clause, which is why Deep Seek writes 0 headings and Fable writes well; also fixes _CHARTER telling the model to put a '## Desk journal' markdown heading INSIDE the json block. (4) kind_label over the API so the masthead stops reading 'flow decomp'. CONTRACT noted: the mobile viewer restyles our report HTML BY CLASS NAME (wrap, hero, badge, meta, summary, metrics, metric-card, metric-label, metric-value, report-section, panel, dual, citations) - keep those stable in render_report_html and flag additions."
+  },
+  {
    "id": "book-pack-blind-stops",
    "title": "Book pack shows stop TRIGGER PRICES — the agent could see that a stop existed, never at what level",
    "lane": "done",

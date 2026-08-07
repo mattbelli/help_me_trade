@@ -184,6 +184,27 @@ def _extract_decision(raw: str) -> tuple[BookDecision | None, str]:
         return None, f"schema error: {exc.errors()[:3]}"
 
 
+def _strip_decision_block(raw: str) -> str:
+    """The reader-facing body: the model's stream minus the decision block we
+    already parsed out of it.
+
+    _DECISION_CONTRACT REQUIRES the report to end with exactly one fenced json
+    block, so the model emitting it is CORRECT behaviour and no prompt change can
+    remove it — but ``raw`` was then saved verbatim as the report body, making
+    the block 92% of the 2026-08-06 Deep Seek report and 71% of 07-30. The
+    session-driven books never had this: they submit report and decision as two
+    separate arguments (submit_session_cycle), which is why Fable reads clean.
+
+    Only the LAST block goes — that is the one _extract_decision consumed; a json
+    block the analyst quoted inside its own prose is prose, and stays.
+    """
+    matches = list(_JSON_BLOCK_RE.finditer(raw or ""))
+    if not matches:
+        return raw or ""
+    last = matches[-1]
+    return (raw[: last.start()] + raw[last.end() :]).strip()
+
+
 async def _run_analysis(llm: Any, system: str, pack: str) -> str:
     """The after-hours research session: an agentic tool loop (read-only
     analyst toolset over our data + web) driven by the proven chat loop,
@@ -443,7 +464,7 @@ async def run_book_cycle(
         kind,
         "",
         title,
-        raw,
+        _strip_decision_block(raw) or "(no prose — the model emitted only its decision block)",
         {
             "et_date": et_date,
             "dedup_key": kind,
