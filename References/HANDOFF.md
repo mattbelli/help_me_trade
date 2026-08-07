@@ -56,12 +56,13 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   surfaces are still blind.** Landed 08-07 (see the log row): the level was missing from the
   `order_snapshots` table itself, so this is a schema migration — it applies on the next `init_db`,
   meaning the **backend must restart** and one poll must write a fresh snapshot before tonight's pack
-  shows anything. Historic rows stay null by design. Still open: `brokers/schwab.py::_parse_orders`
-  populates neither `stop_price` nor `time_in_force`, so the 4 real read-only accounts remain blind on
-  `/api/orders` — blocked on one real Schwab order payload to confirm the field names (no repo
-  evidence, no test coverage of that parser; do NOT guess them). And `ai/perception/resources.py` has
-  no open-orders resource at all, so outside the nightly pack the agent still cannot see its own
-  resting risk on demand.
+  shows anything. Historic rows stay null by design. **Deployed + verified live 08-07**: all four book
+  stops now carry their trigger (AMZN 233.00 / GOOGL 341.90 / MU 787.90 / PAYC 207.40), and AMZN +
+  GOOGL match the levels recorded here on 08-01 from a different process. Schwab's two parsers have
+  the same defect and are now their own card, `schwab-orders-blind-stops` — **not** blocked as first
+  written: the field names (`stopPrice`, `duration`) are confirmed in the vendored schwab-py.
+  Also open: perception exposes Schwab's accounts (`schwab_accounts` resource) but has no ALPACA
+  open-orders resource, so outside the nightly pack the books cannot query their own resting risk.
 - **⏳ First real exit is the verify.** Deployed 08-01 16:16 UTC (backend PID 2093943, frontend
   2094116, both collectors); the release path has never run against a live broker. Watch the first
   book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
@@ -349,6 +350,19 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
     engine own it, or resume the panel.
 
 Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
+- ⚠ **2026-08-07 prompt amendment is live and UNVERIFIED against a real cycle.** Both prompts grew a
+  `## Report format` section (see the log row); it is pinned identical across `fable.md` and
+  `_CHARTER` by test, because the two books are compared and a format drifting onto one is a
+  confound — keep them in step. The block asserts client behaviour (TL;DR → standfirst, tables
+  stacking below 560px, signed figures auto-coloured) taken from
+  `mobile/src/features/reports/report-document.ts`, which is **not on `origin/feat/mobile-app`** —
+  that viewer is unpushed and the claims could not be checked from here. Watch the first Fable and
+  Deep Seek cycles after deploy: expect real `##` sections in both and no json in the prose.
+- ⚠ **The mobile viewer restyles our report HTML BY CLASS NAME** — `wrap · hero · badge · meta ·
+  summary · metrics · metric-card · metric-label · metric-value · report-section · panel · dual ·
+  citations` in `render_report_html` (`ai/research/report.py`). Structural HTML changes are free;
+  the class names are now a cross-client contract, and a new class renders unstyled on the phone.
+  Flag additions rather than discovering them on a phone.
 - ⏳ first fully-armed nightly cycles end-to-end at 17:05/17:20/17:40 ET (proposals straight from
   the cycle, no replay).
 - MOO probe outcome — see overdue list.

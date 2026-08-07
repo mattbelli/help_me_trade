@@ -103,6 +103,38 @@ def test_save_list_get_round_trip(reports_db: Path) -> None:
     assert fetched["payload"]["session_date"] == "2026-06-24"
 
 
+def test_kind_label_served_on_every_report_row(reports_db: Path) -> None:
+    """The label map was unreachable from the API, so the phone's masthead rendered
+    the raw kind ('flow decomp'). Both read paths now carry kind_label."""
+    from db.reports import get_report, list_reports, save_report
+
+    row = save_report(
+        "flow_decomp", "", "Flow Decomposition · 2026-08-06", "body", {}, db_path=reports_db
+    )
+    assert row["kind_label"] == "Flow Decomposition"
+    assert list_reports(limit=5, db_path=reports_db)[0]["kind_label"] == "Flow Decomposition"
+    fetched = get_report(row["id"], db_path=reports_db)
+    assert fetched is not None and fetched["kind_label"] == "Flow Decomposition"
+
+
+def test_every_book_kind_has_a_label(reports_db: Path) -> None:
+    """db/ cannot import research/ without inverting the layering, so the book
+    labels are written out by hand. This is what stops them drifting: add a book
+    and the map has to grow with it."""
+    from db.reports import REPORT_KIND_LABELS
+    from research.books import BOOKS
+
+    missing = [b for b in BOOKS if f"book_{b}" not in REPORT_KIND_LABELS]
+    assert not missing, f"book kinds without a label: {missing}"
+
+
+def test_unknown_kind_falls_back_readable_not_wrong(reports_db: Path) -> None:
+    """An unlabelled kind should read as itself, not inherit a tidy wrong default."""
+    from db.reports import kind_label
+
+    assert kind_label("some_new_kind") == "Some New Kind"
+
+
 def test_morning_levels_one_per_et_day(reports_db: Path) -> None:
     from db.reports import morning_levels_exists_for_day, save_report
 

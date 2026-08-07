@@ -145,6 +145,64 @@ def test_dry_cycle_registers_lanes_saves_report_and_inbox_row(tmp_path: Path) ->
     assert _notification_count(db) == 1  # the app/web inbox row
 
 
+def test_report_body_drops_the_decision_block_it_already_parsed(tmp_path: Path) -> None:
+    """The block is REQUIRED output (_DECISION_CONTRACT), so no prompt change can
+    remove it — the save path has to. It was 92% of the 2026-08-06 Deep Seek report,
+    which the phone then collapsed behind a disclosure, reading as 'output is tiny'."""
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
+    body = recent_reports_by_kind("book_deepseek", db_path=db)[0]["body"]
+    assert "## Nightly report" in body and "Markdown body." in body
+    assert "```json" not in body
+    assert "post-selloff basing above support" not in body  # block content, not prose
+    # The parsed decision is not lost — it rides the payload, where it is usable.
+    payload = recent_reports_by_kind("book_deepseek", db_path=db)[0]["payload"]
+    assert payload["journal"].startswith("stalking AAPL")
+
+
+def test_candidate_plans_ride_the_payload_as_data(tmp_path: Path) -> None:
+    """The client had to regex prices and tickers back out of prose — inference over
+    something we know exactly. Every plan field the analyst filled in is now data."""
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
+    payload = recent_reports_by_kind("book_deepseek", db_path=db)[0]["payload"]
+    plans = payload["candidate_plans"]
+    assert [p["symbol"] for p in plans] == ["AAPL", "MSFT", "IWM"]
+    aapl = plans[0]
+    assert aapl["entry_low"] == "199" and aapl["entry_high"] == "201"
+    assert aapl["stop"] == "195" and aapl["targets"] == ["210"]
+    assert aapl["confidence_label"] == "medium" and aapl["notional_usd"] == 400
+    assert aapl["direction"] == "long" and aapl["entry_type"] == "moo"
+    # Considered-only picks carry their reference price, not a fabricated zone.
+    assert plans[1]["entry_ref_price"] == "500" and plans[1]["advanced"] is False
+    # "candidates" keeps meaning the COUNT — stored reports already say so.
+    assert payload["candidates"] == 3
+
+
+def test_prose_json_block_survives_only_the_decision_goes(tmp_path: Path) -> None:
+    """Only the LAST block is the contract. A json block the analyst quotes inside
+    its own prose is prose, and stripping it would silently edit the report."""
+    quoted = (
+        "## Nightly report\n\nThe API returned:\n\n```json\n{\"quoted\": true}\n```\n\n"
+        "That is why I passed.\n\n```json\n" + json.dumps(GOOD_DECISION) + "\n```\n"
+    )
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([quoted]))["status"] == "ok"
+    body = recent_reports_by_kind("book_deepseek", db_path=db)[0]["body"]
+    assert '{"quoted": true}' in body
+    assert "holds_review" not in body
+    assert body.rstrip().endswith("That is why I passed.")
+
+
+def test_block_only_completion_saves_an_honest_placeholder(tmp_path: Path) -> None:
+    """Strip-to-empty must not store a blank body — the row should say what happened."""
+    db = tmp_path / "t.db"
+    only_block = "```json\n" + json.dumps(GOOD_DECISION) + "\n```"
+    assert _run(db, llm=FakeLLM([only_block]))["status"] == "ok"
+    body = recent_reports_by_kind("book_deepseek", db_path=db)[0]["body"]
+    assert body == "(no prose — the model emitted only its decision block)"
+
+
 def test_journal_feeds_back_into_next_pack(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
     assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
@@ -365,6 +423,8 @@ def test_session_submit_panel_registers_seats_and_delivers(
     assert [r["symbol"] for r in list_ledger_rows(origin="book:panel/bear", db_path=db)["rows"]] == ["XLF"]
     reports = recent_reports_by_kind("book_panel", db_path=db)
     assert len(reports) == 1 and reports[0]["payload"]["journal"].startswith("bear seat")
+    # The session path carries the plans as data too — Fable is the live book.
+    assert [p["symbol"] for p in reports[0]["payload"]["candidate_plans"]] == ["NVDA", "XLF"]
     assert _notification_count(db) == 1
     # Same day re-submit dedups.
     again = asyncio.run(

@@ -25,6 +25,7 @@ from ai.llm.structured import parse_json_object
 from ai.research.report import render_report_html
 from config.settings import short_selling_allowed
 from db.base import DEFAULT_DB_PATH
+from db.reports import REPORT_KIND_LABELS as _REPORT_KIND_LABELS
 from db.reports import save_report
 from db.strategies import get_strategy
 from signals.session_node_strategy import compute_session_levels
@@ -35,14 +36,9 @@ logger = logging.getLogger(__name__)
 SESSION_NODE_STRATEGY_ID = "session_node_spy"
 
 # Human labels per kind (title prefixes + HTML meta line for the LLM briefs).
-REPORT_KIND_LABELS: dict[str, str] = {
-    "morning_levels": "Morning Levels",
-    "levels": "Levels",
-    "morning_brief": "Morning Brief",
-    "evening_brief": "Evening Brief",
-    "on_request": "On-Request Report",
-    "flow_decomp": "Flow Decomposition",
-}
+# Moved to db/reports.py so the API can serve it as `kind_label` — re-exported
+# here because this module's callers have always imported it from here.
+REPORT_KIND_LABELS = _REPORT_KIND_LABELS
 
 # Shared JSON contract appended to every brief system prompt.
 _BRIEF_JSON_CONTRACT = (
