@@ -10,6 +10,7 @@ from signals.options_flow import constants as C
 from signals.options_flow.intraday import (
     aggregate_directional_pressure,
     classify_direction,
+    classify_midpoint,
     detect_block,
     is_hygiene_excluded,
     is_multileg,
@@ -231,6 +232,71 @@ def test_classify_direction_eps_boundary() -> None:
     assert classify_direction(price=4.02, bid=4.0, ask=5.0, eps=0.01) == "undetermined"
 
 
+# --- corpus midpoint annotation (classify_midpoint) -------------------------------
+
+
+def test_classify_midpoint_sides() -> None:
+    assert classify_midpoint(price=4.6, bid=4.0, ask=5.0) == "buy"
+    assert classify_midpoint(price=4.4, bid=4.0, ask=5.0) == "sell"
+    assert classify_midpoint(price=4.5, bid=4.0, ask=5.0) == "unclassified"
+
+
+def test_classify_midpoint_wide_spread_fence() -> None:
+    # spread 2.0 > 0.5 * mid 3.0 → fenced, exactly like the corpus v7 rule
+    assert classify_midpoint(price=3.5, bid=2.0, ask=4.0) == "wide_spread"
+    # spread exactly at the fence is NOT wide (corpus uses strict >)
+    assert classify_midpoint(price=4.5, bid=3.0, ask=5.0) == "buy"
+
+
+def test_classify_midpoint_bad_quotes() -> None:
+    assert classify_midpoint(price=4.5, bid=None, ask=5.0) == "unclassified"
+    assert classify_midpoint(price=4.5, bid=4.0, ask=None) == "unclassified"
+    assert classify_midpoint(price=4.5, bid=0.0, ask=5.0) == "unclassified"
+    assert classify_midpoint(price=4.5, bid=5.0, ask=4.0) == "unclassified"
+    assert classify_midpoint(price=4.5, bid=4.5, ask=4.5) == "unclassified"
+
+
+def test_classify_midpoint_parity_with_corpus_fence() -> None:
+    """The scalar mirror may NEVER drift from the corpus fence_and_classify.
+
+    Runs both implementations over the same cases (dollars scaled to raw DBN
+    fixed-point for the corpus side) and asserts identical labels, plus that
+    the local fence constant still equals the corpus one.
+    """
+    np = pytest.importorskip("numpy")
+    from signals.options_flow.intraday import MID_SPREAD_MAX_FRAC
+    from tools.flow_corpus_rollup import PX, SPREAD_MAX_FRAC, UNDEF, fence_and_classify
+
+    assert MID_SPREAD_MAX_FRAC == SPREAD_MAX_FRAC
+
+    corpus_label = {0: "buy", 1: "sell", 2: "unclassified", 3: "wide_spread"}
+    cases = [
+        (4.6, 4.0, 5.0),    # above mid
+        (4.4, 4.0, 5.0),    # below mid
+        (4.5, 4.0, 5.0),    # at mid
+        (3.5, 2.0, 4.0),    # wide fence
+        (4.5, 3.0, 5.0),    # spread exactly at the fence boundary (strict >)
+        (4.5, 5.0, 4.0),    # crossed
+        (4.5, 0.0, 5.0),    # zero bid
+        (4.5, None, 5.0),   # missing bid → UNDEF on the corpus side
+        (0.05, 0.01, 0.10), # deep-penny wide quote
+    ]
+    dt = np.dtype(
+        [("price", "i8"), ("size", "u4"), ("bid_px_00", "i8"), ("ask_px_00", "i8")]
+    )
+    arr = np.zeros(len(cases), dtype=dt)
+    for i, (price, bid, ask) in enumerate(cases):
+        arr[i]["price"] = int(round(price * PX))
+        arr[i]["size"] = 1
+        arr[i]["bid_px_00"] = UNDEF if bid is None else int(round(bid * PX))
+        arr[i]["ask_px_00"] = UNDEF if ask is None else int(round(ask * PX))
+    fenced = fence_and_classify(arr)
+    for i, (price, bid, ask) in enumerate(cases):
+        assert classify_midpoint(price=price, bid=bid, ask=ask) == corpus_label[
+            int(fenced.side[i])
+        ], f"case {i}: {(price, bid, ask)}"
+
+
 # --- BLK-1 detect_block ----------------------------------------------------------
 
 
@@ -250,6 +316,18 @@ def test_detect_block_fires_at_thresholds() -> None:
     assert "buy_side" in ev["reason"]
     assert "Savickas-Wilson" in ev["caveat"]
     _assert_no_forbidden_keys(ev)
+
+
+def test_detect_block_carries_mid_side() -> None:
+    p = _print()
+    p["mid_side"] = "buy"
+    ev = detect_block(p, event_date="2026-07-09", direction="undetermined")
+    assert ev is not None
+    assert ev["mid_side"] == "buy"
+    # un-stamped prints (e.g. older paths) yield None, never a guessed side
+    ev2 = detect_block(_print(), event_date="2026-07-09")
+    assert ev2 is not None
+    assert ev2["mid_side"] is None
 
 
 def test_detect_block_rejects_below_size() -> None:

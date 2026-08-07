@@ -10,6 +10,15 @@
  ],
  "cards": [
   {
+   "id": "flow-mid-annotation",
+   "title": "Live flow events carry the corpus midpoint side (mid_side) beside DIR-1 — honestly labeled, never a confirmed-aggressor claim",
+   "lane": "done",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "orchestrator",
+   "notes": "DONE 2026-08-07. Follow-through on the o-sign Step 1' result (instrument real at ~0.85, family DEAD as a trading study): the validated PRIMITIVE — midpoint signing — now annotates the live tape. classify_midpoint() in signals/options_flow/intraday.py is a scalar mirror of the corpus fence_and_classify (v7 fence, SPREAD_MAX_FRAC parity PINNED by test against tools/flow_corpus_rollup — the two implementations cannot drift silently). Stamped in BOTH lanes (runner WS under the same staleness gate as DIR-1; poll) as p['mid_side'] ∈ buy|sell|unclassified|wide_spread; blocks carry it; new mid_side TEXT column in options_flow_events (migration via _add_column_if_missing, historic rows stay NULL); print-lab rows carry sparse 'mid'. Detector GATING untouched — spread legs still don't fire blocks, pressure aggregate unchanged; annotation only. UI: honesty flag shows muted 'mid buy'/'mid sell' when DIR-1 is undetermined (side cell keeps the only saturated hue); drawer prose names the rule + ~85%-on-checkable-prints caveat. Perception: options_flow resource description documents mid_side; recent_events is SELECT * so agents get it free. Tests: parity pin + block carry + DB round-trip (105 green in the 4 flow modules), ruff + tsc clean. Pending in-browser check of the widget flag column. Possible follow-up (not opened): midpoint-parallel net in the pressure aggregate."
+  },
+  {
    "id": "schwab-orders-blind-stops",
    "title": "Schwab order parsers drop stop TRIGGER prices + time-in-force — the REAL accounts are blind, including to the agent",
    "lane": "next",

@@ -133,11 +133,21 @@ function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: str
 /**
  * Honesty flag from ``direction_basis`` — always visible, never a tooltip.
  * live quote at ask/bid → "—"; ≤30s polled quote → "polled" (may shift);
- * mid-spread / no quote → the side is undetermined, so "no side" (never guessed).
+ * mid-spread / no quote → undetermined. When undetermined but the corpus
+ * midpoint rule reads a side (mid_side), show it MUTED ("mid buy"/"mid sell")
+ * — an annotation (~85% vs stock-leg ground truth on checkable prints),
+ * never dressed as the confirmed-aggressor read the saturated side cell means.
  */
 function honestyFlag(ev: OptionsFlowEvent): { label: string; cls: string } {
-  if (ev.direction === "undetermined")
+  if (ev.direction === "undetermined") {
+    if (ev.mid_side === "buy")
+      return { label: "mid buy", cls: "text-[var(--c-green)] opacity-60" };
+    if (ev.mid_side === "sell")
+      return { label: "mid sell", cls: "text-[var(--c-red)] opacity-60" };
+    if (ev.mid_side === "wide_spread")
+      return { label: "wide", cls: "text-[var(--fg-faint)]" };
     return { label: "no side", cls: "text-[var(--fg-faint)]" };
+  }
   const b = (ev.direction_basis || "").toLowerCase();
   if (b.startsWith("polled"))
     return { label: "polled", cls: "text-[var(--c-yellow)]" };
@@ -505,7 +515,11 @@ function FlowDetail({
 
   const basis =
     ev.direction === "undetermined"
-      ? "mid-spread — no side claimed"
+      ? ev.mid_side === "buy" || ev.mid_side === "sell"
+        ? `no aggressor confirmed — ${ev.mid_side === "buy" ? "above" : "below"} midpoint (corpus rule, ~85% vs stock-leg ground truth on checkable prints)`
+        : ev.mid_side === "wide_spread"
+          ? "quote too wide for a midpoint read — no side claimed"
+          : "mid-spread — no side claimed"
       : ev.direction_basis === "stream_quote"
         ? "live stream quote"
         : (ev.direction_basis || "").toLowerCase().startsWith("polled")

@@ -40,6 +40,7 @@ from signals.options_flow.intraday import (
     _ts_ms_to_iso,
     aggregate_directional_pressure,
     classify_direction,
+    classify_midpoint,
     detect_block,
     is_hygiene_excluded,
     normalize_print,
@@ -470,6 +471,13 @@ def _run_poll_cycle(
             )
             p["direction"] = direction
             p["direction_basis"] = "polled_quote"
+            # Corpus midpoint rule beside DIR-1 — annotation, never a
+            # confirmed-aggressor claim (same quote the DIR-1 read used).
+            p["mid_side"] = classify_midpoint(
+                price=float(p["price"]),
+                bid=bid if bid is not None else None,
+                ask=ask if ask is not None else None,
+            )
             u = str(p.get("underlying") or "").strip().upper()
             classified_by_u.setdefault(u, []).append(p)
 

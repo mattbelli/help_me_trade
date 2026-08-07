@@ -708,6 +708,8 @@ export type OptionsFlowEvent = {
   vol_zscore: number | null;
   direction: "buy_side" | "sell_side" | "undetermined";
   direction_basis: string;
+  /** Corpus midpoint rule beside DIR-1 — annotation, not a confirmed aggressor. */
+  mid_side?: "buy" | "sell" | "unclassified" | "wide_spread" | null;
   spread_flag: boolean | null;
   n_prints: number | null;
   exchanges: string[];
