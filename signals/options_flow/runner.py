@@ -399,6 +399,7 @@ class OptionsFlowRunner:
         from signals.options_flow.convergence import process_events
         from signals.options_flow.intraday import (
             classify_direction,
+            classify_midpoint,
             detect_block,
             is_hygiene_excluded,
             tag_likely_spreads,
@@ -478,6 +479,7 @@ class OptionsFlowRunner:
                     for p in batch:
                         direction = "undetermined"
                         basis = "none"
+                        mid_side = "unclassified"
                         lab_quote: tuple[float, float, int] | None = None
                         # A transport whose prints carry their own book (Databento
                         # tcbbo) stamps it at ingest, so there is nothing to look
@@ -495,6 +497,11 @@ class OptionsFlowRunner:
                                 direction = classify_direction(
                                     price=float(p.get("price") or 0), bid=bid, ask=ask
                                 )
+                                # Corpus midpoint rule, same freshness gate —
+                                # annotation beside DIR-1, never replacing it.
+                                mid_side = classify_midpoint(
+                                    price=float(p.get("price") or 0), bid=bid, ask=ask
+                                )
                                 if direction != "undetermined":
                                     # Provider-stamped so post-swap events stay
                                     # distinguishable from the Alpaca era in the
@@ -504,6 +511,7 @@ class OptionsFlowRunner:
                                     )
                         p["direction"] = direction
                         p["direction_basis"] = basis
+                        p["mid_side"] = mid_side
                         # BLK-1 on the spine (2026-08-03): single-print blocks
                         # were poll-lane-only, i.e. watchlist-capped, while the
                         # whole-market feed watched every print go by (and the
@@ -535,6 +543,8 @@ class OptionsFlowRunner:
                             "q_ts_ms": lab_quote[2] if lab_quote else None,
                         }
                         # Sparse flags (only-when-true keeps the ~100MB/day file lean).
+                        if mid_side != "unclassified":
+                            row["mid"] = mid_side
                         if p.get("spread_leg") or p.get("likely_spread"):
                             row["spread"] = True
                         if is_hygiene_excluded(p.get("conditions") or []):

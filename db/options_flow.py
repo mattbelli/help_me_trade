@@ -150,6 +150,10 @@ def init_db(db_path: Path | None = None) -> None:
         # in SQL). Weekday / size bucket / 0DTE derive from ts+columns at query time.
         _add_column_if_missing(conn, "options_flow_events", "coverage", "TEXT")
         _add_column_if_missing(conn, "options_flow_events", "minutes_into_session", "INTEGER")
+        # Corpus midpoint side beside DIR-1 (2026-08-07): buy/sell/unclassified/
+        # wide_spread per fence_and_classify's scalar mirror. Annotation only —
+        # detectors never gate on it. Historic rows stay NULL, never backfilled.
+        _add_column_if_missing(conn, "options_flow_events", "mid_side", "TEXT")
         conn.commit()
     # Only after full success — a failed init must retry on the next call.
     _INIT_DONE.add(key)
@@ -239,12 +243,12 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
                 exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
-                coverage, minutes_into_session
+                coverage, minutes_into_session, mid_side
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -268,7 +272,8 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 caveat = excluded.caveat,
                 ret_1d = excluded.ret_1d,
                 ret_5d = excluded.ret_5d,
-                detail = excluded.detail
+                detail = excluded.detail,
+                mid_side = excluded.mid_side
             """,
             (
                 event["id"],
@@ -299,6 +304,7 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 detail_json,
                 event.get("coverage") or "watchlist_capped",
                 _minutes_into_session(str(event["ts"])),
+                event.get("mid_side"),
             ),
         )
         conn.commit()

@@ -1348,8 +1348,12 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "(rewards known aggressor side, short-dated, multi-exchange/many-"
             "print sweeps; log-tames raw premium; discounts index/ETF hedging "
             "noise) — unvalidated, for surfacing only. order=premium is raw "
-            "size. The summary block aggregates the FULL range, not just "
-            "returned rows."
+            "size. Rows also carry mid_side (buy|sell|unclassified|"
+            "wide_spread): the corpus midpoint rule beside DIR-1 direction — "
+            "an annotation measured ~85% against stock-leg ground truth on "
+            "checkable prints (o-sign Step 1', 2026-08-05), NOT a confirmed "
+            "aggressor; direction stays the never-guessed at-quote read. The "
+            "summary block aggregates the FULL range, not just returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",

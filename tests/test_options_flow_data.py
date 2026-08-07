@@ -105,6 +105,18 @@ def test_db_insert_and_recent_round_trip(tmp_path: Path) -> None:
     assert "confidence" not in got
 
 
+def test_db_mid_side_round_trip(tmp_path: Path) -> None:
+    db = tmp_path / "flow.db"
+    of_db.init_db(db)
+    of_db.insert_event(_sample_event(mid_side="sell"), db_path=db)
+    got = of_db.recent_events(db_path=db)[0]
+    assert got["mid_side"] == "sell"
+    # absent on the event dict → NULL in the row, never a guessed side
+    of_db.insert_event(_sample_event(id="of_2026-07-09_NVDA_0002"), db_path=db)
+    rows = {r["id"]: r for r in of_db.recent_events(db_path=db)}
+    assert rows["of_2026-07-09_NVDA_0002"]["mid_side"] is None
+
+
 def test_db_detail_json_round_trip(tmp_path: Path) -> None:
     db = tmp_path / "flow.db"
     of_db.init_db(db)

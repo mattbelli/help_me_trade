@@ -241,6 +241,45 @@ def classify_direction(
     return "undetermined"
 
 
+# Mirror of the corpus wide-quote fence (tools/flow_corpus_rollup.SPREAD_MAX_FRAC,
+# prereg clause 1). Defined locally so the live lane doesn't import the CLI
+# rollup module; tests/test_options_flow_intraday.py pins value AND behavior
+# parity against fence_and_classify, so the two can't drift apart silently.
+MID_SPREAD_MAX_FRAC = 0.50
+
+
+def classify_midpoint(
+    *,
+    price: float,
+    bid: float | None,
+    ask: float | None,
+) -> str:
+    """The corpus midpoint side rule (v7 ``fence_and_classify``), scalar form.
+
+    ``buy`` / ``sell`` / ``unclassified`` / ``wide_spread`` — the corpus
+    alphabet, deliberately distinct from DIR-1's ``buy_side``/``sell_side``:
+    this is an ANNOTATION (the rule measured ~85% against stock-leg ground
+    truth on checkable package legs, o-sign Step 1', 2026-08-05), never a
+    confirmed-aggressor claim. At-mid prints stay ``unclassified``; quotes
+    wider than half the mid are fenced exactly as the corpus fences them.
+    """
+    if bid is None or ask is None:
+        return "unclassified"
+    b = float(bid)
+    a = float(ask)
+    if b <= 0 or a <= 0 or a <= b:
+        return "unclassified"
+    mid = (b + a) / 2.0
+    if (a - b) > MID_SPREAD_MAX_FRAC * mid:
+        return "wide_spread"
+    p = float(price)
+    if p > mid:
+        return "buy"
+    if p < mid:
+        return "sell"
+    return "unclassified"
+
+
 def detect_block(
     print_: dict,
     *,
@@ -300,6 +339,7 @@ def detect_block(
         "vol_zscore": None,
         "direction": direction,
         "direction_basis": direction_basis,
+        "mid_side": print_.get("mid_side"),
         "spread_flag": False,
         "n_prints": 1,
         "exchanges": [exchange] if exchange else [],
