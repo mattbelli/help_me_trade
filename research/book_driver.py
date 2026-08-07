@@ -472,6 +472,12 @@ async def run_book_cycle(
             "armed": armed,
             "dry": not armed,
             "candidates": len(decision.candidates),
+            # The plans as DATA, so a reader renders entry/stop/target cards
+            # instead of regexing prices and tickers back out of prose. A new key
+            # rather than widening "candidates": that one has meant a COUNT in
+            # every stored report, and changing its type would leave clients
+            # type-checking it forever.
+            "candidate_plans": [c.model_dump() for c in decision.candidates],
             "registered": len(registration["registered"]),
             "lane_skipped": registration["skipped"],
             "proposals": proposals,
@@ -558,6 +564,7 @@ async def submit_session_cycle(
             "armed": armed,
             "dry": not armed,
             "candidates": len(decision.candidates),
+            "candidate_plans": [c.model_dump() for c in decision.candidates],
             "registered": len(registration["registered"]),
             "lane_skipped": registration["skipped"],
             "proposals": proposals,

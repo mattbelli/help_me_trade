@@ -160,6 +160,25 @@ def test_report_body_drops_the_decision_block_it_already_parsed(tmp_path: Path) 
     assert payload["journal"].startswith("stalking AAPL")
 
 
+def test_candidate_plans_ride_the_payload_as_data(tmp_path: Path) -> None:
+    """The client had to regex prices and tickers back out of prose — inference over
+    something we know exactly. Every plan field the analyst filled in is now data."""
+    db = tmp_path / "t.db"
+    assert _run(db, llm=FakeLLM([GOOD_RESPONSE]))["status"] == "ok"
+    payload = recent_reports_by_kind("book_deepseek", db_path=db)[0]["payload"]
+    plans = payload["candidate_plans"]
+    assert [p["symbol"] for p in plans] == ["AAPL", "MSFT", "IWM"]
+    aapl = plans[0]
+    assert aapl["entry_low"] == "199" and aapl["entry_high"] == "201"
+    assert aapl["stop"] == "195" and aapl["targets"] == ["210"]
+    assert aapl["confidence_label"] == "medium" and aapl["notional_usd"] == 400
+    assert aapl["direction"] == "long" and aapl["entry_type"] == "moo"
+    # Considered-only picks carry their reference price, not a fabricated zone.
+    assert plans[1]["entry_ref_price"] == "500" and plans[1]["advanced"] is False
+    # "candidates" keeps meaning the COUNT — stored reports already say so.
+    assert payload["candidates"] == 3
+
+
 def test_prose_json_block_survives_only_the_decision_goes(tmp_path: Path) -> None:
     """Only the LAST block is the contract. A json block the analyst quotes inside
     its own prose is prose, and stripping it would silently edit the report."""
@@ -404,6 +423,8 @@ def test_session_submit_panel_registers_seats_and_delivers(
     assert [r["symbol"] for r in list_ledger_rows(origin="book:panel/bear", db_path=db)["rows"]] == ["XLF"]
     reports = recent_reports_by_kind("book_panel", db_path=db)
     assert len(reports) == 1 and reports[0]["payload"]["journal"].startswith("bear seat")
+    # The session path carries the plans as data too — Fable is the live book.
+    assert [p["symbol"] for p in reports[0]["payload"]["candidate_plans"]] == ["NVDA", "XLF"]
     assert _notification_count(db) == 1
     # Same day re-submit dedups.
     again = asyncio.run(
