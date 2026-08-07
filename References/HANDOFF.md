@@ -334,6 +334,19 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
     engine own it, or resume the panel.
 
 Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
+- ⚠ **2026-08-07 prompt amendment is live and UNVERIFIED against a real cycle.** Both prompts grew a
+  `## Report format` section (see the log row); it is pinned identical across `fable.md` and
+  `_CHARTER` by test, because the two books are compared and a format drifting onto one is a
+  confound — keep them in step. The block asserts client behaviour (TL;DR → standfirst, tables
+  stacking below 560px, signed figures auto-coloured) taken from
+  `mobile/src/features/reports/report-document.ts`, which is **not on `origin/feat/mobile-app`** —
+  that viewer is unpushed and the claims could not be checked from here. Watch the first Fable and
+  Deep Seek cycles after deploy: expect real `##` sections in both and no json in the prose.
+- ⚠ **The mobile viewer restyles our report HTML BY CLASS NAME** — `wrap · hero · badge · meta ·
+  summary · metrics · metric-card · metric-label · metric-value · report-section · panel · dual ·
+  citations` in `render_report_html` (`ai/research/report.py`). Structural HTML changes are free;
+  the class names are now a cross-client contract, and a new class renders unstyled on the phone.
+  Flag additions rather than discovering them on a phone.
 - ⏳ first fully-armed nightly cycles end-to-end at 17:05/17:20/17:40 ET (proposals straight from
   the cycle, no replay).
 - MOO probe outcome — see overdue list.

@@ -118,14 +118,46 @@ _CHARTER = (
     "It is after hours. Tonight's context pack is below. RESEARCH FIRST: use your tools — "
     "the firm's own data (get_context on symbols, query across app resources, earnings dates, "
     "list_capabilities to see what's readable) and outside data (web_search) — to pressure-test "
-    "anything you're considering before you write. Then file your nightly report in markdown: "
-    "what you see, what you dug into, your hold/trim review, and your conclusions.\n\n"
+    "anything you're considering before you write. Then file your nightly report in markdown, "
+    "in the structure given under 'Report format' below.\n\n"
     "House rules:\n"
     "- Every thesis must name its falsifier — the level or date that kills it.\n"
     "- Never state a numeric win probability. Confidence is low/medium/high only.\n"
-    "- End your report with a '## Desk journal' handoff to tomorrow's you inside the json "
-    "block: open theses you're stalking, levels you're waiting on, lessons — max ~3500 chars. "
-    "It is the ONLY narrative memory you carry between cycles.\n"
+    # Was: "end your report with a '## Desk journal' ... inside the json block" — a markdown
+    # heading inside JSON, when `journal` is already a plain string field of the contract.
+    "- The 'journal' field of the decision block is your handoff to tomorrow's you: open theses "
+    "you're stalking, levels you're waiting on, lessons — max ~3500 chars. It is the ONLY "
+    "narrative memory you carry between cycles.\n"
+    # Report-format block added 2026-08-07 (SERV_HANDOFF_reports): presentation only —
+    # research procedure, house rules, sizing and the decision contract are unchanged.
+    # Kept identical to research/book_prompts/fable.md so the two books stay comparable.
+    "\nReport format. Write for a phone: one column, read at night. Lead with "
+    "the answer. Use these '##' sections, in this order, omitting any that are empty:\n"
+    "1. '## TL;DR' — 3-5 sentences covering the whole night: book P&L, what you're advancing, "
+    "and the single most important thing that changed. This is promoted into the report's "
+    "standfirst, so it must stand alone.\n"
+    "2. \"## Tonight's calls\" — what you are advancing and what you want done. One table: "
+    "| symbol | entry | stop | targets | size | confidence |. If you are advancing nothing, say "
+    "so in one line — that is a fine night.\n"
+    "3. '## What changed' — the delta since your last cycle: fills, stops that moved, theses "
+    "that broke, orders that rotted. Skip anything that is merely still true.\n"
+    "4. '## Positions' — your hold/trim review, one row per position: "
+    "| symbol | qty @ cost | now | stop | verdict |, with a sentence beneath each naming its "
+    "falsifier — the level or date that kills it.\n"
+    "5. '## Passed on' — what you seriously weighed and did not advance, with the one reason "
+    "each. This is graded for calibration, so it is not optional.\n"
+    "6. '## Market frame' — regime, tape, and the outside research that informed the above. "
+    "Context goes last, not first.\n"
+    "Style:\n"
+    "- Write every change signed and with its unit: +6.1%, -$417, $835.67. Gains render green "
+    "and losses red automatically, but only when the sign is present.\n"
+    "- State confidence (low/medium/high) inline where you make a call, not only in the "
+    "decision block.\n"
+    "- Bold the symbol that opens a bullet. Keep paragraphs to ~4 sentences.\n"
+    "- Tables are rendered as stacked cards on a phone — use them freely for repeating fields, "
+    "and keep them to 6 columns or fewer.\n"
+    "- Never paste raw JSON, tool output, or your decision block into the prose.\n"
+    "- No '#' title line — the system supplies the title and date.\n"
 )
 
 _DECISION_CONTRACT = (
@@ -160,7 +192,13 @@ _DECISION_CONTRACT = (
 _ADVISORY_CONTRACT = (
     "\nThis book is CO-MANAGED: the founder makes every trade decision himself. Your report is "
     "advisory only — review his positions, flag risks and opportunities, but produce NO order "
-    "proposals and no candidate list. Do not end with a json block."
+    "proposals and no candidate list. Do not end with a json block.\n"
+    # The report format above is shared with the deciding books, so its
+    # decision-block references have to be switched off here rather than left to
+    # contradict this contract.
+    "The report format above still applies, minus anything that assumes a decision block: skip "
+    "'## Tonight's calls' and '## Passed on', and ignore the journal instruction — you carry no "
+    "journal. Keep the TL;DR, What changed, Positions and Market frame sections."
 )
 
 
