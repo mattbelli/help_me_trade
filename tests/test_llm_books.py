@@ -159,6 +159,41 @@ def test_pack_renders_on_empty_db_without_fabricating(tmp_path: Path) -> None:
     assert "Your ledger lanes" in panel_pack and "Your mandate" in panel_pack
 
 
+def test_pack_shows_the_stop_trigger_level(tmp_path: Path) -> None:
+    """A resting stop is the book's only protection between cycles, so the pack
+    must name the PRICE, not just that a stop exists (SERV_HANDOFF_reports 2026-08-06).
+    Goes through the real save->read->render path: the level was dropped at the
+    snapshot table, so a render-only assertion would pass while the agent stayed blind."""
+    from brokers.base import Account, Order
+    from db.sqlite import save_snapshot
+    from research.books import build_book_pack
+
+    db = tmp_path / "t.db"
+    book = BOOKS["fable"]
+    save_snapshot(
+        Account(id="alp-1", status="ACTIVE", cash=1000.0, buying_power=1000.0,
+                portfolio_value=1000.0),
+        [],
+        [
+            Order(id="o1", symbol="AAPL", qty=10, side="sell", order_type="stop",
+                  status="new", filled_qty=0, limit_price=None,
+                  time_in_force="gtc", stop_price=180.0),
+            Order(id="o2", symbol="MSFT", qty=5, side="buy", order_type="market",
+                  status="new", filled_qty=0, limit_price=None),
+        ],
+        broker="alpaca",
+        account_id=book.account_id,
+        db_path=db,
+    )
+
+    pack = build_book_pack("fable", db_path=db)
+    assert "stop $180.00" in pack
+    assert "GTC" in pack
+    # A market order has no level to report and must not grow a fabricated one.
+    assert "sell 10 AAPL — stop $180.00" in pack
+    assert "buy 5 MSFT (market" in pack
+
+
 def test_origin_law_consistency() -> None:
     """The three modules that name book lanes can never drift apart."""
     assert BOOK_HEADLINE_ORIGINS == {"book:deepseek", "book:fable", "book:panel"}

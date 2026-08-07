@@ -9,6 +9,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | Doc | What it is |
 |---|---|
 | `HANDOFF.md` | OPEN threads only (tense rule: entries die when closed; no archive — history = BUILD_LOG + git). Read first every session |
+| `SERV_HANDOFF_reports.md` | Relay mail from the mobile client (2026-08-06): 4 generator-side report bugs — stop-price item closed 08-07, rest open. Archive when all items land |
 | `BUILD.md` | The plan: vision, ★ Decision Engine, roadmap, debt, principles, gates (~50KB, readable) |
 | `BUILD_LOG.md` | Dated journal, one row per round, newest first (350KB — **grep, never read whole**) |
 | `board.json` | Live kanban (rendered at `/board`) — in-flight work, founder decision lane |
