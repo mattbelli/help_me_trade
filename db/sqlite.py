@@ -65,6 +65,8 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
                 status TEXT NOT NULL,
                 filled_qty REAL NOT NULL,
                 limit_price REAL,
+                stop_price REAL,
+                time_in_force TEXT,
                 FOREIGN KEY (poll_run_id) REFERENCES poll_runs(id)
             );
 
@@ -91,6 +93,12 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             """
         )
         _add_column_if_missing(conn, "poll_runs", "account_id", "TEXT")
+        # A resting stop's trigger level: the books' only protection between
+        # cycles, and the snapshot dropped it — the agent could see THAT a stop
+        # existed, never at what price. TIF rides along because a day stop is
+        # dead by the next cycle and a GTC one is not.
+        _add_column_if_missing(conn, "order_snapshots", "stop_price", "REAL")
+        _add_column_if_missing(conn, "order_snapshots", "time_in_force", "TEXT")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_poll_runs_account_captured
@@ -194,8 +202,8 @@ def save_snapshot(
                 """
                 INSERT INTO order_snapshots (
                     poll_run_id, order_id, symbol, qty, side, order_type,
-                    status, filled_qty, limit_price
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, filled_qty, limit_price, stop_price, time_in_force
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -207,6 +215,8 @@ def save_snapshot(
                     order.status,
                     order.filled_qty,
                     order.limit_price,
+                    order.stop_price,
+                    order.time_in_force,
                 ),
             )
 
@@ -316,6 +326,8 @@ def _snapshot_from_run(conn: sqlite3.Connection, run_id: int, broker: str) -> di
             "status": row["status"],
             "filled_qty": row["filled_qty"],
             "limit_price": row["limit_price"],
+            "stop_price": row["stop_price"],
+            "time_in_force": row["time_in_force"],
         }
         for row in order_rows
     ]

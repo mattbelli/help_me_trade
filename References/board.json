@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-05",
+ "updated_at": "2026-08-07",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,15 @@
   "done"
  ],
  "cards": [
+  {
+   "id": "book-pack-blind-stops",
+   "title": "Book pack shows stop TRIGGER PRICES — the agent could see that a stop existed, never at what level",
+   "lane": "done",
+   "type": "safety",
+   "priority": "high",
+   "owner": "orchestrator",
+   "notes": "DONE 2026-08-07. Raised by the Fable book agent verbatim across multiple nightly reports (\"the pack still hides stop PRICES on open orders. I can verify presence, not level\") and escalated in References/SERV_HANDOFF_reports.md — asked repeatedly inside report prose, where nobody reads it as a ticket. Root cause was NOT the renderer: db/sqlite.py order_snapshots had no stop_price column at all, so the level was dropped at the first persistence layer and every downstream surface was blind. Fixed all four layers — schema + _add_column_if_missing migration, save_snapshot insert, get_latest_snapshot read, and the research/books.py open-orders render (now 'sell 10 AAPL - stop $180.00 (stop, GTC, new, filled 0)'). time_in_force rides along because a day stop is dead by the next cycle and a GTC one is not, and 'protection between cycles' is the actual question. /api/orders inherits both fields free (it passes open_orders through). Verified: new test fails without the fix; ALTER path re-checked against a hand-built legacy-schema DB (historic rows stay null - honest, never backfilled with a guess); 546 snapshot-touching tests pass. FOLLOW-UP: brokers/schwab.py _parse_orders sets neither stop_price nor time_in_force, so the 4 real read-only accounts stay blind on /api/orders - deliberately NOT guessed here, needs a real Schwab order payload to confirm field names (no repo evidence, zero test coverage of that parser). FOLLOW-UP: ai/perception/resources.py exposes no open-orders resource at all."
+  },
   {
    "id": "flow-history-agent-reach",
    "title": "flow_history: the 16GB flow corpus reaches the agent — marginals by default, measurable rarity, no edge claims",

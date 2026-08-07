@@ -194,6 +194,16 @@ def _fmt_qty(value: Any) -> str:
     return f"{q:,.4f}".rstrip("0").rstrip(".") if q % 1 else f"{q:,.0f}"
 
 
+def _fmt_trigger(order: dict) -> str:
+    """Price levels of a resting order, as ' — stop $X / limit $Y' (empty for market)."""
+    parts = [
+        f"{label} {_fmt_money(order.get(key))}"
+        for key, label in (("stop_price", "stop"), ("limit_price", "limit"))
+        if order.get(key) is not None
+    ]
+    return f" — {' / '.join(parts)}" if parts else ""
+
+
 def _section(title: str, build: Any) -> str:
     try:
         body = build()
@@ -267,9 +277,12 @@ def _account_section(book: Book, db_path: Path) -> str:
     if orders:
         lines.append(f"\n### Open orders ({len(orders)})\n")
         for o in orders:
+            trigger = _fmt_trigger(o)
+            tif = str(o.get("time_in_force") or "").upper()
             lines.append(
                 f"- {o.get('side')} {_fmt_qty(o.get('qty'))} {o.get('symbol')}"
-                f" ({o.get('order_type')}, {o.get('status')},"
+                f"{trigger} ({o.get('order_type')}"
+                f"{', ' + tif if tif else ''}, {o.get('status')},"
                 f" filled {_fmt_qty(o.get('filled_qty'))})"
             )
     return "\n".join(lines)
