@@ -12,6 +12,33 @@ from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
 
+# Human label per kind, served on every report row as `kind_label`. It lives
+# here — the module that defines what a report row IS — so both the renderer and
+# the API read one map; signals/reports.py owned it before, which the clients
+# could not import, leaving the phone's masthead to render the raw kind
+# ("flow decomp"). The book entries mirror research/books.BOOKS names but are
+# written out rather than imported: db/ importing research/ would invert the
+# layering (research.books already reaches into db). A test pins them together.
+REPORT_KIND_LABELS: dict[str, str] = {
+    "morning_levels": "Morning Levels",
+    "levels": "Levels",
+    "morning_brief": "Morning Brief",
+    "evening_brief": "Evening Brief",
+    "on_request": "On-Request Report",
+    "flow_decomp": "Flow Decomposition",
+    "book_deepseek": "Deep Seek Book",
+    "book_fable": "Fable Book",
+    "book_panel": "Claude Panel Book",
+    "book_matt": "Matt + LLM Book",
+}
+
+
+def kind_label(kind: str) -> str:
+    """Display name for a report kind — falls back to a readable form of the
+    kind itself rather than a wrong-but-tidy default."""
+    known = REPORT_KIND_LABELS.get(kind)
+    return known if known else str(kind).replace("_", " ").strip().title()
+
 
 def _db_path(db_path: Path | None) -> Path:
     return db_path if db_path is not None else DEFAULT_DB_PATH
@@ -58,6 +85,7 @@ def _row_to_report(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
         "kind": row["kind"],
+        "kind_label": kind_label(row["kind"]),
         "symbol": row["symbol"],
         "title": row["title"],
         "body": row["body"],
@@ -99,6 +127,7 @@ def save_report(
     return {
         "id": report_id,
         "kind": kind,
+        "kind_label": kind_label(kind),
         "symbol": sym,
         "title": title,
         "body": body,

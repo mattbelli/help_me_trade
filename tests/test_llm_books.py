@@ -194,6 +194,48 @@ def test_pack_shows_the_stop_trigger_level(tmp_path: Path) -> None:
     assert "buy 5 MSFT (market" in pack
 
 
+_REPORT_SECTIONS = (
+    "## TL;DR",
+    "## Tonight's calls",
+    "## What changed",
+    "## Positions",
+    "## Passed on",
+    "## Market frame",
+)
+
+
+def test_both_book_prompts_carry_the_same_report_format() -> None:
+    """Neither prompt said anything about report structure beyond a single clause,
+    and the measured result was Deep Seek writing 0 headings in 6,804 chars while
+    Fable wrote 1 h1 / 6 h2 / 2 h3 in 5,207. Pinned in BOTH: the books are compared
+    against each other, so a format that drifts onto one of them is a confound."""
+    from research.book_driver import _CHARTER
+
+    fable = (Path(__file__).resolve().parents[1] / "research/book_prompts/fable.md").read_text()
+    for section in _REPORT_SECTIONS:
+        assert section in fable, f"missing from fable.md: {section}"
+        assert section in _CHARTER, f"missing from _CHARTER: {section}"
+
+
+def test_journal_instruction_is_not_a_markdown_heading_inside_json() -> None:
+    """_CHARTER told the model to end its report with a '## Desk journal' heading
+    *inside the json block* — a markdown heading inside JSON, when `journal` is
+    already a plain string field of the contract."""
+    from research.book_driver import _CHARTER
+
+    assert "## Desk journal" not in _CHARTER
+    assert "'journal' field of the decision block" in _CHARTER
+
+
+def test_report_format_forbids_pasting_the_decision_block_into_prose() -> None:
+    """Belt to the save-path braces: the body strip removes the block, and the
+    prompt tells the analyst not to write one into the prose in the first place."""
+    from research.book_driver import _CHARTER
+
+    fable = (Path(__file__).resolve().parents[1] / "research/book_prompts/fable.md").read_text()
+    assert "Never paste raw JSON" in _CHARTER and "Never paste raw JSON" in fable
+
+
 def test_origin_law_consistency() -> None:
     """The three modules that name book lanes can never drift apart."""
     assert BOOK_HEADLINE_ORIGINS == {"book:deepseek", "book:fable", "book:panel"}
