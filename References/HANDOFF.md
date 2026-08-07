@@ -56,12 +56,13 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
   surfaces are still blind.** Landed 08-07 (see the log row): the level was missing from the
   `order_snapshots` table itself, so this is a schema migration — it applies on the next `init_db`,
   meaning the **backend must restart** and one poll must write a fresh snapshot before tonight's pack
-  shows anything. Historic rows stay null by design. Still open: `brokers/schwab.py::_parse_orders`
-  populates neither `stop_price` nor `time_in_force`, so the 4 real read-only accounts remain blind on
-  `/api/orders` — blocked on one real Schwab order payload to confirm the field names (no repo
-  evidence, no test coverage of that parser; do NOT guess them). And `ai/perception/resources.py` has
-  no open-orders resource at all, so outside the nightly pack the agent still cannot see its own
-  resting risk on demand.
+  shows anything. Historic rows stay null by design. **Deployed + verified live 08-07**: all four book
+  stops now carry their trigger (AMZN 233.00 / GOOGL 341.90 / MU 787.90 / PAYC 207.40), and AMZN +
+  GOOGL match the levels recorded here on 08-01 from a different process. Schwab's two parsers have
+  the same defect and are now their own card, `schwab-orders-blind-stops` — **not** blocked as first
+  written: the field names (`stopPrice`, `duration`) are confirmed in the vendored schwab-py.
+  Also open: perception exposes Schwab's accounts (`schwab_accounts` resource) but has no ALPACA
+  open-orders resource, so outside the nightly pack the books cannot query their own resting risk.
 - **⏳ First real exit is the verify.** Deployed 08-01 16:16 UTC (backend PID 2093943, frontend
   2094116, both collectors); the release path has never run against a live broker. Watch the first
   book exit on AMZN/GOOGL: expect the stop cancelled, the market exit filled, and either a residual
