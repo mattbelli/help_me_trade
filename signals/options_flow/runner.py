@@ -34,6 +34,7 @@ from brokers.factory import get_broker
 from brokers.market_clock import market_session as _market_session
 from config.settings import alpaca_config, broker_is_configured
 from signals.options_flow.constants import PREOPEN_WARM_MINUTES
+from trading.market_calendar import is_trading_day
 from trading.market_hours import _ET, _SESSION_OPEN
 
 logger = logging.getLogger(__name__)
@@ -277,6 +278,16 @@ class OptionsFlowRunner:
         stream = self.stream
         if stream is None:
             return
+        # OPRA runs Saturday industry tests over the PRODUCTION feed: the
+        # 2026-08-08 dynamic-rebalance test streamed ~421k messages into the
+        # standing Databento session (no reconnect, wire-lag ~5ms) and minted
+        # 2,421 fake events with the market closed. A print arriving on a
+        # non-session date is never real — drop the batch at intake so every
+        # detector downstream (blocks, bursts, clusters, sweeps, print lab,
+        # gauges) starves. The gauge flush has carried its own copy of this
+        # guard since Sat 07-18 falsely finalized a day row.
+        if not is_trading_day(datetime.now(_ET).date()):
+            return
         # deque(maxlen) drops oldest SILENTLY on overflow — count it (audit F7a).
         # ⚠️ The margin depends entirely on which provider is feeding this. The
         # Alpaca lane peaks near ~530 prints/MIN, which is what the 5,000 cap was
@@ -407,7 +418,7 @@ class OptionsFlowRunner:
         from signals.options_flow.opening_pressure import WINDOWS, PressureGauge
         from signals.options_flow.rolling import RollingFlow
         from signals.options_flow.sweeps import SweepBuffer
-        from trading.market_calendar import is_early_close, is_trading_day
+        from trading.market_calendar import is_early_close
 
         def _fresh_gauges() -> dict[str, PressureGauge]:
             return {w: PressureGauge(w) for w in WINDOWS}

@@ -57,7 +57,10 @@ def test_meta_for_prefers_poll_state_and_falls_back_to_occ_parse() -> None:
     assert parsed.get("underlying") == "AAPL"
 
 
-def test_on_prints_appends_to_stream_and_noops_without_stream() -> None:
+def test_on_prints_appends_to_stream_and_noops_without_stream(monkeypatch) -> None:
+    # Pin the calendar ON: unpinned, the real clock made this fail on any
+    # weekend suite run once intake started dropping non-session prints.
+    monkeypatch.setattr(runner_mod, "is_trading_day", lambda d: True)
     r = _runner()
     r.on_prints([{"p": 1}])  # no stream yet — must not raise
 
@@ -67,6 +70,23 @@ def test_on_prints_appends_to_stream_and_noops_without_stream() -> None:
     r.stream = FakeStream()
     r.on_prints([{"p": 1}, {"p": 2}])
     assert len(FakeStream.collected_prints) == 2
+
+
+def test_on_prints_drops_batches_on_non_trading_days(monkeypatch) -> None:
+    """OPRA runs Saturday industry tests over the PRODUCTION feed — the
+    2026-08-08 dynamic-rebalance test streamed 421k messages into the standing
+    session and minted 2,421 fake events. A print arriving on a non-session
+    date is never real: intake must drop it so every detector downstream
+    (blocks, bursts, clusters, sweeps, print lab, gauges) starves."""
+    monkeypatch.setattr(runner_mod, "is_trading_day", lambda d: False)
+    r = _runner()
+
+    class FakeStream:
+        collected_prints: deque = deque()
+
+    r.stream = FakeStream()
+    r.on_prints([{"p": 1}, {"p": 2}])
+    assert len(FakeStream.collected_prints) == 0
 
 
 def test_collector_refuses_without_ownership_flag(monkeypatch) -> None:

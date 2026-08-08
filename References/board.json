@@ -10,6 +10,15 @@
  ],
  "cards": [
   {
+   "id": "flow-weekend-gate",
+   "title": "OPRA Saturday test data minted 2,421 fake flow events — intake calendar gate + quarantine",
+   "lane": "done",
+   "type": "bug",
+   "priority": "high",
+   "owner": "orchestrator",
+   "notes": "DONE 2026-08-08. Root cause: OPRA disseminates TEST data over the production feed on Saturday industry tests (this one for the Nov 23 dynamic-rebalance go-live; tests run Aug→Nov). The standing Databento session received ~421k messages Sat 12:01–15:23Z (no reconnect, wire-lag ~5ms) and sweep_loop's detectors had no calendar gate — 910 blocks / 892 clusters / 586 bursts / 33 sweeps minted as real-looking Saturday events. Alpaca WS lane received ZERO all day (the two-feed disagreement was the tell). Fix: on_prints intake drops batches when not is_trading_day() — one gate starves all downstream detectors + print lab + gauges. Cleanup: rows quarantined to data/quarantine/ then deleted; 21MB print-lab capture quarantined too. Downstream measured clean: evidence_dots 0, index_pressure 0, options_flow_daily 0, pushes 0, flow_decomp already gated. FOLLOW-UPS: (a) negative verify accrues next OPRA test Saturday — journal should show dbn climbing with zero events minted; (b) Morning Levels report generator also ran Sat 12:00Z — same missing weekend gate on a separate, harmless surface (reads Friday data)."
+  },
+  {
    "id": "flow-mid-annotation",
    "title": "Live flow events carry the corpus midpoint side (mid_side) beside DIR-1 — honestly labeled, never a confirmed-aggressor claim",
    "lane": "done",
