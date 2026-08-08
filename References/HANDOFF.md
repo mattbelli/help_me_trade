@@ -310,8 +310,9 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
   contested-wall gate. ✅ The EXPOSING work SHIPPED 08-08 (card `dossier-wire`): `dossier`
   perception resource (all three agent surfaces via the registry), on-demand
   `GET /api/fusion/episodes/{id}/dossier`, evidence-stack `dots · dossier` view — all ephemeral,
-  `put_dossier` stays REASON-lane-only. Open on that card: founder in-browser check of the widget
-  view; agents still cannot LIST open episodes (dossier discovery is blind — follow-up noted there).
+  `put_dossier` stays REASON-lane-only. The discovery gap closed same-day: the `episodes`
+  resource lists OPEN stacks score-first with an honest `open_total` cap, and the dossier's
+  no-episode error points there. Open on that card: founder in-browser check of the widget view.
   ✅ **D5's watermark dependency is CLOSED** — `research.edgar_bulk.edgar_ingest_watermark` shipped
   the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
   round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;

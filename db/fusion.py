@@ -850,6 +850,55 @@ def get_open_episode(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict | 
     return dict(row) if row is not None else None
 
 
+def list_open_episodes(
+    *,
+    symbol: str | None = None,
+    limit: int = 50,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict]:
+    """OPEN episodes ranked score-first (then freshest), across ALL birth sessions.
+
+    Unlike ``list_recent_episodes`` this does NOT key on ``market_day`` —
+    market_day is the BIRTH session, and open episodes born on earlier
+    sessions are still live.
+    """
+    init_fusion_tables(db_path)
+    lim = max(1, min(int(limit), 500))
+    where = "e.state = 'open'"
+    params: list[Any] = []
+    if symbol:
+        where += " AND e.symbol = ?"
+        params.append(symbol.strip().upper())
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT e.id, e.symbol, e.opened_at, e.updated_at, e.last_evidence_at,
+                   e.score, e.conviction, e.direction_state, e.contested,
+                   COALESCE(d.dot_count, 0) AS dot_count
+            FROM fusion_episodes AS e
+            LEFT JOIN (
+                SELECT episode_id, COUNT(*) AS dot_count
+                FROM evidence_dots
+                GROUP BY episode_id
+            ) AS d ON d.episode_id = e.id
+            WHERE {where}
+            ORDER BY e.score DESC, e.updated_at DESC
+            LIMIT ?
+            """,
+            (*params, lim),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_open_episodes(*, db_path: Path = DEFAULT_DB_PATH) -> int:
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM fusion_episodes WHERE state = 'open'"
+        ).fetchone()
+    return int(row["n"])
+
+
 def list_recent_episodes(
     *,
     market_day: str | None = None,

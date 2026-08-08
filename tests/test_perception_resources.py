@@ -80,6 +80,7 @@ def test_list_resources_catalog() -> None:
         "flow_perception",
         "oi_walls",
         "dossier",
+        "episodes",
         "bars",
     }
     assert "description" in catalog["strategies"]

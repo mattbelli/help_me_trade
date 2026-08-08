@@ -1797,3 +1797,65 @@ def _episode_row(db: Path) -> dict:
             "SELECT * FROM fusion_episodes WHERE id = ?", (EP_ID,)
         ).fetchone()
     return dict(row)
+
+
+# ---------------------------------------------- episodes resource (discovery surface)
+
+
+def _set_episode(db: Path, ep_id: str, **cols) -> None:
+    sets = ", ".join(f"{k} = ?" for k in cols)
+    with connect(db) as conn:
+        conn.execute(
+            f"UPDATE fusion_episodes SET {sets} WHERE id = ?", (*cols.values(), ep_id)
+        )
+        conn.commit()
+
+
+def test_perception_episodes_lists_open_ranked_by_score(db: Path) -> None:
+    """`episodes` is the discovery surface: open stacks only, score-first."""
+    _seed_episode(db)
+    _seed_episode(db, ep_id="ep_nvda", symbol="NVDA")
+    _seed_episode(db, ep_id="ep_amd", symbol="AMD")
+    _set_episode(db, "ep_nvda", score=5.0, direction_state="bull")
+    _set_episode(db, "ep_amd", state="closed")
+    _seed_dot(
+        db,
+        dot_id="dot_ep_list",
+        component="flow_premium",
+        group="flow",
+        direction="bull",
+        points=1.0,
+        raw_value="1",
+        ts=_utc(18),
+    )
+    result = asyncio.run(perception_query("episodes", {}, db_path=db))
+    assert result.get("error") is None
+    rows = result["rows"]
+    assert [r["symbol"] for r in rows] == ["NVDA", SYMBOL]  # closed AMD absent
+    by_symbol = {r["symbol"]: r for r in rows}
+    assert by_symbol[SYMBOL]["dot_count"] == 1
+    assert by_symbol["NVDA"]["direction_state"] == "bull"
+    assert by_symbol["NVDA"]["id"] == "ep_nvda"
+
+
+def test_perception_episodes_symbol_filter_and_limit(db: Path) -> None:
+    _seed_episode(db)
+    _seed_episode(db, ep_id="ep_nvda", symbol="NVDA")
+    _set_episode(db, "ep_nvda", score=5.0)
+    one = asyncio.run(perception_query("episodes", {"symbol": "tsla"}, db_path=db))
+    assert [r["symbol"] for r in one["rows"]] == [SYMBOL]
+    top = asyncio.run(perception_query("episodes", {"limit": 1}, db_path=db))
+    assert [r["symbol"] for r in top["rows"]] == ["NVDA"]
+    # The cap is never silent: the envelope still says how many exist in all.
+    assert top["summary"]["open_total"] == 2
+
+
+def test_perception_episodes_alias_and_dossier_pointer(db: Path) -> None:
+    """Reachable by its natural names, and the dossier's episode-missing error
+    hands the agent this resource instead of a dead end."""
+    empty = asyncio.run(perception_query("evidence_stacks", {}, db_path=db))
+    assert empty["resource"] == "episodes"
+    assert empty["count"] == 0
+    assert empty["summary"]["open_total"] == 0
+    missing = asyncio.run(perception_query("dossier", {"symbol": "ZZZQ"}, db_path=db))
+    assert "'episodes'" in str(missing.get("error"))

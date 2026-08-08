@@ -1166,9 +1166,30 @@ def _read_dossier(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, A
     if episode is None:
         raise ValueError(
             f"no open fusion episode for {symbol} — a dossier exists only while "
-            "an evidence stack is accumulating for the symbol"
+            "an evidence stack is accumulating; query the 'episodes' resource "
+            "to list the symbols that have one open"
         )
     return list(build_dossier(episode, db_path=db_path)["claims"])
+
+
+def _read_episodes(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    """OPEN fusion episodes, ranked like the evidence-stack widget (score-first)."""
+    from db.fusion import list_open_episodes
+
+    symbol = str(filters.get("symbol") or "").strip().upper() or None
+    try:
+        limit = min(max(int(filters.get("limit") or 20), 1), _MAX_ROWS)
+    except (TypeError, ValueError):
+        limit = 20
+    return list_open_episodes(symbol=symbol, limit=limit, db_path=db_path)
+
+
+def _summarize_episodes(filters: dict[str, Any], *, db_path: Path) -> dict[str, Any]:
+    """The row cap is never silent: say how many open episodes exist in all."""
+    del filters
+    from db.fusion import count_open_episodes
+
+    return {"open_total": count_open_episodes(db_path=db_path)}
 
 
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
@@ -1512,6 +1533,25 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_oi_walls,
     },
+    "episodes": {
+        "description": (
+            "OPEN fusion episodes — the living evidence stacks, one per symbol, "
+            "ranked score-first like the evidence-stack widget. The discovery "
+            "surface for `dossier`: list what is open (or check one symbol), then "
+            "query dossier for the full claim matrix. Rows are a top slice "
+            "(default 20, max 50); summary.open_total says how many exist in all. "
+            "opened_at is the stack's BIRTH — stacks live across sessions, so an "
+            "old opened_at means long accumulation, not staleness "
+            "(last_evidence_at is the freshness signal). PERCEPTION, NOT A "
+            "VERDICT: score ranks attention, it is never a win rate."
+        ),
+        "filters": {
+            "symbol": "optional — just that symbol's open episode (no rows = none open)",
+            "limit": "optional int — rows returned, default 20, max 50",
+        },
+        "read": _read_episodes,
+        "summarize": _summarize_episodes,
+    },
     "dossier": {
         "description": (
             "Deterministic claim matrix for a symbol's OPEN fusion episode — every "
@@ -1521,7 +1561,8 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "demand from the stores we already hold (zero LLM, zero network, nothing "
             "persisted). PERCEPTION, NOT A VERDICT: angles are stated so you can "
             "weigh them — nothing here is a scored signal, a win rate, or a "
-            "recommendation. Requires an open fusion episode for the symbol."
+            "recommendation. Requires an open fusion episode for the symbol "
+            "(the `episodes` resource lists them)."
         ),
         "filters": {"symbol": "required — ticker with an open fusion episode"},
         "read": _read_dossier,
@@ -1598,6 +1639,10 @@ _RESOURCE_ALIASES = {
     "daily_flow_report": "flow_report",
     "claims": "dossier",
     "claim_matrix": "dossier",
+    "open_episodes": "episodes",
+    "fusion_episodes": "episodes",
+    "evidence_stacks": "episodes",
+    "stacks": "episodes",
     "collar": "oi_walls",
     "jpm_collar": "oi_walls",
     "open_interest": "oi_walls",
