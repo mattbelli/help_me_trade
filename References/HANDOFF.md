@@ -304,10 +304,12 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - founder dials open: thesis/trigger half-lives, conviction bar, trigger TTLs — changes land as
   founder-visible diffs, never silent.
 - NEXT round: position-watch (entry-snapshot divergence alerts, notify-never-act) → Round 5 ARM.
-- ⚠️ **`REASON_EMIT_ENABLED` must NOT be flipped until card `dossier-repair` lands** (opened 08-02;
-  D1–D5 shipped — see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
+- ✅ **card `dossier-repair` LANDED** (closed 08-08 — D1–D5 verified on main, 50/50 dossier tests
+  green; see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
   components (one per round: oi_walls, options_chain/IV, DERA segments, filings_events) + the
-  contested-wall gate. Briefs live in the worktree (`BRIEF_D5_fundamentals_angle.md` is the latest).
+  contested-wall gate. ⏳ Owed next in this lane: the EXPOSING card (API route / widget /
+  `ai/perception/resources.py` entry) — unblocked now the repair is in (order was repair-then-wire);
+  open it when that work starts.
   ✅ **D5's watermark dependency is CLOSED** — `research.edgar_bulk.edgar_ingest_watermark` shipped
   the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
   round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;
