@@ -26,9 +26,15 @@ outside that cap is still real and still citable — but a consumer that prompts
 ``summary`` would make it BOTH invisible and uncitable, since the investigator cites
 ``claim_id``s it can only see in the text it was given. Build from ``claims``.
 
-This module is INERT: nothing in production imports it yet (C3's investigator becomes
-its caller). It never writes to any store except via ``build_and_store_dossier`` →
-``db/idea_dossiers``.
+CONSUMER SURFACES (wired 2026-08-08; the REASON lane itself stays dark until armed):
+  * ``research/reason.py`` — the C3 investigator; the ONLY caller of
+    ``build_and_store_dossier`` (persists via ``db/idea_dossiers``).
+  * ``ai/perception/resources.py`` ``dossier`` resource — chat agent, in-process
+    books and headless book sessions; builds EPHEMERALLY (never stores).
+  * ``GET /api/fusion/episodes/{id}/dossier`` — the evidence-stack widget's
+    dossier view; also ephemeral.
+Nothing else may write a dossier; the on-demand read paths call ``build_dossier``
+only.
 """
 
 from __future__ import annotations

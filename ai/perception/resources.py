@@ -1146,6 +1146,31 @@ async def _read_bars(filters: dict[str, Any], *, db_path: Path) -> list[dict[str
     ]
 
 
+def _read_dossier(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    """The symbol's deterministic claim matrix, built fresh from its OPEN episode.
+
+    Ephemeral by design: builds via signals.dossier.build_dossier (store reads
+    only — zero LLM, zero network) and stores nothing; ``put_dossier`` stays
+    REASON-lane-only. Claims are returned COMPLETE, never row-capped — the claim
+    matrix is the contract consumers cite claim_ids from, and a silently dropped
+    claim would be both invisible and uncitable (the founder ruling recorded in
+    signals/dossier.py's module docstring).
+    """
+    from db.fusion import get_open_episode
+    from signals.dossier import build_dossier
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("symbol filter is required, e.g. {'symbol': 'NVDA'}")
+    episode = get_open_episode(symbol, db_path=db_path)
+    if episode is None:
+        raise ValueError(
+            f"no open fusion episode for {symbol} — a dossier exists only while "
+            "an evidence stack is accumulating for the symbol"
+        )
+    return list(build_dossier(episode, db_path=db_path)["claims"])
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -1487,6 +1512,20 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_oi_walls,
     },
+    "dossier": {
+        "description": (
+            "Deterministic claim matrix for a symbol's OPEN fusion episode — every "
+            "perception angle (flow, tape, structure, attention, catalyst, news, "
+            "fundamentals, context, portfolio, history, evidence) rendered as dated, "
+            "citable claims with freshness flags and contradiction links. Built on "
+            "demand from the stores we already hold (zero LLM, zero network, nothing "
+            "persisted). PERCEPTION, NOT A VERDICT: angles are stated so you can "
+            "weigh them — nothing here is a scored signal, a win rate, or a "
+            "recommendation. Requires an open fusion episode for the symbol."
+        ),
+        "filters": {"symbol": "required — ticker with an open fusion episode"},
+        "read": _read_dossier,
+    },
     "bars": {
         "description": (
             "OHLC candles for ONE symbol — 5Min/15Min/1Hour/1Day/1Week/1Month, "
@@ -1557,6 +1596,8 @@ _RESOURCE_ALIASES = {
     "flow_decomp": "flow_report",
     "flow_decomposition": "flow_report",
     "daily_flow_report": "flow_report",
+    "claims": "dossier",
+    "claim_matrix": "dossier",
     "collar": "oi_walls",
     "jpm_collar": "oi_walls",
     "open_interest": "oi_walls",

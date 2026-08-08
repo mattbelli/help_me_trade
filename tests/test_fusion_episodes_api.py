@@ -165,3 +165,64 @@ def test_fusion_episode_detail_returns_404(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert response.status_code == 404
+
+
+def _hermetic_dossier_defaults(monkeypatch, tmp_path: Path) -> None:
+    """The builder's EDGAR/macro kwdefaults point at the checkout's real data/ —
+    the route must read nothing this test did not seed (same guard as
+    tests/test_dossier.py's autouse fixture)."""
+    from signals.dossier import build_dossier
+
+    absent = tmp_path / "no_such_data"
+    for key in ("facts_db_path", "fundamentals_db_path", "macro_db_path"):
+        monkeypatch.setitem(build_dossier.__kwdefaults__, key, absent / key)
+
+
+def test_fusion_episode_dossier_route_builds_on_demand(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "fusion.db"
+    init_fusion_tables(db_path)
+    _insert_episode(
+        db_path,
+        "episode-1",
+        symbol="AAPL",
+        market_day="2026-07-18",
+        score=4.5,
+        updated_at="2026-07-18T14:30:00+00:00",
+    )
+    _insert_dot(db_path, "episode-1")
+    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    _hermetic_dossier_defaults(monkeypatch, tmp_path)
+    from api.main import app
+
+    response = TestClient(app, base_url="http://127.0.0.1").get(
+        "/api/fusion/episodes/episode-1/dossier"
+    )
+
+    assert response.status_code == 200
+    dossier = response.json()["dossier"]
+    assert dossier["episode_id"] == "episode-1"
+    assert dossier["symbol"] == "AAPL"
+    assert any(claim["angle"] == "evidence" for claim in dossier["claims"])
+    assert dossier["summary"]
+    # On-demand build is ephemeral — the read path never writes a store.
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'idea_dossiers'"
+        ).fetchone()
+    assert row is None
+
+
+def test_fusion_episode_dossier_route_404(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "fusion.db"
+    init_fusion_tables(db_path)
+    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    from api.main import app
+
+    response = TestClient(app, base_url="http://127.0.0.1").get(
+        "/api/fusion/episodes/missing/dossier"
+    )
+
+    assert response.status_code == 404

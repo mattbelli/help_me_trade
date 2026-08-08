@@ -10,8 +10,10 @@ import {
 } from "@/components/workspace/widget-states";
 import {
   getFusionEpisode,
+  getFusionEpisodeDossier,
   getFusionEpisodes,
   type EvidenceDot,
+  type FusionDossier,
   type FusionEpisode,
   type FusionEpisodesResponse,
 } from "@/lib/api";
@@ -135,6 +137,67 @@ function DotTimeline({
   );
 }
 
+function DossierView({
+  dossier,
+  error,
+}: {
+  dossier: FusionDossier | undefined;
+  error: string | undefined;
+}) {
+  if (error) {
+    return <div className="px-2 py-2 text-[length:var(--fs-micro)] text-[var(--c-red)]">{error}</div>;
+  }
+  if (!dossier) {
+    return <div className="px-2 py-2 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">building dossier…</div>;
+  }
+  const contradictions =
+    dossier.claims.reduce((total, claim) => total + claim.contradicts.length, 0) / 2;
+  return (
+    <table className="w-full border-collapse font-mono text-[length:var(--fs-micro)]">
+      <thead>
+        <tr>
+          <th className={cn(TH, "text-left")}>Angle</th>
+          <th className={cn(TH, "text-left")}>Claim</th>
+          <th className={cn(TH, "text-left")}>Direction</th>
+        </tr>
+      </thead>
+      <tbody className="leading-[20px]">
+        {dossier.claims.map((claim) => (
+          <tr key={claim.claim_id}>
+            <td className={cn(TD, "whitespace-nowrap align-top text-[var(--fg-faint)]")}>
+              {words(claim.angle)}
+            </td>
+            <td className={cn(TD, "text-[var(--fg-dim)]")}>
+              {claim.statement}
+              {!claim.fresh ? (
+                <span className="text-[var(--c-amber)]"> stale</span>
+              ) : null}
+              {claim.contradicts.length > 0 ? (
+                <span className="text-[var(--c-amber)]">
+                  {" "}contradicts {claim.contradicts.join(", ")}
+                </span>
+              ) : null}
+            </td>
+            <td className={cn(TD, "align-top", directionClass(claim.direction))}>
+              {claim.direction}
+            </td>
+          </tr>
+        ))}
+        <tr>
+          <td
+            colSpan={3}
+            className="px-2 py-1.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]"
+          >
+            {dossier.claims.length} claims · {contradictions} contradiction
+            {contradictions === 1 ? "" : "s"} · deterministic perception — angles
+            stated, never a verdict or a win%
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 export function EvidenceStackWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
@@ -145,8 +208,11 @@ export function EvidenceStackWidget({ config }: WidgetProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedView, setExpandedView] = useState<"dots" | "dossier">("dots");
   const [dotsByEpisode, setDotsByEpisode] = useState<Record<string, EvidenceDot[]>>({});
   const [dotErrors, setDotErrors] = useState<Record<string, string>>({});
+  const [dossierByEpisode, setDossierByEpisode] = useState<Record<string, FusionDossier>>({});
+  const [dossierErrors, setDossierErrors] = useState<Record<string, string>>({});
   const cancelledRef = useRef(false);
 
   const load = useCallback(async (isInitial: boolean) => {
@@ -173,6 +239,30 @@ export function EvidenceStackWidget({ config }: WidgetProps) {
 
   usePagePoll(load, POLL_MS);
 
+  const openDossier = useCallback(
+    async (id: string) => {
+      setExpandedView("dossier");
+      if (dossierByEpisode[id]) return;
+      try {
+        const dossier = await getFusionEpisodeDossier(id);
+        if (cancelledRef.current) return;
+        setDossierByEpisode((current) => ({ ...current, [id]: dossier }));
+        setDossierErrors((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      } catch (err) {
+        if (cancelledRef.current) return;
+        setDossierErrors((current) => ({
+          ...current,
+          [id]: err instanceof Error ? err.message : "Failed to build dossier",
+        }));
+      }
+    },
+    [dossierByEpisode],
+  );
+
   const toggleEpisode = useCallback(
     async (id: string) => {
       if (expandedId === id) {
@@ -180,6 +270,7 @@ export function EvidenceStackWidget({ config }: WidgetProps) {
         return;
       }
       setExpandedId(id);
+      setExpandedView("dots");
       if (dotsByEpisode[id]) return;
       try {
         const result = await getFusionEpisode(id);
@@ -279,10 +370,43 @@ export function EvidenceStackWidget({ config }: WidgetProps) {
                       colSpan={6}
                       className="border-b border-[var(--line-divider)] bg-[var(--bg-hover)] p-1"
                     >
-                      <DotTimeline
-                        dots={dotsByEpisode[episode.id]}
-                        error={dotErrors[episode.id]}
-                      />
+                      <div className="flex gap-3 px-2 pb-1 pt-0.5 text-[length:var(--fs-micro)]">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedView("dots")}
+                          className={cn(
+                            "lowercase",
+                            expandedView === "dots"
+                              ? "text-foreground"
+                              : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
+                          )}
+                        >
+                          dots
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openDossier(episode.id)}
+                          className={cn(
+                            "lowercase",
+                            expandedView === "dossier"
+                              ? "text-foreground"
+                              : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
+                          )}
+                        >
+                          dossier
+                        </button>
+                      </div>
+                      {expandedView === "dossier" ? (
+                        <DossierView
+                          dossier={dossierByEpisode[episode.id]}
+                          error={dossierErrors[episode.id]}
+                        />
+                      ) : (
+                        <DotTimeline
+                          dots={dotsByEpisode[episode.id]}
+                          error={dotErrors[episode.id]}
+                        />
+                      )}
                     </td>
                   </tr>
                 ) : null}

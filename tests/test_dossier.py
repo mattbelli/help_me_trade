@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from ai.perception.resources import query as perception_query
 from db import equity_tape as equity_tape_db
 from db import fusion as fusion_db
 from db import idea_outcomes as idea_outcomes_db
@@ -1738,3 +1740,60 @@ def test_fundamentals_deterministic(db: Path, tmp_path: Path, watermark) -> None
     assert [c["claim_id"] for c in _fund_claims(first)] == [
         c["claim_id"] for c in _fund_claims(second)
     ]
+
+
+# ------------------------------------------------------- perception resource (wire)
+
+
+def test_perception_dossier_resource_builds_from_open_episode(db: Path) -> None:
+    """The `dossier` resource returns the open episode's claims, built fresh."""
+    _seed_full(db)
+    result = asyncio.run(perception_query("dossier", {"symbol": SYMBOL}, db_path=db))
+    assert result.get("error") is None
+    assert result["resource"] == "dossier"
+    rows = result["rows"]
+    assert result["count"] == len(rows) > 0
+    assert {row["angle"] for row in rows} >= {"evidence", "history"}
+    assert all(row["claim_id"] and row["statement"] for row in rows)
+    # Claims are the complete matrix — never row-capped (a dropped claim would be
+    # invisible AND uncitable for a consumer citing claim_ids).
+    direct = build_dossier(_episode_row(db), db_path=db)
+    assert len(rows) == len(direct["claims"])
+
+
+def test_perception_dossier_requires_symbol_and_open_episode(db: Path) -> None:
+    missing = asyncio.run(perception_query("dossier", {}, db_path=db))
+    assert "symbol" in str(missing.get("error"))
+    unknown = asyncio.run(perception_query("dossier", {"symbol": "ZZZQ"}, db_path=db))
+    assert "no open fusion episode" in str(unknown.get("error"))
+
+
+def test_perception_dossier_ignores_closed_episode(db: Path) -> None:
+    """One-open-episode-per-symbol: a closed episode is not the live question."""
+    _seed_episode(db)
+    with connect(db) as conn:
+        conn.execute(
+            "UPDATE fusion_episodes SET state = 'closed' WHERE id = ?", (EP_ID,)
+        )
+        conn.commit()
+    result = asyncio.run(perception_query("dossier", {"symbol": SYMBOL}, db_path=db))
+    assert "no open fusion episode" in str(result.get("error"))
+
+
+def test_perception_dossier_read_path_never_writes(db: Path) -> None:
+    """Ephemeral by design: put_dossier stays REASON-lane-only."""
+    _seed_full(db)
+    asyncio.run(perception_query("dossier", {"symbol": SYMBOL}, db_path=db))
+    with connect(db) as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'idea_dossiers'"
+        ).fetchone()
+    assert row is None
+
+
+def _episode_row(db: Path) -> dict:
+    with connect(db) as conn:
+        row = conn.execute(
+            "SELECT * FROM fusion_episodes WHERE id = ?", (EP_ID,)
+        ).fetchone()
+    return dict(row)

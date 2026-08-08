@@ -3902,6 +3902,22 @@ def api_fusion_episode(episode_id: str):
     }
 
 
+@app.get("/api/fusion/episodes/{episode_id}/dossier")
+def api_fusion_episode_dossier(episode_id: str):
+    """The episode's deterministic claim matrix, built on demand (~150ms store
+    reads, zero LLM/network). Ephemeral — put_dossier stays REASON-lane-only."""
+    from signals.dossier import build_dossier
+
+    with connect(DEFAULT_DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT * FROM fusion_episodes WHERE id = ?",
+            (episode_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Fusion episode not found")
+    return {"dossier": build_dossier(dict(row), db_path=DEFAULT_DB_PATH)}
+
+
 def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
     """Compute-on-read fusion radar: per symbol with evidence in the last
     ``sessions`` market-days, the v2 decayed thesis/trigger masses at ``now``.

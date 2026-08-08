@@ -838,6 +838,18 @@ def get_session_levels(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[
     return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
 
 
+def get_open_episode(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> dict | None:
+    """The symbol's one OPEN episode, or None (the partial unique index on
+    ``fusion_episodes(symbol) WHERE state = 'open'`` guarantees at most one)."""
+    init_fusion_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM fusion_episodes WHERE symbol = ? AND state = 'open'",
+            (symbol.strip().upper(),),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def list_recent_episodes(
     *,
     market_day: str | None = None,

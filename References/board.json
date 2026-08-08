@@ -122,6 +122,17 @@
    "created_at": "2026-08-02"
   },
   {
+   "id": "dossier-wire",
+   "title": "Wire the repaired dossier to its surfaces — perception resource (all 3 agent surfaces), on-demand API route, evidence-stack dossier view",
+   "lane": "in_progress",
+   "notes": "SHIPPED 2026-08-08 (branch dossier-wire; the follow-up the dossier-repair card owed — order was repair-then-wire). Everything EPHEMERAL: the read paths call build_dossier only (zero LLM, zero network, ~150ms store reads) and store nothing; put_dossier stays REASON-lane-only, pinned by tests asserting idea_dossiers is still absent after a read. (1) AGENTS: `dossier` resource in ai/perception/resources.py (+ claims/claim_matrix aliases) — one registry entry reaches chat query, in-process research/book_tools.py AND headless tools/perception_query.py, because the 07-30 capability-drift guard derives all three from the registry. Description states PERCEPTION NOT A VERDICT; claims returned COMPLETE, never row-capped (claims-not-summary founder ruling). Symbol lookup = new db/fusion.get_open_episode (partial unique index on state='open' guarantees at most one). (2) UI: GET /api/fusion/episodes/{id}/dossier beside the detail route; evidence-stack drill-in gains a `dots · dossier` toggle — claims by angle, stale/contradicts as plain colored words, footer 'deterministic perception — angles stated, never a verdict or a win%'. (3) DOC: signals/dossier.py docstring names the consumer surfaces (its 'module is INERT' line was stale). Tests: 6 new, load-bearing ones verified RED first; 54 dossier + 6 route green; ruff + tsc clean.\n\nOPEN: (a) founder in-browser check of the widget view (expand an episode → dossier). (b) DISCOVERY GAP, found in self-review and deliberately not papered over: agents cannot LIST open episodes — no perception resource exposes fusion_episodes, so an agent only reaches a dossier for a symbol it already suspects (the original error text pointed at an 'evidence stacks' resource that does not exist; rewritten). An `episodes` resource (open episodes: symbol/score/direction/dot_count, capped honestly) is the natural next slice — it also gives the books a morning 'what is the tape building' read. (c) deploy to serv rides the next deploy round.",
+   "updated_at": "2026-08-08",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "created_at": "2026-08-08"
+  },
+  {
    "id": "dossier-repair",
    "title": "Dossier is internally wrong, not just dark — 4 angles read the episode's BIRTH day (99.8% blind) and the analysis is truncated away",
    "lane": "done",

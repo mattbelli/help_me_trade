@@ -1867,6 +1867,36 @@ export async function getFusionEpisode(
   return res.json();
 }
 
+export type FusionDossierClaim = {
+  claim_id: string;
+  angle: string;
+  statement: string;
+  value: string | number | null;
+  ts: string;
+  direction: string;
+  fresh: boolean;
+  contradicts: string[];
+};
+
+export type FusionDossier = {
+  episode_id: string;
+  symbol: string;
+  market_day: string;
+  claims: FusionDossierClaim[];
+  summary: string;
+};
+
+export async function getFusionEpisodeDossier(
+  id: string,
+): Promise<FusionDossier> {
+  const res = await apiFetch(
+    `${API_BASE}/api/fusion/episodes/${encodeURIComponent(id)}/dossier`,
+  );
+  if (!res.ok) throw new Error(`Fusion dossier error ${res.status}`);
+  const body = (await res.json()) as { dossier: FusionDossier };
+  return body.dossier;
+}
+
 export type FusionRadarRow = {
   symbol: string;
   tier: "live" | "poll" | "scan";
