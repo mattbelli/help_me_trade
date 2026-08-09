@@ -157,15 +157,19 @@ snapshot per sweep). Open threads only:
 - **⏳ Live flow pairing — enrichment WIRED 2026-08-03 (Inc 3 first step; BUILD_LOG row + card
   `live-flow-pairing`); the Inc-3 tail remains.** Live events now carry condition codes on the
   databento lane (F-2 spread/hygiene/ISO gates active; `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1`
-  reverts). OPEN, in order: (1) **first enriched session check** — watch `enriched=`/`att_pend=`/
-  `repairs=` on the 60s stats line and confirm sweeps/blocks counts shift plausibly (spread legs
-  now excluded), late-repair UPDATEs land ("pairing repair" log lines, spread_flag=1 rows on
-  open-window events), and spread_flag-bearing package prints appear in the print lab; (2) the
+  reverts). ✅ **First enriched sessions MEASURED 08-09** (card notes have the numbers): Aug 4–6
+  at baseline (matched 96.6–98.4%/epoch, repairs ≤55, spread_flag rows land, repairs idempotent);
+  **Fri 08-07 DEGRADED** — Alpaca wildcard delivered 69% of the spine's prints (deficit accrued
+  in the first ~90 min, ~38% of dbn by 10:00 ET; sidecar reconnect ~10:45 ET; near-parity late
+  day), day ended matched 74.3%, repairs 4,851, spread_flag=1 events 996 — enrich-late/repair
+  machinery worked AS DESIGNED; cause unexplained (client counters clean → likely Alpaca-side).
+  OPEN, in order: (1) explain/accept Fri 08-07's Alpaca morning deficit (founder call); (2) the
   **standing-NBBO consumer audit** — still the real cutover blocker; (3) explain the
   **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the ~4-min meta-cold
-  open blind; confirm, don't assume); (4) nightly live-vs-batch audit alarm. Inc-2 session #1
-  baselines for comparison: matched 98.0%, enrich ≤1s = 98.6%, RSS peak 1.9 GB. No code-family
-  SCORING before 1.8-on-truth (segregation is allowed and now live).
+  open blind; confirm, don't assume; Friday flipped it hard the OTHER way, SPXW a=49.7% of d);
+  (4) nightly live-vs-batch audit alarm — Friday is exactly the day class it exists to catch.
+  Not yet verified: spread_flag prints in the print lab; sweeps/blocks plausibility vs pre-08-03.
+  No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).
 - **⏳ Flow perception surface — SCHEDULED (cron 04:30 UTC Tue–Sat), earnings coverage SHIPPED,
