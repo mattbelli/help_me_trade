@@ -166,12 +166,18 @@ snapshot per sweep). Open threads only:
   spine flawless, no public Alpaca incident. Provider weather; design held (996 late spread legs
   repaired). Friday's stored events are partially label-blind (74% matched vs ~98%) — retro
   re-label from the batch corpus possible if they ever matter to a study.
-  OPEN, in order: (1) the **standing-NBBO consumer audit** — still the real cutover blocker;
-  (2) explain the **SPXW/XSP d<a gap** on NORMAL days (dbn 1.538M vs alp 1.608M SPXW prints —
-  likely the ~4-min meta-cold open blind; confirm, don't assume); (3) nightly live-vs-batch
-  audit alarm — PRIORITY UP: it is what catches the next degraded-feed day automatically;
-  consider a live 'codes degraded' flag off a-lag p50 so label-blind days are visible same-day.
-  Not yet verified: spread_flag prints in the print lab; sweeps/blocks plausibility vs pre-08-03.
+  ✅ **Standing-NBBO consumer audit RUN + CLEARED 08-09** (BUILD_LOG row; full table in
+  `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md`): no consumer needs a standing option NBBO — the
+  quote lane's retirement is deliberate and verified. Two provenance repairs shipped
+  (sweeps/rolling stamped the Alpaca-era basis literal since 07-27; behavioral readers
+  unaffected — all key off `direction`).
+  OPEN, in order: (1) explain the **SPXW/XSP d<a gap** on NORMAL days (dbn 1.538M vs alp
+  1.608M SPXW prints — likely the ~4-min meta-cold open blind; confirm, don't assume);
+  (2) nightly live-vs-batch audit alarm — PRIORITY UP: it is what catches the next
+  degraded-feed day automatically; consider a live 'codes degraded' flag off a-lag p50 so
+  label-blind days are visible same-day; (3) capped-lane code retirement after one clean
+  release. Not yet verified: spread_flag prints in the print lab; sweeps/blocks
+  plausibility vs pre-08-03.
   No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).

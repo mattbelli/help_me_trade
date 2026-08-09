@@ -94,6 +94,12 @@ class RollingFlow:
         self._buckets: dict[str, dict[int, _Bucket]] = defaultdict(dict)
         self._burst_fired: dict[str, float] = {}  # underlying -> |net| at last fire
         self._cluster_fired: dict[tuple[str, str], float] = {}  # (sym, right) -> agg
+        # The transport's per-print stamp on classified prints (dbn_nbbo /
+        # stream_quote) — one transport per process, so last-seen is exact.
+        # Events must not claim a lane the prints didn't come from: hardcoding
+        # "stream_quote" made every sided burst/cluster a false era claim after
+        # the 07-27 provider flip (standing-NBBO audit 08-09).
+        self._classified_basis = "none"
 
     # --- ingest ---------------------------------------------------------------
 
@@ -138,6 +144,8 @@ class RollingFlow:
 
         right = str(p.get("right") or "").strip().lower()[:1] or "?"
         direction = str(p.get("direction") or "undetermined")
+        if direction != "undetermined":
+            self._classified_basis = str(p.get("direction_basis") or "none")
 
         b.gross += prem
         b.n_prints += 1
@@ -274,7 +282,7 @@ class RollingFlow:
                     "vol_oi_ratio": None,
                     "vol_zscore": None,
                     "direction": side,
-                    "direction_basis": "stream_quote" if sided else "none",
+                    "direction_basis": self._classified_basis if sided else "none",
                     "spread_flag": False,
                     "n_prints": n_prints,
                     "exchanges": [],
@@ -353,7 +361,7 @@ class RollingFlow:
                 net = buy_prem - sell_prem
                 if classified_frac >= 0.5 and net != 0:
                     side = "buy_side" if net > 0 else "sell_side"
-                    basis = "stream_quote"
+                    basis = self._classified_basis
                 else:
                     side = "undetermined"
                     basis = "none"

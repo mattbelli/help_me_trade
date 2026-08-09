@@ -20,10 +20,11 @@ def _print(
     underlying: str = "NVDA",
     occ: str = "NVDA260717C00210000",
     size: int | None = None,
+    basis: str | None = None,
 ) -> dict:
     # choose price/size so price*size*100 == prem_usd
     sz = size or 10
-    return {
+    p = {
         "occ_symbol": occ,
         "underlying": underlying,
         "right": right,
@@ -37,6 +38,29 @@ def _print(
         "conditions": [],
         "direction": direction,
     }
+    if basis is not None:
+        p["direction_basis"] = basis
+    return p
+
+
+def test_burst_and_cluster_carry_the_prints_transport_basis() -> None:
+    # 07-27 provider flip: classified prints carry the transport's own stamp
+    # ("dbn_nbbo" on the databento lane). Burst/cluster events hardcoded
+    # "stream_quote" — a false era claim for every sided event since the flip.
+    rf = RollingFlow()
+    for i in range(12):
+        rf.add_print(_print(ts_ms=T0 + i * 50_000, prem_usd=100_000, basis="dbn_nbbo"))
+    events = rf.check_bursts(T0 + 11 * 50_000)
+    assert len(events) == 1
+    assert events[0]["direction"] == "buy_side"
+    assert events[0]["direction_basis"] == "dbn_nbbo"
+
+    rf2 = RollingFlow()
+    for i in range(30):
+        rf2.add_print(_print(ts_ms=T0 + i * 30_000, prem_usd=20_000, basis="dbn_nbbo"))
+    events = rf2.check_clusters(T0 + 30 * 30_000)
+    assert len(events) == 1
+    assert events[0]["direction_basis"] == "dbn_nbbo"
 
 
 def test_burst_fires_on_sided_net_and_rearms() -> None:

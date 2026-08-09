@@ -70,7 +70,7 @@ def _cluster_direction(prints: list[dict], premium: float) -> tuple[str, str]:
     """DIR-1 over the cluster: majority classified premium side, never guessed."""
     buy = 0.0
     sell = 0.0
-    stream_basis = False
+    basis = "none"
     for p in prints:
         prem = float(p["size"]) * float(p["price"]) * 100.0
         direction = str(p.get("direction") or "undetermined")
@@ -80,13 +80,17 @@ def _cluster_direction(prints: list[dict], premium: float) -> tuple[str, str]:
             sell += prem
         else:
             continue
-        if str(p.get("direction_basis") or "") == "stream_quote":
-            stream_basis = True
+        if basis == "none":
+            # The transport's own per-print stamp (dbn_nbbo / stream_quote),
+            # never a hardcoded lane literal: matching "stream_quote" alone
+            # left every sided sweep claiming basis "none" for the whole
+            # databento era (07-27 provider flip; standing-NBBO audit 08-09).
+            basis = str(p.get("direction_basis") or "none")
     classified = buy + sell
     if premium <= 0 or classified / premium < PRESSURE_MIN_CLASSIFIED:
         return "undetermined", "none"
     direction = "buy_side" if buy >= sell else "sell_side"
-    return direction, ("stream_quote" if stream_basis else "none")
+    return direction, basis
 
 
 def _reason_sweep(

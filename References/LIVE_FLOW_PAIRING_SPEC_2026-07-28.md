@@ -150,6 +150,38 @@ Original prerequisites, verified not assumed:
    declined; memory at a multi-minute open lag is the one resource replay can't price in situ).
 4. First-invoice confirmation that live OPRA message volume bills flat on Standard.
 
+## Standing-NBBO consumer audit — RUN 2026-08-09, CLEARED (two provenance repairs shipped)
+
+Method: repo-wide sweep for `quote_at`/`latest_quote`/`get_option_*` callers and every
+`direction_basis` reader, each disposition verified against live state (events table by
+day × type × basis; collector journal), not assumed from the code alone.
+
+| # | consumer | quote source today | disposition |
+|---|----------|--------------------|-------------|
+| 1 | `sweep_loop` print classification — DIR-1 + mid_side (`runner.py:500`) | nbbo-on-print: tcbbo stamps `nbbo` at ingest, basis `dbn_nbbo`; `dbn_stream.quote_at` returns `None` honestly | **COVERED** — verified live: block events carry `dbn_nbbo` daily |
+| 2 | sweep clusters (`sweeps.py:_cluster_direction`) | per-print direction (from #1) | **WORKS; basis stamp REPAIRED 08-09** — matched the literal `"stream_quote"` only, so every sided sweep since 07-27 stamped basis `none` (~45k/wk sided sweeps mislabeled) |
+| 3 | bursts + clusters (`rolling.py`) | per-print direction (from #1) | **WORKS; basis stamp REPAIRED 08-09** — hardcoded `"stream_quote"` when sided: a false era claim for every sided burst/cluster since 07-27 (~700/day) |
+| 4 | poll lane classification (`poll.py:448-521`) | REST `get_option_latest_quotes` → `polled_quote` | REST — unaffected, verified live (directional_pressure rows) |
+| 5 | sweep detail enrichment (`runner.py:150-183`) | REST option snapshots (greeks/IV/OI/quote) | REST — unaffected |
+| 6 | chain snapshots (`poll.py:638`, `signals/options_chain_snapshot.py`, `black76.py`) | REST chain snapshot | REST — unaffected |
+| 7 | post-close samplers (`tools/options_chain_sampler.py`, `tools/index_chain_sampler.py`) | REST, post-close | REST — unaffected |
+| 8 | capped-lane internals (`stream.py` quote store, `poll.anchor_quote_symbols`) | the retired lane itself | N/A — dead under `provider=databento`, revertable by config |
+| 9 | UI option-quote display | — | **does not exist** (frontend has zero option-quote fetches) |
+| 10 | option position marks | — | **no marking path exists** — books/trading are equity-only; portfolio values come from the broker positions API |
+| 11 | agents/perception (`options_flow`, `unusual_volume` resources) | events DB reads | N/A — no live quote dependency |
+
+Blast-radius check on the two mislabels: every BEHAVIORAL reader keys off `direction`,
+not `direction_basis` — unusual-rank `+3 known aggressor` (`db/options_flow.py:406`),
+convergence, fusion intake dots, and the caveat/honesty text (`_caveat_for_direction`)
+were all correct throughout. The damage was provenance-only: stored events from the dbn
+era are indistinguishable from the Alpaca era exactly where the retro corpus diff and
+1.8-on-truth need the split. Rows written 07-27→08-09 keep their wrong stamps (era is
+recoverable from the date + this note; never backfilled).
+
+**VERDICT: no consumer needs a standing option NBBO. The quote lane's retirement is now
+deliberate and verified, not a side effect.** Remaining Inc-3 tail: nightly live-vs-batch
+audit alarm; capped-lane code retirement after one clean release.
+
 ## Not in scope
 
 - Corpus/rollup changes of any kind (v6 just landed; registered rules untouched).

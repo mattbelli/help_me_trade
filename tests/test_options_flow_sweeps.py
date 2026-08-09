@@ -82,6 +82,25 @@ def test_split_order_needs_min_prints_on_one_exchange() -> None:
     assert _closed(buf2) == []
 
 
+def test_sweep_basis_follows_the_prints_transport_stamp() -> None:
+    # 07-27 provider flip: prints on the databento lane classify from the tcbbo
+    # book and carry basis "dbn_nbbo". The event must propagate the prints' own
+    # stamp — matching the Alpaca literal only left every sided sweep claiming
+    # basis "none" for the whole dbn era.
+    buf = SweepBuffer()
+    buf.add(
+        [
+            _print(ts_ms=BASE_MS, exchange="C", direction="buy_side", basis="dbn_nbbo"),
+            _print(ts_ms=BASE_MS + 100, exchange="N", direction="buy_side", basis="dbn_nbbo"),
+            _print(ts_ms=BASE_MS + 300, exchange="M", direction="buy_side", basis="dbn_nbbo"),
+        ]
+    )
+    events = _closed(buf)
+    assert len(events) == 1
+    assert events[0]["direction"] == "buy_side"
+    assert events[0]["direction_basis"] == "dbn_nbbo"
+
+
 def test_two_exchanges_few_prints_is_nothing() -> None:
     buf = SweepBuffer()
     buf.add(
