@@ -159,15 +159,18 @@ snapshot per sweep). Open threads only:
   databento lane (F-2 spread/hygiene/ISO gates active; `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1`
   reverts). ✅ **First enriched sessions MEASURED 08-09** (card notes have the numbers): Aug 4–6
   at baseline (matched 96.6–98.4%/epoch, repairs ≤55, spread_flag rows land, repairs idempotent);
-  **Fri 08-07 DEGRADED** — Alpaca wildcard delivered 69% of the spine's prints (deficit accrued
-  in the first ~90 min, ~38% of dbn by 10:00 ET; sidecar reconnect ~10:45 ET; near-parity late
-  day), day ended matched 74.3%, repairs 4,851, spread_flag=1 events 996 — enrich-late/repair
-  machinery worked AS DESIGNED; cause unexplained (client counters clean → likely Alpaca-side).
-  OPEN, in order: (1) explain/accept Fri 08-07's Alpaca morning deficit (founder call); (2) the
-  **standing-NBBO consumer audit** — still the real cutover blocker; (3) explain the
-  **SPXW/XSP d<a gap** (dbn 1.538M vs alp 1.608M SPXW prints — likely the ~4-min meta-cold
-  open blind; confirm, don't assume; Friday flipped it hard the OTHER way, SPXW a=49.7% of d);
-  (4) nightly live-vs-batch audit alarm — Friday is exactly the day class it exists to catch.
+  **Fri 08-07 DEGRADED and ROOT-CAUSED 08-09 (card notes have the forensics): upstream Alpaca
+  OPRA-feed degradation, all session** — standing 10–25s wire lag vs baseline ~100ms, ~1/3 tape
+  rate for the first ~70 min, hottest roots conflated hardest (SPXW −50%), server-side disconnect
+  14:38Z; equity SIP on the SAME hostname clean all day (box/network/account exonerated), DBN
+  spine flawless, no public Alpaca incident. Provider weather; design held (996 late spread legs
+  repaired). Friday's stored events are partially label-blind (74% matched vs ~98%) — retro
+  re-label from the batch corpus possible if they ever matter to a study.
+  OPEN, in order: (1) the **standing-NBBO consumer audit** — still the real cutover blocker;
+  (2) explain the **SPXW/XSP d<a gap** on NORMAL days (dbn 1.538M vs alp 1.608M SPXW prints —
+  likely the ~4-min meta-cold open blind; confirm, don't assume); (3) nightly live-vs-batch
+  audit alarm — PRIORITY UP: it is what catches the next degraded-feed day automatically;
+  consider a live 'codes degraded' flag off a-lag p50 so label-blind days are visible same-day.
   Not yet verified: spread_flag prints in the print lab; sweeps/blocks plausibility vs pre-08-03.
   No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
