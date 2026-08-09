@@ -307,12 +307,12 @@ Lane DARK (`REASON_EMIT_ENABLED=False`) until Round 5. Open:
 - ✅ **card `dossier-repair` LANDED** (closed 08-08 — D1–D5 verified on main, 50/50 dossier tests
   green; see the BUILD_LOG rows). Arming still waits on the remaining Evidence Bus §2.9
   components (one per round: oi_walls, options_chain/IV, DERA segments, filings_events) + the
-  contested-wall gate. ✅ The EXPOSING work SHIPPED 08-08 (card `dossier-wire`): `dossier`
-  perception resource (all three agent surfaces via the registry), on-demand
-  `GET /api/fusion/episodes/{id}/dossier`, evidence-stack `dots · dossier` view — all ephemeral,
-  `put_dossier` stays REASON-lane-only. The discovery gap closed same-day: the `episodes`
-  resource lists OPEN stacks score-first with an honest `open_total` cap, and the dossier's
-  no-episode error points there. Open on that card: founder in-browser check of the widget view.
+  contested-wall gate. ✅ The EXPOSING work SHIPPED 08-08 and card `dossier-wire` CLOSED 08-09
+  (see the BUILD_LOG row): `dossier` perception resource (all three agent surfaces via the
+  registry), on-demand `GET /api/fusion/episodes/{id}/dossier`, evidence-stack `dots · dossier`
+  view — all ephemeral, `put_dossier` stays REASON-lane-only; `episodes` resource closed the
+  discovery gap same-day. Founder's in-browser look at the widget view was flagged at close;
+  visual nits, if any, become a UI-polish follow-up.
   ✅ **D5's watermark dependency is CLOSED** — `research.edgar_bulk.edgar_ingest_watermark` shipped
   the same day and the import in `signals/dossier._edgar_ingest_watermark` resolves; contract
   round-trip verified (changed filer → `checked_at` + `latest_filed`; unchanged → `checked_at` only;
