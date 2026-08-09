@@ -141,6 +141,13 @@ methods have failed and the failure is measured, not assumed.**
 
 ## Board discipline — what earns a card, and keeping it honest
 The kanban (`References/board.json`, rendered at `/board`) is the live source of truth for in-flight work.
+- **★ Edit the board with `tools/board.py`, never by hand.** `add` / `move` / `note` / `show` / `list` /
+  `archive` / `fmt`, and cards are addressable by number *or* slug (`tools/board.py show 101` ==
+  `show gth-overnight-phase-b`). The file's on-disk format is `indent=1, ensure_ascii=False`; a re-dump at
+  anyone's default indent rewrites all ~1,100 lines and makes **every** open branch conflict on merge. If
+  that already happened, `tools/board.py fmt` is the repair. Settled `done` cards live in
+  `References/board_archive.json` (swept by `archive`); the API stitches both files back together, so
+  `/board` still shows everything.
 - **A card must clear all three:** (1) it has a *deliverable* — a code/doc/config diff (if "done" isn't a
   diff, it's not a card); (2) it's *not already on the board* — search first, and if it overlaps an existing
   card, extend that card's notes instead of opening a new one; (3) it's worth briefing someone on (a discrete,

@@ -150,12 +150,32 @@ function BoardCardView({
   laneLabel: string;
   onToggle: (cardId: string) => void;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // A <button> wrapper would make the card uncopyable — browsers don't allow text
+  // selection inside buttons — so this is a div with button semantics. The guard keeps
+  // a drag-select from also toggling the card when the pointer comes up.
+  const activate = () => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && rootRef.current?.contains(sel.anchorNode)) return;
+    onToggle(card.id);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => onToggle(card.id)}
+    <div
+      ref={rootRef}
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activate();
+        }
+      }}
       className={cn(
-        "w-full rounded-md border border-border/80 bg-card/60 p-3 text-left shadow-sm transition-colors hover:border-border hover:bg-card/90",
+        "w-full cursor-pointer rounded-md border border-border/80 bg-card/60 p-3 text-left shadow-sm transition-colors hover:border-border hover:bg-card/90",
         muted && "opacity-70",
         expanded && "border-border bg-card/90",
         isNew &&
@@ -168,6 +188,11 @@ function BoardCardView({
             className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[var(--c-accent)]"
             aria-hidden
           />
+        ) : null}
+        {card.num ? (
+          <span className="mt-0.5 shrink-0 font-mono text-[10px] text-muted-foreground/55">
+            #{card.num}
+          </span>
         ) : null}
         <h3 className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-foreground">
           {card.title}
@@ -235,7 +260,7 @@ function BoardCardView({
           </div>
         </dl>
       ) : null}
-    </button>
+    </div>
   );
 }
 

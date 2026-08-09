@@ -1699,6 +1699,7 @@ export type BoardCardType =
 export type BoardCardPriority = "high" | "normal" | "low";
 
 export type BoardCard = {
+  num?: number;
   id: string;
   title: string;
   lane: string;

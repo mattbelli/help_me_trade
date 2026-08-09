@@ -1,0 +1,9 @@
+# BUILD_LOG is an append-only journal (measured: 94% of its commits delete nothing).
+# `union` keeps BOTH sides' rows on a merge instead of stopping with a conflict — two
+# agents adding history rows on two branches is the single most common conflict here.
+# Same-day rows can interleave out of order after a union merge; that is cosmetic.
+References/BUILD_LOG.md merge=union
+
+# NOT applied to HANDOFF.md on purpose: it holds OPEN threads only, so closing one
+# DELETES its section (measured: only 20% of its commits are pure appends). `union`
+# would silently resurrect sections a branch deliberately removed.

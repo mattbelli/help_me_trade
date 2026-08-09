@@ -178,6 +178,7 @@ from trading.sync import async_sync_all_enabled_brokers
 
 ROOT = Path(__file__).resolve().parent.parent
 BOARD_JSON_PATH = ROOT / "References" / "board.json"
+BOARD_ARCHIVE_PATH = ROOT / "References" / "board_archive.json"
 _EMPTY_BOARD: dict = {"updated_at": None, "lanes": [], "cards": []}
 POLL_INTERVAL_SECONDS = max(5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20")))
 SIGNAL_SCAN_INTERVAL_SECONDS = max(30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300")))
@@ -4831,7 +4832,12 @@ def api_put_workspace_pages(body: dict = Body(...)):
 
 
 def load_board() -> dict:
-    """Read project kanban board from References/board.json (fresh each call)."""
+    """Read project kanban board from References/board.json (fresh each call).
+
+    Settled `done` cards live in board_archive.json (swept there by tools/board.py
+    archive, so the live file stays small and merges cleanly); they are appended here
+    so the API response — and therefore the Archive column — is unchanged by the split.
+    """
     logger = logging.getLogger(__name__)
     try:
         if not BOARD_JSON_PATH.is_file():
@@ -4841,14 +4847,33 @@ def load_board() -> dict:
         if not isinstance(parsed, dict):
             logger.warning("board.json invalid: root is not an object")
             return dict(_EMPTY_BOARD)
+        parsed["cards"] = list(parsed.get("cards") or []) + _load_archived_cards()
         return parsed
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("failed to load board.json: %s", exc)
         return dict(_EMPTY_BOARD)
 
 
+def _load_archived_cards() -> list:
+    """Archived `done` cards, or [] if the archive is missing/unreadable (read-only path)."""
+    logger = logging.getLogger(__name__)
+    try:
+        if not BOARD_ARCHIVE_PATH.is_file():
+            return []
+        parsed = json.loads(BOARD_ARCHIVE_PATH.read_text(encoding="utf-8"))
+        cards = parsed.get("cards") if isinstance(parsed, dict) else None
+        return cards if isinstance(cards, list) else []
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("failed to load board_archive.json: %s", exc)
+        return []
+
+
 def _load_board_for_mutation() -> dict:
-    """Load board.json for writes; 409 if missing or corrupt."""
+    """Load board.json for writes; 409 if missing or corrupt.
+
+    Deliberately NOT load_board(): the write path must see the live file alone, or
+    saving would fold every archived card back into board.json.
+    """
     logger = logging.getLogger(__name__)
     if not BOARD_JSON_PATH.is_file():
         raise HTTPException(
@@ -4872,8 +4897,13 @@ def _load_board_for_mutation() -> dict:
 
 
 def _save_board_atomic(board: dict) -> None:
-    """Atomically replace board.json (safe under concurrent agent edits)."""
-    content = json.dumps(board, indent=2) + "\n"
+    """Atomically replace board.json (safe under concurrent agent edits).
+
+    indent=1 + ensure_ascii=False is the board's canonical on-disk format, shared with
+    tools/board.py. Any other dump re-writes all ~2,700 lines, and a whole-file reformat
+    conflicts with every open branch — this endpoint used to do exactly that.
+    """
+    content = json.dumps(board, indent=1, ensure_ascii=False) + "\n"
     fd, tmp_path = tempfile.mkstemp(
         dir=BOARD_JSON_PATH.parent,
         prefix=".board-",

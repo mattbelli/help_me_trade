@@ -33,6 +33,7 @@ def test_board_api_returns_parsed_file(tmp_path: Path, monkeypatch) -> None:
     board_path = tmp_path / "board.json"
     board_path.write_text(json.dumps(board), encoding="utf-8")
     monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", tmp_path / "no-archive.json")
 
     from api.main import app
 
@@ -41,6 +42,44 @@ def test_board_api_returns_parsed_file(tmp_path: Path, monkeypatch) -> None:
 
     assert resp.status_code == 200
     assert resp.json() == {"board": board}
+
+
+def test_board_api_appends_archived_cards(tmp_path: Path, monkeypatch) -> None:
+    """Settled `done` cards live in board_archive.json but still reach /board."""
+    board = _sample_board()
+    board_path = tmp_path / "board.json"
+    board_path.write_text(json.dumps(board), encoding="utf-8")
+    archived = {"id": "old", "title": "Ancient", "lane": "done", "notes": ""}
+    archive_path = tmp_path / "board_archive.json"
+    archive_path.write_text(json.dumps({"cards": [archived]}), encoding="utf-8")
+    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", archive_path)
+
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/board")
+
+    assert resp.json()["board"]["cards"] == board["cards"] + [archived]
+
+
+def test_board_api_survives_corrupt_archive(tmp_path: Path, monkeypatch) -> None:
+    """A broken archive must not take the whole board down — live cards still serve."""
+    board = _sample_board()
+    board_path = tmp_path / "board.json"
+    board_path.write_text(json.dumps(board), encoding="utf-8")
+    archive_path = tmp_path / "board_archive.json"
+    archive_path.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", archive_path)
+
+    from api.main import app
+
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        resp = client.get("/api/board")
+
+    assert resp.status_code == 200
+    assert resp.json()["board"]["cards"] == board["cards"]
 
 
 def test_board_api_missing_file_returns_empty_shape(tmp_path: Path, monkeypatch) -> None:
@@ -95,6 +134,32 @@ def test_board_inbox_post_adds_card(
     assert saved["updated_at"] != board["updated_at"]
     assert saved["updated_at"].endswith("Z")
     assert list(tmp_path.glob(".board-*.tmp")) == []
+
+
+def test_board_inbox_post_preserves_canonical_format(
+    tmp_path: Path, monkeypatch, mutation_client: TestClient
+) -> None:
+    """The write path must not reformat the board.
+
+    indent=1 + ensure_ascii=False is the on-disk format shared with tools/board.py. This
+    endpoint once wrote indent=2 with escaped unicode, which rewrote every line of the
+    file and made every open branch conflict on merge.
+    """
+    board = _sample_board()
+    board["cards"][0]["notes"] = "em dash — arrow → warn ⚠"
+    board_path = tmp_path / "board.json"
+    board_path.write_text(
+        json.dumps(board, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+
+    resp = mutation_client.post("/api/board/inbox", json={"title": "Quick idea"})
+    assert resp.status_code == 200
+
+    raw = board_path.read_text(encoding="utf-8")
+    saved = json.loads(raw)
+    assert raw == json.dumps(saved, indent=1, ensure_ascii=False) + "\n"
+    assert "—" in raw and "\\u2014" not in raw
 
 
 def test_board_inbox_post_requires_title(

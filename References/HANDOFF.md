@@ -15,6 +15,20 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ Board format round (08-09) — one branch needs a manual board merge
+
+Shipped + deployed (BUILD_LOG row + card #276). Two open actions:
+
+- **`feat/wire-data-everywhere` (worktree `clear-the-board`, tip `fadd49ad`) will conflict hard on
+  `References/board.json`** — its tip commit is a whole-file `indent=2` reformat, and main has since
+  renumbered every card and moved 175 done cards to `board_archive.json`. Do NOT hand-resolve that
+  diff. Resolve by taking **main's** board wholesale (`git checkout --ours`/`--theirs` as appropriate)
+  and re-applying that branch's card edits with `tools/board.py note|move`. Same for the other three
+  worktrees if they touch the board (they merge clean as of 08-09 — re-check with
+  `git merge-tree --write-tree main <branch>` before merging).
+- **Founder in-browser check owed:** board cards should now select/copy with the mouse, show `#num`,
+  and still toggle on click and on Enter/Space.
+
 ## ▶ GTH overnight flow (Phase B) — shipped 08-09; first-night verifies owed
 
 Everything deployed (BUILD_LOG row + card `gth-overnight-phase-b`); baseline is pre-filled from the
