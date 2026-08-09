@@ -15,19 +15,24 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ Board format round (08-09) — one branch needs a manual board merge
+## ▶ 08-09 board-format + flow-provenance round — Monday verifies owed
 
-Shipped + deployed (BUILD_LOG row + card #276). Two open actions:
+Both shipped + deployed (BUILD_LOG rows; cards #276 and #246). `feat/wire-data-everywhere` is
+closed — its useful half was re-applied to main and the branch + worktree deleted, so the board
+merge-hazard noted here earlier is gone. Open:
 
-- **`feat/wire-data-everywhere` (worktree `clear-the-board`, tip `fadd49ad`) will conflict hard on
-  `References/board.json`** — its tip commit is a whole-file `indent=2` reformat, and main has since
-  renumbered every card and moved 175 done cards to `board_archive.json`. Do NOT hand-resolve that
-  diff. Resolve by taking **main's** board wholesale (`git checkout --ours`/`--theirs` as appropriate)
-  and re-applying that branch's card edits with `tools/board.py note|move`. Same for the other three
-  worktrees if they touch the board (they merge clean as of 08-09 — re-check with
-  `git merge-tree --write-tree main <branch>` before merging).
-- **Founder in-browser check owed:** board cards should now select/copy with the mouse, show `#num`,
-  and still toggle on click and on Enter/Space.
+- **Mon 08-10, first session since two same-day changes — check together.** (a) `dbn_nbbo` flow
+  events must now show `confirmed aggressor` in the score breakdown and read *"NBBO on the print"* /
+  *"side confirmed on the quote at print time"* — never *"side off a polled quote"*. (b) Main's
+  backend basis repair (`6681005e`) has never run in a live session: confirm sided events stop
+  writing `direction_basis='none'` (was ~8.7–11.2k/day). One query covers both:
+  `select substr(ts,1,10), direction_basis, count(*) from options_flow_events where
+  direction!='undetermined' and ts>='2026-08-10' group by 1,2`.
+- **Founder in-browser check owed:** board cards select/copy with the mouse, show `#num`, still
+  toggle on click and Enter/Space; and a flow event's *side basis* cell + why-line read correctly.
+- **Before merging any worktree branch**, run `git merge-tree --write-tree main <branch>` first —
+  main's board was renumbered and split on 08-09, so a branch carrying its own `board.json` edits
+  should take main's board wholesale and re-apply its card edits with `tools/board.py note|move`.
 
 ## ▶ GTH overnight flow (Phase B) — shipped 08-09; first-night verifies owed
 

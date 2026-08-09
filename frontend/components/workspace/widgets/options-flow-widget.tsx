@@ -131,6 +131,16 @@ function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: str
 }
 
 /**
+ * At-print NBBO lanes: the book was known at the moment of the trade, so the side
+ * is a confirmed aggressor read. `dbn_nbbo` is the tcbbo book that travels ON the
+ * print (the whole-market spine since 2026-07-27, and the only transport left after
+ * the capped Alpaca lane was retired 2026-08-09); `stream_quote` is the Alpaca WS
+ * quote cache it replaced, kept here because historical events still render.
+ * `polled_quote` is NOT at-print — it is a REST quote up to 30s old.
+ */
+const AT_PRINT_BASES = new Set(["dbn_nbbo", "stream_quote"]);
+
+/**
  * Honesty flag from ``direction_basis`` — always visible, never a tooltip.
  * live quote at ask/bid → "—"; ≤30s polled quote → "polled" (may shift);
  * mid-spread / no quote → undetermined. When undetermined but the corpus
@@ -194,7 +204,9 @@ function computeScore(ev: OptionsFlowEvent): { score: number; comps: ScoreComp[]
   }
 
   const aggr =
-    ev.direction !== "undetermined" && ev.direction_basis === "stream_quote" ? 1.5 : 0;
+    ev.direction !== "undetermined" && AT_PRINT_BASES.has(ev.direction_basis || "")
+      ? 1.5
+      : 0;
   if (aggr > 0) comps.push({ label: "confirmed aggressor", pts: aggr });
 
   const score = clamp(size + prints + unusual + aggr, 0, 10);
@@ -520,11 +532,13 @@ function FlowDetail({
         : ev.mid_side === "wide_spread"
           ? "quote too wide for a midpoint read — no side claimed"
           : "mid-spread — no side claimed"
-      : ev.direction_basis === "stream_quote"
-        ? "live stream quote"
-        : (ev.direction_basis || "").toLowerCase().startsWith("polled")
-          ? "polled quote (≤30s, may shift)"
-          : ev.direction_basis || "—";
+      : ev.direction_basis === "dbn_nbbo"
+        ? "NBBO on the print (whole-market spine)"
+        : ev.direction_basis === "stream_quote"
+          ? "live stream quote"
+          : (ev.direction_basis || "").toLowerCase().startsWith("polled")
+            ? "polled quote (≤30s, may shift)"
+            : ev.direction_basis || "—";
 
   const isAggregate =
     ev.event_type === "flow_burst" || ev.event_type === "flow_cluster";
@@ -541,8 +555,8 @@ function FlowDetail({
   if (ev.dte != null) why.push(`${ev.dte} DTE`);
   if (ev.direction !== "undetermined") {
     why.push(
-      ev.direction_basis === "stream_quote"
-        ? "side confirmed on a live quote"
+      AT_PRINT_BASES.has(ev.direction_basis || "")
+        ? "side confirmed on the quote at print time"
         : "side off a polled quote",
     );
   }

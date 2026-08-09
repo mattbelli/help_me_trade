@@ -196,6 +196,7 @@ day × type × basis; collector journal), not assumed from the code alone.
 | 9 | UI option-quote display | — | **does not exist** (frontend has zero option-quote fetches) |
 | 10 | option position marks | — | **no marking path exists** — books/trading are equity-only; portfolio values come from the broker positions API |
 | 11 | agents/perception (`options_flow`, `unusual_volume` resources) | events DB reads | N/A — no live quote dependency |
+| 12 | **options-flow WIDGET** (`options-flow-widget.tsx`) — score + basis label + why text | reads the stored `direction_basis` string | **MISSED by this audit; REPAIRED 2026-08-09** — see the amendment below |
 
 Blast-radius check on the two mislabels: every BEHAVIORAL reader keys off `direction`,
 not `direction_basis` — unusual-rank `+3 known aggressor` (`db/options_flow.py:406`),
@@ -205,9 +206,59 @@ era are indistinguishable from the Alpaca era exactly where the retro corpus dif
 1.8-on-truth need the split. Rows written 07-27→08-09 keep their wrong stamps (era is
 recoverable from the date + this note; never backfilled).
 
+**AMENDMENT 2026-08-09 (same day, later): the blast-radius claim above was WRONG in one
+place — consumer 12.** The sweep above searched Python; the frontend was never grepped,
+and row 9 ("UI option-quote display does not exist") is true about quote *fetches* but was
+read as clearing the UI. The widget consumes the basis *label*, not a quote, in three
+places — and one of them is behavioral, which is exactly what the paragraph above says
+does not exist: `computeScore` awarded its **1.5-point "confirmed aggressor"** component
+on `direction_basis === "stream_quote"`, so every `dbn_nbbo` event scored 1.5 lower on a
+0–10 scale; the detail panel rendered the raw string `dbn_nbbo` in the *side basis* cell;
+and the why-line printed **"side off a polled quote"** — a false provenance claim, since
+that side came from the NBBO on the print, not a ≤30s REST quote. Measured before the fix:
+7,344 sided `dbn_nbbo` events already in the store, and 1,374 vs 679 `stream_quote` on
+08-07, so ~2/3 of confirmed-aggressor flow was mislabelled. **Retiring the capped Alpaca
+lane the same morning escalated this to 100%**: `stream.py` is deleted, `dbn_stream.py` is
+the only transport and always stamps `quote_basis`, so `runner.py:501`'s `"stream_quote"`
+fallback is now unreachable and the widget's literal matched nothing. Fixed by an
+`AT_PRINT_BASES` set (`dbn_nbbo` + `stream_quote`, the latter kept because historical
+events still render); `polled_quote` still routes to its own honest label. **Lesson for
+the next audit: "every reader of X" means every LANGUAGE, not every `.py`.**
+
+Known follow-up, NOT fixed here (pre-existing, historical rows only): `honestyFlag` returns
+`"—"` — its strongest flag — for a sided event whose basis is literally `none`, so the
+~91k rows mislabelled between 07-27 and the 08-09 repair display as fully confirmed.
+
 **VERDICT: no consumer needs a standing option NBBO. The quote lane's retirement is now
 deliberate and verified, not a side effect.** Remaining Inc-3 tail: capped-lane code
 retirement after one clean release.
+
+## Overnight quotes — ANSWERED 2026-08-09: there are none, on either session (`tools/gth_quote_probe.py`)
+
+The approved overnight-aggressor plan (a rolling ~800-contract quote subscription) assumed
+Alpaca quotes outside RTH. It does not. The curb session (16:15–17:00 ET) was proven
+quoteless on 07-31; GTH (20:15–09:15 ET) carries normal condition codes and was left
+genuinely open, so `tools/gth_quote_probe.py` sampled it — read-only, no socket, no writes,
+cron'd 01:00/05:00/08:00 + 12:30 UTC Mon–Fri.
+
+**Verdict: quoteless, unambiguously.** 46 root-samples (23 polls × SPXW/XSP) across 7
+sessions 07-31→08-07, at 16:15/16:20, 21:00, 01:00, 04:00 and 08:30 ET. **Every single
+sample returned 0 classifiable contracts** — not "few", zero, out of 3,000 contracts
+fetched per root each time — while 20–854 contracts were *actively printing* in that same
+snapshot. `newest_quote` never moved off the prior session's `19:59:59.999 UTC` (15:59:59
+ET) no matter how many hours later the poll ran. Trades flow all night; the quote book
+freezes at the RTH bell and stays frozen.
+
+Consequences, and they are structural rather than a tuning problem:
+
+- **Overnight flow can be measured for ACTIVITY but never for DIRECTION**, on any lane we
+  hold. This is the measured basis for the GTH Phase A/B rule "activity only, never
+  direction" — it is now a finding, not an assumption.
+- Alpaca has **no historical options-quotes endpoint** (404), so this was only ever
+  answerable live, inside a session. That is why the probe exists and why it is cron'd.
+- Do not re-open the rolling-overnight-quote-subscription plan against this vendor. Any
+  overnight aggressor read needs a *different* quote source, and that is a purchase
+  decision gated on the no-paid-feeds-until-profitable rule.
 
 ## Nightly live-vs-batch audit alarm — ARMED 2026-08-09 (`tools/flow_pairing_audit.py`)
 
