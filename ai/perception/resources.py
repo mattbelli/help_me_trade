@@ -793,16 +793,35 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from db.index_pressure import baseline_days, day_summary
+    from db.index_pressure import baseline_days, day_summary, latest_date
 
-    date = str(filters.get("date") or "").strip() or datetime.now(
-        ZoneInfo("America/New_York")
-    ).date().isoformat()
+    history = int(filters.get("history") or 0)
+    if history > 0:
+        from signals.options_flow.pressure_history import pressure_trend
+
+        return [
+            {
+                **r,
+                "caveat": "daily gauge tilt next to SPY's day result — "
+                          "co-occurrence display, never an accuracy score",
+            }
+            for r in pressure_trend(min(history, 120), db_path=db_path)
+        ]
+
+    date = str(filters.get("date") or "").strip()
+    explicit = bool(date)
+    date = date or datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     window = str(filters.get("window") or "open").strip().lower()
     if window not in ("open", "close"):
         return [{"error": "window must be 'open' or 'close'"}]
     window_et = "09:30-10:00" if window == "open" else "15:30-16:00"
     rows = day_summary(date, window=window, db_path=db_path)
+    if not rows and not explicit:
+        # Carry the last session (weekend / pre-open) — same fallback the API
+        # serves, labeled with the served date, never presented as today.
+        prior = latest_date(window=window, db_path=db_path)
+        if prior and prior != date:
+            date, rows = prior, day_summary(prior, window=window, db_path=db_path)
     if not rows:
         return [{"date": date, "unavailable": True, "window": window, "window_et": window_et}]
     days = baseline_days(window=window, db_path=db_path)
@@ -935,9 +954,9 @@ def _read_overnight_flow(
     filters: dict[str, Any], *, db_path: Path
 ) -> list[dict[str, Any]]:
     del db_path  # file-backed: the morning job writes JSON, no DB involved
-    from signals.options_flow.gth_morning import load_history, load_morning_line
+    from signals.options_flow.gth_morning import latest_line, load_history
 
-    line = load_morning_line()
+    line = latest_line()
     if line is None:
         return [{
             "unavailable": True,
@@ -1495,8 +1514,12 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "caveat, never a signal or score."
         ),
         "filters": {
-            "date": "optional YYYY-MM-DD — default today (ET)",
+            "date": "optional YYYY-MM-DD — default today (ET), falling back "
+                    "to the latest session with data when today has none",
             "window": "optional — open (default) | close",
+            "history": "optional int — instead of one day's rows, return that "
+                       "many trailing daily trend rows (open+close net tilt "
+                       "joined with SPY's day %), max 120",
         },
         "read": _read_index_pressure,
     },

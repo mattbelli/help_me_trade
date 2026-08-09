@@ -740,10 +740,33 @@ export type IndexPressureRow = {
 export type IndexPressureResult = {
   as_of: string;
   date: string;
+  /** True when today had no window data and the newest prior session is served. */
+  fallback: boolean;
   window: "open" | "close";
   window_et: string;
   rows: IndexPressureRow[];
   baseline_days: number;
+};
+
+export type IndexPressureTrendWindow = {
+  bull_usd: number;
+  bear_usd: number;
+  unclassified_usd: number;
+  net_usd: number;
+  classified_frac: number;
+  n_prints: number;
+};
+
+export type IndexPressureTrendDay = {
+  date: string;
+  open: IndexPressureTrendWindow | null;
+  close: IndexPressureTrendWindow | null;
+  spy_pct: number | null;
+};
+
+export type IndexPressureTrendResult = {
+  as_of: string;
+  days: IndexPressureTrendDay[];
 };
 
 export type OptionsChainSide = {
@@ -850,6 +873,19 @@ export async function fetchIndexPressure(
   return res.json();
 }
 
+export async function fetchIndexPressureTrend(
+  days = 40,
+): Promise<IndexPressureTrendResult> {
+  const res = await apiFetch(`${API_BASE}/api/index-pressure/history?days=${days}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Pressure-trend error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export interface OvernightFlowTopPrint {
   sym: string;
   size: number;
@@ -861,7 +897,8 @@ export interface OvernightFlowTopPrint {
 
 export interface OvernightFlowLine {
   session: string;
-  generated_at: string;
+  /** Null when synthesized from history (no live line written yet). */
+  generated_at: string | null;
   window_et: string;
   slice: {
     prints: number;

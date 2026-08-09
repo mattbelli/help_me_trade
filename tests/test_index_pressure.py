@@ -357,3 +357,77 @@ def test_record_day_is_monotone_never_clobbered(tmp_path: Path):
     assert rec["syms"] == 13
     assert rec["coverage_modes"] == "gauge_lane"  # NULL never erases provenance
     assert rec["writers"] == 2  # the restart is still visible
+
+
+# --- carry-last-session + daily trend ------------------------------------------------
+
+
+def test_latest_date_and_daily_history(tmp_path: Path):
+    from db.index_pressure import daily_history, latest_date
+
+    db = tmp_path / "t.db"
+    upsert_minutes(
+        [
+            ("SPY", "2026-08-06", 0, 100.0, 40.0, 10.0, 2, "gauge_lane"),
+            ("QQQ", "2026-08-06", 1, 50.0, 80.0, 0.0, 1, "gauge_lane"),
+            ("SPY", "2026-08-07", 0, 30.0, 10.0, 0.0, 1, "gauge_lane"),
+        ],
+        db_path=db,
+    )
+    upsert_minutes(
+        [("SPY", "2026-08-05", 0, 9.0, 1.0, 0.0, 1, None)], window="close", db_path=db
+    )
+
+    assert latest_date(db_path=db) == "2026-08-07"
+    assert latest_date(window="close", db_path=db) == "2026-08-05"
+    assert latest_date(window="close", db_path=tmp_path / "empty.db") is None
+
+    rows = daily_history(db_path=db)
+    assert [r["date"] for r in rows] == ["2026-08-06", "2026-08-07"]  # oldest first
+    d6 = rows[0]
+    assert d6["bull_usd"] == 150.0 and d6["bear_usd"] == 120.0
+    assert d6["net_usd"] == 30.0
+    assert abs(d6["classified_frac"] - (270.0 / 280.0)) < 1e-9
+
+
+def test_pressure_trend_joins_windows_and_spy(tmp_path: Path, monkeypatch):
+    from signals.options_flow.pressure_history import pressure_trend
+
+    db = tmp_path / "t.db"
+    upsert_minutes([("SPY", "2026-08-06", 0, 100.0, 40.0, 0.0, 1, None)], db_path=db)
+    upsert_minutes([("SPY", "2026-08-07", 0, 10.0, 50.0, 0.0, 1, None)], db_path=db)
+    # close window captured only on the 7th — the 6th must stay None, not zero.
+    upsert_minutes(
+        [("SPY", "2026-08-07", 0, 5.0, 1.0, 0.0, 1, None)], window="close", db_path=db
+    )
+
+    def fake_bars(symbol, start, end, **kw):
+        assert symbol == "SPY"
+        return [
+            {"d": "2026-08-05", "o": 1, "h": 1, "l": 1, "c": 100.0, "v": 1},
+            {"d": "2026-08-06", "o": 1, "h": 1, "l": 1, "c": 102.0, "v": 1},
+            # 08-07 bar absent (mid-session) -> spy_pct stays None for that row
+        ]
+
+    monkeypatch.setattr("research.bars.get_daily_bars", fake_bars)
+    rows = pressure_trend(40, db_path=db)
+    assert [r["date"] for r in rows] == ["2026-08-06", "2026-08-07"]
+    assert rows[0]["open"]["net_usd"] == 60.0
+    assert rows[0]["close"] is None
+    assert rows[0]["spy_pct"] == 2.0
+    assert rows[1]["close"]["net_usd"] == 4.0
+    assert rows[1]["spy_pct"] is None
+
+
+def test_pressure_trend_survives_bars_outage(tmp_path: Path, monkeypatch):
+    from signals.options_flow.pressure_history import pressure_trend
+
+    db = tmp_path / "t.db"
+    upsert_minutes([("SPY", "2026-08-07", 0, 10.0, 2.0, 0.0, 1, None)], db_path=db)
+
+    def boom(*a, **k):
+        raise RuntimeError("alpaca down")
+
+    monkeypatch.setattr("research.bars.get_daily_bars", boom)
+    (row,) = pressure_trend(40, db_path=db)
+    assert row["spy_pct"] is None and row["open"]["net_usd"] == 8.0

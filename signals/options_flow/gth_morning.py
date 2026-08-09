@@ -280,3 +280,30 @@ def load_morning_line(path: Path = MORNING_LINE_PATH) -> dict[str, Any] | None:
         return line if isinstance(line, dict) else None
     except (OSError, json.JSONDecodeError, ValueError):
         return None
+
+
+def latest_line(
+    *, path: Path = MORNING_LINE_PATH, history_path: Path = HISTORY_PATH
+) -> dict[str, Any] | None:
+    """The morning line, or the newest history night when no line file exists
+    (weekend deploy, pre-first-run). History rows share the census shape, so
+    the synthesized line is the same object the morning job would have written
+    for that session — z-scored only against the nights BEFORE it, labeled
+    with its own session date, never presented as tonight."""
+    line = load_morning_line(path)
+    if line is not None:
+        return line
+    history = load_history(history_path)
+    live = [r for r in history if r.get("prints", 0) > 0]
+    if not live:
+        return None
+    last = max(live, key=lambda r: str(r.get("session") or ""))
+    return {
+        "session": str(last.get("session") or ""),
+        "generated_at": None,
+        "window_et": "04:00-09:15",
+        "slice": last,
+        "baseline": baseline_block(last, history),
+        "caveats": list(CAVEATS),
+        "source": "history_fallback",
+    }

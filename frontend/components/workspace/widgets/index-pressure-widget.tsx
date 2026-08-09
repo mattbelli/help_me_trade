@@ -8,9 +8,11 @@ import {
 } from "@/components/workspace/widget-states";
 import {
   fetchIndexPressure,
+  fetchIndexPressureTrend,
   fetchOvernightFlow,
   type IndexPressureResult,
   type IndexPressureRow,
+  type IndexPressureTrendResult,
   type OvernightFlowResult,
 } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
@@ -22,12 +24,14 @@ import { cn } from "@/lib/utils";
 // Windows are fixed session bookends; rows are final ~5 min after each closes.
 // The collector flushes minute rows every ~10s in-window, so a 10s poll tracks
 // the tape essentially live during the half hours the gauge exists for. The
-// overnight view is a once-a-morning file (~9:16 ET) — a slow poll is honest.
+// overnight view is a once-a-morning file (~9:16 ET) and the trend advances
+// once per session — a slow poll is honest for both.
 const POLL_MS = 10_000;
-const OVERNIGHT_POLL_MS = 300_000;
+const SLOW_POLL_MS = 300_000;
 
-const WINDOWS = ["open", "close", "overnight"] as const;
+const WINDOWS = ["open", "close", "overnight", "trend"] as const;
 type WindowKey = (typeof WINDOWS)[number];
+const TREND_DAYS = 40;
 
 function fmtNet(v: number): string {
   const a = Math.abs(v);
@@ -93,6 +97,120 @@ function Sparkline({ values }: { values: number[] }) {
         vectorEffect="non-scaling-stroke"
       />
     </svg>
+  );
+}
+
+/** One diverging-bar strip: bull/up days grow from the midline, bear/down days
+ * hang below it; bar height = magnitude vs the strip's own max. Null days
+ * (window not captured / day not closed) leave a gap, never a zero bar. */
+function DivergingStrip({
+  label,
+  values,
+}: {
+  label: string;
+  values: (number | null)[];
+}) {
+  const magnitudes = values.filter((v): v is number => v !== null).map(Math.abs);
+  const max = Math.max(...magnitudes, 0) || 1;
+  const bw = 100 / values.length;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-[52px] shrink-0 text-right text-[9px] lowercase text-[var(--text-muted)]">
+        {label}
+      </span>
+      <svg
+        viewBox="0 0 100 30"
+        preserveAspectRatio="none"
+        className="h-[30px] min-w-0 flex-1"
+        aria-hidden
+      >
+        <line
+          x1="0"
+          y1="15"
+          x2="100"
+          y2="15"
+          stroke="var(--border-subtle)"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
+        />
+        {values.map((v, i) => {
+          if (v === null) return null;
+          const h = Math.max((Math.abs(v) / max) * 13, 0.6);
+          return (
+            <rect
+              key={i}
+              x={i * bw + bw * 0.15}
+              y={v >= 0 ? 15 - h : 15}
+              width={bw * 0.7}
+              height={h}
+              fill={v >= 0 ? "var(--pos)" : "var(--neg)"}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function NetCell({ v }: { v: number | null }) {
+  if (v === null)
+    return <span className="text-[var(--text-muted)]">—</span>;
+  return (
+    <span className={v >= 0 ? "text-[var(--pos)]" : "text-[var(--neg)]"}>
+      {fmtNet(v)}
+    </span>
+  );
+}
+
+function TrendBody({ data }: { data: IndexPressureTrendResult }) {
+  const days = data.days;
+  if (days.length === 0) {
+    return <WidgetEmpty message="no gauge history yet — accrues one row per session" />;
+  }
+  return (
+    <div className="px-3 pt-2">
+      <div className="flex flex-col gap-[3px]">
+        <DivergingStrip
+          label="open net"
+          values={days.map((d) => d.open?.net_usd ?? null)}
+        />
+        <DivergingStrip
+          label="close net"
+          values={days.map((d) => d.close?.net_usd ?? null)}
+        />
+        <DivergingStrip label="spy day" values={days.map((d) => d.spy_pct)} />
+      </div>
+      <div className="grid grid-cols-[44px_1fr_1fr_56px] gap-x-3 pt-2 text-[9px] lowercase text-[var(--text-muted)]">
+        <span>date</span>
+        <span>open net</span>
+        <span>close net</span>
+        <span className="text-right">spy day</span>
+      </div>
+      {[...days].reverse().map((d) => (
+        <div
+          key={d.date}
+          className="grid grid-cols-[44px_1fr_1fr_56px] items-baseline gap-x-3 py-[2px] font-mono text-[11px] tabular-nums"
+        >
+          <span className="text-[var(--text-muted)]">{d.date.slice(5)}</span>
+          <NetCell v={d.open?.net_usd ?? null} />
+          <NetCell v={d.close?.net_usd ?? null} />
+          <span
+            className={cn(
+              "text-right",
+              d.spy_pct === null
+                ? "text-[var(--text-muted)]"
+                : d.spy_pct >= 0
+                  ? "text-[var(--pos)]"
+                  : "text-[var(--neg)]",
+            )}
+          >
+            {d.spy_pct === null
+              ? "—"
+              : `${d.spy_pct >= 0 ? "+" : ""}${d.spy_pct.toFixed(2)}%`}
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -187,12 +305,15 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
   const { publish } = usePublishSymbol(channel);
   const [data, setData] = useState<IndexPressureResult | null>(null);
   const [overnight, setOvernight] = useState<OvernightFlowResult | null>(null);
+  const [trend, setTrend] = useState<IndexPressureTrendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       if (windowKey === "overnight") {
         setOvernight(await fetchOvernightFlow());
+      } else if (windowKey === "trend") {
+        setTrend(await fetchIndexPressureTrend(TREND_DAYS));
       } else {
         setData(await fetchIndexPressure(windowKey));
       }
@@ -202,7 +323,10 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
     }
   }, [windowKey]);
 
-  usePagePoll(load, windowKey === "overnight" ? OVERNIGHT_POLL_MS : POLL_MS);
+  usePagePoll(
+    load,
+    windowKey === "overnight" || windowKey === "trend" ? SLOW_POLL_MS : POLL_MS,
+  );
 
   const windowToggle = (
     <span className="ml-auto flex gap-2">
@@ -225,6 +349,21 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
   );
 
   if (error) return <WidgetError message={error} onRetry={() => void load()} />;
+
+  if (windowKey === "trend") {
+    if (!trend) return <WidgetLoading />;
+    return (
+      <div className="flex h-full flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <TrendBody data={trend} />
+        </div>
+        <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+          <span>daily net premium vs spy close · co-occurrence, not accuracy</span>
+          {windowToggle}
+        </div>
+      </div>
+    );
+  }
 
   if (windowKey === "overnight") {
     if (!overnight) return <WidgetLoading />;
@@ -299,6 +438,9 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
       </div>
       <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
         <span>
+          {data.fallback ? (
+            <span className="text-[var(--warn)]">last session {data.date.slice(5)} · </span>
+          ) : null}
           {data.window_et} ET · net premium (bull − bear) · % = side-classified
           {calibrated ? null : (
             <span> · uncalibrated ({data.baseline_days}d of baseline)</span>

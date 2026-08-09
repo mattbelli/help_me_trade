@@ -3331,7 +3331,7 @@ async def api_index_pressure(
     (``baseline_days`` is returned so the UI can label the warm-up honestly).
     ``series=SYM`` adds that underlying's per-minute rows for a sparkline.
     """
-    from db.index_pressure import baseline_days, day_summary, minute_series
+    from db.index_pressure import baseline_days, day_summary, latest_date, minute_series
 
     win = window.strip().lower()
     if win not in ("open", "close"):
@@ -3340,12 +3340,23 @@ async def api_index_pressure(
     try:
         from signals.options_flow.constants import GAUGE_ZERO_DTE_PICKS
 
+        rows = day_summary(target, window=win)
+        fallback = False
+        # Carry the last session rather than a blank tile: outside the window
+        # (weekend, pre-open) an un-dated request serves the newest date with
+        # data, labeled with that date — never presented as today.
+        if not rows and date is None:
+            prior = latest_date(window=win)
+            if prior and prior != target:
+                target, rows, fallback = prior, day_summary(prior, window=win), True
+
         payload: dict = {
             "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
             "date": target,
+            "fallback": fallback,
             "window": win,
             "window_et": "09:30-10:00" if win == "open" else "15:30-16:00",
-            "rows": day_summary(target, window=win),
+            "rows": rows,
             "baseline_days": baseline_days(window=win),
             # Disclosed truncation: index 0-1DTE coverage = the top-N contracts
             # by day-$vol per name (ATM cluster), not the whole 0DTE chain.
@@ -3361,20 +3372,40 @@ async def api_index_pressure(
     return payload
 
 
+@app.get("/api/index-pressure/history")
+async def api_index_pressure_history(days: int = 40):
+    """Daily gauge-tilt trend: per session the open/close net premium plus how
+    SPY finished that day (close-vs-prior-close %). Co-occurrence display so
+    drift toward bull/bear is visible over weeks — never an accuracy score.
+    """
+    from signals.options_flow.pressure_history import pressure_trend
+
+    try:
+        rows = await asyncio.to_thread(pressure_trend, min(max(days, 1), 120))
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {
+        "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+        "days": rows,
+    }
+
+
 @app.get("/api/overnight-flow")
 async def api_overnight_flow(nights: int = 60):
     """Last night's overnight (Cboe GTH) index-option line + trailing nights.
 
     The morning job (report kind ``overnight_flow``, ~9:16 ET) writes the line;
     this serves it with a trailing-notional history for the widget sparkline.
-    Activity only, never direction — no overnight quotes exist on any lane we
-    hold; the z is context for the open, not a signal.
+    Before the first live line exists the newest history night is served in its
+    place (labeled with its own session date). Activity only, never direction —
+    no overnight quotes exist on any lane we hold; the z is context for the
+    open, not a signal.
     """
-    from signals.options_flow.gth_morning import load_history, load_morning_line
+    from signals.options_flow.gth_morning import latest_line, load_history
 
     try:
         line, hist = await asyncio.gather(
-            asyncio.to_thread(load_morning_line),
+            asyncio.to_thread(latest_line),
             asyncio.to_thread(load_history),
         )
         trail = [

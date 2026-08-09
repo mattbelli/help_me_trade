@@ -40,7 +40,7 @@ export type WidgetInstanceConfig = {
       off until explicitly checked, so it never buries the live tape. */
   flowTypes?: FlowTypeKey[];
   /** Index pressure: which session bookend the gauge shows. Undefined = open. */
-  pressureWindow?: "open" | "close" | "overnight";
+  pressureWindow?: "open" | "close" | "overnight" | "trend";
   /** Notifications: ding on new card arrival. Undefined = on. */
   ding?: boolean;
   /** Notifications: header ⚙ filter — "all" | "unread" | a category. */

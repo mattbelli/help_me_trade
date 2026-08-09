@@ -173,3 +173,38 @@ def test_report_saves_line_and_pushes_only_on_outlier(tmp_path, monkeypatch) -> 
     assert len(pushes) == 1
     assert pushes[0]["severity"] == "warning"
     assert "not a prediction" in pushes[0]["body"]
+
+
+def test_latest_line_prefers_file_then_history(tmp_path) -> None:
+    line_path = tmp_path / "morning_line.json"
+    hist_path = tmp_path / "nightly.json"
+    hist = [
+        {"session": "2026-08-06", "prints": 5, "notional": 100.0, "put_share_notional": 0.5},
+        {"session": "2026-08-07", "prints": 7, "notional": 240.0, "put_share_notional": 0.6},
+        {"session": "2026-08-08", "prints": 0},  # feed-failure night never surfaces
+    ]
+    hist_path.write_text(json.dumps(hist), encoding="utf-8")
+
+    line = gth_morning.latest_line(path=line_path, history_path=hist_path)
+    assert line["session"] == "2026-08-07"
+    assert line["source"] == "history_fallback"
+    assert line["generated_at"] is None
+    assert line["slice"]["notional"] == 240.0
+    # The fallback is z-scored only against nights BEFORE its own session.
+    assert line["baseline"]["nights"] == 1
+
+    # A written morning line always wins over the fallback.
+    line_path.write_text(json.dumps({"session": "2026-08-10"}), encoding="utf-8")
+    assert (
+        gth_morning.latest_line(path=line_path, history_path=hist_path)["session"]
+        == "2026-08-10"
+    )
+
+
+def test_latest_line_none_without_history(tmp_path) -> None:
+    assert (
+        gth_morning.latest_line(
+            path=tmp_path / "missing.json", history_path=tmp_path / "nohist.json"
+        )
+        is None
+    )

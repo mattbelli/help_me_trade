@@ -126,7 +126,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "index-pressure",
     title: "index pressure",
     description:
-      "Index-complex options flow: open/close session-bookend imbalance plus last night's z-scored overnight (GTH) line — raw perception, not a signal",
+      "Index-complex options flow: open/close session-bookend imbalance, last night's z-scored overnight (GTH) line, and a daily tilt-vs-SPY trend — raw perception, not a signal",
     channelAware: true,
     component: IndexPressureWidget,
     defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },

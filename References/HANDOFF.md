@@ -29,7 +29,9 @@ Everything deployed (BUILD_LOG row + card `gth-overnight-phase-b`); baseline is 
   card `widget-consolidation-2026-08`). Phone must stay quiet unless z≥5.
 - **⏳ Founder in-browser pass on the consolidation round** (typecheck+build only so far):
   positions summary strip, scans → RVOL preset, news → filings scope, idea-outcomes → Ledger tab,
-  mobile portfolio tab (now positions + orders).
+  mobile portfolio tab (now positions + orders). Same pass: the index-pressure widget's new
+  `trend` view (daily open/close tilt vs SPY day %) and the weekend carry-last-session fallbacks
+  (card `index-pressure-trend-view`) — all four views should show data RIGHT NOW, on a weekend.
 
 ---
 

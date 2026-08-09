@@ -257,6 +257,62 @@ def day_completeness(date: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict
     return [dict(r) for r in rows]
 
 
+def latest_date(
+    *, window: str = "open", db_path: Path = DEFAULT_DB_PATH
+) -> str | None:
+    """Newest date with any minutes for this window — the carry-last-session
+    fallback for weekends / pre-open, when "today" has no rows yet."""
+    init_index_pressure_table(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT MAX(date) FROM index_pressure_minutes WHERE window = ?",
+            (window,),
+        ).fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+def daily_history(
+    *, window: str = "open", days: int = 40, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict]:
+    """Per-day window totals across ALL gauge underlyings, oldest first —
+    the trend view's feed. One row per date: summed premium, net, and how much
+    of the gross was side-classifiable that day."""
+    init_index_pressure_table(db_path)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT date,
+                   SUM(bull_usd) AS bull_usd,
+                   SUM(bear_usd) AS bear_usd,
+                   SUM(unclassified_usd) AS unclassified_usd,
+                   SUM(n_prints) AS n_prints
+            FROM index_pressure_minutes
+            WHERE window = ?
+            GROUP BY date
+            ORDER BY date DESC
+            LIMIT ?
+            """,
+            (window, max(days, 1)),
+        ).fetchall()
+    out = []
+    for r in rows:
+        bull, bear, uncls = float(r["bull_usd"]), float(r["bear_usd"]), float(r["unclassified_usd"])
+        gross = bull + bear + uncls
+        out.append(
+            {
+                "date": str(r["date"]),
+                "bull_usd": bull,
+                "bear_usd": bear,
+                "unclassified_usd": uncls,
+                "net_usd": bull - bear,
+                "classified_frac": ((bull + bear) / gross) if gross > 0 else 0.0,
+                "n_prints": int(r["n_prints"]),
+            }
+        )
+    out.reverse()
+    return out
+
+
 def baseline_days(*, window: str = "open", db_path: Path = DEFAULT_DB_PATH) -> int:
     """How many distinct dates have accrued — the calibration warm-up gate."""
     init_index_pressure_table(db_path)

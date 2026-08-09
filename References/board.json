@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "index-pressure-trend-view",
+   "title": "Index pressure — carry-last-session fallbacks + daily trend view (tilt vs SPY day)",
+   "lane": "done",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "orchestrator",
+   "updated_at": "2026-08-09",
+   "notes": "2026-08-09: founder, seeing the widget blank on a Saturday: carry the last session at minimum, and add a daily bull/bear overview with the day's result. SHIPPED same day: (1) carry-last-session — /api/index-pressure + perception fall back to the newest date with data when today has none (footer: 'last session MM-DD', warn color); gth_morning.latest_line() synthesizes the overnight line from the newest nightly.json night when morning_line.json doesn't exist (z vs prior nights only, source=history_fallback) — no more weekend blanks on any of the widget's views. (2) trend view (4th footer toggle): per-session open net tilt / close net tilt / SPY day % as aligned diverging-bar strips + table; 16 banked sessions render immediately; slow 5-min poll. Backend: db.index_pressure.latest_date()+daily_history(), signals/options_flow/pressure_history.pressure_trend() (SPY join via research bars cache, fail-soft), GET /api/index-pressure/history, perception index_pressure 'history' filter (agents see the same trend). Honesty: co-occurrence, never accuracy — stated in the widget footer and the perception caveat. 6 new tests; suite green (also fixed unrelated date-rot in test_equity_tape, separate [no-board] commit). OPEN: founder in-browser look (HANDOFF line shared with the consolidation pass — all four views should show data on a weekend NOW)."
+  },
+  {
    "id": "widget-consolidation-2026-08",
    "title": "Widget consolidation — 35 picker entries down to 27, merges as view toggles",
    "lane": "done",
