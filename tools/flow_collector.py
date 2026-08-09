@@ -117,10 +117,24 @@ async def main() -> int:
             ap_secret = str(cfg.get("api_secret_key") or "").strip()
             if not ap_key or not ap_secret:
                 raise RuntimeError("Alpaca credentials missing")
+            # GTH tape (Phase B, 2026-08-09): the sidecar is the only lane that
+            # sees the overnight index session — persist it for the morning
+            # line. Guarded separately: a tape init failure (e.g. disk) must
+            # cost the persist, never the pairing.
+            gth_tape = None
+            try:
+                from signals.options_flow.gth_tape import GthTape
+
+                gth_tape = GthTape()
+            except Exception:
+                logger.exception(
+                    "GTH tape init failed — sidecar runs without overnight persist"
+                )
             shadow = ShadowPairing(
                 alpaca_key=ap_key,
                 alpaca_secret=ap_secret,
                 metrics_only=_flag("OPTIONS_FLOW_PAIRING_METRICS_ONLY"),
+                gth_tape=gth_tape,
             )
         except Exception:
             logger.exception(

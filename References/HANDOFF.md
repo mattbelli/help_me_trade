@@ -15,6 +15,20 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ GTH overnight flow (Phase B) — shipped 08-09; first-night verifies owed
+
+Everything deployed (BUILD_LOG row + card `gth-overnight-phase-b`); baseline is pre-filled from the
+260-night census so z is live from night one. Two dated checks close this entry:
+
+- **⏳ Sun 2026-08-10 ~20:30 ET — first tape fill.** `data/gth_tape/2026-08-11.jsonl` growing +
+  `gth_w=` advancing on the pairing stats line (`journalctl -u hmt-flow-collector`, UTC). Zero rows
+  by 22:00 ET = the tee is broken; fix before the morning line has nothing to read.
+- **⏳ Mon 2026-08-11 ~9:20 ET — first morning line.** `overnight_flow` report in the inbox,
+  `data/research/gth_census/morning_line.json` written, widget renders (founder in-browser check —
+  UI shipped typecheck-only). Phone must stay quiet unless z≥5.
+
+---
+
 ## ▶ EDGAR nightly refresh — LIVE since 08-02; one tuning item open
 
 Deployed, seeded and cron-installed 08-02 (see the BUILD_LOG row + card

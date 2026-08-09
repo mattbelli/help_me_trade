@@ -169,7 +169,9 @@ Original prerequisites, verified not assumed:
    become `alpaca_orphans` and expire (harmless, bounded); detectors read the spine so no
    overnight events are minted. Consequence for scope: every "whole-market" claim about the
    spine or the corpus means RTH-only; overnight index-flow perception, if ever wanted, rides
-   the Alpaca lane alone.
+   the Alpaca lane alone. **It is now wanted and shipped (Phase B, 2026-08-09):** the sidecar
+   tees GTH prints to `data/gth_tape/` (`gth_tape.py`) and a z-scored morning line lands at
+   ~9:16 ET on report/perception/widget — card `gth-overnight-phase-b`.
 3. Matcher RSS on a full-day open burst (replay says throughput is a non-issue: 315k events/s
    measured vs a 13k/s whole-market peak — the equity-close-burst precedent holds, Rust stays
    declined; memory at a multi-minute open lag is the one resource replay can't price in situ).

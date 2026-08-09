@@ -102,6 +102,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
             # Deterministic (no LLM tokens); the generator itself waits for the
             # close-window gauge finalize before producing anything.
             {"kind": "flow_decomp", "hour_et": 16, "symbols": [], "enabled": True},
+            # Deterministic; the generator waits for the 9:15 ET GTH close, so
+            # the 9-o'clock window's first useful poll lands ~9:16-9:31.
+            {"kind": "overnight_flow", "hour_et": 9, "symbols": [], "enabled": True},
         ],
     },
     "alerts": {
@@ -1062,7 +1065,13 @@ def trading_config() -> dict[str, Any]:
 
 # Report kinds the background scheduler can run as configured jobs. The legacy
 # SPY ``morning_levels`` keeps its own dedicated path, so it is not listed here.
-SCHEDULABLE_REPORT_KINDS = ("levels", "morning_brief", "evening_brief", "flow_decomp")
+SCHEDULABLE_REPORT_KINDS = (
+    "levels",
+    "morning_brief",
+    "evening_brief",
+    "flow_decomp",
+    "overnight_flow",
+)
 
 
 def _normalize_report_jobs(raw: Any) -> list[dict[str, Any]]:

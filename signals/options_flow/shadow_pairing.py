@@ -57,6 +57,7 @@ import logging
 import threading
 import time
 from collections import deque
+from typing import Any
 
 import msgpack
 import websockets
@@ -128,10 +129,16 @@ class ShadowPairing:
     """Feed both live tapes through the frozen join; log what falls out."""
 
     def __init__(self, *, alpaca_key: str, alpaca_secret: str,
-                 ws_url: str = OPRA_WS_URL, metrics_only: bool = False) -> None:
+                 ws_url: str = OPRA_WS_URL, metrics_only: bool = False,
+                 gth_tape: Any | None = None) -> None:
         self._key = alpaca_key
         self._secret = alpaca_secret
         self._ws_url = ws_url
+        # Overnight persist tee (gth_tape.GthTape) — the sidecar is the only
+        # lane that sees the GTH session (databento-opra-no-gth), and without
+        # this those prints die as matcher orphans. offer()/flush() swallow
+        # their own exceptions; a dead tape never costs the matcher.
+        self._gth = gth_tape
         self._m = StreamingCondMatcher()
         self._lock = threading.Lock()
         self._stopping = False
@@ -353,6 +360,8 @@ class ShadowPairing:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
+            if self._gth is not None:
+                self._gth.flush()
             self._log_stats(final=True)
 
     def _sweep_once(self) -> None:
@@ -367,6 +376,10 @@ class ShadowPairing:
                 cutoff = now - ATTACH_TTL_NS
                 for pid in [p for p in self._attached if p < cutoff]:
                     del self._attached[pid]
+        # Outside the matcher lock (the tape has its own); still on the sweep
+        # executor thread, so file I/O never lands on the collector's loop.
+        if self._gth is not None:
+            self._gth.flush()
 
     async def _periodic(self) -> None:
         last_stats = time.monotonic()
@@ -402,6 +415,7 @@ class ShadowPairing:
             )
             self._d_lags_ms.clear()
             self._a_lags_ms.clear()
+        gth = self._gth.stats() if self._gth is not None else {}
         resolved = snap["matched"] + snap["tol"] + snap["expired"] + snap["evicted"]
         n_match = max(snap["matched"], 1)
         # Raw counts AND cumulative % — raw so successive lines difference into
@@ -417,6 +431,7 @@ class ShadowPairing:
             "tol=%s expired=%s evicted=%s late_twin=%s orphans=%s | enrich %s | "
             "wire_lag_ms d p50=%.0f p95=%.0f a p50=%.0f p95=%.0f | pending d=%s "
             "a=%s keys_peak=%s | roots d=%s a=%s idx_d/a: %s | top_a=%s | "
+            "gth_w=%s gth_drop=%s | "
             "acked_wide=%s resets=%s tee_err=%s alp_err=%s reconnects=%s "
             "rss=%.0fMB",
             " FINAL" if final else "",
@@ -434,6 +449,7 @@ class ShadowPairing:
             f"{snap['keys_peak']:,}",
             f"{snap['d_roots_n']:,}", f"{snap['a_roots_n']:,}", idx,
             " ".join(f"{r}={n:,}" for r, n in snap["top_a"]),
+            gth.get("written", 0), gth.get("dropped_non_session", 0),
             self.acked_wide, self.matcher_resets, self.tee_errors,
             self.alp_errors, self.reconnects, _rss_mb(),
         )
@@ -502,7 +518,10 @@ class ShadowPairing:
             size = int(item.get("s"))
         except (TypeError, ValueError):
             return
-        self.on_alpaca(sym, t, cents, size, str(item.get("c") or ""))
+        cond = str(item.get("c") or "")
+        self.on_alpaca(sym, t, cents, size, cond)
+        if self._gth is not None:
+            self._gth.offer(sym, t, cents, size, cond, str(item.get("x") or ""))
 
     @staticmethod
     def _frames(raw: bytes | str) -> list[dict]:

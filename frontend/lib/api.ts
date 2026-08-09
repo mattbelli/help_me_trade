@@ -850,6 +850,54 @@ export async function fetchIndexPressure(
   return res.json();
 }
 
+export interface OvernightFlowTopPrint {
+  sym: string;
+  size: number;
+  price: number;
+  notional: number;
+  cond: string;
+  et: string;
+}
+
+export interface OvernightFlowLine {
+  session: string;
+  generated_at: string;
+  window_et: string;
+  slice: {
+    prints: number;
+    notional: number;
+    put_share_notional: number;
+    zero_dte_share_notional: number;
+    macro_window_share: number;
+    top_prints?: OvernightFlowTopPrint[];
+    full_night?: { prints: number; notional: number; evening_notional: number };
+  };
+  baseline: {
+    nights: number;
+    z: number | null;
+    median: number | null;
+    sigma: number | null;
+    note?: string;
+  };
+  caveats: string[];
+}
+
+export interface OvernightFlowResult {
+  line: OvernightFlowLine | null;
+  history: { session: string; notional: number; put_share_notional: number }[];
+}
+
+export async function fetchOvernightFlow(): Promise<OvernightFlowResult> {
+  const res = await apiFetch(`${API_BASE}/api/overnight-flow`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Overnight-flow error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
 export interface SchwabPosition {
   symbol: string;
   asset_type: string;

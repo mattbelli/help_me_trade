@@ -931,6 +931,38 @@ def _read_flow_report(filters: dict[str, Any], *, db_path: Path) -> list[dict[st
     return [payload]
 
 
+def _read_overnight_flow(
+    filters: dict[str, Any], *, db_path: Path
+) -> list[dict[str, Any]]:
+    del db_path  # file-backed: the morning job writes JSON, no DB involved
+    from signals.options_flow.gth_morning import load_history, load_morning_line
+
+    line = load_morning_line()
+    if line is None:
+        return [{
+            "unavailable": True,
+            "note": "no overnight line yet — first one lands ~9:16 ET on the "
+                    "first trading morning after the tape starts filling",
+        }]
+    out = dict(line)
+    s = dict(out.get("slice") or {})
+    s["top_prints"] = (s.get("top_prints") or [])[:8]
+    out["slice"] = s
+    rows: list[dict[str, Any]] = [out]
+    nights = int(filters.get("nights") or 0)
+    if nights > 0:
+        for r in load_history()[-min(nights, 30):]:
+            rows.append({
+                "session": r.get("session"),
+                "notional": r.get("notional"),
+                "prints": r.get("prints"),
+                "put_share_notional": r.get("put_share_notional"),
+                "zero_dte_share_notional": r.get("zero_dte_share_notional"),
+                "macro_window_share": r.get("macro_window_share"),
+            })
+    return rows
+
+
 async def _read_news(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path
     from signals.news import fetch_watchlist_news
@@ -1481,6 +1513,27 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "date": "optional YYYY-MM-DD — default latest available",
         },
         "read": _read_flow_report,
+    },
+    "overnight_flow": {
+        "description": (
+            "Last night's overnight (Cboe GTH) index-option activity — "
+            "SPX/SPXW/XSP/VIX prints from the 4:00-9:15 ET slice, z-scored "
+            "against a trailing ~120-night baseline (robust median/MAD), plus "
+            "put/0DTE/8:30-macro-window shares and top prints. ACTIVITY only, "
+            "never direction: no overnight quotes exist on any lane we hold, "
+            "so there is no buy/sell read. The z is context for the open, not "
+            "a signal — measured census co-occurrence: 10 of 260 nights were "
+            ">=5 sigma and 9 preceded a |SPY gap| >=0.9% or an outsized day; "
+            "overnight futures moves drive hedging flow drives the gap, so "
+            "this describes an unusual night, it does not predict the day. "
+            "Single-source Alpaca websocket (the Databento spine has no GTH "
+            "session); reconnect gaps undercount."
+        ),
+        "filters": {
+            "nights": "optional int — append that many trailing baseline "
+                      "nights (compact rows), max 30",
+        },
+        "read": _read_overnight_flow,
     },
     "flow_perception": {
         "description": (

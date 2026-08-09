@@ -78,6 +78,7 @@ def test_list_resources_catalog() -> None:
         "index_pressure",
         "flow_report",
         "flow_perception",
+        "overnight_flow",
         "oi_walls",
         "dossier",
         "episodes",

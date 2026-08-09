@@ -715,3 +715,128 @@ async def generate_flow_decomp_report(
     return save_report(
         "flow_decomp", "INDEX", title, html_body, payload, format="html", db_path=resolved
     )
+
+
+# --- overnight (GTH) flow morning line --------------------------------------
+# Deterministic plaintext, ready by ~9:16 ET: the census of last night's
+# live-tape GTH prints z-scored against the trailing nightly baseline. See
+# signals/options_flow/gth_morning.py for the honesty invariants (activity
+# only, never direction; z is context, never a signal).
+
+# GTH closes 9:15 ET; before this the night is still trading and the scheduler
+# should retry on its next poll rather than report a partial night.
+_OVERNIGHT_READY_ET = (9, 16)
+
+
+def _overnight_line_sync(session: date) -> dict[str, Any] | None:
+    from signals.options_flow import gth_morning
+
+    line = gth_morning.compute_morning_line(session)
+    if line is None:
+        return None
+    gth_morning.append_history(line["slice"])
+    gth_morning.write_morning_line(line)
+    return line
+
+
+async def generate_overnight_flow_report(
+    *,
+    db_path: Path | None = None,
+    et_date: date | None = None,
+    now_et: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Build + store the overnight GTH flow morning line.
+
+    Returns None (scheduler retries) on a non-trading day, before the 9:15 ET
+    GTH close, or when no tape file exists for the night (collector down).
+    """
+    from signals.options_flow.gth_morning import ALERT_Z
+    from trading.market_calendar import is_trading_day
+
+    resolved = db_path if db_path is not None else DEFAULT_DB_PATH
+    if now_et is None:
+        now_et = datetime.now(_ET)
+    if et_date is None:
+        et_date = now_et.date()
+    if not is_trading_day(et_date):
+        return None
+    if et_date == now_et.date() and (now_et.hour, now_et.minute) < _OVERNIGHT_READY_ET:
+        return None
+
+    line = await asyncio.to_thread(_overnight_line_sync, et_date)
+    if line is None:
+        logger.info("Overnight flow report: no GTH tape for %s", et_date)
+        return None
+
+    s = line["slice"]
+    b = line["baseline"]
+    z = b.get("z")
+    full = s.get("full_night") or {}
+
+    def _musd(v: Any) -> str:
+        return f"${float(v or 0) / 1e6:,.1f}M"
+
+    z_txt = f"z {z:+.1f}" if z is not None else str(b.get("note") or "no baseline")
+    lines = [
+        f"{_musd(s.get('notional'))} overnight (04:00-09:15 ET) · {z_txt}"
+        + (f" vs {b['nights']}-night median {_musd(b['median'])}" if z is not None else ""),
+        f"puts {float(s.get('put_share_notional') or 0):.0%} of premium · "
+        f"0DTE {float(s.get('zero_dte_share_notional') or 0):.0%} · "
+        f"8:30-window {float(s.get('macro_window_share') or 0):.0%} · "
+        f"{s.get('prints', 0):,} prints",
+        f"full night incl. evening slice: {_musd(full.get('notional'))} / "
+        f"{full.get('prints', 0):,} prints",
+    ]
+    for tp in (s.get("top_prints") or [])[:3]:
+        lines.append(
+            f"top: {tp['size']:,}x {tp['sym']} {_musd(tp['notional'])} {tp['et']} ET"
+        )
+    lines.append(
+        "z = distance from the typical night in typical-spread units "
+        "(median/MAD, robust to its own outliers)."
+    )
+    lines.append(
+        "Activity only — no overnight quotes exist on any lane we hold; "
+        "single-source Alpaca WS."
+    )
+    body = "\n".join(lines)
+
+    outlier = z is not None and z >= ALERT_Z
+    title = (
+        f"Overnight Flow · {et_date.isoformat()} · {_musd(s.get('notional'))}"
+        + (f" · z {z:+.1f}" if z is not None else "")
+        + (" · OUTLIER" if outlier else "")
+    )
+    payload: dict[str, Any] = {
+        "et_date": et_date.isoformat(),
+        "dedup_key": "overnight_flow",
+        **line,
+    }
+    report = save_report(
+        "overnight_flow", "INDEX", title, body, payload, db_path=resolved
+    )
+
+    # Phone push on genuine outliers only (ALERT_Z matches the census claim —
+    # ~10 nights in 260). severity=warning escapes the report_ready inbox-only
+    # demotion; today-only so a backfill can never buzz the phone.
+    if outlier and et_date == now_et.date():
+        try:
+            from signals.notify import notify
+
+            await notify(
+                kind="overnight_flow",
+                severity="warning",
+                title=f"Overnight index flow {z:+.1f}σ — {_musd(s.get('notional'))}",
+                body=(
+                    f"puts {float(s.get('put_share_notional') or 0):.0%} · "
+                    f"census context: 9 of 10 such nights preceded a |SPY gap| "
+                    f"≥0.9% or an outsized day (co-occurrence, not a prediction)."
+                ),
+                ref_type="report",
+                ref_id=report["id"],
+                action_url=f"/reports/{report['id']}",
+                group_key="overnight_flow_outlier",
+            )
+        except Exception:
+            logger.exception("Overnight flow outlier push failed")
+    return report

@@ -26,6 +26,7 @@ REPORT_KIND_LABELS: dict[str, str] = {
     "evening_brief": "Evening Brief",
     "on_request": "On-Request Report",
     "flow_decomp": "Flow Decomposition",
+    "overnight_flow": "Overnight Flow",
     "book_deepseek": "Deep Seek Book",
     "book_fable": "Fable Book",
     "book_panel": "Claude Panel Book",

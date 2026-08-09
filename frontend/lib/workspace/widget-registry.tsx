@@ -19,6 +19,7 @@ import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
 import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { OptionsFlowWidget } from "@/components/workspace/widgets/options-flow-widget";
 import { IndexPressureWidget } from "@/components/workspace/widgets/index-pressure-widget";
+import { OvernightFlowWidget } from "@/components/workspace/widgets/overnight-flow-widget";
 import { OptionsChainWidget } from "@/components/workspace/widgets/options-chain-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
@@ -152,6 +153,15 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
       "Session-bookend (open 9:30-10:00 / close 15:30-16:00 ET) options-flow imbalance for the index complex + megacaps — raw perception, not a signal",
     channelAware: true,
     component: IndexPressureWidget,
+    defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },
+  },
+  {
+    id: "overnight-flow",
+    title: "overnight flow",
+    description:
+      "Last night's GTH index-option activity (4:00–9:15 ET) z-scored vs its trailing baseline — context for the open, not a signal",
+    channelAware: true,
+    component: OvernightFlowWidget,
     defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },
   },
   {

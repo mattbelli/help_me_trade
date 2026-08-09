@@ -1577,6 +1577,8 @@ async def _generate_report_by_kind(
         return await reports_mod.generate_on_request_report(topic or "", syms, et_date=et_date)
     if kind == "flow_decomp":
         return await reports_mod.generate_flow_decomp_report(et_date=et_date)
+    if kind == "overnight_flow":
+        return await reports_mod.generate_overnight_flow_report(et_date=et_date)
     return None
 
 
@@ -3357,6 +3359,36 @@ async def api_index_pressure(
     except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
         return JSONResponse({"error": str(exc)}, status_code=500)
     return payload
+
+
+@app.get("/api/overnight-flow")
+async def api_overnight_flow(nights: int = 60):
+    """Last night's overnight (Cboe GTH) index-option line + trailing nights.
+
+    The morning job (report kind ``overnight_flow``, ~9:16 ET) writes the line;
+    this serves it with a trailing-notional history for the widget sparkline.
+    Activity only, never direction — no overnight quotes exist on any lane we
+    hold; the z is context for the open, not a signal.
+    """
+    from signals.options_flow.gth_morning import load_history, load_morning_line
+
+    try:
+        line, hist = await asyncio.gather(
+            asyncio.to_thread(load_morning_line),
+            asyncio.to_thread(load_history),
+        )
+        trail = [
+            {
+                "session": r.get("session"),
+                "notional": r.get("notional"),
+                "put_share_notional": r.get("put_share_notional"),
+            }
+            for r in hist[-min(max(nights, 0), 260):]
+            if r.get("prints", 0) > 0
+        ]
+    except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {"line": line, "history": trail}
 
 
 @app.get("/api/scanner/rvol")
