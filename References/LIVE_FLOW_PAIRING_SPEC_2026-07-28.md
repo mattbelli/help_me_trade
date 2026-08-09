@@ -179,8 +179,42 @@ era are indistinguishable from the Alpaca era exactly where the retro corpus dif
 recoverable from the date + this note; never backfilled).
 
 **VERDICT: no consumer needs a standing option NBBO. The quote lane's retirement is now
-deliberate and verified, not a side effect.** Remaining Inc-3 tail: nightly live-vs-batch
-audit alarm; capped-lane code retirement after one clean release.
+deliberate and verified, not a side effect.** Remaining Inc-3 tail: capped-lane code
+retirement after one clean release.
+
+## Nightly live-vs-batch audit alarm — ARMED 2026-08-09 (`tools/flow_pairing_audit.py`)
+
+The corpus-firewall clause ("each night the REST join doubles as the audit") is now real,
+plus the same-day check the Friday post-mortem asked for:
+
+- **`--nightly`** — step 6 of `nightly_flow_capture.sh` (02:30 UTC cron): reconstructs each
+  session's LIVE match rate from the collector's journald stats lines (per-epoch deltas —
+  matched/resolved reset on every matcher reconnect; dbn/alp are process-cumulative,
+  differenced per pid), compares against `join_ledger.json`'s batch rate, appends the row to
+  `data/alpaca_conditions/pairing_audit.json`, and posts one ntfy alarm per breached session.
+  The audit posts its own DEGRADED alarms and exits 0; a nonzero exit means the audit itself
+  could not run and trips the wrapper's capture-failure alarm.
+- **`--intraday`** — own cron 14:45 + 18:30 UTC Mon–Fri (both firings inside RTH in both DST
+  regimes): trailing ~50 min of stats lines → alarms on wire-lag p50 median > 2s or the
+  sidecar delivering < 50% of the spine's prints. Self-gates on tape activity (≥ 12 active
+  minutes — no market calendar), dedupes one push per alarm kind per day. This is the
+  "codes degraded" flag, delivered to the phone rather than a UI corner.
+- **Thresholds, calibrated on measured ground truth** (constants + rationale at the top of the
+  tool): live floor 90% (healthy 96.5–98.4% measured 08-04..06), batch floor 95% (ledger
+  median 97.9%, p10 96.2%, degraded tail = 6/260 sessions below 95% — the Addendum-E 98%
+  JOIN_FLOOR is a migration gate, 141/260 below it, useless for health), |gap| 5pts (healthy
+  1–3pts, either direction alarmed: live≪batch = daemon drop, batch≪live = vendor tape hole),
+  lag share 10% of active minutes at p50 > 2s (healthy < 1%, Fri 08-07 = 65%).
+- **Validated on real history before arming**: Aug 4–6 audit silent; Fri 08-07 trips all four
+  alarms — and the session-AGGREGATE live rate is **59.9%** (the 74.3% in the card notes was
+  the best epoch; Friday is more label-blind than first recorded). Batch 47.8% < live 59.9%:
+  Alpaca's HISTORICAL tape hole was worse than its live fanout. Intraday replay: Fri
+  10:00–10:50 ET fires both alarms (lag p50 20.5s, sidecar at 42%) — the phone would have
+  known by 10:45 ET; Thu windows and Fri afternoon correctly quiet.
+
+Known cosmetic issue, deliberately not fixed here (collector untouched): the stats line's
+enrich-bucket percentages divide by epoch-matched, so they print garbage (e.g. `633678400.0%`)
+whenever the matcher epoch is fresh — the audit parser never reads them.
 
 ## Not in scope
 

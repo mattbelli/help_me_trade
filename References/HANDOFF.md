@@ -171,13 +171,17 @@ snapshot per sweep). Open threads only:
   quote lane's retirement is deliberate and verified. Two provenance repairs shipped
   (sweeps/rolling stamped the Alpaca-era basis literal since 07-27; behavioral readers
   unaffected — all key off `direction`).
+  ✅ **Nightly live-vs-batch audit alarm ARMED 08-09** (`tools/flow_pairing_audit.py`;
+  BUILD_LOG row; spec section has thresholds + validation): nightly capture step 6 audits
+  live-vs-batch per session → `pairing_audit.json` + ntfy on breach; intraday cron
+  (14:45/18:30 UTC) pushes a same-day "codes degraded" alert off wire-lag p50 / sidecar
+  starvation. Validated on real history: Aug 4–6 silent, Fri 08-07 trips all four alarms —
+  correction to the record: Friday's session-AGGREGATE live match was **59.9%** (74.3% was
+  the best epoch); batch was 47.8%, worse than live. First armed nightly run ~02:30 UTC Tue.
   OPEN, in order: (1) explain the **SPXW/XSP d<a gap** on NORMAL days (dbn 1.538M vs alp
   1.608M SPXW prints — likely the ~4-min meta-cold open blind; confirm, don't assume);
-  (2) nightly live-vs-batch audit alarm — PRIORITY UP: it is what catches the next
-  degraded-feed day automatically; consider a live 'codes degraded' flag off a-lag p50 so
-  label-blind days are visible same-day; (3) capped-lane code retirement after one clean
-  release. Not yet verified: spread_flag prints in the print lab; sweeps/blocks
-  plausibility vs pre-08-03.
+  (2) capped-lane code retirement after one clean release. Not yet verified: spread_flag
+  prints in the print lab; sweeps/blocks plausibility vs pre-08-03.
   No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).

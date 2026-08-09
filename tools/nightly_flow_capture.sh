@@ -92,4 +92,11 @@ log "label-join sweep"
 nice -n 10 "$PY" tools/condition_label_join.py --sweep \
   --data-dir "$DATA" --npz-dir "$NPZ" || alarm "label-join sweep failed"
 
+# Live-vs-batch pairing audit (the spec's "REST join doubles as the audit"):
+# posts its own per-session DEGRADED alarms and exits 0; nonzero here means
+# the audit itself could not run.
+log "pairing audit (live-vs-batch)"
+nice -n 10 "$PY" tools/flow_pairing_audit.py --nightly \
+  || alarm "pairing audit failed"
+
 log "nightly flow capture complete"
