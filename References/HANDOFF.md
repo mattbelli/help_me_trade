@@ -178,10 +178,15 @@ snapshot per sweep). Open threads only:
   starvation. Validated on real history: Aug 4–6 silent, Fri 08-07 trips all four alarms —
   correction to the record: Friday's session-AGGREGATE live match was **59.9%** (74.3% was
   the best epoch); batch was 47.8%, worse than live. First armed nightly run ~02:30 UTC Tue.
-  OPEN, in order: (1) explain the **SPXW/XSP d<a gap** on NORMAL days (dbn 1.538M vs alp
-  1.608M SPXW prints — likely the ~4-min meta-cold open blind; confirm, don't assume);
-  (2) capped-lane code retirement after one clean release. Not yet verified: spread_flag
-  prints in the print lab; sweeps/blocks plausibility vs pre-08-03.
+  ✅ **SPXW/XSP d<a gap ANSWERED 08-09: it is the overnight Cboe GTH session** (BUILD_LOG
+  row; memory `databento-opra-no-gth`): Databento OPRA.PILLAR carries NO Global Trading
+  Hours — zero records overnight, live AND historical, all schemas — while Alpaca's WS
+  delivers ~60k GTH prints/night on exactly the GTH-eligible roots. Meta-cold-open-blind
+  hypothesis REFUTED (intra-RTH dbn ≥ alp; the quoted 1.538M/1.608M were process-cumulative
+  counters, not a per-day RTH gap). Overnight prints land as `alpaca_orphans` and expire;
+  they never become events. OPEN: capped-lane code retirement after one clean release.
+  Not yet verified: spread_flag prints in the print lab; sweeps/blocks plausibility vs
+  pre-08-03.
   No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
   ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
   is a clean restart (interactive sudo is unavailable to agents on serv).

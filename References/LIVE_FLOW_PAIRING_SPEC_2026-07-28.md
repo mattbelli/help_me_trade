@@ -144,7 +144,16 @@ Original prerequisites, verified not assumed:
 1. Databento live tcbbo end-to-end lag vs Alpaca trade arrival (both sides' lag, not just one).
 2. Per-root Alpaca wildcard coverage — especially SPX/SPXW/XSP/VIX index roots (the corpus
    census says index-open prints are where Alpaca's history thins; is the LIVE stream better or
-   worse there?).
+   worse there?). **ANSWERED 2026-08-09:** the standing d<a gap on these roots is the overnight
+   **Cboe GTH session** — Databento OPRA.PILLAR carries NO Global Trading Hours (zero records
+   00:00–13:15 UTC, live and historical, tcbbo AND trades, measured via free record counts),
+   while the Alpaca WS delivers the full GTH tape (~60k prints/night, only on GTH-eligible
+   roots; NDX/NDXP zero = the authenticity signature). Intra-RTH the spine is complete — on
+   2026-08-06 dbn GAINED 2,587 SPXW prints on Alpaca over the session. Overnight Alpaca prints
+   become `alpaca_orphans` and expire (harmless, bounded); detectors read the spine so no
+   overnight events are minted. Consequence for scope: every "whole-market" claim about the
+   spine or the corpus means RTH-only; overnight index-flow perception, if ever wanted, rides
+   the Alpaca lane alone.
 3. Matcher RSS on a full-day open burst (replay says throughput is a non-issue: 315k events/s
    measured vs a 13k/s whole-market peak — the equity-close-burst precedent holds, Rust stays
    declined; memory at a multi-minute open lag is the one resource replay can't price in situ).
