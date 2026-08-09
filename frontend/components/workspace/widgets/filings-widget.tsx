@@ -12,7 +12,6 @@ import { fetchFilings, type FilingEvent, type FilingKind } from "@/lib/api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePagePoll } from "@/lib/workspace/use-page-poll";
-import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
@@ -141,8 +140,9 @@ function whoText(ev: FilingEvent): string {
   return ev.role ? `${person} · ${normalizeRole(ev.role)}` : person;
 }
 
-export function FilingsWidget({ config }: WidgetProps) {
-  const channel: ChannelId = config.channel ?? "none";
+/** The filings feed body — rendered by the news widget's "filings" scope
+ * (this stopped being its own picker widget in the 2026-08-09 consolidation). */
+export function FilingsBody({ channel }: { channel: ChannelId }) {
   const { publish, linked } = usePublishSymbol(channel);
 
   const [tab, setTab] = useState<TabId>("all");

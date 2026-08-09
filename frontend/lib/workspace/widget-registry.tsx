@@ -2,24 +2,18 @@
 
 import type { ComponentType } from "react";
 
-import { AccountSummaryWidget } from "@/components/workspace/widgets/account-summary-widget";
 import { AgentProposalsWidget } from "@/components/workspace/widgets/agent-proposals-widget";
 import { ChartWidget } from "@/components/workspace/widgets/chart-widget";
 import { EquityCurveWidget } from "@/components/workspace/widgets/equity-curve-widget";
 import { JournalWidget } from "@/components/workspace/widgets/journal-widget";
-import { OpenOrdersWidget } from "@/components/workspace/widgets/open-orders-widget";
 import { PerformanceWidget } from "@/components/workspace/widgets/performance-widget";
 import { PositionsWidget } from "@/components/workspace/widgets/positions-widget";
-import { MemoryWidget } from "@/components/workspace/widgets/memory-widget";
 import { NotificationsWidget } from "@/components/workspace/widgets/notifications-widget";
 import { PriceAlertsWidget } from "@/components/workspace/widgets/price-alerts-widget";
 import { ReportsWidget } from "@/components/workspace/widgets/reports-widget";
 import { ResearchWidget } from "@/components/workspace/widgets/research-widget";
-import { RulesWidget } from "@/components/workspace/widgets/rules-widget";
-import { RvolScannerWidget } from "@/components/workspace/widgets/rvol-scanner-widget";
 import { OptionsFlowWidget } from "@/components/workspace/widgets/options-flow-widget";
 import { IndexPressureWidget } from "@/components/workspace/widgets/index-pressure-widget";
-import { OvernightFlowWidget } from "@/components/workspace/widgets/overnight-flow-widget";
 import { OptionsChainWidget } from "@/components/workspace/widgets/options-chain-widget";
 import { ScansWidget } from "@/components/workspace/widgets/scans-widget";
 import { WatchlistWidget } from "@/components/workspace/widgets/watchlist-widget";
@@ -33,11 +27,8 @@ import { WinrateTrendWidget } from "@/components/workspace/widgets/winrate-trend
 import { CompanyInfoWidget } from "@/components/workspace/widgets/company-info-widget";
 import { NewsWidget } from "@/components/workspace/widgets/news-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
-import { IdeaLedgerWidget } from "@/components/workspace/widgets/idea-ledger-widget";
 import { EvidenceStackWidget } from "@/components/workspace/widgets/evidence-stack-widget";
 import { DeskWidget } from "@/components/workspace/widgets/desk-widget";
-import { FilingsWidget } from "@/components/workspace/widgets/filings-widget";
-import { ChatWidget } from "@/components/workspace/widgets/chat-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -66,21 +57,6 @@ export type WidgetDefinition = {
 };
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
-  {
-    id: "account-summary",
-    title: "account summary",
-    description: "Portfolio, buying power, cash, unrealized P/L",
-    component: AccountSummaryWidget as WidgetDefinition["component"],
-    defaultSize: { w: 24, h: 3, minW: 6, minH: 2 },
-  },
-  {
-    id: "open-orders",
-    title: "open orders",
-    description: "Working and recent orders",
-    channelAware: true,
-    component: OpenOrdersWidget,
-    defaultSize: { w: 12, h: 5, minW: 5, minH: 3 },
-  },
   {
     id: "positions",
     title: "positions",
@@ -150,18 +126,9 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     id: "index-pressure",
     title: "index pressure",
     description:
-      "Session-bookend (open 9:30-10:00 / close 15:30-16:00 ET) options-flow imbalance for the index complex + megacaps — raw perception, not a signal",
+      "Index-complex options flow: open/close session-bookend imbalance plus last night's z-scored overnight (GTH) line — raw perception, not a signal",
     channelAware: true,
     component: IndexPressureWidget,
-    defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },
-  },
-  {
-    id: "overnight-flow",
-    title: "overnight flow",
-    description:
-      "Last night's GTH index-option activity (4:00–9:15 ET) z-scored vs its trailing baseline — context for the open, not a signal",
-    channelAware: true,
-    component: OvernightFlowWidget,
     defaultSize: { w: 8, h: 4, minW: 4, minH: 3 },
   },
   {
@@ -183,14 +150,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
   },
   {
-    id: "idea-ledger",
-    title: "idea ledger",
-    description: "Every registered idea + outcome",
-    channelAware: true,
-    component: IdeaLedgerWidget,
-    defaultSize: { w: 12, h: 6, minW: 6, minH: 3 },
-  },
-  {
     id: "evidence-stack",
     title: "evidence stacks",
     description: "Fusion evidence stacks (observe-only)",
@@ -208,22 +167,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     defaultSize: { w: 12, h: 8, minW: 6, minH: 4 },
   },
   {
-    id: "filings",
-    title: "filings",
-    description:
-      "Insider Form 4 buys, 13D stakes, congressional trades — free primary-source feed",
-    channelAware: true,
-    component: FilingsWidget,
-    defaultSize: { w: 12, h: 6, minW: 8, minH: 4 },
-  },
-  {
-    id: "rules",
-    title: "rules",
-    description: "Create, arm, and manage signal rules with trigger log",
-    component: RulesWidget,
-    defaultSize: { w: 12, h: 10, minW: 6, minH: 6 },
-  },
-  {
     id: "research",
     title: "research",
     description: "Deep research runs, artifact history, and report viewer",
@@ -236,13 +179,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     description: "Trade analytics — P&L charts, calendar, win rate, and round-trips",
     component: PerformanceWidget,
     defaultSize: { w: 16, h: 12, minW: 8, minH: 6 },
-  },
-  {
-    id: "memory",
-    title: "memory",
-    description: "Long-term preferences and lessons the copilot has learned",
-    component: MemoryWidget,
-    defaultSize: { w: 10, h: 5, minW: 4, minH: 3 },
   },
   {
     id: "notifications",
@@ -268,14 +204,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: JournalWidget,
     defaultSize: { w: 12, h: 8, minW: 5, minH: 4 },
-  },
-  {
-    id: "rvol-scanner",
-    title: "Volume Scanner",
-    description: "Market-wide unusual volume ranking (RVOL ≥ 1.5×)",
-    channelAware: true,
-    component: RvolScannerWidget,
-    defaultSize: { w: 8, h: 7, minW: 4, minH: 3 },
   },
   {
     id: "performance-stats",
@@ -346,14 +274,6 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     channelAware: true,
     component: NewsWidget,
     defaultSize: { w: 8, h: 7, minW: 4, minH: 3 },
-  },
-  {
-    id: "chat",
-    title: "chat",
-    description: "The agent chat — same conversation as the terminal drawer",
-    multiInstance: false,
-    component: ChatWidget as WidgetDefinition["component"],
-    defaultSize: { w: 12, h: 6, minW: 5, minH: 4 },
   },
 ];
 

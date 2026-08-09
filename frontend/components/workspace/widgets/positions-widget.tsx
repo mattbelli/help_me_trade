@@ -19,6 +19,8 @@ import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 import {
   isRealScope,
+  maskMoney,
+  resolveAccountView,
   resolvePositions,
   useDashboardPrefs,
   type TaggedPosition,
@@ -486,6 +488,80 @@ function RealPositions({
   );
 }
 
+/** One-line account summary above the table — absorbed the account-summary
+ * widget (2026-08-09 consolidation). Follows the toolbar account scope and
+ * the shared privacy mask; real (Schwab) and paper never blend. */
+function SummaryStrip() {
+  const { selectedAccountId, privacyMode } = useDashboardPrefs();
+  const { snapshot } = useSnapshot();
+  const { realAccounts, realSummary, realAuthenticated } = useRealAccounts();
+
+  const money = (v: number) => maskMoney(v, privacyMode, formatMoney);
+  const signed = (v: number) =>
+    maskMoney(v, privacyMode, (x: number) => `${x >= 0 ? "+" : ""}${formatMoney(x)}`);
+
+  let parts: { label: string; value: string; className?: string }[] | null = null;
+  if (isRealScope(selectedAccountId)) {
+    if (!realAuthenticated) return null;
+    const acct =
+      selectedAccountId === "all_real"
+        ? null
+        : realAccounts.find((a) => a.id === selectedAccountId);
+    const portfolio = acct ? acct.liquidation_value : (realSummary.liquidation_value ?? 0);
+    const cash = acct ? acct.cash : (realSummary.cash ?? 0);
+    const unrealized = acct ? acct.unrealized_pl : realSummary.unrealized_pl;
+    parts = [
+      { label: "portfolio", value: money(portfolio) },
+      { label: "cash", value: money(cash) },
+    ];
+    if (unrealized != null) {
+      parts.push({
+        label: "unrlzd",
+        value: signed(unrealized),
+        className: privacyMode
+          ? undefined
+          : unrealized >= 0
+            ? "text-[var(--c-green)]"
+            : "text-[var(--c-red)]",
+      });
+    }
+  } else {
+    if (!snapshot) return null;
+    const view =
+      selectedAccountId === "overview"
+        ? snapshot.all_accounts_summary
+        : resolveAccountView(snapshot, selectedAccountId);
+    if (!view) return null;
+    parts = [
+      { label: "portfolio", value: money(view.portfolio_value) },
+      { label: "bp", value: money(view.buying_power) },
+      { label: "cash", value: money(view.cash) },
+      {
+        label: "unrlzd",
+        value: signed(view.unrealized_pl),
+        className: privacyMode
+          ? undefined
+          : view.unrealized_pl >= 0
+            ? "text-[var(--c-green)]"
+            : "text-[var(--c-red)]",
+      },
+    ];
+  }
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-[var(--line-divider)] px-2 py-1.5 font-mono text-[length:var(--fs-table)]">
+      {parts.map((p) => (
+        <span key={p.label} className="whitespace-nowrap">
+          <span className="text-[var(--fg-faint)]">{p.label} </span>
+          <span className={cn("tabular-nums text-[var(--fg-dim)]", p.className)}>
+            {p.value}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function PositionsWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
@@ -493,9 +569,16 @@ export function PositionsWidget({ config }: WidgetProps) {
 
   // Toolbar scope is the ONLY switch — no in-widget chrome. Real scopes read
   // Schwab; overview and paper scopes keep the original snapshot behavior.
-  return isRealScope(selectedAccountId) ? (
-    <RealPositions linked={linked} publish={publish} />
-  ) : (
-    <PaperPositions linked={linked} publish={publish} />
+  return (
+    <div className="flex h-full flex-col">
+      <SummaryStrip />
+      <div className="min-h-0 flex-1">
+        {isRealScope(selectedAccountId) ? (
+          <RealPositions linked={linked} publish={publish} />
+        ) : (
+          <PaperPositions linked={linked} publish={publish} />
+        )}
+      </div>
+    </div>
   );
 }

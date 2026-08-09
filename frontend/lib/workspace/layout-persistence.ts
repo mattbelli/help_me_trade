@@ -40,7 +40,7 @@ export type WidgetInstanceConfig = {
       off until explicitly checked, so it never buries the live tape. */
   flowTypes?: FlowTypeKey[];
   /** Index pressure: which session bookend the gauge shows. Undefined = open. */
-  pressureWindow?: "open" | "close";
+  pressureWindow?: "open" | "close" | "overnight";
   /** Notifications: ding on new card arrival. Undefined = on. */
   ding?: boolean;
   /** Notifications: header ⚙ filter — "all" | "unread" | a category. */
@@ -48,7 +48,7 @@ export type WidgetInstanceConfig = {
   /** News: bloop on new headline arrival. Undefined = on. */
   bloop?: boolean;
   /** News: feed scope. Undefined = ticker when on a channel, else watchlist. */
-  newsScope?: "ticker" | "watchlist" | "sp500" | "all";
+  newsScope?: "ticker" | "watchlist" | "sp500" | "all" | "filings";
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */
@@ -137,19 +137,11 @@ const STORAGE_KEY_V3 = "hmt-workspace-v3";
 export const DEFAULT_CANVAS_PAGE_ID = "canvas";
 
 export const DEFAULT_WORKSPACE_LAYOUT: WorkspaceLayoutItem[] = [
+  // Positions carries the account-summary strip since the 2026-08-09 widget
+  // consolidation; the orders blotter (Open tab) replaced open-orders.
   {
-    i: "account-summary",
-    type: "account-summary",
-    x: 0,
-    y: 0,
-    w: 24,
-    h: 3,
-    minW: 6,
-    minH: 2,
-  },
-  {
-    i: "open-orders",
-    type: "open-orders",
+    i: "orders",
+    type: "orders",
     x: 0,
     y: 3,
     w: 12,

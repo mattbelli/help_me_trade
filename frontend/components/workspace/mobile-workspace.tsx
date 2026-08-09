@@ -52,7 +52,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 type MobileWidgetPanelProps = {
-  type: "account-summary" | "positions" | "open-orders";
+  type: "positions" | "orders";
   instanceId: string;
   scrollable?: boolean;
 };
@@ -101,17 +101,18 @@ function WatchTab() {
 }
 
 function PortfolioTab() {
+  // Positions carries the account-summary strip since the 2026-08-09 widget
+  // consolidation; the orders blotter's Open tab replaced open-orders.
   return (
     <div className="flex flex-col gap-3">
-      <MobileWidgetPanel type="account-summary" instanceId="mobile-account-summary" />
       <MobileWidgetPanel
         type="positions"
         instanceId="mobile-positions"
         scrollable
       />
       <MobileWidgetPanel
-        type="open-orders"
-        instanceId="mobile-open-orders"
+        type="orders"
+        instanceId="mobile-orders"
         scrollable
       />
     </div>

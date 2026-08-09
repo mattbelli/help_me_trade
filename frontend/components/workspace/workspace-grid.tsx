@@ -418,18 +418,11 @@ function ChartHeaderMenus({
 }
 
 function useWidgetHeaderMeta(widgetType: string): string | undefined {
-  const { snapshot } = useSnapshot();
+  // useSnapshot stays mounted here so the hook order is stable if a future
+  // widget wants live meta again; today only static def.meta is served.
+  useSnapshot();
   const def = getWidgetDefinition(widgetType);
-
-  if (def?.meta) return def.meta;
-
-  if (widgetType === "open-orders" && snapshot) {
-    const count = snapshot.open_order_count;
-    if (count === 0) return undefined;
-    return count === 1 ? "1 open" : `${count} open`;
-  }
-
-  return undefined;
+  return def?.meta;
 }
 
 function WidgetRemoveButton({
@@ -634,97 +627,6 @@ function OptionsFlowHeaderControls({
   );
 }
 
-const IDEA_LEDGER_LANES = [
-  "all",
-  "structure",
-  "llm_conviction",
-  "structure_vetoed",
-  "fusion_mech",
-  "strategy:earnings_drift",
-  "strategy:momentum_sp500",
-  "convergence",
-  "canary",
-] as const;
-
-const IDEA_LEDGER_STATUSES = ["all", "open", "resolved"] as const;
-
-type IdeaLedgerConfig = {
-  ledgerOrigin?: string;
-  ledgerStatus?: string;
-};
-
-function IdeaLedgerHeaderControls({
-  config,
-  onConfigChange,
-}: {
-  config: WidgetInstanceConfig;
-  onConfigChange: (patch: Partial<WidgetInstanceConfig>) => void;
-}) {
-  const ledgerConfig = config as WidgetInstanceConfig & IdeaLedgerConfig;
-  const lane = ledgerConfig.ledgerOrigin ?? "all";
-  const status = ledgerConfig.ledgerStatus ?? "all";
-  const changeConfig = (patch: Partial<IdeaLedgerConfig>) =>
-    onConfigChange(patch as Partial<WidgetInstanceConfig>);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        type="button"
-        className={cn(
-          "workspace-no-drag inline-flex shrink-0 items-center justify-center rounded p-1 outline-none transition-colors hover:bg-[var(--bg-hover)]",
-          lane === "all" && status === "all"
-            ? "text-[var(--fg-dim)] hover:text-foreground"
-            : "text-[var(--c-accent)]",
-        )}
-        onClick={(e) => e.stopPropagation()}
-        onPointerDown={(e) => e.stopPropagation()}
-        aria-label="Filter idea ledger"
-        title="Filter idea ledger"
-      >
-        <SlidersHorizontal className="size-3.5" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="min-w-52 border-[var(--border)] bg-[var(--panel)] p-1 font-mono text-[length:var(--fs-body)] shadow-[var(--panel-shadow)]"
-      >
-        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
-          lane
-        </div>
-        {IDEA_LEDGER_LANES.map((option) => (
-          <DropdownMenuItem
-            key={option}
-            onClick={() => changeConfig({ ledgerOrigin: option })}
-            className={cn(
-              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
-              lane === option ? "text-foreground" : "text-[var(--fg-dim)]",
-            )}
-          >
-            {option}
-            {lane === option ? <Check className="size-3" /> : null}
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator />
-        <div className="px-2 py-1 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
-          status
-        </div>
-        {IDEA_LEDGER_STATUSES.map((option) => (
-          <DropdownMenuItem
-            key={option}
-            onClick={() => changeConfig({ ledgerStatus: option })}
-            className={cn(
-              "flex items-center justify-between gap-3 px-2 py-1 lowercase",
-              status === option ? "text-foreground" : "text-[var(--fg-dim)]",
-            )}
-          >
-            {option}
-            {status === option ? <Check className="size-3" /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 const EVIDENCE_SCORE_FILTERS = [
   { value: 0, label: "all" },
   { value: 2, label: "≥2" },
@@ -817,6 +719,9 @@ const NEWS_SCOPES = [
   { value: "watchlist", label: "watchlist" },
   { value: "sp500", label: "s&p 500" },
   { value: "all", label: "all" },
+  // Insider Form 4 buys / 13D stakes / congress trades — the filings widget
+  // absorbed as a news scope (2026-08-09 consolidation).
+  { value: "filings", label: "filings" },
 ] as const;
 
 /** News header: feed-scope dropdown (one click, chart-timeframe idiom) + the
@@ -1104,12 +1009,6 @@ function WidgetHeader({
           config={config}
           onConfigChange={onConfigChange}
           channel={channel}
-        />
-      ) : null}
-      {widgetType === "idea-ledger" && config && onConfigChange ? (
-        <IdeaLedgerHeaderControls
-          config={config}
-          onConfigChange={onConfigChange}
         />
       ) : null}
       {widgetType === "evidence-stack" && config && onConfigChange ? (

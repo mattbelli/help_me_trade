@@ -10,6 +10,16 @@
  ],
  "cards": [
   {
+   "id": "widget-consolidation-2026-08",
+   "title": "Widget consolidation — 35 picker entries down to 27, merges as view toggles",
+   "lane": "done",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "orchestrator",
+   "updated_at": "2026-08-09",
+   "notes": "2026-08-09: founder rejected a standalone overnight-flow widget ('we need to consolidate widgets as it is') and asked for a merge proposal over ALL widgets first. Grounded in his real layouts (21 of 37 types placed; 16 never placed). Approved+shipped: overnight -> index-pressure third footer view (open|close|overnight; 5-min poll on the overnight view); open-orders deleted (orders' Open tab is a superset); idea-ledger -> Ledger tab on idea-outcomes (fetch on tab entry); rvol-scanner -> RVOL pseudo-preset on scans (auto-runs on select, universe toggle disabled); filings -> news 'filings' scope (file kept as FilingsBody, rendered by news); account-summary -> one-line summary strip on positions (scope-aware, privacy-masked, real/paper never blended); memory/rules/chat picker kills (pages are the surface). Migrations the registry sweep caught: mobile PortfolioTab (was account-summary+open-orders panels -> positions+orders), DEFAULT_WORKSPACE_LAYOUT, notification-target order->orders, grid's dead open-orders header-meta branch + IdeaLedgerHeaderControls removed. DECLINED by founder: trade-analytics 4->1 merge + performance-legacy kill — do not re-propose (memory widget-consolidation-direction). No existing saved placement referenced any deleted type (verified against server workspaces state); unknown types degrade to an empty tile, never a crash. Typecheck+build clean, frontend redeployed. Pending founder in-browser check: positions strip, overnight view, scans RVOL, news filings scope, mobile portfolio tab."
+  },
+  {
    "id": "gth-overnight-phase-b",
    "title": "Overnight GTH flow — live tape + z-scored morning line on every surface",
    "lane": "done",

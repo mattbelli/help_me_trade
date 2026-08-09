@@ -30,7 +30,7 @@ export function notificationTarget(
     case "position":
       return { widgetType: "positions" };
     case "order":
-      return { widgetType: "open-orders" };
+      return { widgetType: "orders" };
   }
   switch (n.kind) {
     case "proposal":

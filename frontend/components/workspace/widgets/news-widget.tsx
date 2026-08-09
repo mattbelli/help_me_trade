@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 
 import { relativeTime } from "@/components/workspace/company-info-sections";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import { FilingsBody } from "@/components/workspace/widgets/filings-widget";
 import {
   WidgetEmpty,
   WidgetError,
@@ -83,7 +84,9 @@ export function NewsWidget({ config }: WidgetProps) {
   const scopeKey = scope === "ticker" ? `ticker:${symbol ?? ""}` : scope;
 
   const load = useCallback(async () => {
-    if (scope === "ticker" && !symbol) {
+    // Filings scope renders its own body with its own fetch — don't poll the
+    // news feed underneath it.
+    if (scope === "filings" || (scope === "ticker" && !symbol)) {
       setItems([]);
       setLoading(false);
       return;
@@ -131,6 +134,10 @@ export function NewsWidget({ config }: WidgetProps) {
   usePagePoll(load, POLL_MS);
 
   const entrance = useMotionSafe(motionStd);
+
+  if (scope === "filings") {
+    return <FilingsBody channel={channel} />;
+  }
 
   if (scope === "ticker" && !symbol) {
     return (

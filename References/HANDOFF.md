@@ -24,8 +24,12 @@ Everything deployed (BUILD_LOG row + card `gth-overnight-phase-b`); baseline is 
   `gth_w=` advancing on the pairing stats line (`journalctl -u hmt-flow-collector`, UTC). Zero rows
   by 22:00 ET = the tee is broken; fix before the morning line has nothing to read.
 - **⏳ Mon 2026-08-11 ~9:20 ET — first morning line.** `overnight_flow` report in the inbox,
-  `data/research/gth_census/morning_line.json` written, widget renders (founder in-browser check —
-  UI shipped typecheck-only). Phone must stay quiet unless z≥5.
+  `data/research/gth_census/morning_line.json` written, and the **index-pressure widget's
+  `overnight` footer view** renders it (the standalone widget was consolidated away same day —
+  card `widget-consolidation-2026-08`). Phone must stay quiet unless z≥5.
+- **⏳ Founder in-browser pass on the consolidation round** (typecheck+build only so far):
+  positions summary strip, scans → RVOL preset, news → filings scope, idea-outcomes → Ledger tab,
+  mobile portfolio tab (now positions + orders).
 
 ---
 
