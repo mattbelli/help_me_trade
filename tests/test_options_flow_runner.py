@@ -21,28 +21,6 @@ def _runner() -> OptionsFlowRunner:
     return OptionsFlowRunner(watchlist_symbols=lambda: ["AAPL"])
 
 
-def test_subscription_set_empty_outside_regular_session(monkeypatch) -> None:
-    monkeypatch.setattr(runner_mod, "_market_session", lambda: "pre")
-    # Pin the warm window OFF: "pre + inside the warm window" legitimately
-    # serves actives (#71's OI pre-seed) — this test means "pre, before it".
-    # Unpinned, the real clock made this fail on any 09:15–09:30 ET suite run.
-    monkeypatch.setattr(runner_mod, "_in_preopen_warm", lambda *a: False)
-    monkeypatch.setitem(_default_state.active, "AAPL260918C00200000", {"x": 1})
-    try:
-        assert _runner().subscription_set() == []
-    finally:
-        _default_state.active.pop("AAPL260918C00200000", None)
-
-
-def test_subscription_set_returns_active_in_regular(monkeypatch) -> None:
-    monkeypatch.setattr(runner_mod, "_market_session", lambda: "regular")
-    monkeypatch.setitem(_default_state.active, "AAPL260918C00200000", {"x": 1})
-    try:
-        assert "AAPL260918C00200000" in _runner().subscription_set()
-    finally:
-        _default_state.active.pop("AAPL260918C00200000", None)
-
-
 def test_meta_for_prefers_poll_state_and_falls_back_to_occ_parse() -> None:
     r = _runner()
     occ = "AAPL260918C00200000"

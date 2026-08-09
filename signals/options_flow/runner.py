@@ -32,7 +32,6 @@ from datetime import datetime
 
 from brokers.factory import get_broker
 from brokers.market_clock import market_session as _market_session
-from config.settings import alpaca_config, broker_is_configured
 from signals.options_flow.constants import PREOPEN_WARM_MINUTES
 from trading.market_calendar import is_trading_day
 from trading.market_hours import _ET, _SESSION_OPEN
@@ -245,10 +244,10 @@ class OptionsFlowRunner:
         # sweep cycle (~1s) so the stored row is honest within a second or
         # two of the code arriving.
         self._pairing_repairs = pairing_repairs
-        self.stream = None  # OptionsFlowStream | None — set while stream_run is live
+        self.stream = None  # DatabentoFlowStream | None — set while stream_run is live
         self._intraday_warned = False
 
-    # --- stream callbacks (wired into OptionsFlowStream by stream_run) ---
+    # --- stream callbacks (wired into DatabentoFlowStream by stream_run) ---
 
     def meta_for(self, occ: str) -> dict | None:
         from signals.options_flow.poll import _default_state, _meta_from_occ
@@ -259,20 +258,6 @@ class OptionsFlowRunner:
             return meta
         today_et = datetime.now(_ET).date().isoformat()
         return _meta_from_occ(sym, "", today_et)
-
-    def subscription_set(self) -> list[str]:
-        from signals.options_flow.poll import active_subscription_symbols
-
-        if not _flow_session_active():
-            return []
-        return active_subscription_symbols()
-
-    def anchor_quotes(self) -> list[str]:
-        from signals.options_flow.poll import anchor_quote_symbols
-
-        if not _flow_session_active():
-            return []
-        return anchor_quote_symbols()
 
     def on_prints(self, batch: list[dict]) -> None:
         stream = self.stream
@@ -353,25 +338,20 @@ class OptionsFlowRunner:
             now_et = datetime.now(_ET)
             today_et = now_et.date().isoformat()
             now_ms = int(now_et.timestamp() * 1000)
-            # Under the databento provider the whole-market spine owns BLK-1
-            # (sweep_loop); the REST lane detecting them too would write a
-            # second row per block (different timestamp → different id). Gated
-            # on config, not stream liveness: if the spine is down, sweeps and
-            # bursts are dark too — a lane quietly half-covering blocks would
-            # look exactly like a quiet market.
-            from config.settings import load_settings
-
-            provider = str(
-                (load_settings().get("options_flow") or {}).get("provider")
-                or "alpaca"
-            ).strip().lower()
+            # The whole-market spine owns BLK-1 (sweep_loop); the REST lane
+            # detecting them too would write a second row per block (different
+            # timestamp → different id). Constant, not stream-liveness-gated:
+            # if the spine is down, sweeps and bursts are dark too — a lane
+            # quietly half-covering blocks would look exactly like a quiet
+            # market. (Was config-gated while the capped Alpaca lane existed;
+            # that lane was retired 2026-08-09.)
             summary = await asyncio.to_thread(
                 run_poll_once,
                 broker,
                 symbols=symbols,
                 today_et=today_et,
                 now_ms=now_ms,
-                emit_blocks=provider != "databento",
+                emit_blocks=False,
             )
             events = summary.pop("events", []) or []
             conv_summary: dict[str, int] = {}
@@ -526,9 +506,10 @@ class OptionsFlowRunner:
                         # BLK-1 on the spine (2026-08-03): single-print blocks
                         # were poll-lane-only, i.e. watchlist-capped, while the
                         # whole-market feed watched every print go by (and the
-                        # corpus showed daily bars HIDE exactly these). Only on
-                        # the market-wide lane — the poll lane keeps emitting
-                        # blocks under provider=alpaca, so no double detection.
+                        # corpus showed daily bars HIDE exactly these). The
+                        # poll lane's block emission is off (emit_blocks=False
+                        # since the capped-lane retirement), so no double
+                        # detection.
                         if stream.acked_market_wide:
                             blk = detect_block(
                                 p,
@@ -722,54 +703,28 @@ class OptionsFlowRunner:
     async def stream_run(self) -> None:
         """OPRA transport; prints feed `sweep_loop`.
 
-        Provider is chosen by ``options_flow.provider`` and DEFAULTS TO ALPACA —
-        the Databento lane ships off and is armed deliberately, the same way a
-        new strategy does. Neither path falls back to the other: a dead session
-        is loud, because a silent downgrade in direction quality would look
+        Databento is the only transport: the capped Alpaca quote/trades lane
+        was retired 2026-08-09 after one clean release on the spine (see
+        LIVE_FLOW_PAIRING_SPEC "What turns OFF"; revert is git archaeology,
+        not a settings flip). A stale ``options_flow.provider`` value other
+        than databento refuses to start LOUDLY — no lane falls back to
+        another, because a silent downgrade in direction quality would look
         exactly like a quiet market.
         """
         from config.settings import load_settings
 
         provider = str(
-            (load_settings().get("options_flow") or {}).get("provider") or "alpaca"
+            (load_settings().get("options_flow") or {}).get("provider")
+            or "databento"
         ).strip().lower()
-        if provider == "databento":
-            await self._stream_run_databento()
-            return
-
-        if not broker_is_configured("alpaca"):
-            logger.warning("options_flow stream: Alpaca not configured; not starting")
-            return
-
-        cfg = alpaca_config()
-        key = str(cfg.get("api_key_id") or "").strip()
-        secret = str(cfg.get("api_secret_key") or "").strip()
-        if not key or not secret:
-            logger.warning(
-                "options_flow stream: missing Alpaca credentials; not starting"
+        if provider != "databento":
+            logger.error(
+                "options_flow stream: provider=%r but the capped Alpaca lane "
+                "was RETIRED 2026-08-09 — refusing to start; remove the stale "
+                "setting (databento is the only transport)", provider,
             )
             return
-
-        from signals.options_flow.stream import OptionsFlowStream
-
-        stream = OptionsFlowStream(
-            key=key,
-            secret=secret,
-            on_prints=self.on_prints,
-            get_subscription_set=self.subscription_set,
-            meta_for=self.meta_for,
-            get_anchor_quotes=self.anchor_quotes,
-        )
-        self.stream = stream
-        logger.info("options_flow stream: starting OPRA websocket (DARK collector)")
-        try:
-            await stream.run()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("options_flow stream: run loop exited unexpectedly")
-        finally:
-            self.stream = None
+        await self._stream_run_databento()
 
     async def _stream_run_databento(self) -> None:
         """Databento OPRA live — NBBO travels on the print, so no quote budget."""

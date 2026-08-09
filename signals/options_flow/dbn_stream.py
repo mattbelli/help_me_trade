@@ -1,10 +1,10 @@
-"""Databento OPRA live transport — a drop-in alternative to `stream.py`.
+"""Databento OPRA live transport — the ONLY print transport since 2026-08-09.
 
-Same duck-typed surface as ``OptionsFlowStream`` (``collected_prints``,
-``quote_at``, ``acked_market_wide``, ``dropped_prints``, ``run``, ``stop``), so
-`runner.sweep_loop` and every detector downstream are untouched. Selected by
-``options_flow.provider`` in settings; **the Alpaca stream stays the default and
-is not deleted** — this module is the thing that gets retired if we swap back.
+Duck-typed surface (``collected_prints``, ``quote_at``, ``acked_market_wide``,
+``dropped_prints``, ``run``, ``stop``) inherited from the capped Alpaca
+``OptionsFlowStream`` it replaced: production-primary since the 2026-07-27
+provider flip, and the capped lane was RETIRED 2026-08-09 after one clean
+release (LIVE_FLOW_PAIRING_SPEC "What turns OFF" — revert is git archaeology).
 
 Why it exists (measured 2026-07-26): Alpaca's OPRA quote budget caps at 1,000
 contracts, which is ~21 per name across 40 names ≈ 0.3% of a chain, and the
@@ -59,7 +59,7 @@ PX_SCALE = 1e9
 # classification regimes pool silently and any history that spans the swap is
 # quietly meaningless — the lesson `schema_version` encodes for the corpus.
 QUOTE_BASIS = "dbn_nbbo"
-# NOT mirroring OptionsFlowStream's 5,000 — that number was sized for the Alpaca
+# NOT mirroring the retired Alpaca lane's 5,000 — that number was sized for that
 # lane, and `runner.on_prints` still documents its assumption as "~530 prints/min
 # peak vs 5,000 cap". This lane takes the WHOLE MARKET, which is a different
 # order of magnitude entirely.
@@ -687,12 +687,13 @@ class DatabentoFlowStream:
                     # False only once the reconnect task itself has finished —
                     # i.e. databento stopped trying — so a transient drop never
                     # reaches here, it goes to _on_reconnect. Loud, not silent:
-                    # the Alpaca lane is one settings flip away and a human
-                    # should make that call, not a fallback branch.
+                    # there is no other lane (the capped Alpaca stream was
+                    # retired 2026-08-09) and a human should investigate, not
+                    # a fallback branch.
                     logger.error(
                         "dbn stream: session is down and databento stopped "
-                        "reconnecting (msgs=%s prints=%s reconnects=%s) — NOT "
-                        "falling back; set options_flow.provider=alpaca to revert",
+                        "reconnecting (msgs=%s prints=%s reconnects=%s) — flow "
+                        "is DARK until the collector restarts",
                         self.msgs, self.prints, self.reconnects,
                     )
                     return

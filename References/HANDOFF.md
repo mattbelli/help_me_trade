@@ -154,42 +154,6 @@ snapshot per sweep). Open threads only:
 - **⏳ o band → §4 classifier sequencing** (§3c PASSED out-of-sample 3.33×, 07-28): o is a
   feature awaiting siblings (Phase 2 OI deltas, Phase 3 hedge prints); no standalone surface, no
   grading without prereg; later generalization = 3+leg clusters (~37–43% of package premium).
-- **⏳ Live flow pairing — enrichment WIRED 2026-08-03 (Inc 3 first step; BUILD_LOG row + card
-  `live-flow-pairing`); the Inc-3 tail remains.** Live events now carry condition codes on the
-  databento lane (F-2 spread/hygiene/ISO gates active; `OPTIONS_FLOW_PAIRING_METRICS_ONLY=1`
-  reverts). ✅ **First enriched sessions MEASURED 08-09** (card notes have the numbers): Aug 4–6
-  at baseline (matched 96.6–98.4%/epoch, repairs ≤55, spread_flag rows land, repairs idempotent);
-  **Fri 08-07 DEGRADED and ROOT-CAUSED 08-09 (card notes have the forensics): upstream Alpaca
-  OPRA-feed degradation, all session** — standing 10–25s wire lag vs baseline ~100ms, ~1/3 tape
-  rate for the first ~70 min, hottest roots conflated hardest (SPXW −50%), server-side disconnect
-  14:38Z; equity SIP on the SAME hostname clean all day (box/network/account exonerated), DBN
-  spine flawless, no public Alpaca incident. Provider weather; design held (996 late spread legs
-  repaired). Friday's stored events are partially label-blind (74% matched vs ~98%) — retro
-  re-label from the batch corpus possible if they ever matter to a study.
-  ✅ **Standing-NBBO consumer audit RUN + CLEARED 08-09** (BUILD_LOG row; full table in
-  `LIVE_FLOW_PAIRING_SPEC_2026-07-28.md`): no consumer needs a standing option NBBO — the
-  quote lane's retirement is deliberate and verified. Two provenance repairs shipped
-  (sweeps/rolling stamped the Alpaca-era basis literal since 07-27; behavioral readers
-  unaffected — all key off `direction`).
-  ✅ **Nightly live-vs-batch audit alarm ARMED 08-09** (`tools/flow_pairing_audit.py`;
-  BUILD_LOG row; spec section has thresholds + validation): nightly capture step 6 audits
-  live-vs-batch per session → `pairing_audit.json` + ntfy on breach; intraday cron
-  (14:45/18:30 UTC) pushes a same-day "codes degraded" alert off wire-lag p50 / sidecar
-  starvation. Validated on real history: Aug 4–6 silent, Fri 08-07 trips all four alarms —
-  correction to the record: Friday's session-AGGREGATE live match was **59.9%** (74.3% was
-  the best epoch); batch was 47.8%, worse than live. First armed nightly run ~02:30 UTC Tue.
-  ✅ **SPXW/XSP d<a gap ANSWERED 08-09: it is the overnight Cboe GTH session** (BUILD_LOG
-  row; memory `databento-opra-no-gth`): Databento OPRA.PILLAR carries NO Global Trading
-  Hours — zero records overnight, live AND historical, all schemas — while Alpaca's WS
-  delivers ~60k GTH prints/night on exactly the GTH-eligible roots. Meta-cold-open-blind
-  hypothesis REFUTED (intra-RTH dbn ≥ alp; the quoted 1.538M/1.608M were process-cumulative
-  counters, not a per-day RTH gap). Overnight prints land as `alpaca_orphans` and expire;
-  they never become events. OPEN: capped-lane code retirement after one clean release.
-  Not yet verified: spread_flag prints in the print lab; sweeps/blocks plausibility vs
-  pre-08-03.
-  No code-family SCORING before 1.8-on-truth (segregation is allowed and now live).
-  ⚠️ Restarting this unit needs no sudo: it is `Restart=always` + `User=mbelli`, so `kill <MainPID>`
-  is a clean restart (interactive sudo is unavailable to agents on serv).
 - **⏳ Flow perception surface — SCHEDULED (cron 04:30 UTC Tue–Sat), earnings coverage SHIPPED,
   alerts unarmed, no UI widget** (BUILD_LOG 07-29/07-30 rows; card `flow-perception-ship`).
   Nightly wrapper = corpus roll → earnings coverage refresh (non-fatal) → scan. Earnings estimates

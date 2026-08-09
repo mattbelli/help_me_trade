@@ -31,7 +31,6 @@ from signals.options_flow.constants import (
     LONG_DTE_THRESHOLD_DAYS,
     POLL_COLD_START_LOOKBACK_MINUTES,
     POLL_QUOTE_CHUNK,
-    QUOTE_ANCHOR_BUDGET,
     STREAM_TRADES_MAX,
     ZERO_DTE_EXCLUDE,
 )
@@ -130,24 +129,6 @@ def _select_active_picks(
     return picks
 
 
-def anchor_quote_symbols(state: PollState | None = None) -> list[str]:
-    """Standing quote anchors: the active set's top contracts by rank score,
-    globally, clipped to QUOTE_ANCHOR_BUDGET.
-
-    Pre-positioned so the FIRST print on a hot contract classifies against a
-    live quote — the reactive pool only subscribes after a print, so it always
-    misses the print that made the contract hot. Pre-open the scores fall back
-    to prior-session OI (the seed), so anchors exist before the bell.
-    """
-    st = state if state is not None else _default_state
-    ranked = sorted(
-        st.active.items(),
-        key=lambda kv: (float(kv[1].get("rank_score") or 0.0), kv[0]),
-        reverse=True,
-    )
-    return [occ for occ, _ in ranked[:QUOTE_ANCHOR_BUDGET]]
-
-
 def _parse_ts_ms(ts: str) -> int | None:
     try:
         s = str(ts).strip()
@@ -185,12 +166,6 @@ def _meta_from_contract(c: dict, today_et: str) -> dict | None:
         "expiry": expiry,
         "dte": dte,
     }
-
-
-def active_subscription_symbols(state: PollState | None = None) -> list[str]:
-    """OCC symbols in the intraday active set (for OPRA stream trade subscriptions)."""
-    st = state if state is not None else _default_state
-    return sorted(st.active.keys())
 
 
 def _meta_from_occ(occ: str, underlying_hint: str, today_et: str) -> dict | None:

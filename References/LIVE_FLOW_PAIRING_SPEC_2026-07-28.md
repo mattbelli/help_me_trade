@@ -80,6 +80,22 @@ production since 07-27) already stopped the capped quote/trades lanes — under
   and confirm each works off nbbo-on-print or REST snapshots.
 - The capped-lane code stays revertable by config (`provider=alpaca`) exactly as before.
 
+**RETIRED 2026-08-09 — the "one clean release" condition was met** (cutover 07-27; enriched
+sessions 08-04..06 at baseline; Friday 08-07 was vendor weather on the OTHER lane; the revert
+was never needed). Deleted: `signals/options_flow/stream.py` (OptionsFlowStream),
+`poll.anchor_quote_symbols`/`active_subscription_symbols`, the runner's stream callbacks, the
+four quote-budget constants (QUOTE_ANCHOR_BUDGET/HOT_QUOTE_MAX/HOT_QUOTE_TTL_SECONDS/
+OPRA_QUOTE_SUB_CAP), `scripts/opra_replay_bench.py`, and the capped-lane tests.
+`stream_run` now refuses LOUDLY on any `options_flow.provider` other than databento (default
+flipped to databento); the poll lane's `emit_blocks` is constant False. `STREAM_TRADES_MAX`
+survives — it caps the POLL lane's active set. Revert is git archaeology by design. Soft
+verifies closed the same round: print-lab rows carry the derived `spread` marker (76.2% of
+08-06 lab rows — live, non-degenerate) and sweeps/blocks daily counts are plausible across
+the 08-03 boundary (sweeps hold 10–13k/day; blocks 671–940 → 2,099–2,808/day = the documented
+BLK-1 whole-market move; spread_flag 0–9/day healthy vs 623+373 on degraded Friday — the
+late-repair path fires exactly when codes arrive late). Collector rebooted clean on the
+retired tree (PID 3126664).
+
 Original prerequisites, verified not assumed:
 - **Standing-NBBO consumer audit.** `tcbbo` quotes only exist at trade time. Anything needing a
   continuous option NBBO (position marks, UI quote displays, spread-width checks at arbitrary
