@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from db.equity_tape import insert_event, prune, recent_events
@@ -10,7 +11,9 @@ from signals.equity_tape import (
     TapeDetector,
 )
 
-TS = "2026-07-10T15:30:00.123456789Z"
+# Now-relative: a fixed date rots past the store's 30-day prune window and the
+# prune test starts deleting the "fresh" event too (bit us 2026-08-09).
+TS = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S") + ".123456789Z"
 
 
 def _detector(median_shares: float | None = 80_000_000.0) -> TapeDetector:
@@ -40,7 +43,7 @@ def test_block_detected_on_lit_exchange() -> None:
     assert ev["notional_usd"] == 620.0 * 20_000
     assert ev["direction"] == "buy_side"  # uptick vs 619.9
     assert ev["direction_basis"] == "tick"
-    assert ev["id"] == "eq_2026-07-10_SPY_blk_52983525029461"
+    assert ev["id"] == f"eq_{TS[:10]}_SPY_blk_52983525029461"
     assert "not a buy/sell signal" in ev["caveat"]
     assert list(det.pending) == [ev]
 
@@ -52,7 +55,7 @@ def test_dark_pool_exchange_d() -> None:
     assert ev["event_type"] == "dark_pool"
     assert ev["direction"] == "sell_side"  # downtick
     assert "TRF" in ev["caveat"]
-    assert ev["id"].startswith("eq_2026-07-10_SPY_dp_")
+    assert ev["id"].startswith(f"eq_{TS[:10]}_SPY_dp_")
 
 
 def test_small_print_ignored() -> None:
@@ -115,7 +118,7 @@ def test_store_upsert_filters_and_prune(tmp_path: Path) -> None:
     assert recent_events(symbol="QQQ", db_path=db) == []
     assert recent_events(event_type="dark_pool", db_path=db) == []
     assert recent_events(min_notional=1e9, db_path=db) == []
-    assert len(recent_events(since="2026-07-10T00:00:00Z", db_path=db)) == 1
+    assert len(recent_events(since=f"{TS[:10]}T00:00:00Z", db_path=db)) == 1
 
     old = dict(ev, id="eq_old", ts="2020-01-01T00:00:00Z")
     insert_event(old, db_path=db)
