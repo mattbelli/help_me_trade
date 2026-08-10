@@ -21,14 +21,11 @@ import {
 } from "@/lib/report-theme";
 import { THEME_VARS_EVENT } from "@/lib/workspace/custom-themes";
 import { usePagePoll } from "@/lib/workspace/use-page-poll";
+import { label } from "@/lib/labels";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
-
-function kindLabel(kind: string): string {
-  return kind.replace(/_/g, " ");
-}
 
 function ReportListItem({
   report,
@@ -55,7 +52,7 @@ function ReportListItem({
       </p>
       <p className="mt-0.5 flex items-center gap-1.5 font-mono text-[length:var(--fs-table)] text-[var(--fg-faint)]">
         <span className="rounded-sm border border-[var(--border)] px-1 text-[var(--fg-dim)] uppercase">
-          {kindLabel(report.kind)}
+          {label("report_kind", report.kind)}
         </span>
         <span>{relativeTime(report.generated_at)}</span>
       </p>

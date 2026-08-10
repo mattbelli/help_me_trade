@@ -28,6 +28,7 @@ import {
   type MyTrade,
   type MyTradesSummary,
 } from "@/lib/journal-api";
+import { label } from "@/lib/labels";
 import { fetchTradeAccounts, type TradeAccount } from "@/lib/trades-api";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -65,6 +66,13 @@ function outcomeColor(outcome: string | null): string {
   if (outcome === "win") return "var(--c-green)";
   if (outcome === "loss") return "var(--c-red)";
   return "var(--fg-dim)";
+}
+
+/** How the call ended, else how it was decided — each enum through its own map. */
+function decisionText(d: JournalDecision): string {
+  if (d.outcome != null) return label("journal_outcome", d.outcome);
+  if (d.decision != null) return label("journal_decision", d.decision);
+  return "pending";
 }
 
 function ToggleButton({
@@ -452,7 +460,7 @@ function DecisionsView({
             <span className="flex items-center gap-2 tabular-nums text-[length:var(--fs-body)]">
               <span className="text-[var(--fg-faint)]">win% {pct(d.win_prob)}</span>
               <span style={{ color: outcomeColor(d.outcome) }}>
-                {d.outcome ?? d.decision ?? "pending"}
+                {decisionText(d)}
               </span>
               {d.r_multiple != null ? (
                 <span style={{ color: pnlColor(d.realized_pnl) }}>
@@ -540,7 +548,7 @@ function MeView({
               )}
             </span>
             <span className="text-right text-[length:var(--fs-table)] text-[var(--fg-faint)]">
-              {t.side}
+              {label("trade_side", t.side)}
             </span>
             <span
               className="text-right tabular-nums"
