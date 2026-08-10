@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:tokens": "node scripts/check-tokens.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "test:engine": "vitest run"
@@ -62,6 +63,7 @@
     "@types/react-grid-layout": "^2.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "eslint-plugin-better-tailwindcss": "^4.7.0",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
