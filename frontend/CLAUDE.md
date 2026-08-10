@@ -56,7 +56,8 @@ Settled call: table column headers use `--fg-table-header`, NOT `--fg-faint`.
 - Bordered rows need the integral line-height pin `leading-[20px]` — on `<tbody>` for tables, on the
   row element for grid rows. Without it Chromium pixel-snaps alternate 1px borders to zero height
   and the grid lines vanish. See the warning at `app/globals.css:54-60`.
-- Row density is `px-2 py-1.5`.
+- Row density is `px-2 py-1.5` — except the watchlist, which has its own three-step density system
+  (`lib/workspace/watchlist-columns.tsx`, 23/29/42px pitches); follow that there, not this line.
 - Every rendered ticker uses `ClickableSymbol` (`components/workspace/clickable-symbol.tsx`), and
   the row containing it sets `group/row`.
 

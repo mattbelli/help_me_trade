@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 282,
+   "id": "watchlist-delete-density-addrow",
+   "title": "watchlist: delete-confirm rendered off-screen + density retune + add-row restyle",
+   "lane": "done",
+   "type": "ui",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Founder: (A) can't delete a ticker anymore — ROOT CAUSE verified in gallery repro: the drag-out confirm pill anchors absolute right-1.5 inside the row's full-width content box, which is wider than the scrollport, so the pill renders clipped/off-screen (screenshot shows the check button half-cut at DEFAULT gallery width). Keyboard Enter/Esc still work but nothing visible tells him the confirm armed. (B) wants row density between compact (23px pitch) and comfortable (33px) — retune comfortable to py-1 => 29px integral pitch. (C) add-ticker row is a floating rounded island w/ white-mix dropdown — restyle to table-row language. Branch watchlist-fixes (wt-a).\n2026-08-10: DONE 08-10 eve: (A) confirm pill now a widget-body overlay pinned to the visible right edge, tracking the armed row via offsetTop; blur check widened list->widget (clicking the check used to tear the confirm down); armed red wash repaints the sticky sym cell. (B) comfortable 33->29px integral pitch. (C) add row = real table row w/ blinking 1ch block cursor at true selectionStart, founder-steered live in the pane; z-30 stacking measured + documented. repro-delete.mjs now asserts 19 checks (re-run by orchestrator: ALL PASS). Merged, deployed. Follow-ups in HANDOFF: add-row-over-header z-order, whileDrag scale residue, gallery PUT fixture gap, searchSymbols no-store."
+  },
+  {
    "num": 281,
    "id": "account-column-validation",
    "title": "orders/positions: real Account column + status vocabulary (first dispatch under the new agent-UI system)",

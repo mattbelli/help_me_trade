@@ -44,6 +44,11 @@ merge-hazard noted here earlier is gone. Open:
   (`working`/`partial fill` — partial fill now amber, was wrongly green), ALL sortable table
   headers app-wide went back to UPPERCASE (positions/desk/etc. were silently Title-case), and a
   failed orders snapshot now shows an error + retry instead of "Waiting for orders…".
+  **Extended 08-10 late (cards #282 + picker fix, deployed):** watchlist — drag a row out and the
+  `delete SYM? ✓ ✕` confirm now actually appears (pinned to the widget's right edge on the armed
+  row); comfortable rows are 29px (was 33); the add row is a real table row with a blinking block
+  cursor (founder steered this live in the coder's pane). Widget picker: Space→type→arrows→Enter
+  launches a widget (keyboard selection existed nowhere before).
 
 ## ▶ Agent-UI prep follow-ups (from the 08-10 round's day-one catches — not yet carded)
 - ~~Validation case~~ **SHIPPED 08-10 (card #281)** — the process proof worked: coder followed the
@@ -65,6 +70,14 @@ merge-hazard noted here earlier is gone. Open:
   could go to error. index-pressure still carries 16 off-ladder px sizes (2 below the 10px
   floor) + knob-family token dialect — sweep candidate.
 - `check:tokens` is green but inert until wired into pre-push/CI.
+- **Watchlist round leftovers (08-10, card #282):** gallery has NO fixture for
+  `PUT /api/watchlists/{id}` — unmatched writes answer `{}` and kill the widget, so no gallery/
+  ui-shot check can exercise ANY watchlist write (add/remove/reorder/density); worth a fixture.
+  Add-row-over-header z-order (z-30 vs header z-[2]) — pre-existing, needs a widget z-order
+  re-plan, founder saw + accepted current state. Framer `whileDrag` scale (1.02) never reverts
+  after a drag-out release — armed row sits ~2% wide/10px displaced until next re-render,
+  cosmetic. `lib/api.ts` `searchSymbols` uses banned `cache:"no-store"`. Watchlist
+  `WidgetLoading cols={[2,1,1,1]}` vs 6 real columns; earnings badge is still a boxed chip.
 - **Before merging any worktree branch**, run `git merge-tree --write-tree main <branch>` first —
   main's board was renumbered and split on 08-09, so a branch carrying its own `board.json` edits
   should take main's board wholesale and re-apply its card edits with `tools/board.py note|move`.
