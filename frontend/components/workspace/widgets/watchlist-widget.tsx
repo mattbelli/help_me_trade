@@ -95,17 +95,27 @@ function earningsBadgeStyle(days: number): CSSProperties {
 function WatchlistAddRow({
   symbols,
   activeListId,
+  densityClass,
+  symbolWidth,
+  widths,
   onAdded,
   onClose,
   onPublish,
 }: {
   symbols: string[];
   activeListId: string;
+  densityClass: string;
+  symbolWidth: number;
+  widths: number[];
   onAdded: (state: WatchlistsState) => void;
   onClose: () => void;
   onPublish: (symbol: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  // Where the block cursor paints, in characters. Tracked off the input's real
+  // selectionStart (not query.length) so ← → / a click move the block with the
+  // insertion point instead of parking it at the end.
+  const [caretCh, setCaretCh] = useState(0);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -196,110 +206,163 @@ function WatchlistAddRow({
   return (
     <div
       ref={wrapRef}
-      className="relative z-30 m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
+      // One more row of the table, not an island floating over it: the same
+      // grid tracks as the rows (so the column lines run through it), the rows'
+      // divider, the rows' density pitch, the widget's own surface — no inset
+      // box, no rounding, no accent glow.
+      // z-30 is load-bearing, measured: `position: sticky` ALWAYS opens a
+      // stacking context, so the suggestions menu — a child of the sticky Sym
+      // cell, which is what pins it on horizontal scroll — is trapped at that
+      // cell's level. Without a z here the rows' own sticky cells (z-[1], later
+      // in DOM) paint over the menu; document.elementFromPoint inside the open
+      // menu returned a ROW's ticker cell. Cost of the 30: while the add row is
+      // open, vertical scroll slides its band OVER the sticky column header
+      // (z-[2]) instead of under it — pre-existing, see SUMMARY.
+      className="relative z-30 grid border-b border-[var(--line-divider)] px-1"
+      style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
     >
-      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--c-accent)]">
-        +
-      </span>
-      <input
-        ref={inputRef}
-        type="text"
-        value={query}
-        autoFocus
-        disabled={submitting}
-        placeholder="Add symbol"
-        className="min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-title)] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
-        onChange={(e) => {
-          const next = e.target.value.toUpperCase();
-          setQuery(next);
-          setActiveIndex(-1);
-          setError(null);
-          if (!next.trim()) {
-            setSuggestions([]);
-            setOpen(false);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            if (suggestions.length === 0) return;
-            setOpen(true);
-            setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
-            return;
-          }
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveIndex((i) => Math.max(i - 1, -1));
-            return;
-          }
-          if (e.key === "Enter") {
-            e.preventDefault();
-            const picked =
-              activeIndex >= 0 ? suggestions[activeIndex] : query || suggestions[0] || "";
-            void addSymbol(picked);
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            onClose();
-          }
-        }}
-        onFocus={() => {
-          if (suggestions.length > 0) setOpen(true);
-        }}
-      />
-      {loading ? (
-        <span className="shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-          …
-        </span>
-      ) : null}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close add symbol"
-        className="shrink-0 rounded px-0.5 font-mono text-[length:var(--fs-title)] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+      {/* The prompt sits IN the Sym column, where the ticker it is about to add
+          will land, and sticky-left like the rows' frozen pane — so at any
+          widget width and any horizontal scroll it stays on screen (the add row
+          spans the full scrollable column span, so an unpinned input scrolled
+          clean out of view). */}
+      <div
+        className={cn(
+          "sticky left-0 z-[1] flex min-w-0 items-center gap-1 border-r border-[var(--line-divider)] bg-[var(--panel)] pr-1",
+          densityClass,
+        )}
       >
-        ×
-      </button>
-      {open && suggestions.length > 0 ? (
-        <ul
-          className="absolute right-0 left-0 top-full z-50 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border-strong)] py-0.5 shadow-2xl ring-1 ring-black/50 scroll-shadow-y"
-          style={{
-            backgroundColor: "color-mix(in srgb, var(--panel) 86%, #ffffff)",
-          }}
-        >
-          {suggestions.map((sym, i) => {
-            const already = onList.has(sym.toUpperCase());
-            return (
-              <li key={sym}>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--c-accent-soft)]",
-                    i === activeIndex && "bg-[var(--c-accent-soft)]",
-                  )}
-                  onMouseEnter={() => setActiveIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void addSymbol(sym);
-                  }}
-                >
-                  <span>{sym}</span>
-                  {already ? (
-                    <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-                      on list
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      {error ? (
-        <div className="absolute right-0 left-0 top-full z-50 mt-0.5 rounded border border-[var(--c-red)] bg-[var(--panel)] px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
-          {error}
+        {/* Terminal prompt, not a form field: the native caret is hidden and a
+            blinking block paints at the insertion point — with the mono face
+            every glyph is exactly 1ch wide, so the caret index IS its x. That
+            block is the whole "type here" affordance (no placeholder, no `+`).
+            research-cursor-pulse + steps(1,end) = a hard on/off blink, not a
+            fade. */}
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            autoFocus
+            disabled={submitting}
+            aria-label="Add symbol"
+            // No size class: `font: inherit` (preflight) hands the input the
+            // widget's density font + line-height, so it matches the rows at
+            // any density. p-0 kills the UA input padding that would shift the
+            // text off the caret's 1ch grid.
+            className="w-full min-w-0 bg-transparent p-0 font-mono uppercase text-foreground caret-transparent outline-none"
+            onSelect={(e) => setCaretCh(e.currentTarget.selectionStart ?? 0)}
+            onChange={(e) => {
+              const next = e.target.value.toUpperCase();
+              setQuery(next);
+              setCaretCh(e.target.selectionStart ?? next.length);
+              setActiveIndex(-1);
+              setError(null);
+              if (!next.trim()) {
+                setSuggestions([]);
+                setOpen(false);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (suggestions.length === 0) return;
+                setOpen(true);
+                setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveIndex((i) => Math.max(i - 1, -1));
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const picked =
+                  activeIndex >= 0
+                    ? suggestions[activeIndex]
+                    : query || suggestions[0] || "";
+                void addSymbol(picked);
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              }
+            }}
+            onFocus={() => {
+              if (suggestions.length > 0) setOpen(true);
+            }}
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 w-[1ch] animate-[research-cursor-pulse_1.06s_steps(1,end)_infinite] bg-[var(--c-accent)] motion-reduce:animate-none"
+            style={{ left: `${caretCh}ch` }}
+          />
         </div>
-      ) : null}
+        {loading ? (
+          <span className="shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+            …
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close add symbol"
+          className="shrink-0 rounded px-0.5 font-mono leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          ×
+        </button>
+        {open && suggestions.length > 0 ? (
+          <ul
+            // Anchored to the sticky prompt cell, so the menu rides the same
+            // pin. A recessed theme surface, never a white color-mix (this was
+            // the one surface in the app mixing toward #ffffff): --bg-elevated
+            // resolves to the widget's OWN fill on every theme, which left the
+            // menu edgeless — --bg-inset is a real plane apart on all five.
+            // -left-1 / +0.5rem: the cell sits inside the row's px-1 and carries
+            // pr-1, so this is what makes the menu span the Sym column exactly,
+            // edge to frozen-pane line.
+            className="absolute top-full -left-1 z-50 max-h-32 w-max min-w-[calc(100%+0.5rem)] overflow-auto border border-[var(--border-strong)] bg-[var(--bg-inset)] py-0.5 shadow-2xl"
+          >
+            {suggestions.map((sym, i) => {
+              const already = onList.has(sym.toUpperCase());
+              return (
+                <li key={sym}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--c-accent-soft)]",
+                      i === activeIndex && "bg-[var(--c-accent-soft)]",
+                    )}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      void addSymbol(sym);
+                    }}
+                  >
+                    <span>{sym}</span>
+                    {already ? (
+                      <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                        on list
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {error ? (
+          <div className="absolute top-full -left-1 z-50 w-max min-w-full border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
+            {error}
+          </div>
+        ) : null}
+      </div>
+      {/* Empty cells so the column boundary lines run through the add row the
+          same way they run through every data row. */}
+      {widths.map((_, i) => (
+        <div key={i} className={cn(densityClass, i > 0 && COL_LINE_CLASS)} />
+      ))}
     </div>
   );
 }
@@ -347,8 +410,6 @@ function WatchlistSymbolRow({
   onDragStart,
   onReorderEnd,
   onDragOutRelease,
-  onConfirmAccept,
-  onConfirmCancel,
   getWidgetRect,
 }: {
   symbol: string;
@@ -372,8 +433,6 @@ function WatchlistSymbolRow({
   onDragStart: () => void;
   onReorderEnd: () => void;
   onDragOutRelease: () => void;
-  onConfirmAccept: () => void;
-  onConfirmCancel: () => void;
   getWidgetRect: () => DOMRect | null;
 }) {
   const controls = useDragControls();
@@ -517,6 +576,9 @@ function WatchlistSymbolRow({
       // !important beats framer's inline style; rows still composite while
       // actually animating.
       className="border-b border-[var(--line-divider)] [will-change:auto]!"
+      // The widget-level delete confirm finds its armed row by this attribute
+      // to read the row's offsetTop (see confirmTop in WatchlistWidget).
+      data-symbol={symbol}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={clearHold}
@@ -540,7 +602,7 @@ function WatchlistSymbolRow({
           // boundary lines run edge-to-edge vertically.
           // px-1 (not 2): the hover/selected fill exposes this padding as
           // colored space left of the tickers — keep it to a 4px breath.
-          "group/row group relative grid px-1",
+          "group/row group grid px-1",
           // Frozen-for-the-night rows read dim (quote is stale until pre).
           overnightDead && "opacity-60",
           // Selection WINS over hover — hover:bg on a selected row painted the
@@ -561,44 +623,6 @@ function WatchlistSymbolRow({
           minWidth: contentMinWidth,
         }}
       >
-        {confirming ? (
-          <div
-            role="group"
-            aria-label={`Delete ${symbol}?`}
-            // Opaque, legible confirm pill. bg uses --bg-inset, a solid hex on
-            // EVERY theme (ember #0e1013 / carbon #0e1013 / warm #161617 /
-            // oled #000000 / light #eceef1) — never a color-mix-with-transparent
-            // — so it fully covers the red-tinted row underneath. Absolute so it
-            // isn't crushed into a fixed grid cell.
-            className="absolute inset-y-1 right-1.5 z-10 flex items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
-          >
-            <span className="whitespace-nowrap text-[var(--c-red)]">
-              delete {symbol}?
-            </span>
-            <button
-              type="button"
-              aria-label={`Confirm delete ${symbol}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirmAccept();
-              }}
-              className="flex size-4 items-center justify-center rounded leading-none text-[var(--c-red)] ring-1 ring-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]"
-            >
-              ✓
-            </button>
-            <button
-              type="button"
-              aria-label={`Cancel delete ${symbol}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirmCancel();
-              }}
-              className="flex size-4 items-center justify-center rounded leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
-            >
-              ✕
-            </button>
-          </div>
-        ) : null}
         {/* Pinned symbol cell — sticky-left with an opaque background so the
             ticker stays legible while the extra columns scroll under it. At rest
             no Reorder.Item transform is applied, so sticky resolves against the
@@ -612,9 +636,15 @@ function WatchlistSymbolRow({
             // --surface-selected is a solid per-theme hex (editor knob), so
             // the sticky cell can repaint it opaquely — scrolled columns
             // can't ghost through and the tint can't stack on the row's own.
-            selected
-              ? "bg-[var(--surface-selected)]"
-              : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
+            // Same for the armed-delete wash: the row's version mixes red into
+            // transparent, which this opaque cell would paint over (the danger
+            // tint stopped dead at the frozen pane), so mix the same 22% red
+            // into --panel instead. One state, one fill.
+            confirming
+              ? "bg-[color-mix(in_srgb,var(--c-red)_22%,var(--panel))]"
+              : selected
+                ? "bg-[var(--surface-selected)]"
+                : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
           )}
         >
           <ClickableSymbol
@@ -1321,6 +1351,45 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     setConfirmDelete(null);
   }, []);
 
+  // Vertical center of the armed row, in widget-body coordinates — where the
+  // delete confirm paints. The confirm used to live INSIDE the row, absolutely
+  // positioned against a box that is `contentMinWidth` wide (the full
+  // horizontally scrollable span), so it anchored to the right edge of the
+  // CONTENT, not of the visible scrollport: off-screen at any real widget
+  // width (founder: "I can't delete anymore"). At widget level it is pinned to
+  // the visible right edge and only its height has to follow the row.
+  //
+  // offsetTop is a LAYOUT offset from the widget body (the row's offsetParent)
+  // and ignores framer's snap-back / whileDrag transforms, so the confirm
+  // lands on the row's resting slot immediately instead of chasing the
+  // animation the release kicks off.
+  const [confirmTop, setConfirmTop] = useState<number | null>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!confirmDelete || !list) {
+      setConfirmTop(null);
+      return;
+    }
+    const measure = () => {
+      const row = list.querySelector<HTMLElement>(
+        `li[data-symbol="${confirmDelete}"]`,
+      );
+      if (!row) return setConfirmTop(null);
+      const center = Math.round(
+        row.offsetTop + row.offsetHeight / 2 - list.scrollTop,
+      );
+      // Scrolled out of the list's own band => no confirm painted, rather than
+      // one floating over the column header. Enter/Esc still act.
+      const inView =
+        center >= list.offsetTop && center <= list.offsetTop + list.clientHeight;
+      setConfirmTop(inView ? center : null);
+    };
+    measure();
+    list.addEventListener("scroll", measure);
+    return () => list.removeEventListener("scroll", measure);
+  }, [confirmDelete]);
+
   // Release outside the widget: arm the confirm instead of deleting. Drop the
   // in-progress drag order so the list renders the persisted order under the
   // armed row, then focus the list so Enter/Esc act without a click.
@@ -1471,8 +1540,11 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
 
   const handleListBlur = useCallback(
     (e: ReactFocusEvent<HTMLDivElement>) => {
-      // Focus truly left the list => drop any armed delete confirm.
-      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      // Focus truly left the WIDGET => drop any armed delete confirm. Checked
+      // against the widget, not the list: the confirm's own ✓/✕ live outside
+      // the scroller (widget-level overlay), so a list-only check tore the
+      // confirm down on the focus shift before the click could land.
+      if (!widgetRef.current?.contains(e.relatedTarget as Node | null)) {
         setConfirmDelete(null);
       }
     },
@@ -1679,6 +1751,9 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             <WatchlistAddRow
               symbols={symbols}
               activeListId={displayList.id}
+              densityClass={densityClass}
+              symbolWidth={symbolWidth}
+              widths={widths}
               onAdded={handleSymbolAdded}
               onClose={() => onConfigChange({ adding: false })}
               onPublish={publish}
@@ -1725,14 +1800,47 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 onDragStart={handleDragStart}
                 onReorderEnd={handleReorderEnd}
                 onDragOutRelease={() => armDeleteFromDrag(symbol)}
-                onConfirmAccept={acceptConfirmDelete}
-                onConfirmCancel={cancelConfirmDelete}
                 getWidgetRect={getWidgetRect}
               />
             ))}
           </Reorder.Group>
         </div>
       </div>
+
+      {/* Armed delete confirm — a widget-body overlay, NOT a row child, so it
+          is pinned to the visible right edge whatever the columns' total width
+          or the horizontal scroll position. Opaque bg: --bg-inset is a solid
+          hex on EVERY theme (ember/carbon #0e1013, warm #161617, oled #000000,
+          light #eceef1) — never a color-mix-with-transparent — so it fully
+          covers the red-tinted row underneath. */}
+      {confirmDelete && confirmTop != null ? (
+        <div
+          role="group"
+          aria-label={`Delete ${confirmDelete}?`}
+          className="absolute right-1.5 z-10 flex -translate-y-1/2 items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
+          style={{ top: confirmTop }}
+        >
+          <span className="whitespace-nowrap text-[var(--c-red)]">
+            delete {confirmDelete}?
+          </span>
+          <button
+            type="button"
+            aria-label={`Confirm delete ${confirmDelete}`}
+            onClick={acceptConfirmDelete}
+            className="flex size-4 items-center justify-center rounded leading-none text-[var(--c-red)] ring-1 ring-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]"
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            aria-label={`Cancel delete ${confirmDelete}`}
+            onClick={cancelConfirmDelete}
+            className="flex size-4 items-center justify-center rounded leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
