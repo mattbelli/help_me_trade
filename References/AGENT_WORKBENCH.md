@@ -19,12 +19,18 @@ interrupt, and correct it. This doc is the mechanics; `CLAUDE.md` rule 1 is the 
 
 ## 1. The bench (who codes what)
 
-| coder | id | use for |
+| coder | launch | use for |
 |---|---|---|
-| **Grok 4.5 High** | CLI `cursor-grok-4.5-high` · SDK `grok-4.5` | default for real coding work |
-| **Opus 5** | CLI `claude-opus-5-thinking-high` · SDK `claude-opus-5` | load-bearing / subtle work, safety-adjacent |
-| **Sonnet** | CLI `claude-sonnet-5` · SDK `claude-sonnet-5` | small mechanical tasks, sweeps, boilerplate |
+| **Grok 4.5 High** | cursor-agent: `--kind cursor -- --model cursor-grok-4.5-high` | default for real coding work |
+| **Opus 5** | Claude Code: `--kind claude -- --model opus` | load-bearing / subtle work, safety-adjacent |
+| **Sonnet** | Claude Code: `--kind claude -- --model sonnet` | small mechanical tasks, sweeps, boilerplate |
 | *GPT-5.6 via codex CLI* | — | **not available** — no Codex sub yet. Do not route here |
+
+⚠️ **Claude-family coders run via the Claude Code CLI on the founder's Claude subscription — NEVER
+through cursor-agent** (founder correction 2026-08-10: a widget dispatch used cursor's
+`claude-opus-5-thinking-high` and billed Cursor credits; cursor *offers* Claude ids, don't take them).
+cursor-agent is for non-Claude models only. (Agent sessions on the subscription are fine — the
+CLAUDE.md ToS rule forbids subscription/OAuth for the APP's runtime LLM, not for coding agents.)
 
 **Composer 2.5 is retired as a coder.** The bridge still accepts it; we don't use it. Writing slop 10x
 faster loses to well-thought-out slow development every time.

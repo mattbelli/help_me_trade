@@ -30,6 +30,9 @@ merge-hazard noted here earlier is gone. Open:
   direction!='undetermined' and ts>='2026-08-10' group by 1,2`.
 - **Founder in-browser check owed:** board cards select/copy with the mouse, show `#num`, still
   toggle on click and Enter/Space; and a flow event's *side basis* cell + why-line read correctly.
+  **Extended 08-10 (card #277):** the flow widget's side column now speaks words — buy/sell
+  saturated, mid buy/mid sell muted, new dim `right` column, flag column gone; check narrow-width
+  layout too (column widths were rebalanced, min-width 632→608).
 - **Before merging any worktree branch**, run `git merge-tree --write-tree main <branch>` first —
   main's board was renumbered and split on 08-09, so a branch carrying its own `board.json` edits
   should take main's board wholesale and re-apply its card edits with `tools/board.py note|move`.

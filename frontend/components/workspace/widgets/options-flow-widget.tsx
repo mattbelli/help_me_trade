@@ -32,9 +32,9 @@ const EOD_TS_SUFFIX = "T21:00:00Z";
 
 // The whole table lives in a horizontal scroller so a narrow widget keeps the
 // columns aligned instead of reflowing. These px widths mirror the mockup.
-// score | time | ticker | side | type | strike | exp | dte | size | prem | flag
-const GRID_COLS = "44px 46px 58px 66px 78px 56px 48px 30px 54px 66px 58px";
-const GRID_MIN = "min-w-[632px]";
+// score | time | ticker | side | right | type | strike | exp | dte | size | prem
+const GRID_COLS = "44px 46px 58px 64px 36px 78px 56px 48px 30px 54px 66px";
+const GRID_MIN = "min-w-[608px]";
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -84,12 +84,12 @@ function formatTimeEt(ts: string): string {
   }
 }
 
-function rightLetter(right: string | null): "C" | "P" | null {
-  if (!right) return null;
+function rightWord(right: string | null): string {
+  if (!right) return "—";
   const r = right.trim().toLowerCase();
-  if (r.startsWith("c")) return "C";
-  if (r.startsWith("p")) return "P";
-  return null;
+  if (r.startsWith("c")) return "call";
+  if (r.startsWith("p")) return "put";
+  return "—";
 }
 
 function flowKind(ev: OptionsFlowEvent): FlowKind {
@@ -115,21 +115,6 @@ function typeLabel(kind: FlowKind): string {
   }
 }
 
-/** SIDE cell — color follows the aggressor side, the ONLY saturated hue. */
-function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: string } {
-  const letter = rightLetter(ev.right);
-  const word = letter === "C" ? "call" : letter === "P" ? "put" : "";
-  if (ev.direction === "buy_side")
-    return { label: `▲ ${word}`.trim(), cls: "text-[var(--c-green)]", tint: "var(--c-green)" };
-  if (ev.direction === "sell_side")
-    return { label: `▼ ${word}`.trim(), cls: "text-[var(--c-red)]", tint: "var(--c-red)" };
-  return {
-    label: word ? `◇ ${word}` : "◇ mixed",
-    cls: "text-[var(--fg-faint)]",
-    tint: "var(--c-accent)",
-  };
-}
-
 /**
  * At-print NBBO lanes: the book was known at the moment of the trade, so the side
  * is a confirmed aggressor read. `dbn_nbbo` is the tcbbo book that travels ON the
@@ -141,27 +126,54 @@ function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: str
 const AT_PRINT_BASES = new Set(["dbn_nbbo", "stream_quote"]);
 
 /**
- * Honesty flag from ``direction_basis`` — always visible, never a tooltip.
- * live quote at ask/bid → "—"; ≤30s polled quote → "polled" (may shift);
- * mid-spread / no quote → undetermined. When undetermined but the corpus
- * midpoint rule reads a side (mid_side), show it MUTED ("mid buy"/"mid sell")
- * — an annotation (~85% vs stock-leg ground truth on checkable prints),
- * never dressed as the confirmed-aggressor read the saturated side cell means.
+ * SIDE cell — buy/sell in plain words, the ONLY saturated hue in the row.
+ * Confirmed aggressor (DIR-1) reads full-strength; when no aggressor is
+ * confirmed but the corpus midpoint rule leans, it renders MUTED ("mid buy"/
+ * "mid sell") — an annotation (~85% vs stock-leg ground truth on checkable
+ * prints), never dressed as the confirmed read. Provenance lives in the tooltip
+ * and the drawer, not a row-level column.
  */
-function honestyFlag(ev: OptionsFlowEvent): { label: string; cls: string } {
-  if (ev.direction === "undetermined") {
-    if (ev.mid_side === "buy")
-      return { label: "mid buy", cls: "text-[var(--c-green)] opacity-60" };
-    if (ev.mid_side === "sell")
-      return { label: "mid sell", cls: "text-[var(--c-red)] opacity-60" };
-    if (ev.mid_side === "wide_spread")
-      return { label: "wide", cls: "text-[var(--fg-faint)]" };
-    return { label: "no side", cls: "text-[var(--fg-faint)]" };
+function sideCell(ev: OptionsFlowEvent): {
+  label: string;
+  cls: string;
+  tint: string;
+  title: string;
+} {
+  if (ev.direction !== "undetermined") {
+    const buy = ev.direction === "buy_side";
+    return {
+      label: buy ? "buy" : "sell",
+      cls: buy ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+      tint: buy ? "var(--c-green)" : "var(--c-red)",
+      title: AT_PRINT_BASES.has(ev.direction_basis || "")
+        ? "side confirmed on the quote at print time"
+        : "side off a polled quote (≤30s, may shift)",
+    };
   }
-  const b = (ev.direction_basis || "").toLowerCase();
-  if (b.startsWith("polled"))
-    return { label: "polled", cls: "text-[var(--c-yellow)]" };
-  return { label: "—", cls: "text-[var(--fg-faint)]" };
+  if (ev.mid_side === "buy" || ev.mid_side === "sell") {
+    const buy = ev.mid_side === "buy";
+    return {
+      label: buy ? "mid buy" : "mid sell",
+      cls: buy
+        ? "text-[var(--c-green)] opacity-60"
+        : "text-[var(--c-red)] opacity-60",
+      tint: buy ? "var(--c-green)" : "var(--c-red)",
+      title: `no aggressor confirmed — ${buy ? "above" : "below"} midpoint (corpus rule, ~85% vs stock-leg ground truth on checkable prints)`,
+    };
+  }
+  if (ev.mid_side === "wide_spread")
+    return {
+      label: "wide",
+      cls: "text-[var(--fg-faint)]",
+      tint: "var(--c-accent)",
+      title: "quote too wide for a midpoint read",
+    };
+  return {
+    label: "—",
+    cls: "text-[var(--fg-faint)]",
+    tint: "var(--c-accent)",
+    title: "mid-spread — no side claimed",
+  };
 }
 
 type ScoreComp = { label: string; pts: number };
@@ -370,18 +382,17 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
               <span className={cn(headCls, sortableCls, sort.key === "time" && "text-[var(--c-accent)]")} onClick={() => handleSort("time")}>time{arrow("time")}</span>
               <span className={headCls}>ticker</span>
               <span className={headCls}>side</span>
+              <span className={headCls}>right</span>
               <span className={headCls}>type</span>
               <span className={headCls}>strike</span>
               <span className={headCls}>exp</span>
               <span className={cn(headCls, "text-right")}>dte</span>
               <span className={cn(headCls, "text-right", sortableCls, sort.key === "size" && "text-[var(--c-accent)]")} onClick={() => handleSort("size")}>size{arrow("size")}</span>
               <span className={cn(headCls, "text-right", sortableCls, sort.key === "premium" && "text-[var(--c-accent)]")} onClick={() => handleSort("premium")}>prem{arrow("premium")}</span>
-              <span className={headCls}>flag</span>
             </div>
 
             {rows.map(({ ev, score, comps }) => {
               const side = sideCell(ev);
-              const flag = honestyFlag(ev);
               const kind = flowKind(ev);
               const expanded = expandedIds.has(ev.id);
               const hasDetail = ev.detail != null && Object.keys(ev.detail).length > 0;
@@ -463,7 +474,10 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                         <Info className="size-3" />
                       </span>
                     </span>
-                    <span className={cn("truncate lowercase", side.cls)}>{side.label}</span>
+                    <span className={cn("truncate lowercase", side.cls)} title={side.title}>
+                      {side.label}
+                    </span>
+                    <span className="truncate lowercase text-[var(--fg-dim)]">{rightWord(ev.right)}</span>
                     <span className="truncate lowercase text-[var(--fg-dim)]">{typeLabel(kind)}</span>
                     <span className="tabular-nums text-[var(--fg-dim)]">
                       {formatStrike(ev.strike)}
@@ -479,9 +493,6 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                     </span>
                     <span className="text-right tabular-nums font-medium text-[var(--fg)]">
                       {formatPremium(ev.premium_usd)}
-                    </span>
-                    <span className={cn("truncate lowercase text-[length:var(--fs-micro)]", flag.cls)}>
-                      {flag.label}
                     </span>
                   </div>
 

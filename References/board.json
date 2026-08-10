@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-09",
+ "updated_at": "2026-08-10",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 277,
+   "id": "flow-widget-side-redesign",
+   "title": "Options-flow widget: side column speaks buy/sell (UW-readability round)",
+   "lane": "done",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "claude",
+   "updated_at": "2026-08-10",
+   "notes": "08-10: UW comparison verdict — their readability, our honesty. sideCell → words (buy/sell saturated, mid buy/sell muted, wide/— faint) + provenance tooltip; right column added; flag column deleted; provenance stays in drawer. 36/36 print-match vs UW delayed feed proved the data was never the problem. Pending founder in-browser check."
+  },
   {
    "num": 276,
    "id": "board-merge-conflict-round",
