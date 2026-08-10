@@ -39,11 +39,21 @@ merge-hazard noted here earlier is gone. Open:
   evidence-stack/idea-outcomes (was ticker-only), and orders' Side dead-space now truncates
   instead of forcing width. Quick tour: `/dev/gallery` renders every widget on fake data;
   `node tools/ui-shot.mjs <widget-id>` screenshots one (dev server on 3055 first).
+  **Extended 08-10 eve (card #281, deployed):** orders/positions grew a real Account column
+  (plain dim word, chip gone, rows single-line again), order status reads lowercase words
+  (`working`/`partial fill` — partial fill now amber, was wrongly green), ALL sortable table
+  headers app-wide went back to UPPERCASE (positions/desk/etc. were silently Title-case), and a
+  failed orders snapshot now shows an error + retry instead of "Waiting for orders…".
 
 ## ▶ Agent-UI prep follow-ups (from the 08-10 round's day-one catches — not yet carded)
-- **Validation case, next dispatch:** orders/positions book label gets a real column (kills the
-  headerless chip + doubled rows), status column through `labels.ts` (`new`→`working`) — run it
-  under the new system (rule card + ui-shot + ui-review) as the process proof.
+- ~~Validation case~~ **SHIPPED 08-10 (card #281)** — the process proof worked: coder followed the
+  rule card, screenshot loop caught a wrap regression before review, ui-review found a real
+  pre-existing Blocker. New follow-ups it surfaced: (a) orders `Type`/`Mode` columns still render
+  raw enums (`labels.ts` `order_type` kind sits ready); (b) **product call:** in single-account
+  scopes `accountLabel` is empty so the Account column is all `—` — hide it there, or keep the
+  stable layout? (c) reports-widget wraps its `label()` in a bordered uppercase box — the banned
+  pill again, candidate next fix; (d) Filled/Rejected order tabs can't carry Account until the
+  backend adds an account field to `TradeEvent`/`OrderExecution`.
 - **Invisible loading skeleton (REAL bug, every theme):** skeleton cell bg == panel hex
   (`--bg-raised`→`--surface-toolbar` == `--surface-widget`); only the reduced-motion-hidden
   shimmer ever made it visible. One-token fix; founder pick of shade.

@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 281,
+   "id": "account-column-validation",
+   "title": "orders/positions: real Account column + status vocabulary (first dispatch under the new agent-UI system)",
+   "lane": "done",
+   "type": "ui",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Validation case for the agent-UI prep round (#278-280): accountLabel chip stuffed in the Symbol cell becomes a real DataTable column (Tag primitive, no pill), status routes through lib/labels.ts (new->working). Proves rule card + ui-shot + ui-review change agent output. Branch: account-column (wt-a).\n2026-08-10: DONE 08-10: shipped in one dispatch under the new system — proof it works. Account column (Tag dim) in positions paper+real + orders Open tab; status via labels.ts lowercase (working/partial fill); fixtures grew a paper-swing order; ui-review caught a real pre-existing Blocker (snapshot errors rendered as empty state) — fixed. Orchestrator hand-edits: statusClass partial-before-fill (partial fills showed green), DataTable sortable-header uppercase restored. FilledTab/RejectedTab CANNOT carry the column — no account field in TradeEvent/OrderExecution (backend first). Merged e8d22855, deployed."
+  },
+  {
    "num": 280,
    "id": "agent-ui-primitives",
    "title": "Agent-UI primitives: DataTable + Tag, migrate the 7 hand-rolled table widgets",

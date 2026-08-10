@@ -76,6 +76,13 @@ permanently checked out in the live dev tree and no two worktrees may hold the s
 locally to start work from it. Same reason `git branch -d` refuses a branch that a worktree still
 holds: switch off it first.
 
+⚠️ **Worktree dev servers: `frontend/node_modules` is a symlink into the main dev tree, and Next 16's
+Turbopack refuses to follow it** (*"Symlink node_modules is invalid, it points out of the filesystem
+root"*). For gallery screenshots (`tools/ui-shot.mjs` needs a server on 3055) start it with
+`npx next dev --webpack -p 3055` from the worktree's `frontend/` — and note `npm run dev -- -p 3055`
+doesn't override the port anyway (the script hardcodes `-p 3001`; the flag just appends). Discovered
+by the account-column coder, 2026-08-10.
+
 ### Naming: the DIRECTORY is the tree's identity, the BRANCH is the work's identity
 
 ```
