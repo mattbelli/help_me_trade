@@ -33,6 +33,28 @@ merge-hazard noted here earlier is gone. Open:
   **Extended 08-10 (card #277):** the flow widget's side column now speaks words — buy/sell
   saturated, mid buy/mid sell muted, new dim `right` column, flag column gone; check narrow-width
   layout too (column widths were rebalanced, min-width 632→608).
+  **Extended 08-10 pm (cards #278-280, agent-UI prep round — see BUILD_LOG):** 7 table widgets
+  migrated to the new `DataTable` primitive (deployed). Deltas to eyeball: tables should look
+  byte-identical except the ⓘ ticker button now reveals on whole-row hover in filings/desk/
+  evidence-stack/idea-outcomes (was ticker-only), and orders' Side dead-space now truncates
+  instead of forcing width. Quick tour: `/dev/gallery` renders every widget on fake data;
+  `node tools/ui-shot.mjs <widget-id>` screenshots one (dev server on 3055 first).
+
+## ▶ Agent-UI prep follow-ups (from the 08-10 round's day-one catches — not yet carded)
+- **Validation case, next dispatch:** orders/positions book label gets a real column (kills the
+  headerless chip + doubled rows), status column through `labels.ts` (`new`→`working`) — run it
+  under the new system (rule card + ui-shot + ui-review) as the process proof.
+- **Invisible loading skeleton (REAL bug, every theme):** skeleton cell bg == panel hex
+  (`--bg-raised`→`--surface-toolbar` == `--surface-widget`); only the reduced-motion-hidden
+  shimmer ever made it visible. One-token fix; founder pick of shade.
+- Gallery-caught layout defects awaiting their turn: idea-outcomes rows wrap/double at default
+  width; options-chain sticky header scrolls away on ATM auto-scroll; index-pressure footer
+  collides with its tabs at default width; performance-stats period selector dead space.
+- **80 pre-existing `react-hooks/*` eslint errors** block eslint ever gating; tailwind
+  `no-unknown-classes` at warn needs an allowlist of our ~155 hand-written classes before it
+  could go to error. index-pressure still carries 16 off-ladder px sizes (2 below the 10px
+  floor) + knob-family token dialect — sweep candidate.
+- `check:tokens` is green but inert until wired into pre-push/CI.
 - **Before merging any worktree branch**, run `git merge-tree --write-tree main <branch>` first —
   main's board was renumbered and split on 08-09, so a branch carrying its own `board.json` edits
   should take main's board wholesale and re-apply its card edits with `tools/board.py note|move`.
