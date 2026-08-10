@@ -44,11 +44,13 @@ merge-hazard noted here earlier is gone. Open:
   (`working`/`partial fill` — partial fill now amber, was wrongly green), ALL sortable table
   headers app-wide went back to UPPERCASE (positions/desk/etc. were silently Title-case), and a
   failed orders snapshot now shows an error + retry instead of "Waiting for orders…".
-  **Extended 08-10 late (cards #282 + picker fix, deployed):** watchlist — drag a row out and the
-  `delete SYM? ✓ ✕` confirm now actually appears (pinned to the widget's right edge on the armed
-  row); comfortable rows are 29px (was 33); the add row is a real table row with a blinking block
-  cursor (founder steered this live in the coder's pane). Widget picker: Space→type→arrows→Enter
-  launches a widget (keyboard selection existed nowhere before).
+  **Extended 08-10 late (cards #282/#283 + picker fix, deployed):** watchlist — drag a row out
+  and release: it's DELETED, immediately, no confirm (founder overruled #282's pill the same
+  evening; red ring while dragging is the only warning, and there is no undo — his explicit
+  call). Right-click a row → context menu: `delete SYM`, plus `pin/unpin` on slot-capped lists
+  only. Delete/Backspace on the keyboard-selected row also deletes. Comfortable rows are 29px
+  (was 33); the add row is a real table row with a blinking block cursor (founder steered it
+  live in the coder's pane). Widget picker: Space→type→arrows→Enter launches a widget.
 
 ## ▶ Agent-UI prep follow-ups (from the 08-10 round's day-one catches — not yet carded)
 - ~~Validation case~~ **SHIPPED 08-10 (card #281)** — the process proof worked: coder followed the
@@ -70,6 +72,11 @@ merge-hazard noted here earlier is gone. Open:
   could go to error. index-pressure still carries 16 off-ladder px sizes (2 below the 10px
   floor) + knob-family token dialect — sweep candidate.
 - `check:tokens` is green but inert until wired into pre-push/CI.
+- **Watchlist #283 leftovers:** a FAILED delete is completely silent — `removeSymbol` sets
+  `error` but it only renders when `!displayList`, i.e. never in practice (pre-existing; now
+  more exposed with three delete paths and no confirm). Two right-click menu skins exist:
+  `page-switcher.tsx` (`--panel`/rounded/Title Case) vs the watchlist's
+  (`--bg-inset`/square/lowercase) — one should win codebase-wide.
 - **Watchlist round leftovers (08-10, card #282):** gallery has NO fixture for
   `PUT /api/watchlists/{id}` — unmatched writes answer `{}` and kill the widget, so no gallery/
   ui-shot check can exercise ANY watchlist write (add/remove/reorder/density); worth a fixture.

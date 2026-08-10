@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 283,
+   "id": "watchlist-direct-delete",
+   "title": "watchlist: drop the delete confirm — direct drag-off delete + right-click context menu",
+   "lane": "done",
+   "type": "ui",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Founder overrules the round-2 confirm-pill design (made visible in #282): drag-out release deletes IMMEDIATELY (red drag-out visuals stay as the signal); confirm overlay/state machinery removed. New: right-click on a row opens a custom context menu (delete + pin/unpin) rendered as a fixed overlay at pointer coords — same lesson as #282: never anchor overlays inside the sticky/scroll subtree. Branch watchlist-direct-delete (wt-a).\n2026-08-10: DONE 08-10 late: drag-out release deletes immediately (confirm machinery fully removed; willDelete red wash carried onto the sticky sym cell); Delete/Backspace on selected row also deletes directly. Right-click menu: portaled to body, fixed at pointer, viewport-clamped, focus lands on the container NOT the delete item (ui-review [High] — no reflex-Enter delete); pin/unpin gated on max_slots like the row button (orchestrator edit — was a silent PUT on uncapped lists). Harness now 43 assertions (orchestrator re-ran green incl. both sides of the pin gate). FOLLOW-UPS: failed delete is fully silent (removeSymbol error renders only when !displayList — pre-existing); two context-menu skins in the codebase (page-switcher vs this) — one should win."
+  },
+  {
    "num": 282,
    "id": "watchlist-delete-density-addrow",
    "title": "watchlist: delete-confirm rendered off-screen + density retune + add-row restyle",
