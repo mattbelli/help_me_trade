@@ -20,10 +20,14 @@ export const DENSITY_OPTIONS: { key: WatchlistDensity; label: string }[] = [
 
 export const DEFAULT_DENSITY: WatchlistDensity = "comfortable";
 
-// Vertical padding applied to the header + every row for each density.
+// Vertical padding applied to the header + every row for each density. Row
+// pitch = 2×py + the line-height below + the 1px border-b => 23 / 29 / 42px,
+// and every one of those MUST stay a whole number (see the note below).
+// (comfortable was py-1.5 / 33px until the founder asked for "something in
+// between compact and mid" — 29px.)
 export const DENSITY_ROW_CLASS: Record<WatchlistDensity, string> = {
   compact: "py-0.5",
-  comfortable: "py-1.5",
+  comfortable: "py-1",
   spacious: "py-2.5",
 };
 
