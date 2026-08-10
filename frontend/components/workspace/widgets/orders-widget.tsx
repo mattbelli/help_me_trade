@@ -7,6 +7,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   WidgetEmpty,
@@ -14,6 +15,7 @@ import {
   WidgetLoading,
 } from "@/components/workspace/widget-states";
 import { formatMoney } from "@/lib/api";
+import { label } from "@/lib/labels";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -47,8 +49,9 @@ type PublishProps = {
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
-  if (s.includes("fill")) return "text-[var(--c-green)]";
+  // partial before fill: "partially_filled" contains both.
   if (s.includes("partial")) return "text-[var(--c-amber)]";
+  if (s.includes("fill")) return "text-[var(--c-green)]";
   if (s.includes("cancel") || s.includes("reject")) return "text-[var(--c-red)]";
   if (s.includes("new") || s.includes("accept") || s.includes("pending"))
     return "text-[var(--c-blue)]";
@@ -201,16 +204,23 @@ function FilledTab({
 function OpenTab({
   orders,
   snapshotLoading,
+  snapshotError,
   hasSnapshot,
+  onRetry,
   publish,
   linked,
 }: {
   orders: TaggedOrder[];
   snapshotLoading: boolean;
+  snapshotError: string | null;
   hasSnapshot: boolean;
+  onRetry: () => void;
 } & PublishProps) {
   if (snapshotLoading && !hasSnapshot) {
-    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
+    return <WidgetLoading cols={[2, 2, 3, 1, 1, 1, 2, 2]} />;
+  }
+  if (snapshotError && !hasSnapshot) {
+    return <WidgetError message={snapshotError} onRetry={onRetry} />;
   }
   if (!hasSnapshot) {
     return <WidgetEmpty message="Waiting for orders…" />;
@@ -225,19 +235,20 @@ function OpenTab({
       header: "Symbol",
       className: "font-medium text-[var(--c-accent)]",
       render: (o) => (
-        <span className="inline-flex items-center gap-1.5">
-          <ClickableSymbol
-            symbol={o.symbol}
-            linked={linked}
-            onActivate={() => publish(o.symbol)}
-          />
-          {o.accountLabel ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              {o.accountLabel}
-            </span>
-          ) : null}
-        </span>
+        <ClickableSymbol
+          symbol={o.symbol}
+          linked={linked}
+          onActivate={() => publish(o.symbol)}
+        />
       ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      // nowrap: `side` absorbs the leftover width, so without this the label
+      // wraps mid-word and the row goes back to two lines.
+      className: "whitespace-nowrap",
+      render: (o) => <Tag tone="dim">{o.accountLabel || "—"}</Tag>,
     },
     {
       key: "side",
@@ -274,8 +285,11 @@ function OpenTab({
       key: "status",
       header: "Status",
       className: (o) =>
-        cn("text-[length:var(--fs-body)] uppercase", statusClass(o.status)),
-      render: (o) => o.status.replace(/_/g, " "),
+        cn(
+          "whitespace-nowrap text-[length:var(--fs-body)]",
+          statusClass(o.status),
+        ),
+      render: (o) => label("order_status", o.status),
     },
     {
       key: "limit_price",
@@ -367,8 +381,8 @@ function RejectedTab({
       key: "status",
       header: "Status",
       className: (x) =>
-        cn("text-[length:var(--fs-body)] uppercase", statusClass(x.status)),
-      render: (x) => x.status.replace(/_/g, " "),
+        cn("text-[length:var(--fs-body)]", statusClass(x.status)),
+      render: (x) => label("order_status", x.status),
     },
   ];
 
@@ -382,7 +396,12 @@ function RejectedTab({
 export function OrdersWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
-  const { snapshot, loading: snapshotLoading } = useSnapshot();
+  const {
+    snapshot,
+    loading: snapshotLoading,
+    error: snapshotError,
+    refresh,
+  } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
 
   const [tab, setTab] = useState<TabId>("filled");
@@ -497,7 +516,9 @@ export function OrdersWidget({ config }: WidgetProps) {
           <OpenTab
             orders={openOrders}
             snapshotLoading={snapshotLoading}
+            snapshotError={snapshotError}
             hasSnapshot={!!snapshot}
+            onRetry={refresh}
             publish={publish}
             linked={linked}
           />

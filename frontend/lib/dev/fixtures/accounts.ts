@@ -100,6 +100,21 @@ const OPEN_ORDERS: Order[] = [
   },
 ];
 
+// The second paper account carries one order of its own so the orders widget's
+// Account column shows two different values, not one repeated down the table.
+const SWING_OPEN_ORDERS: Order[] = [
+  {
+    id: "ord_6b3c12",
+    symbol: "TSLA",
+    qty: 25,
+    side: "sell",
+    order_type: "limit",
+    status: "pending_new",
+    filled_qty: 0,
+    limit_price: 325.0,
+  },
+];
+
 function sumUnrealized(list: Position[]): number {
   return round2(list.reduce((s, p) => s + p.unrealized_pl, 0));
 }
@@ -169,8 +184,8 @@ export const SNAPSHOT: Snapshot = {
       },
       position_count: SECOND_POSITIONS.length,
       positions: SECOND_POSITIONS,
-      open_order_count: 0,
-      open_orders: [],
+      open_order_count: SWING_OPEN_ORDERS.length,
+      open_orders: SWING_OPEN_ORDERS,
       account_id: "acct_paper_swing",
       account_label: "paper-swing",
       is_default: false,

@@ -105,7 +105,9 @@ export function DataTable<Row, K extends string = string>({
                   <button
                     type="button"
                     onClick={() => onSortChange(col.key)}
-                    className={cn("w-full", alignClass)}
+                    // uppercase + alignClass re-applied: the UA button reset
+                    // defeats inheritance from TH for both.
+                    className={cn("w-full uppercase", alignClass)}
                   >
                     {col.header}
                     {sort?.key === col.key ? (

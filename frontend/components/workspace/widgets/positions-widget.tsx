@@ -7,6 +7,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   WidgetEmpty,
@@ -32,6 +33,7 @@ import {
 
 type SortKey =
   | "symbol"
+  | "account"
   | "qty"
   | "side"
   | "entered_at"
@@ -62,7 +64,8 @@ function FlashCell({
   );
 }
 
-// One alignment rule: Symbol anchors left, everything else is right-aligned.
+// One alignment rule: Symbol and Account anchor left, everything else is
+// right-aligned.
 function paperColumns(
   linked: boolean,
   publish: (symbol: string) => void,
@@ -74,19 +77,18 @@ function paperColumns(
       sortable: true,
       className: "font-medium text-foreground",
       render: (p) => (
-        <span className="inline-flex items-center gap-1.5">
-          <ClickableSymbol
-            symbol={p.symbol}
-            linked={linked}
-            onActivate={() => publish(p.symbol)}
-          />
-          {p.accountLabel ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              {p.accountLabel}
-            </span>
-          ) : null}
-        </span>
+        <ClickableSymbol
+          symbol={p.symbol}
+          linked={linked}
+          onActivate={() => publish(p.symbol)}
+        />
       ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      sortable: true,
+      render: (p) => <Tag tone="dim">{p.accountLabel || "—"}</Tag>,
     },
     {
       key: "qty",
@@ -190,6 +192,10 @@ function sortPositions(
   const mul = dir === "asc" ? 1 : -1;
 
   return [...rows].sort((a, b) => {
+    if (key === "account") {
+      return mul * (a.accountLabel ?? "").localeCompare(b.accountLabel ?? "");
+    }
+
     const va = a[key];
     const vb = b[key];
 
@@ -260,7 +266,7 @@ function PaperPositions({
   }, []);
 
   if (loading && !snapshot) {
-    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+    return <WidgetLoading cols={[3, 2, 1, 1, 3, 2, 2, 2, 2]} />;
   }
 
   if (error && !snapshot) {
@@ -340,18 +346,18 @@ function realColumns(
       header: "Symbol",
       className: "font-medium text-foreground",
       render: (p) => (
-        <span className="inline-flex items-center gap-1.5">
-          <ClickableSymbol
-            symbol={p.symbol}
-            linked={linked}
-            onActivate={() => publish(p.symbol)}
-          />
-          {p.accountLast4 ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              ••{p.accountLast4}
-            </span>
-          ) : null}
-        </span>
+        <ClickableSymbol
+          symbol={p.symbol}
+          linked={linked}
+          onActivate={() => publish(p.symbol)}
+        />
+      ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      render: (p) => (
+        <Tag tone="dim">{p.accountLast4 ? `••${p.accountLast4}` : "—"}</Tag>
       ),
     },
     {
@@ -430,7 +436,7 @@ function RealPositions({
   );
 
   if (realLoading && realAccounts.length === 0) {
-    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+    return <WidgetLoading cols={[3, 2, 1, 2, 2, 2]} />;
   }
 
   if (!realAuthenticated) {
