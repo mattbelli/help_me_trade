@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
+import {
   WidgetEmpty,
   WidgetError,
   WidgetLoading,
@@ -24,11 +29,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "congress_trade", label: "Congress" },
   { id: "stake_13d", label: "13D" },
 ];
-
-const TH =
-  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
-const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
 
 const MONTHS_SHORT = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -176,6 +176,66 @@ export function FilingsBody({ channel }: { channel: ChannelId }) {
     return tab === "all" ? events : events.filter((e) => e.kind === tab);
   }, [events, tab]);
 
+  const columns: DataTableColumn<FilingEvent>[] = [
+    {
+      key: "filed",
+      header: "Filed",
+      className: "whitespace-nowrap text-[var(--fg-faint)]",
+      title: (ev) => (ev.traded_at ? `traded ${ev.traded_at}` : undefined),
+      render: (ev) => formatFiled(ev.filed_at),
+    },
+    {
+      key: "ticker",
+      header: "Ticker",
+      className: "font-medium text-foreground",
+      render: (ev) => (
+        <ClickableSymbol
+          symbol={ev.symbol}
+          linked={linked}
+          onActivate={() => publish(ev.symbol)}
+        />
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      className: (ev) => cn("whitespace-nowrap", kindLabel(ev).className),
+      render: (ev) => kindLabel(ev).text,
+    },
+    {
+      key: "who",
+      header: "Who",
+      absorb: true,
+      className: "text-[var(--fg-dim)]",
+      title: whoText,
+      render: whoText,
+    },
+    {
+      key: "value",
+      header: "Value",
+      align: "right",
+      className: "whitespace-nowrap tabular-nums text-[var(--fg-dim)]",
+      render: (ev) => ev.value_label || "—",
+    },
+    {
+      key: "source",
+      headerLabel: "source link",
+      align: "right",
+      render: (ev) =>
+        ev.url ? (
+          <a
+            href={ev.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--fg-faint)] transition-colors hover:text-[var(--c-accent)]"
+            title="open source filing"
+          >
+            ↗
+          </a>
+        ) : null,
+    },
+  ];
+
   if (!events && !error) {
     return <WidgetLoading cols={[1, 1, 2, 1]} />;
   }
@@ -202,12 +262,14 @@ export function FilingsBody({ channel }: { channel: ChannelId }) {
           </button>
         ))}
         {error ? (
-          <span
-            className="ml-auto font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase"
+          <Tag
+            tone="amber"
+            uppercase
             title={error}
+            className="ml-auto font-mono text-[length:var(--fs-micro)]"
           >
             stale
-          </span>
+          </Tag>
         ) : null}
       </div>
 
@@ -216,76 +278,11 @@ export function FilingsBody({ channel }: { channel: ChannelId }) {
           <WidgetEmpty message="No filings yet — EDGAR polls every 10 min, congress every 6 h." />
         ) : (
           <div className="px-1.5 py-1">
-            <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-              <thead>
-                <tr>
-                  <th className={cn(TH, "text-left")}>Filed</th>
-                  <th className={cn(TH, "text-left")}>Ticker</th>
-                  <th className={cn(TH, "text-left")}>Type</th>
-                  <th className={cn(TH, "text-left")}>Who</th>
-                  <th className={cn(TH, "text-right")}>Value</th>
-                  <th className={cn(TH, "text-right")} aria-label="source link" />
-                </tr>
-              </thead>
-              <tbody className="leading-[20px]">
-                {visible.map((ev) => {
-                  const kind = kindLabel(ev);
-                  return (
-                    <tr key={ev.uid} className={ROW}>
-                      <td
-                        className={cn(TD, "whitespace-nowrap text-[var(--fg-faint)]")}
-                        title={
-                          ev.traded_at ? `traded ${ev.traded_at}` : undefined
-                        }
-                      >
-                        {formatFiled(ev.filed_at)}
-                      </td>
-                      <td className={cn(TD, "font-medium text-foreground")}>
-                        <ClickableSymbol
-                          symbol={ev.symbol}
-                          linked={linked}
-                          onActivate={() => publish(ev.symbol)}
-                        />
-                      </td>
-                      <td className={cn(TD, "whitespace-nowrap", kind.className)}>
-                        {kind.text}
-                      </td>
-                      {/* w-full + max-w-0: the Who column absorbs ALL leftover
-                          table width (the other columns are nowrap/content-
-                          sized) and truncates only when genuinely out of room,
-                          so widening the widget widens this column. */}
-                      <td
-                        className={cn(TD, "w-full max-w-0 truncate text-[var(--fg-dim)]")}
-                        title={whoText(ev)}
-                      >
-                        {whoText(ev)}
-                      </td>
-                      <td
-                        className={cn(
-                          TD,
-                          "text-right whitespace-nowrap tabular-nums text-[var(--fg-dim)]",
-                        )}
-                      >
-                        {ev.value_label || "—"}
-                      </td>
-                      <td className={cn(TD, "text-right")}>
-                        {ev.url ? (
-                          <a
-                            href={ev.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[var(--fg-faint)] transition-colors hover:text-[var(--c-accent)]"
-                            title="open source filing"
-                          >
-                            ↗
-                          </a>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <DataTable
+              columns={columns}
+              rows={visible}
+              rowKey={(ev) => ev.uid}
+            />
           </div>
         )}
       </div>
