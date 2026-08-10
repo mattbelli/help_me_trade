@@ -1,8 +1,13 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import {
   WidgetEmpty,
   WidgetError,
@@ -24,10 +29,6 @@ import type { WidgetProps } from "@/lib/workspace/widget-registry";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 60_000;
-const TH =
-  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
-const ROW = "cursor-pointer transition-colors hover:bg-[var(--bg-hover)]";
 
 type EvidenceStackConfig = {
   evidenceMinScore?: number;
@@ -89,6 +90,52 @@ function formatRawValue(dot: EvidenceDot): string {
   }).format(value);
 }
 
+const DOT_COLUMNS: DataTableColumn<EvidenceDot>[] = [
+  {
+    key: "ts",
+    header: "Time ET",
+    className: "whitespace-nowrap tabular-nums text-[var(--fg-faint)]",
+    render: (dot) => formatEtTime(dot.ts),
+  },
+  {
+    key: "component",
+    header: "Component",
+    className: "text-[var(--fg-dim)]",
+    render: (dot) => words(dot.component),
+  },
+  {
+    key: "actor_group",
+    header: "Group",
+    className: "text-[var(--fg-dim)]",
+    render: (dot) => words(dot.actor_group),
+  },
+  {
+    key: "direction",
+    header: "Direction",
+    className: (dot) => directionClass(dot.direction),
+    render: (dot) => dot.direction,
+  },
+  {
+    key: "raw",
+    header: "Raw",
+    align: "right",
+    className: "tabular-nums text-[var(--fg-dim)]",
+    render: formatRawValue,
+  },
+  {
+    key: "points",
+    header: "Points",
+    align: "right",
+    className: "tabular-nums text-[var(--fg-dim)]",
+    render: (dot) => (
+      <>
+        {dot.points >= 0 ? "+" : ""}
+        {dot.points.toFixed(1)}
+      </>
+    ),
+  },
+];
+
 function DotTimeline({
   dots,
   error,
@@ -103,39 +150,45 @@ function DotTimeline({
     return <div className="px-2 py-2 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">loading dots…</div>;
   }
   return (
-    <table className="w-full border-collapse font-mono text-[length:var(--fs-micro)]">
-      <thead>
-        <tr>
-          <th className={cn(TH, "text-left")}>Time ET</th>
-          <th className={cn(TH, "text-left")}>Component</th>
-          <th className={cn(TH, "text-left")}>Group</th>
-          <th className={cn(TH, "text-left")}>Direction</th>
-          <th className={cn(TH, "text-right")}>Raw</th>
-          <th className={cn(TH, "text-right")}>Points</th>
-        </tr>
-      </thead>
-      <tbody className="leading-[20px]">
-        {dots.map((dot) => (
-          <tr key={dot.id}>
-            <td className={cn(TD, "whitespace-nowrap tabular-nums text-[var(--fg-faint)]")}>
-              {formatEtTime(dot.ts)}
-            </td>
-            <td className={cn(TD, "text-[var(--fg-dim)]")}>{words(dot.component)}</td>
-            <td className={cn(TD, "text-[var(--fg-dim)]")}>{words(dot.actor_group)}</td>
-            <td className={cn(TD, directionClass(dot.direction))}>{dot.direction}</td>
-            <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-              {formatRawValue(dot)}
-            </td>
-            <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-              {dot.points >= 0 ? "+" : ""}
-              {dot.points.toFixed(1)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      className="text-[length:var(--fs-micro)]"
+      columns={DOT_COLUMNS}
+      rows={dots}
+      rowKey={(dot) => dot.id}
+    />
   );
 }
+
+const CLAIM_COLUMNS: DataTableColumn<FusionDossier["claims"][number]>[] = [
+  {
+    key: "angle",
+    header: "Angle",
+    className: "whitespace-nowrap align-top text-[var(--fg-faint)]",
+    render: (claim) => words(claim.angle),
+  },
+  {
+    key: "claim",
+    header: "Claim",
+    className: "text-[var(--fg-dim)]",
+    render: (claim) => (
+      <>
+        {claim.statement}
+        {!claim.fresh ? <Tag tone="amber"> stale</Tag> : null}
+        {claim.contradicts.length > 0 ? (
+          <span className="text-[var(--c-amber)]">
+            {" "}contradicts {claim.contradicts.join(", ")}
+          </span>
+        ) : null}
+      </>
+    ),
+  },
+  {
+    key: "direction",
+    header: "Direction",
+    className: (claim) => cn("align-top", directionClass(claim.direction)),
+    render: (claim) => claim.direction,
+  },
+];
 
 function DossierView({
   dossier,
@@ -153,48 +206,19 @@ function DossierView({
   const contradictions =
     dossier.claims.reduce((total, claim) => total + claim.contradicts.length, 0) / 2;
   return (
-    <table className="w-full border-collapse font-mono text-[length:var(--fs-micro)]">
-      <thead>
-        <tr>
-          <th className={cn(TH, "text-left")}>Angle</th>
-          <th className={cn(TH, "text-left")}>Claim</th>
-          <th className={cn(TH, "text-left")}>Direction</th>
-        </tr>
-      </thead>
-      <tbody className="leading-[20px]">
-        {dossier.claims.map((claim) => (
-          <tr key={claim.claim_id}>
-            <td className={cn(TD, "whitespace-nowrap align-top text-[var(--fg-faint)]")}>
-              {words(claim.angle)}
-            </td>
-            <td className={cn(TD, "text-[var(--fg-dim)]")}>
-              {claim.statement}
-              {!claim.fresh ? (
-                <span className="text-[var(--c-amber)]"> stale</span>
-              ) : null}
-              {claim.contradicts.length > 0 ? (
-                <span className="text-[var(--c-amber)]">
-                  {" "}contradicts {claim.contradicts.join(", ")}
-                </span>
-              ) : null}
-            </td>
-            <td className={cn(TD, "align-top", directionClass(claim.direction))}>
-              {claim.direction}
-            </td>
-          </tr>
-        ))}
-        <tr>
-          <td
-            colSpan={3}
-            className="px-2 py-1.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]"
-          >
-            {dossier.claims.length} claims · {contradictions} contradiction
-            {contradictions === 1 ? "" : "s"} · deterministic perception — angles
-            stated, never a verdict or a win%
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <DataTable
+      className="text-[length:var(--fs-micro)]"
+      columns={CLAIM_COLUMNS}
+      rows={dossier.claims}
+      rowKey={(claim) => claim.claim_id}
+      footer={
+        <>
+          {dossier.claims.length} claims · {contradictions} contradiction
+          {contradictions === 1 ? "" : "s"} · deterministic perception — angles
+          stated, never a verdict or a win%
+        </>
+      }
+    />
   );
 }
 
@@ -319,111 +343,113 @@ export function EvidenceStackWidget({ config }: WidgetProps) {
     );
   }
 
+  const columns: DataTableColumn<FusionEpisode>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium text-foreground",
+      render: (episode) => (
+        <ClickableSymbol
+          symbol={episode.symbol}
+          linked={linked}
+          onActivate={() => publish(episode.symbol)}
+        />
+      ),
+    },
+    {
+      key: "score",
+      header: "Score",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (episode) => episode.score.toFixed(1),
+    },
+    {
+      key: "direction",
+      header: "Direction",
+      className: (episode) => directionClass(episodeDirection(episode)),
+      render: (episode) => episodeDirection(episode),
+    },
+    {
+      key: "signature",
+      header: "Signature",
+      className: "text-[var(--fg-faint)]",
+      render: (episode) => formatSignature(episode.signature) || "—",
+    },
+    {
+      key: "shock",
+      header: "Shock",
+      className: "text-[var(--fg-faint)]",
+      render: (episode) => (episode.market_shock ? "shock" : ""),
+    },
+    {
+      key: "dots",
+      header: "Dots",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-faint)]",
+      render: (episode) =>
+        episode.dot_count ?? dotsByEpisode[episode.id]?.length ?? "—",
+    },
+  ];
+
   return (
     <div className="h-full overflow-auto scroll-shadow-y px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-right")}>Score</th>
-            <th className={cn(TH, "text-left")}>Direction</th>
-            <th className={cn(TH, "text-left")}>Signature</th>
-            <th className={cn(TH, "text-left")}>Shock</th>
-            <th className={cn(TH, "text-right")}>Dots</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {episodes.map((episode) => {
-            const expanded = expandedId === episode.id;
-            const direction = episodeDirection(episode);
-            return (
-              <Fragment key={episode.id}>
-                <tr
-                  className={ROW}
-                  onClick={() => void toggleEpisode(episode.id)}
-                  aria-expanded={expanded}
+      <DataTable
+        columns={columns}
+        rows={episodes}
+        rowKey={(episode) => episode.id}
+        rowClassName="cursor-pointer"
+        onRowClick={(episode) => void toggleEpisode(episode.id)}
+        expandedClassName="p-1"
+        renderExpanded={(episode) =>
+          expandedId === episode.id ? (
+            <>
+              <div className="flex gap-3 px-2 pb-1 pt-0.5 text-[length:var(--fs-micro)]">
+                <button
+                  type="button"
+                  onClick={() => setExpandedView("dots")}
+                  className={cn(
+                    "lowercase",
+                    expandedView === "dots"
+                      ? "text-foreground"
+                      : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
+                  )}
                 >
-                  <td className={cn(TD, "font-medium text-foreground")}>
-                    <ClickableSymbol
-                      symbol={episode.symbol}
-                      linked={linked}
-                      onActivate={() => publish(episode.symbol)}
-                    />
-                  </td>
-                  <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                    {episode.score.toFixed(1)}
-                  </td>
-                  <td className={cn(TD, directionClass(direction))}>{direction}</td>
-                  <td className={cn(TD, "text-[var(--fg-faint)]")}>
-                    {formatSignature(episode.signature) || "—"}
-                  </td>
-                  <td className={cn(TD, "text-[var(--fg-faint)]")}>
-                    {episode.market_shock ? "shock" : ""}
-                  </td>
-                  <td className={cn(TD, "text-right tabular-nums text-[var(--fg-faint)]")}>
-                    {episode.dot_count ?? dotsByEpisode[episode.id]?.length ?? "—"}
-                  </td>
-                </tr>
-                {expanded ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="border-b border-[var(--line-divider)] bg-[var(--bg-hover)] p-1"
-                    >
-                      <div className="flex gap-3 px-2 pb-1 pt-0.5 text-[length:var(--fs-micro)]">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedView("dots")}
-                          className={cn(
-                            "lowercase",
-                            expandedView === "dots"
-                              ? "text-foreground"
-                              : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
-                          )}
-                        >
-                          dots
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void openDossier(episode.id)}
-                          className={cn(
-                            "lowercase",
-                            expandedView === "dossier"
-                              ? "text-foreground"
-                              : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
-                          )}
-                        >
-                          dossier
-                        </button>
-                      </div>
-                      {expandedView === "dossier" ? (
-                        <DossierView
-                          dossier={dossierByEpisode[episode.id]}
-                          error={dossierErrors[episode.id]}
-                        />
-                      ) : (
-                        <DotTimeline
-                          dots={dotsByEpisode[episode.id]}
-                          error={dotErrors[episode.id]}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                ) : null}
-              </Fragment>
-            );
-          })}
-          <tr>
-            <td
-              colSpan={6}
-              className="px-2 py-1.5 text-[length:var(--fs-micro)] text-[var(--fg-faint)]"
-            >
-              session {data.day ?? "unknown"} — observe-only — mechanical stack
-              scores, not validated signals
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                  dots
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openDossier(episode.id)}
+                  className={cn(
+                    "lowercase",
+                    expandedView === "dossier"
+                      ? "text-foreground"
+                      : "text-[var(--fg-faint)] hover:text-[var(--fg-dim)]",
+                  )}
+                >
+                  dossier
+                </button>
+              </div>
+              {expandedView === "dossier" ? (
+                <DossierView
+                  dossier={dossierByEpisode[episode.id]}
+                  error={dossierErrors[episode.id]}
+                />
+              ) : (
+                <DotTimeline
+                  dots={dotsByEpisode[episode.id]}
+                  error={dotErrors[episode.id]}
+                />
+              )}
+            </>
+          ) : null
+        }
+        footer={
+          <>
+            session {data.day ?? "unknown"} — observe-only — mechanical stack
+            scores, not validated signals
+          </>
+        }
+      />
     </div>
   );
 }

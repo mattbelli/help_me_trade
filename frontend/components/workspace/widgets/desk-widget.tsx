@@ -5,6 +5,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
+import {
   WidgetError,
   WidgetLoading,
 } from "@/components/workspace/widget-states";
@@ -17,13 +22,8 @@ import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
-import { cn } from "@/lib/utils";
 
 const POLL_MS = 15_000;
-const TH =
-  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
-const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
 const QUIET = "px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]";
 
 type DeskConfig = {
@@ -91,57 +91,78 @@ function RadarTable({
   linked: boolean;
   publish: (symbol: string) => void;
 }) {
+  const columns: DataTableColumn<FusionRadarRow>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium text-foreground",
+      render: (row) => (
+        <ClickableSymbol
+          symbol={row.symbol}
+          linked={linked}
+          onActivate={() => publish(row.symbol)}
+        />
+      ),
+    },
+    {
+      key: "mass",
+      header: "Bull / Bear",
+      absorb: true,
+      render: (row) => (
+        <MassBar bull={row.thesis.bull_mass} bear={row.thesis.bear_mass} />
+      ),
+    },
+    {
+      key: "conviction",
+      header: "Conv",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.thesis.conviction.toFixed(2),
+    },
+    {
+      key: "z",
+      header: "Z",
+      align: "right",
+      className: "tabular-nums font-medium text-foreground",
+      render: (row) => row.thesis.z.toFixed(1),
+    },
+    {
+      key: "net",
+      header: "Net",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => (
+        <>
+          {row.thesis.net > 0 ? "+" : ""}
+          {row.thesis.net.toFixed(1)}
+        </>
+      ),
+    },
+    {
+      key: "flags",
+      className: "whitespace-nowrap",
+      render: (row) => (
+        <>
+          {row.tier === "live" ? (
+            <Tag tone="green" className="mr-2">
+              hot
+            </Tag>
+          ) : null}
+          {row.thesis.contested ? <Tag tone="amber">contested</Tag> : null}
+        </>
+      ),
+    },
+    {
+      key: "age",
+      header: "Age",
+      align: "right",
+      className: "whitespace-nowrap tabular-nums text-[var(--fg-faint)]",
+      render: (row) => formatAge(row.last_evidence_at),
+    },
+  ];
+
   return (
-    <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-      <thead>
-        <tr>
-          <th className={cn(TH, "text-left")}>Symbol</th>
-          <th className={cn(TH, "text-left")}>Bull / Bear</th>
-          <th className={cn(TH, "text-right")}>Conv</th>
-          <th className={cn(TH, "text-right")}>Z</th>
-          <th className={cn(TH, "text-right")}>Net</th>
-          <th className={cn(TH, "text-left")} />
-          <th className={cn(TH, "text-right")}>Age</th>
-        </tr>
-      </thead>
-      <tbody className="leading-[20px]">
-        {rows.map((row) => (
-          <tr key={row.symbol} className={ROW}>
-            <td className={cn(TD, "font-medium text-foreground")}>
-              <ClickableSymbol
-                symbol={row.symbol}
-                linked={linked}
-                onActivate={() => publish(row.symbol)}
-              />
-            </td>
-            <td className={cn(TD, "w-full")}>
-              <MassBar bull={row.thesis.bull_mass} bear={row.thesis.bear_mass} />
-            </td>
-            <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-              {row.thesis.conviction.toFixed(2)}
-            </td>
-            <td className={cn(TD, "text-right tabular-nums font-medium text-foreground")}>
-              {row.thesis.z.toFixed(1)}
-            </td>
-            <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-              {row.thesis.net > 0 ? "+" : ""}
-              {row.thesis.net.toFixed(1)}
-            </td>
-            <td className={cn(TD, "whitespace-nowrap")}>
-              {row.tier === "live" ? (
-                <span className="mr-2 text-[var(--c-green)]">hot</span>
-              ) : null}
-              {row.thesis.contested ? (
-                <span className="text-[var(--c-amber)]">contested</span>
-              ) : null}
-            </td>
-            <td className={cn(TD, "whitespace-nowrap text-right tabular-nums text-[var(--fg-faint)]")}>
-              {formatAge(row.last_evidence_at)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable columns={columns} rows={rows} rowKey={(row) => row.symbol} />
   );
 }
 
