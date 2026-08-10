@@ -3,14 +3,17 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { Reorder, useDragControls } from "motion/react";
 import { Check, GripVertical, Pin } from "lucide-react";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
@@ -401,12 +404,12 @@ function WatchlistSymbolRow({
   isOvernight,
   linked,
   selected,
-  confirming,
   pinnable,
   pinned,
   onTogglePin,
   onPublish,
   onSelect,
+  onContextMenu,
   onDragStart,
   onReorderEnd,
   onDragOutRelease,
@@ -423,13 +426,13 @@ function WatchlistSymbolRow({
   isOvernight: boolean;
   linked: boolean;
   selected: boolean;
-  confirming: boolean;
   // Slot-capped lists only (the flow list): pinned symbols ride above the cap.
   pinnable: boolean;
   pinned: boolean;
   onTogglePin: () => void;
   onPublish: () => void;
   onSelect: () => void;
+  onContextMenu: (e: ReactMouseEvent) => void;
   onDragStart: () => void;
   onReorderEnd: () => void;
   onDragOutRelease: () => void;
@@ -463,6 +466,11 @@ function WatchlistSymbolRow({
 
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent) => {
+      // Left button only. A right-press used to be interrupted by the browser's
+      // own context menu; now that we preventDefault ours, an un-guarded
+      // right-press held past HOLD_MS would lift the row into a drag under the
+      // open menu.
+      if (e.button !== 0) return;
       // Never start a drag from a ticker button, ⓘ button, or any link.
       if ((e.target as HTMLElement).closest("button, a")) return;
       didDrag.current = false;
@@ -564,8 +572,9 @@ function WatchlistSymbolRow({
           getWidgetRect(),
         );
         setWillDelete(false);
-        // Release outside no longer deletes — it arms the confirm pill (the row
-        // snaps back via dragSnapToOrigin + layout). Release inside = reorder.
+        // Release outside deletes, immediately: the red ring + tint the row has
+        // been wearing since it crossed the edge IS the "let go and it's gone"
+        // warning. Release inside = reorder.
         if (outside) onDragOutRelease();
         else onReorderEnd();
       }}
@@ -576,9 +585,18 @@ function WatchlistSymbolRow({
       // !important beats framer's inline style; rows still composite while
       // actually animating.
       className="border-b border-[var(--line-divider)] [will-change:auto]!"
-      // The widget-level delete confirm finds its armed row by this attribute
-      // to read the row's offsetTop (see confirmTop in WatchlistWidget).
+      // Row identity hook for the headless UI verification scripts, which need a
+      // stable per-row selector. (The context menu gets its symbol from the
+      // handler closure, not from the DOM.)
       data-symbol={symbol}
+      onContextMenu={(e) => {
+        // Suppress the browser menu and open ours at the pointer. Selecting the
+        // row too gives the menu a visible anchor — the tinted row is the one
+        // the menu's "delete AAPL" is about.
+        e.preventDefault();
+        onSelect();
+        onContextMenu(e);
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={clearHold}
@@ -615,8 +633,6 @@ function WatchlistSymbolRow({
             : "hover:bg-[var(--bg-hover)]",
           willDelete &&
             "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
-          confirming &&
-            "bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]",
         )}
         style={{
           gridTemplateColumns: gridTemplate(symbolWidth, widths),
@@ -636,12 +652,13 @@ function WatchlistSymbolRow({
             // --surface-selected is a solid per-theme hex (editor knob), so
             // the sticky cell can repaint it opaquely — scrolled columns
             // can't ghost through and the tint can't stack on the row's own.
-            // Same for the armed-delete wash: the row's version mixes red into
-            // transparent, which this opaque cell would paint over (the danger
-            // tint stopped dead at the frozen pane), so mix the same 22% red
-            // into --panel instead. One state, one fill.
-            confirming
-              ? "bg-[color-mix(in_srgb,var(--c-red)_22%,var(--panel))]"
+            // Same for the drag-out danger tint: the row's version mixes red
+            // into transparent, which this opaque cell would paint over (the
+            // warning stopped dead at the frozen pane — #282 fixed exactly that
+            // for the confirm wash, and the confirm is gone), so mix the same
+            // 12% red into --panel here. One state, one fill.
+            willDelete
+              ? "bg-[color-mix(in_srgb,var(--c-red)_12%,var(--panel))]"
               : selected
                 ? "bg-[var(--surface-selected)]"
                 : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
@@ -850,6 +867,175 @@ function WatchlistSettingsPanel({
   );
 }
 
+// Keep the menu this far off every viewport edge when a right-click near a
+// border would otherwise push it half off-screen.
+const MENU_EDGE_PAD = 4;
+
+// Row right-click menu: delete, and pin/unpin. Portaled to <body> and placed
+// `fixed` at the pointer — NOT anchored anywhere in the row.
+//
+// This is the #282 lesson made structural. A row's symbol cell is
+// `position: sticky`, which ALWAYS opens a stacking context, and the whole row
+// lives inside a clipping scrollport whose content box is `contentMinWidth`
+// wide (much wider than the visible widget) — so anything anchored in there
+// either renders under a later sticky cell or lands off the visible right edge.
+// At body level, clientX/clientY ARE the coordinates: no ancestor can clip it,
+// restack it, or redefine what "fixed" is measured against.
+function WatchlistContextMenu({
+  symbol,
+  x,
+  y,
+  pinnable,
+  pinned,
+  listRef,
+  onDelete,
+  onTogglePin,
+  onClose,
+}: {
+  symbol: string;
+  x: number;
+  y: number;
+  // Same gate as the row's own pin button: pins only mean anything on
+  // slot-capped lists — on any other list the PUT succeeds but nothing
+  // visible changes, so the item would be a silent mutation.
+  pinnable: boolean;
+  pinned: boolean;
+  listRef: RefObject<HTMLDivElement | null>;
+  onDelete: () => void;
+  onTogglePin: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  // Clamp into the viewport once the menu's real size is measurable, and move
+  // focus onto the first item. A LAYOUT effect, not a passive one: the
+  // corrected position has to be in the first paint or a right-click near the
+  // bottom edge visibly flashes hanging off the screen before it snaps back.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(
+        MENU_EDGE_PAD,
+        Math.min(x, window.innerWidth - width - MENU_EDGE_PAD),
+      ),
+      top: Math.max(
+        MENU_EDGE_PAD,
+        Math.min(y, window.innerHeight - height - MENU_EDGE_PAD),
+      ),
+    });
+    // Focus the MENU, not its first item. The first item is `delete`, and it
+    // sits directly under the pointer where a context menu opens — focusing it
+    // would leave a no-confirm, no-undo destructive action one Enter away the
+    // instant the menu appears. Tab still walks into the items.
+    el.focus();
+  }, [x, y, symbol]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    // Capture phase, so a right-click on a DIFFERENT row tears this menu down
+    // before that row's contextmenu handler reopens it at the new point. The
+    // contains() check is what lets an item's own click land first.
+    const onPointerDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    // Scrolling the list slides the row out from under a menu that cannot
+    // follow it (it is pinned to the viewport, not the row).
+    list?.addEventListener("scroll", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+      list?.removeEventListener("scroll", onClose);
+    };
+  }, [listRef, onClose]);
+
+  // Hand focus back to the list on close. Removing the focused item orphans
+  // focus on <body>; that check is also how we avoid stealing it when the user
+  // closed the menu by clicking some other control, which already has it.
+  useEffect(
+    () => () => {
+      if (document.activeElement === document.body) listRef.current?.focus();
+    },
+    [listRef],
+  );
+
+  // whitespace-nowrap: `left` alone makes the menu shrink-to-fit against the
+  // space left of the viewport edge, so near a right/bottom corner the labels
+  // wrapped to two lines instead of the whole menu sliding back inside
+  // (measured at a 314px viewport). Nowrap keeps the width honest, which is
+  // what the clamp above measures.
+  const itemClass =
+    "block w-full whitespace-nowrap px-2 py-1 text-left text-[length:var(--fs-body)]";
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={`${symbol} actions`}
+      tabIndex={-1}
+      // Same surface as the add-row suggestions menu: a real recessed plane
+      // (--bg-inset is a solid hex on every theme), a strong border, a big
+      // shadow. Plain lowercase words, no pills, no icons.
+      // font-mono is declared HERE, not inherited: living on <body> puts the
+      // menu outside the widget root that carries the widget's mono face, so
+      // without this it rendered in the app's Inter (measured).
+      // outline-none: this container only HOLDS focus so the menu owns it (see
+      // the layout effect) — it is not a stop a keyboard user navigates to, and
+      // the UA's default focus ring on it painted a thick white box around the
+      // whole menu (measured). Tabbing to the items still rings each item.
+      className="fixed z-50 border border-[var(--border-strong)] bg-[var(--bg-inset)] py-0.5 font-mono shadow-2xl outline-none"
+      style={{ left: pos.left, top: pos.top }}
+      // A right-click ON the menu shouldn't summon the browser's menu over it.
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onDelete();
+          onClose();
+        }}
+        className={cn(
+          itemClass,
+          // Red-tinted hover rather than the shared accent wash: this is the
+          // one destructive item, and the accent (teal) hover read as "safe"
+          // under a red label. Screenshotted both — see SUMMARY.
+          "text-[var(--c-red)] hover:bg-[color-mix(in_srgb,var(--c-red)_18%,transparent)]",
+        )}
+      >
+        delete {symbol}
+      </button>
+      {pinnable ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onTogglePin();
+            onClose();
+          }}
+          className={cn(
+            itemClass,
+            "text-foreground hover:bg-[var(--c-accent-soft)]",
+          )}
+        >
+          {pinned ? "unpin" : "pin"} {symbol}
+        </button>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
 export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -858,7 +1044,13 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // The one open row context menu, in viewport coordinates. Widget-level (not
+  // per-row) so only one can ever exist.
+  const [menu, setMenu] = useState<{
+    symbol: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const widgetRectRef = useRef<DOMRect | null>(null);
@@ -1334,71 +1526,25 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     [displayList, removing],
   );
 
-  // Confirm-accept (✓ / Enter): remove the armed symbol. The round-2 hand-fix
-  // — clearing the stale drag order (it still contains this symbol, and
-  // sortedSymbols renders baseOrder unfiltered) — now lives here on the accept
-  // path per the brief.
-  const acceptConfirmDelete = useCallback(() => {
-    if (!confirmDelete) return;
-    const sym = confirmDelete;
-    setConfirmDelete(null);
-    setDragOrder(null);
-    void removeSymbol(sym);
-  }, [confirmDelete, removeSymbol]);
-
-  // Confirm-cancel (✕ / Esc): un-arm; the row un-tints.
-  const cancelConfirmDelete = useCallback(() => {
-    setConfirmDelete(null);
-  }, []);
-
-  // Vertical center of the armed row, in widget-body coordinates — where the
-  // delete confirm paints. The confirm used to live INSIDE the row, absolutely
-  // positioned against a box that is `contentMinWidth` wide (the full
-  // horizontally scrollable span), so it anchored to the right edge of the
-  // CONTENT, not of the visible scrollport: off-screen at any real widget
-  // width (founder: "I can't delete anymore"). At widget level it is pinned to
-  // the visible right edge and only its height has to follow the row.
+  // Release outside the widget deletes on the spot — no are-you-sure step
+  // (founder, overruling round 2: "I didn't want that are-you-sure feature").
+  // The red ring + tint + 50% opacity the row wore the whole time it was
+  // outside the box IS the warning, and it is live during the gesture rather
+  // than after it.
   //
-  // offsetTop is a LAYOUT offset from the widget body (the row's offsetParent)
-  // and ignores framer's snap-back / whileDrag transforms, so the confirm
-  // lands on the row's resting slot immediately instead of chasing the
-  // animation the release kicks off.
-  const [confirmTop, setConfirmTop] = useState<number | null>(null);
+  // Drop the in-progress drag order first: it still contains this symbol and
+  // sortedSymbols renders baseOrder unfiltered, so without this the row snaps
+  // back into the list for the length of the PUT and then vanishes.
+  const deleteFromDrag = useCallback(
+    (symbol: string) => {
+      setIsDragging(false);
+      setDragOrder(null);
+      void removeSymbol(symbol);
+    },
+    [removeSymbol],
+  );
 
-  useEffect(() => {
-    const list = listRef.current;
-    if (!confirmDelete || !list) {
-      setConfirmTop(null);
-      return;
-    }
-    const measure = () => {
-      const row = list.querySelector<HTMLElement>(
-        `li[data-symbol="${confirmDelete}"]`,
-      );
-      if (!row) return setConfirmTop(null);
-      const center = Math.round(
-        row.offsetTop + row.offsetHeight / 2 - list.scrollTop,
-      );
-      // Scrolled out of the list's own band => no confirm painted, rather than
-      // one floating over the column header. Enter/Esc still act.
-      const inView =
-        center >= list.offsetTop && center <= list.offsetTop + list.clientHeight;
-      setConfirmTop(inView ? center : null);
-    };
-    measure();
-    list.addEventListener("scroll", measure);
-    return () => list.removeEventListener("scroll", measure);
-  }, [confirmDelete]);
-
-  // Release outside the widget: arm the confirm instead of deleting. Drop the
-  // in-progress drag order so the list renders the persisted order under the
-  // armed row, then focus the list so Enter/Esc act without a click.
-  const armDeleteFromDrag = useCallback((symbol: string) => {
-    setIsDragging(false);
-    setDragOrder(null);
-    setConfirmDelete(symbol);
-    listRef.current?.focus();
-  }, []);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   const togglePin = useCallback(async (symbol: string) => {
     const list = displayListRef.current;
@@ -1481,18 +1627,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       const list = sortedSymbols;
       if (list.length === 0) return;
 
-      // Confirm mode: only Enter (confirm) / Esc (cancel) act.
-      if (confirmDelete) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          acceptConfirmDelete();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          cancelConfirmDelete();
-        }
-        return;
-      }
-
       const cur = selectedSymbol ? list.indexOf(selectedSymbol) : -1;
       // Arrow moves publish immediately (like a click) — the founder drives
       // the linked chart by holding ↑/↓, no Enter needed.
@@ -1517,9 +1651,11 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           break;
         case "Delete":
         case "Backspace":
+          // Direct, like the drag-out gesture — this key used to arm the
+          // confirm, and the confirm is gone.
           if (cur >= 0) {
             e.preventDefault();
-            setConfirmDelete(list[cur]);
+            void removeSymbol(list[cur]);
           }
           break;
         case "Escape":
@@ -1528,27 +1664,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           break;
       }
     },
-    [
-      sortedSymbols,
-      selectedSymbol,
-      confirmDelete,
-      publish,
-      acceptConfirmDelete,
-      cancelConfirmDelete,
-    ],
-  );
-
-  const handleListBlur = useCallback(
-    (e: ReactFocusEvent<HTMLDivElement>) => {
-      // Focus truly left the WIDGET => drop any armed delete confirm. Checked
-      // against the widget, not the list: the confirm's own ✓/✕ live outside
-      // the scroller (widget-level overlay), so a list-only check tore the
-      // confirm down on the focus shift before the click could land.
-      if (!widgetRef.current?.contains(e.relatedTarget as Node | null)) {
-        setConfirmDelete(null);
-      }
-    },
-    [],
+    [sortedSymbols, selectedSymbol, publish, removeSymbol],
   );
 
   // A freshly added symbol is pinned to the top of the persisted order — clear
@@ -1615,7 +1731,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         ref={listRef}
         tabIndex={0}
         onKeyDown={handleListKeyDown}
-        onBlur={handleListBlur}
         // No scroller padding: the sticky header and the row border-b lines
         // must span the full widget width — padding left see-through gutters
         // beside the header where scrolled rows ghosted into view.
@@ -1791,15 +1906,17 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 isOvernight={overnightSymbols.has(symbol.toUpperCase())}
                 linked={linked}
                 selected={selectedSymbol === symbol}
-                confirming={confirmDelete === symbol}
                 pinnable={pinnable}
                 pinned={pinnedSet.has(symbol)}
                 onTogglePin={() => void togglePin(symbol)}
                 onPublish={() => publish(symbol)}
                 onSelect={() => setSelectedSymbol(symbol)}
+                onContextMenu={(e) =>
+                  setMenu({ symbol, x: e.clientX, y: e.clientY })
+                }
                 onDragStart={handleDragStart}
                 onReorderEnd={handleReorderEnd}
-                onDragOutRelease={() => armDeleteFromDrag(symbol)}
+                onDragOutRelease={() => deleteFromDrag(symbol)}
                 getWidgetRect={getWidgetRect}
               />
             ))}
@@ -1807,39 +1924,18 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         </div>
       </div>
 
-      {/* Armed delete confirm — a widget-body overlay, NOT a row child, so it
-          is pinned to the visible right edge whatever the columns' total width
-          or the horizontal scroll position. Opaque bg: --bg-inset is a solid
-          hex on EVERY theme (ember/carbon #0e1013, warm #161617, oled #000000,
-          light #eceef1) — never a color-mix-with-transparent — so it fully
-          covers the red-tinted row underneath. */}
-      {confirmDelete && confirmTop != null ? (
-        <div
-          role="group"
-          aria-label={`Delete ${confirmDelete}?`}
-          className="absolute right-1.5 z-10 flex -translate-y-1/2 items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 py-0.5 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
-          style={{ top: confirmTop }}
-        >
-          <span className="whitespace-nowrap text-[var(--c-red)]">
-            delete {confirmDelete}?
-          </span>
-          <button
-            type="button"
-            aria-label={`Confirm delete ${confirmDelete}`}
-            onClick={acceptConfirmDelete}
-            className="flex size-4 items-center justify-center rounded leading-none text-[var(--c-red)] ring-1 ring-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]"
-          >
-            ✓
-          </button>
-          <button
-            type="button"
-            aria-label={`Cancel delete ${confirmDelete}`}
-            onClick={cancelConfirmDelete}
-            className="flex size-4 items-center justify-center rounded leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
-          >
-            ✕
-          </button>
-        </div>
+      {menu ? (
+        <WatchlistContextMenu
+          symbol={menu.symbol}
+          x={menu.x}
+          y={menu.y}
+          pinnable={pinnable}
+          pinned={pinnedSet.has(menu.symbol)}
+          listRef={listRef}
+          onDelete={() => void removeSymbol(menu.symbol)}
+          onTogglePin={() => void togglePin(menu.symbol)}
+          onClose={closeMenu}
+        />
       ) : null}
     </div>
   );
