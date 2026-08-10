@@ -10,6 +10,39 @@
  ],
  "cards": [
   {
+   "num": 280,
+   "id": "agent-ui-primitives",
+   "title": "Agent-UI primitives: DataTable + Tag, migrate the 7 hand-rolled table widgets",
+   "lane": "in_progress",
+   "type": "refactor",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Round 3 of agent-UI prep: extract house table from positions/filings exemplars into components/workspace/primitives/, kill 5x duplicated TH/TD/ROW constants + bare w-full spacers, canon header token --fg-table-header. Structural only — no relabeling, chips stay until validation case. Branch ui-primitives (wt-e)."
+  },
+  {
+   "num": 279,
+   "id": "agent-ui-eyes",
+   "title": "Agent-UI eyes: /dev/gallery fixture harness + tools/ui-shot.mjs screenshot loop",
+   "lane": "in_progress",
+   "type": "feat",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Round 2 of agent-UI prep: deterministic widget render harness (fixtures, ?widget= isolation, empty/loading/error states) + Playwright-CLI screenshot tool so coders SEE their render. Branch ui-gallery (wt-d). ui-review agent def rides the guardrails card."
+  },
+  {
+   "num": 278,
+   "id": "agent-ui-guardrails",
+   "title": "Agent-UI guardrails: frontend/CLAUDE.md rule card + check:tokens gate + eslint warn + lib/labels.ts seam",
+   "lane": "in_progress",
+   "type": "feat",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-10",
+   "notes": "Round 1 of agent-UI prep (why: agent-built widgets drift — rules never reach coders). Branches: ui-guidelines (wt-a: rule card + .claude/agents/ui-review.md), ui-token-gates (wt-b: check-tokens.mjs + index-pressure undefined-var fix + tailwind lint warn), ui-labels (wt-c: labels.ts + journal/reports wiring). 5-way parallel dispatch 08-10."
+  },
+  {
    "num": 277,
    "id": "flow-widget-side-redesign",
    "title": "Options-flow widget: side column speaks buy/sell (UW-readability round)",
