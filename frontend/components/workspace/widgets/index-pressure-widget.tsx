@@ -85,7 +85,7 @@ function Sparkline({ values }: { values: number[] }) {
       <polyline
         points={pts.join(" ")}
         fill="none"
-        stroke="var(--text-muted)"
+        stroke="var(--fg-faint)"
         strokeWidth="1"
         vectorEffect="non-scaling-stroke"
       />
@@ -93,7 +93,7 @@ function Sparkline({ values }: { values: number[] }) {
         cx={lastX}
         cy={lastY}
         r="2"
-        fill="var(--accent)"
+        fill="var(--c-accent)"
         vectorEffect="non-scaling-stroke"
       />
     </svg>
@@ -115,7 +115,7 @@ function DivergingStrip({
   const bw = 100 / values.length;
   return (
     <div className="flex items-center gap-2">
-      <span className="w-[52px] shrink-0 text-right text-[9px] lowercase text-[var(--text-muted)]">
+      <span className="w-[52px] shrink-0 text-right text-[9px] lowercase text-[var(--fg-faint)]">
         {label}
       </span>
       <svg
@@ -129,7 +129,7 @@ function DivergingStrip({
           y1="15"
           x2="100"
           y2="15"
-          stroke="var(--border-subtle)"
+          stroke="var(--chart-grid)"
           strokeWidth="1"
           vectorEffect="non-scaling-stroke"
         />
@@ -154,7 +154,7 @@ function DivergingStrip({
 
 function NetCell({ v }: { v: number | null }) {
   if (v === null)
-    return <span className="text-[var(--text-muted)]">—</span>;
+    return <span className="text-[var(--fg-faint)]">—</span>;
   return (
     <span className={v >= 0 ? "text-[var(--pos)]" : "text-[var(--neg)]"}>
       {fmtNet(v)}
@@ -180,7 +180,7 @@ function TrendBody({ data }: { data: IndexPressureTrendResult }) {
         />
         <DivergingStrip label="spy day" values={days.map((d) => d.spy_pct)} />
       </div>
-      <div className="grid grid-cols-[44px_1fr_1fr_56px] gap-x-3 pt-2 text-[9px] lowercase text-[var(--text-muted)]">
+      <div className="grid grid-cols-[44px_1fr_1fr_56px] gap-x-3 pt-2 text-[9px] lowercase text-[var(--fg-table-header)]">
         <span>date</span>
         <span>open net</span>
         <span>close net</span>
@@ -191,14 +191,14 @@ function TrendBody({ data }: { data: IndexPressureTrendResult }) {
           key={d.date}
           className="grid grid-cols-[44px_1fr_1fr_56px] items-baseline gap-x-3 py-[2px] font-mono text-[11px] tabular-nums"
         >
-          <span className="text-[var(--text-muted)]">{d.date.slice(5)}</span>
+          <span className="text-[var(--fg-faint)]">{d.date.slice(5)}</span>
           <NetCell v={d.open?.net_usd ?? null} />
           <NetCell v={d.close?.net_usd ?? null} />
           <span
             className={cn(
               "text-right",
               d.spy_pct === null
-                ? "text-[var(--text-muted)]"
+                ? "text-[var(--fg-faint)]"
                 : d.spy_pct >= 0
                   ? "text-[var(--pos)]"
                   : "text-[var(--neg)]",
@@ -233,7 +233,7 @@ function OvernightBody({
   // the NIGHT was (≥5 matches the phone-alert threshold), not a direction.
   const zClass =
     z === null
-      ? "text-[var(--text-muted)]"
+      ? "text-[var(--fg-faint)]"
       : Math.abs(z) >= 5
         ? "text-[var(--neg)]"
         : Math.abs(z) >= 2
@@ -251,11 +251,11 @@ function OvernightBody({
             : `z ${z >= 0 ? "+" : ""}${z.toFixed(1)}`}
         </span>
         {z !== null && line.baseline.median !== null ? (
-          <span className="text-[10px] text-[var(--text-muted)]">
+          <span className="text-[10px] text-[var(--fg-faint)]">
             vs {fmtMusd(line.baseline.median)} median · {line.baseline.nights}n
           </span>
         ) : null}
-        <span className="ml-auto text-[10px] text-[var(--text-muted)]">
+        <span className="ml-auto text-[10px] text-[var(--fg-faint)]">
           {line.session}
         </span>
       </div>
@@ -266,7 +266,7 @@ function OvernightBody({
         {Math.round(s.macro_window_share * 100)}% · {s.prints.toLocaleString()}{" "}
         prints
         {s.full_night ? (
-          <span className="text-[var(--text-muted)]">
+          <span className="text-[var(--fg-faint)]">
             {" "}
             · full night {fmtMusd(s.full_night.notional)}
           </span>
@@ -291,7 +291,7 @@ function OvernightBody({
             <span className="text-[var(--text-secondary)]">
               {fmtMusd(tp.notional)}
             </span>
-            <span className="ml-auto text-[var(--text-muted)]">{tp.et} ET</span>
+            <span className="ml-auto text-[var(--fg-faint)]">{tp.et} ET</span>
           </div>
         ))}
       </div>
@@ -339,7 +339,7 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
             "lowercase",
             w === windowKey
               ? "text-[var(--text-primary)]"
-              : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+              : "text-[var(--fg-faint)] hover:text-[var(--text-secondary)]",
           )}
         >
           {w}
@@ -357,7 +357,7 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <TrendBody data={trend} />
         </div>
-        <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+        <div className="flex border-t border-[var(--line-divider)] px-3 py-[5px] text-[10px] text-[var(--fg-faint)]">
           <span>daily net premium vs spy close · co-occurrence, not accuracy</span>
           {windowToggle}
         </div>
@@ -372,7 +372,7 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <OvernightBody data={overnight} publish={publish} />
         </div>
-        <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+        <div className="flex border-t border-[var(--line-divider)] px-3 py-[5px] text-[10px] text-[var(--fg-faint)]">
           <span>04:00–09:15 ET GTH · alpaca single-source · activity, not direction</span>
           {windowToggle}
         </div>
@@ -391,7 +391,7 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
             } ET`}
           />
         </div>
-        <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+        <div className="flex border-t border-[var(--line-divider)] px-3 py-[5px] text-[10px] text-[var(--fg-faint)]">
           <span>net premium (bull − bear)</span>
           {windowToggle}
         </div>
@@ -430,13 +430,13 @@ export function IndexPressureWidget({ config, onConfigChange }: WidgetProps) {
               {fmtNet(row.net_usd)}
             </span>
             <SplitBar row={row} />
-            <span className="text-right font-mono text-[10px] tabular-nums text-[var(--text-muted)]">
+            <span className="text-right font-mono text-[10px] tabular-nums text-[var(--fg-dim)]">
               {Math.round(row.classified_frac * 100)}%
             </span>
           </div>
         ))}
       </div>
-      <div className="flex border-t border-[var(--border-subtle)] px-3 py-[5px] text-[10px] text-[var(--text-muted)]">
+      <div className="flex border-t border-[var(--line-divider)] px-3 py-[5px] text-[10px] text-[var(--fg-faint)]">
         <span>
           {data.fallback ? (
             <span className="text-[var(--warn)]">last session {data.date.slice(5)} · </span>
