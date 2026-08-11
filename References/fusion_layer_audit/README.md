@@ -264,6 +264,19 @@ returns all 14 new fields in a 5,757-byte payload. `_axis_history` now takes any
 special-casing the curve, and `macro_snapshot` walks both source dicts — a series stored but absent from
 the snapshot is invisible to every agent, which is the exact failure this section exists to stop.
 
+**★ The two-question check, run on this round rather than asserted** (founder's standing rule,
+2026-08-11: after *every* edit — is it wired so the AI can see it, and what dead ends are left?).
+Question 1 caught two things: `macro_snapshot` walked only the FRED dict, so the four Cboe series were
+**stored but invisible to every agent**; and the `market` manifest description named neither new axis,
+so nothing reading `list_capabilities` would know to ask. Question 2 caught three more: an orphaned
+`latest_value` import; **six series reaching the agent as bare numbers with no percentile** (the four
+cross-asset vols plus the pre-existing `inflation`/`real_yield`, none of which have a `REPORT_AXES`
+entry); and — the worst of them — once percentiles were attached, `VIX9D` reported **"100th percentile,
+bucket high" off a sample of one**, arithmetically true and a lie in ordinary reading. `macro_snapshot`
+now ranks every series against its own as-of-truncated history and reports `pctile: null` below a
+60-observation floor. Final state: **29 series reach the headless agent, 25 ranked, 4 honestly
+withholding a rank they cannot support, 0 bare — in a 4,825-byte payload.**
+
 **Open, deliberately:** (1) no UI surface renders these axes — founder's call where it lands, and
 **no new widget**; (2) Round B is the dot consolidation itself + the dead `market_shock` VIX arm + the
 `MAX()` latch; (3) the Cboe close-snapshot cron (22:00 + 23:00 UTC weekdays, both post-settle in either

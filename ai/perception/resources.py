@@ -1347,7 +1347,10 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "`series` block adds the full Treasury curve, IG OAS, the 10y real "
             "yield, breakevens, cross-asset vol (Nasdaq/Russell/oil/gold) and "
             "the near end of the vol curve (VIX1D/VIX9D/VIX6M/VVIX), so any "
-            "spread can be built rather than only the six we picked."
+            "spread can be built rather than only the six we picked — every "
+            "series there carries its own percentile and bucket too, and a "
+            "series with too little history to rank says `pctile: null` rather "
+            "than inventing one."
         ),
         "filters": {},
         "read": _read_market,

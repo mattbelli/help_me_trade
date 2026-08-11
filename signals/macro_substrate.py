@@ -33,7 +33,6 @@ import httpx
 
 from db.macro import (
     DEFAULT_MACRO_DB_PATH,
-    latest_value,
     series_history,
     upsert_macro,
 )
@@ -101,6 +100,10 @@ _BACKFILL_LIMIT = 1_000_000  # fredgraph.csv returns full history; take it all
 REPORT_STALE_DAYS = 7  # as-of lookback; beyond this the date reports "missing"
 BUCKET_LOW_PCTILE = 33.0  # house cut — signals/volatility.py CALM_PCTILE
 BUCKET_HIGH_PCTILE = 80.0  # house cut — signals/volatility.py STORM_PCTILE
+# A percentile needs a population. ~1 quarter of sessions is the floor below
+# which macro_snapshot reports pctile/bucket as None rather than a number that
+# is arithmetically true and practically a lie.
+_PCTILE_MIN_OBS = 60
 
 # Report axes: representative series per axis. Curve is the date-joined
 # DGS10 - DGS2 spread (regime_sleeves joins on date for the same reason the
@@ -304,15 +307,39 @@ def macro_snapshot(
     as_of: str | None = None,
     db_path: Path = DEFAULT_MACRO_DB_PATH,
 ) -> dict[str, dict]:
-    """Latest (date, value) per stored series — the substrate's quick health read.
+    """Latest value per stored series, each WITH its own percentile and bucket.
 
     Walks BOTH source dicts: a series stored but absent from this snapshot is
-    invisible to every agent surface, which is the failure this whole section
-    exists to stop.
+    invisible to every agent surface, which is the failure this section exists
+    to stop.
+
+    The percentile is not decoration. Six series used to arrive here as bare
+    numbers (the four cross-asset vols, plus inflation and real_yield, which
+    have no REPORT_AXES entry) — and a bare "OVXCLS 56.06" is unreasonable-about
+    for a reader with no sense of that series' range. Percentile is computed
+    against the AS-OF-TRUNCATED population, never full history, so a backtest
+    reading this cannot see its own future. Buckets are the house 33/80
+    REPORTING cuts, same as the axes — never calibrated signals.
     """
     out: dict[str, dict] = {}
     for series_id, axis in {**MACRO_SERIES, **CBOE_SERIES}.items():
-        obs = latest_value(series_id, as_of=as_of, db_path=db_path)
-        if obs is not None:
-            out[series_id] = {"axis": axis, "date": obs[0], "value": obs[1]}
+        history = series_history(series_id, db_path=db_path)
+        rows = [(d, v) for d, v in history if as_of is None or d <= as_of]
+        if not rows:
+            continue
+        obs_date, value = rows[-1]
+        # Below the floor there is no percentile to report, and saying so beats
+        # reporting one. The Cboe series start from the day polling began, so on
+        # day 1 the naive answer is "100th percentile, bucket high" off a sample
+        # of ONE — which reads as an extreme when it means the opposite.
+        thin = len(rows) < _PCTILE_MIN_OBS
+        pctile = None if thin else _percentile([v for _, v in rows], value)
+        out[series_id] = {
+            "axis": axis,
+            "date": obs_date,
+            "value": value,
+            "pctile": pctile,
+            "bucket": None if pctile is None else _bucket(pctile),
+            "history_n": len(rows),
+        }
     return out

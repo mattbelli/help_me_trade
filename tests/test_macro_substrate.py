@@ -91,6 +91,30 @@ def test_backfill_reports_zero_for_empty_series(
     assert snap["VIXCLS"]["axis"] == "vol"
 
 
+def test_snapshot_refuses_a_percentile_it_cannot_support(macro_db: Path) -> None:
+    """Thin history reports pctile None, never a number.
+
+    One observation ranks at the 100th percentile of itself — arithmetically
+    true, and it reads as "extreme" to anything consuming it. The Cboe series
+    are forward-only, so day 1 is exactly this case.
+    """
+    upsert_macro([("VIX9D", "2026-08-11", 12.5)], db_path=macro_db)
+    thin = macro_snapshot(db_path=macro_db)["VIX9D"]
+    assert thin["history_n"] == 1
+    assert thin["pctile"] is None and thin["bucket"] is None
+    assert thin["value"] == 12.5  # the VALUE is still reported — only the rank is withheld
+
+    # Cross the floor and the rank appears.
+    upsert_macro(
+        [("VIX9D", f"2026-05-{d:02d}", float(d)) for d in range(1, 32)]
+        + [("VIX9D", f"2026-06-{d:02d}", float(d)) for d in range(1, 31)],
+        db_path=macro_db,
+    )
+    ranked = macro_snapshot(db_path=macro_db)["VIX9D"]
+    assert ranked["history_n"] >= 60
+    assert ranked["pctile"] is not None and ranked["bucket"] is not None
+
+
 def test_regime_report_discloses_reference_depth(macro_db: Path) -> None:
     _seed_axis_history(macro_db)
     report = regime_report(["2026-07-16"], db_path=macro_db)
