@@ -117,8 +117,17 @@ async def refresh_universe_bars(
             rows.append((sym, _bar_date(bar.time), float(bar.open), float(bar.close)))
 
     if missing:
+        # "absent", not "no data". The adapter chunks and is fail-soft per chunk,
+        # so a symbol lands here for two completely different reasons: it has no
+        # listing in the window, or its whole chunk failed. Calling both "no data"
+        # is what let a 97-symbol pagination truncation read as 97 delistings on
+        # 2026-08-11 — the symbols were fine, the request was not. The adapter
+        # logs "batch bars chunk failed" when it is the second kind; that line is
+        # the one to grep, and a run with BOTH lines has lost real data.
         logger.warning(
-            "Momentum bars refresh: no data for %d/%d symbols (sample: %s)",
+            "Momentum bars refresh: %d/%d symbols absent from the response — "
+            "no listing in the window, OR their chunk failed (grep 'chunk failed' "
+            "above to tell which) (sample: %s)",
             len(missing),
             len(symbols),
             ", ".join(missing[:5]),

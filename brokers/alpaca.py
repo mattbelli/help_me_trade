@@ -24,18 +24,56 @@ logger = logging.getLogger(__name__)
 _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
 _BARS_PAGE_LIMIT = 10000  # the `limit` sent on every bars request
-# Bars produced per SYMBOL per calendar day of the requested window. Calendar,
-# not trading, because callers ask in calendar days: ~252 sessions / 365 days,
-# and an RTH session is 6.5h.
+# Alpaca does NOT always fill a page to `limit` — measured 2026-08-11, a 40-symbol
+# 5Min request with limit=10000 handed back a token after 2,387 bars. So the real
+# budget is under the nominal one by an unknown amount, and a chunk sized to 98%
+# of nominal (which 503×1825d was: 50 of 50 pages, 491,370 bars) is one short page
+# away from raising and discarding the whole chunk. Size to 70%.
+_PAGE_BUDGET_SAFETY = 0.70
+# Bars per SYMBOL per CALENDAR day of the requested window (callers ask in
+# calendar days), ~252 sessions / 365 days.
+# ⚠️ Intraday counts are EXTENDED HOURS, not RTH. Alpaca returns 04:00-20:00 ET,
+# so a 5Min day is ~192 bars and not the 78 an RTH session implies — measured on
+# AAPL 2026-08-10: 191 actual vs 78 assumed. Using RTH numbers here under-counted
+# the budget by up to 2.5x on exactly the liquid names a batch asks about.
 _SESSIONS_PER_CALENDAR_DAY: dict[str, float] = {
     "1Day": 252 / 365,
     "1Week": 52 / 365,
     "1Month": 12 / 365,
-    "1Hour": (252 / 365) * 7,
-    "1H": (252 / 365) * 7,
-    "5Min": (252 / 365) * 78,
-    "1Min": (252 / 365) * 390,
+    "1Hour": (252 / 365) * 16,
+    "1H": (252 / 365) * 16,
+    "30Min": (252 / 365) * 32,
+    "15Min": (252 / 365) * 64,
+    "5Min": (252 / 365) * 192,
+    "1Min": (252 / 365) * 960,
 }
+# A timeframe we do not know is assumed to be the DENSEST one we do. Defaulting
+# to "1 bar per day" (the old fallback) resolved 15Min — a real Alpaca timeframe
+# used elsewhere in this repo — to a 500-symbol chunk needing ~8M bars against a
+# 500k budget. A dict miss must clamp LOW; over-chunking is the failure mode.
+_UNKNOWN_TIMEFRAME_BARS = max(_SESSIONS_PER_CALENDAR_DAY.values())
+
+
+def _raise_if_batch_capped(is_batch: bool, context: str) -> None:
+    """A capped BATCH is silently partial in the worst possible way: Alpaca fills
+    pages symbol-ALPHABETICALLY, so the tail of the alphabet vanishes and the
+    caller reports it as "no data for N symbols" — indistinguishable from those
+    tickers not existing. Measured 2026-08-11: a 503-symbol × 5-year request needs
+    ~627k bars against a 50 × 10,000 budget, and SHW/SJM/SLB/SMCI/SNA came back
+    empty while AAPL got all 1,253 sessions.
+
+    ⚠️ Raising is only a NET improvement because `_batch_chunk_size` makes capping
+    rare: a capped chunk now returns NOTHING rather than its alphabetical head, so
+    the loss is bigger when it happens. Both halves are required; neither alone is
+    a fix. Single-symbol paths keep warning — they lose the far end of one series,
+    which is noisy rather than wrong about which symbols exist.
+    """
+    if is_batch:
+        raise BrokerError(
+            f"Bar pagination capped at {_MAX_BAR_PAGES} pages for {context}"
+            " — batch result would be silently truncated; request fewer"
+            " symbols per chunk or a shorter window"
+        )
 
 
 def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
@@ -651,6 +689,7 @@ class AlpacaAdapter:
             if not page_token:
                 break
         else:
+            _raise_if_batch_capped(is_batch, context)
             logger.warning(
                 "Bar pagination capped at %d pages for %s",
                 _MAX_BAR_PAGES,
@@ -680,20 +719,7 @@ class AlpacaAdapter:
             if not page_token:
                 break
         else:
-            # A capped BATCH is silently partial in the worst possible way: the
-            # API fills pages symbol-alphabetically, so the tail of the alphabet
-            # simply vanishes and the caller reports it as "no data for N
-            # symbols" — indistinguishable from those tickers not existing.
-            # Measured 2026-08-11: a 503-symbol × 5-year request needs ~627k bars
-            # against a 50 × 10,000 budget, and SHW/SJM/SLB/SMCI/SNA came back
-            # empty while AAPL got all 1,253 sessions. Raising lets the per-chunk
-            # fail-soft in aget_stock_bars_batch treat it as the failure it is.
-            if is_batch:
-                raise BrokerError(
-                    f"Bar pagination capped at {_MAX_BAR_PAGES} pages for {context}"
-                    " — batch result would be silently truncated; request fewer"
-                    " symbols per chunk or a shorter window"
-                )
+            _raise_if_batch_capped(is_batch, context)
             logger.warning(
                 "Bar pagination capped at %d pages for %s",
                 _MAX_BAR_PAGES,
@@ -1083,11 +1109,19 @@ class AlpacaAdapter:
         window the fewer symbols fit. A 503-symbol × 5-year daily request needs
         ~627k bars against a 500k budget — measured 2026-08-11, and it dropped
         the alphabetical tail without erroring.
+
+        ⚠️ Returns 1 when even ONE symbol's own history exceeds the budget (e.g.
+        1Min over ~5 years). That request will still cap and now raises rather
+        than truncating — the floor cannot conjure headroom that does not exist,
+        so the caller has to ask for a shorter window. `_batch_chunk_size` sizes
+        requests; it does not make impossible ones possible.
         """
-        per_symbol = days * _SESSIONS_PER_CALENDAR_DAY.get(timeframe, 1.0)
+        per_symbol = days * _SESSIONS_PER_CALENDAR_DAY.get(
+            timeframe, _UNKNOWN_TIMEFRAME_BARS
+        )
         if per_symbol <= 0:
             return cls._BATCH_BARS_CHUNK
-        budget = int(_MAX_BAR_PAGES * _BARS_PAGE_LIMIT / per_symbol)
+        budget = int(_MAX_BAR_PAGES * _BARS_PAGE_LIMIT * _PAGE_BUDGET_SAFETY / per_symbol)
         return max(1, min(cls._BATCH_BARS_CHUNK, budget))
     _EXT_QUOTES_CHUNK = 200
 
