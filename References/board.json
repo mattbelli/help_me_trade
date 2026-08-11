@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 301,
+   "id": "log-key-redaction",
+   "title": "Vendor API keys were written to the journal in plaintext on every call (Finnhub 630x/2d, FRED, Alpha Vantage)",
+   "lane": "done",
+   "type": "ops",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-11",
+   "notes": "Found 2026-08-11 while identifying mattpc's hmt_av_earnings_daily task — the AV key was visible in a journal line. Swept all 5 hmt-* units: ONLY hmt-backend leaks (collectors use header auth, so clean). Measured over 2 days: finnhub.io token 630x (len 40), api.stlouisfed.org api_key 12x (len 32), alphavantage.co apikey 4x (len 16). Alpaca's 9,242x page_token is a PAGINATION CURSOR, not a credential — deliberately left in the clear, it is useful for debugging paging.\n\nFIX: config/log_redaction.py — RedactingFormatter + install_log_redaction(fmt), wired at api/main.py's basicConfig.\n\nWHY A FORMATTER AND NOT `getLogger('httpx').setLevel(WARNING)` (the obvious one-liner, and the pattern already used in 2 tools): MEASURED that silencing INFO does NOT close the leak — httpx.HTTPStatusError renders the full URL in its own message, so a vendor 401 spills the key at WARNING/ERROR, i.e. exactly when someone is reading the log. Verified by constructing a 401: `'SUPERSECRET' in str(e)` is True. Formatting is also the only layer that covers rendered tracebacks (signals/alphavantage.py:62 and the finnhub path both log exc_info=True).\n\nRegex requires the value to directly follow ? or & (lookbehind), which is what spares page_token while still catching Finnhub's bare token=. tests/test_log_redaction.py: 5 tests incl. the traceback case and a negative test pinning page_token in the clear. End-to-end verified by importing api.main and emitting the real leaking line -> token=REDACTED.\n\n⚠️ FOUNDER: the 3 keys are already in the journal history and in any log export/backup taken since; redaction only stops NEW lines. Rotating Finnhub/FRED/AlphaVantage is his call — all 3 are low-value read-only data keys, no broker credentials involved (Alpaca/Schwab auth via headers, never logged)."
+  },
+  {
    "num": 300,
    "id": "off-box-pull-watchdog",
    "title": "Off-box backup pull: 47.8 GB re-copied nightly for 4.4 GB of new data, and nothing watched the leg (Fable 07-06 MEDIUM-5)",
