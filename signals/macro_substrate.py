@@ -107,7 +107,19 @@ CBOE_SERIES: dict[str, str] = {
     # is trustworthy in a way a single number never is.
     "COR1M": "correlation",
     "COR3M": "correlation",
+    # What the market pays for crash protection, from the shape of the SPX put
+    # skew. Publishes ONCE at settle, so open==high==low==last by design — that
+    # is not a frozen feed, and prev_day_close differs day to day (137.13 -> 135.59
+    # on 08-11). Typical range is roughly 110-145.
+    "SKEW": "tail_risk",
 }
+# ⚠️ DELIBERATELY NOT COLLECTED — checked 2026-08-11, do not "fix" by adding them.
+# `_VXTLT` (bond vol) and `_VXEEM` (EM vol) both serve current_price EXACTLY equal
+# to prev_day_close while simultaneously reporting a real intraday range
+# (VXEEM: open 34.52, low 28.01, "current" 29.03 == yesterday's close). Two exact
+# matches on the same day is not coincidence, and their timestamps carry a
+# different timezone offset and stop ~16:02 ET rather than at the settle. Until
+# that is understood they would ship a wrong LEVEL wearing a confident percentile.
 CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
 
 # FRED release id -> label. Scheduled events the tape actually reprices on, which
