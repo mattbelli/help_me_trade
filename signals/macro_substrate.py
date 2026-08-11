@@ -25,6 +25,7 @@ bars the flow study already holds; a licensed FRED equity series adds nothing.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 from datetime import date, timedelta
 from pathlib import Path
@@ -72,9 +73,15 @@ MACRO_SERIES: dict[str, str] = {
     "OVXCLS": "vol_cross",  # crude oil
     "GVZCLS": "vol_cross",  # gold
     # --- funding / plumbing ---------------------------------------------------
-    # The channel credit spreads MISS. Sept 2019 and March 2020 both showed here
-    # days before equities cared: SOFR pulling above what the Fed pays on reserves
-    # means someone is paying up for overnight cash.
+    # The channel credit spreads MISS: SOFR pulling UP toward (or above) what the
+    # Fed pays on reserves means someone is paying up for overnight cash.
+    # ⚠️ HONESTY FENCE — this axis CANNOT speak to Sept 2019 or March 2020, and an
+    # earlier version of this comment wrongly claimed it could. `IORB` begins
+    # 2021-07-29, so the reference window is entirely post-RRP; its median is
+    # about -0.09 and the resting ample-reserves state is a small NEGATIVE gap.
+    # A "high" bucket here therefore means "firm relative to the last four
+    # years", NOT "2019-style funding stress". FRED's pre-2021 equivalent is
+    # IOER, which is a different series and is not collected.
     "SOFR": "funding",
     "IORB": "funding",
     "RRPONTSYD": "funding",  # overnight reverse repo — cash with nowhere to go
@@ -143,25 +150,45 @@ def _fetch_rows(
 
 
 def _fetch_cboe(index: str) -> list[tuple[str, str, float]]:
-    """One Cboe index snapshot -> a single row. The payload's own ``last_trade_time``
-    supplies the date: it is ET, the box clock is UTC, and after 20:00 UTC those
-    disagree — dating a session by the box would file the close under tomorrow."""
+    """One Cboe index snapshot -> a single row, or [] if the payload is not usable.
+
+    The payload's own ``last_trade_time`` supplies the date: it is ET, the box
+    clock is UTC, and after 20:00 UTC those disagree — dating a session by the
+    box would file the close under tomorrow. A STALE timestamp is harmless (it
+    rewrites the prior session's own value under the prior date — idempotent).
+
+    Both validations below are load-bearing, not defensive noise. These four
+    series are forward-only with no backfill, so a bad row is permanent:
+      - a null/garbage ``last_trade_time`` used to slice to the literal string
+        ``'None'``, which sorts AFTER every real ISO date, so it became the
+        series' latest observation forever while `_as_of` threw it out — the two
+        surfaces then disagreed about the same series.
+      - Cboe emits ``0.0`` placeholders freely elsewhere in this payload
+        (``bid``/``ask``/``iv30``), and a volatility index is never 0 or negative.
+    """
     resp = httpx.get(CBOE_QUOTE_URL.format(index), timeout=_CBOE_TIMEOUT)
     resp.raise_for_status()
     payload = resp.json()["data"]
-    return [(index, str(payload["last_trade_time"])[:10],
-             float(payload["current_price"]))]
+    obs_date = str(payload.get("last_trade_time") or "")[:10]
+    try:
+        date.fromisoformat(obs_date)
+        value = float(payload["current_price"])
+    except (TypeError, ValueError):
+        logger.warning("%s: unusable Cboe payload %r", index, payload)
+        return []
+    if value <= 0.0:
+        logger.warning("%s: Cboe returned a non-positive level %r", index, value)
+        return []
+    return [(index, obs_date, value)]
 
 
 def refresh_cboe_curve(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[str, int]:
     """Snapshot the Cboe vol curve into the store. Fail-soft per index.
 
-    Called from two places on purpose. The backend's daily loop keeps today's row
-    LIVE during the session (an agent asking "what is vol doing right now" gets a
-    real answer); a close-time cron then overwrites it with the settle, because
-    the percentile these feed is computed against FRED CLOSING history and an
-    11am reading is not comparable to a close. Upsert semantics make the last
-    write of the day win, so ordering is the only thing that matters, not count.
+    Two callers by design: the daily loop keeps today's row live intraday, and a
+    close-time cron overwrites it with the settle — these percentiles rank against
+    FRED CLOSING history, so an 11am reading is not comparable to a close. Upsert,
+    so only the ORDER of the two writes matters, never the count.
     """
     out: dict[str, int] = {}
     for index in CBOE_SERIES:
@@ -211,7 +238,12 @@ def backfill_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[s
 
 
 def _percentile(history: list[float], value: float) -> float:
-    """Percent of history at or below ``value`` — self-relative, like volatility.py."""
+    """Percent of history at or BELOW-OR-EQUAL ``value`` — self-relative, like
+    volatility.py. The tie convention is not neutral on step-function series: a
+    policy rate like IORB sits at its current level for hundreds of sessions, so
+    ties inflate the rank (IORB at 3.65 reads 38.4 counting ties, 25.1 counting
+    strictly-below — opposite sides of the 33.0 bucket cut). Kept for consistency
+    with the house definition; read a policy-rate percentile with that in mind."""
     if not history:
         return 0.0
     below = sum(1 for v in history if v <= value)
@@ -246,16 +278,24 @@ def regime_report(
     """Regime composition over a set of session dates — the prereg deliverable.
 
     Per axis: each date's as-of value (≤ REPORT_STALE_DAYS old, else counted
-    ``missing`` — never silently dropped), its percentile against the axis's own
-    FULL stored history, and the 33/80 bucket. ``composition`` is the bucket
-    count the study prints next to every result."""
+    ``missing`` — never silently dropped), its percentile, and the 33/80 bucket.
+    ``composition`` is the bucket count the study prints next to every result.
+
+    The percentile population is **truncated at the session being reported**, and
+    thin populations report no rank at all (``unranked``) rather than a number.
+    Both rules match ``macro_snapshot``; before 2026-08-11 this function had
+    neither. ``signals/dossier.py`` calls this per BACKDATED episode day, so a
+    full-history percentile stamped a historical session with a bucket computed
+    from its own future — measured bucket flips, e.g. credit on 2024-04-16 read
+    ``mid`` on full history and ``low`` on what was actually known that day.
+    That is the claim-matrix inversion in another costume."""
     report: dict = {"dates": len(dates), "axes": {}}
     for axis, axis_series in REPORT_AXES.items():
         history = _axis_history(axis_series, db_path)
         ordered_dates = sorted(history)
         values = [history[d] for d in ordered_dates]
         per_date: dict[str, dict] = {}
-        composition = {"low": 0, "mid": 0, "high": 0, "missing": 0}
+        composition = {"low": 0, "mid": 0, "high": 0, "unranked": 0, "missing": 0}
         for session in dates:
             used = _as_of(ordered_dates, session)
             if used is None:
@@ -263,14 +303,20 @@ def regime_report(
                 per_date[session] = {"value": None, "date_used": None}
                 continue
             value = history[used]
-            pctile = _percentile(values, value)
-            bucket = _bucket(pctile)
-            composition[bucket] += 1
+            known = values[: bisect.bisect_right(ordered_dates, used)]
+            pctile = (
+                _percentile(known, value) if len(known) >= _PCTILE_MIN_OBS else None
+            )
+            bucket = None if pctile is None else _bucket(pctile)
+            composition["unranked" if bucket is None else bucket] += 1
             per_date[session] = {
                 "value": value,
                 "date_used": used,
                 "pctile": pctile,
                 "bucket": bucket,
+                # The population this rank was actually computed against, not the
+                # store's total — the two differ for every backdated session.
+                "ranked_against": len(known),
             }
         report["axes"][axis] = {
             "series": axis_series,
@@ -289,8 +335,6 @@ def regime_report(
 
 def _as_of(ordered_dates: list[str], session: str) -> str | None:
     """Latest history date ≤ session and within REPORT_STALE_DAYS, else None."""
-    import bisect
-
     idx = bisect.bisect_right(ordered_dates, session)
     if idx == 0:
         return None
@@ -309,37 +353,34 @@ def macro_snapshot(
 ) -> dict[str, dict]:
     """Latest value per stored series, each WITH its own percentile and bucket.
 
-    Walks BOTH source dicts: a series stored but absent from this snapshot is
-    invisible to every agent surface, which is the failure this section exists
-    to stop.
-
-    The percentile is not decoration. Six series used to arrive here as bare
-    numbers (the four cross-asset vols, plus inflation and real_yield, which
-    have no REPORT_AXES entry) — and a bare "OVXCLS 56.06" is unreasonable-about
-    for a reader with no sense of that series' range. Percentile is computed
-    against the AS-OF-TRUNCATED population, never full history, so a backtest
-    reading this cannot see its own future. Buckets are the house 33/80
-    REPORTING cuts, same as the axes — never calibrated signals.
+    Walks BOTH source dicts — a series stored but absent here is invisible to
+    every agent surface, the failure this section exists to stop. Every series is
+    ranked because a bare "OVXCLS 56.06" is unreasonable-about; the ranking
+    population is AS-OF TRUNCATED, so a backtest reading this cannot see its own
+    future, and the buckets are the house 33/80 REPORTING cuts, never signals.
     """
     out: dict[str, dict] = {}
     for series_id, axis in {**MACRO_SERIES, **CBOE_SERIES}.items():
-        history = series_history(series_id, db_path=db_path)
-        rows = [(d, v) for d, v in history if as_of is None or d <= as_of]
+        rows = [(d, v) for d, v in series_history(series_id, db_path=db_path)
+                if as_of is None or d <= as_of]
         if not rows:
             continue
-        obs_date, value = rows[-1]
-        # Below the floor there is no percentile to report, and saying so beats
-        # reporting one. The Cboe series start from the day polling began, so on
-        # day 1 the naive answer is "100th percentile, bucket high" off a sample
-        # of ONE — which reads as an extreme when it means the opposite.
-        thin = len(rows) < _PCTILE_MIN_OBS
-        pctile = None if thin else _percentile([v for _, v in rows], value)
+        values = [v for _, v in rows]
+        # Thin history withholds the rank — see _PCTILE_MIN_OBS for why.
+        pctile = (
+            _percentile(values, values[-1]) if len(rows) >= _PCTILE_MIN_OBS else None
+        )
         out[series_id] = {
             "axis": axis,
-            "date": obs_date,
-            "value": value,
+            "date": rows[-1][0],
+            "value": values[-1],
             "pctile": pctile,
             "bucket": None if pctile is None else _bucket(pctile),
             "history_n": len(rows),
+            # Depth without a START DATE is not disclosure: DGS1MO at 80th
+            # ("high") and DGS3MO at 50th ("mid") are the same ~3.8% rate ranked
+            # against windows beginning 2001 and 1981. The reader cannot see that
+            # without this field, and the block's own note tells them to look.
+            "history_since": rows[0][0],
         }
     return out

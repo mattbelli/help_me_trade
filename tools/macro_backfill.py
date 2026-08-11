@@ -1,8 +1,14 @@
-"""One-shot full-history backfill of the macro regime substrate (data/macro.db).
+"""Full-history backfill of the macro regime substrate (data/macro.db).
 
-Keyless fredgraph.csv, sequential, ~16 requests total. Rerunnable — upserts.
+Keyless fredgraph.csv, sequential, one request per FRED series. Rerunnable — upserts.
 
-    .venv/bin/python tools/macro_backfill.py
+    .venv/bin/python tools/macro_backfill.py         # full FRED backfill
+    .venv/bin/python tools/macro_backfill.py --cboe  # Cboe vol-curve snapshot (the cron)
+
+`--cboe` exits NONZERO if any index failed, so the crontab line must post to the
+ntfy dead-man topic on failure. Without that these four series can freeze forever
+and the only symptom is `pctile: null` — indistinguishable from the expected state
+while a forward-only series is still accumulating toward its 60-observation floor.
 """
 
 from __future__ import annotations

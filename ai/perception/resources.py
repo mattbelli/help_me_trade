@@ -511,37 +511,51 @@ def _macro_block() -> dict[str, Any] | None:
     percentile is shallow-by-construction and must say so. Buckets are the
     house 33/80 REPORTING cuts, never calibrated signals.
     """
-    from datetime import date as _date
+    from datetime import datetime as _datetime
 
     from signals.macro_substrate import macro_snapshot, regime_report
+    from trading.market_hours import _ET
 
-    today = _date.today().isoformat()
+    # ET, not the box clock — serv runs UTC, so between 00:00 and 04:00 UTC
+    # `date.today()` is already tomorrow in New York terms and shifts the whole
+    # staleness window by a day. Same trap `_fetch_cboe` documents.
+    today = _datetime.now(_ET).date().isoformat()
     report = regime_report([today])
     axes: dict[str, Any] = {}
     for axis, block in report.get("axes", {}).items():
         observed = block.get("per_date", {}).get(today) or {}
-        if observed.get("value") is None:
-            continue
+        # Stale axes are STATED, never dropped — the contract signals/dossier.py
+        # already claims for this same data. Dropping them used to empty `axes`,
+        # and an empty `axes` returned None for the whole block, which silently
+        # took the 29-series snapshot with it even though every series still had
+        # data. A FRED publication halt over a week (a shutdown does exactly
+        # this) removed the entire macro surface from the agent's view.
         axes[axis] = {
             "series": block.get("series"),
-            "value": observed["value"],
+            "value": observed.get("value"),
             "as_of": observed.get("date_used"),
             "pctile": observed.get("pctile"),
             "bucket": observed.get("bucket"),
+            "ranked_against": observed.get("ranked_against"),
             "history_n": (block.get("history") or {}).get("n"),
             "history_since": (block.get("history") or {}).get("first"),
         }
-    if not axes:
+    series = macro_snapshot()
+    if not axes and not series:
         return None
     return {
         "axes": axes,
         # The raw latest observation per stored series — the whole curve, so a
         # reader can build any spread rather than only the ones we picked.
-        "series": macro_snapshot(),
+        "series": series,
         "note": (
-            "percentiles are self-relative against this store's own history "
-            "(see history_since — credit is vendor-truncated to a rolling "
-            "window); reporting context, not a calibrated signal"
+            "percentiles are self-relative against this store's own history and "
+            "TRUNCATED at the reported date (see history_since / ranked_against "
+            "— windows differ per series, and credit is vendor-truncated to a "
+            "rolling window, so its percentile contains neither 2008 nor 2020); "
+            "a null pctile means too little history to rank, not zero; an axis "
+            "with a null value is stale, not absent; reporting context, never a "
+            "calibrated signal"
         ),
     }
 
@@ -570,6 +584,11 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
         values = [val for _, val in vix_hist]
         at_or_below = sum(1 for val in values if val <= vix)
         row["vix_percentile"] = round(100 * at_or_below / len(values), 1)
+        # Name the window. This field and `macro.axes.vol.pctile` rank the SAME
+        # VIX and disagree by ~26 points (8.5 vs 35.0 today) purely because this
+        # one looks back a year and that one to 1990. An unlabelled percentile
+        # sitting next to a labelled one reads as a contradiction.
+        row["vix_percentile_window"] = f"{len(values)}d trailing"
     # Fail-soft: term_spread + VIX are the contract; the substrate is enrichment
     # and its own store being absent must never sink the regime read.
     try:
@@ -1337,20 +1356,20 @@ RESOURCES: dict[str, dict[str, Any]] = {
     "market": {
         "description": (
             "Current market regime (yield-curve term spread + VIX) — condition "
-            "every trade idea on it. Includes a `macro` block with SIX axes, "
-            "each carrying a self-relative percentile and low/mid/high bucket: "
-            "vol (VIX), vol_term (VIX minus VIX3M — POSITIVE means the curve is "
-            "inverted, i.e. stress priced now rather than someday), credit (HY "
-            "OAS), funding (SOFR minus IORB — the gap, not the level, is what "
-            "says someone is scrambling for overnight cash; the channel credit "
-            "spreads structurally miss), curve (10y-2y) and dollar. The raw "
-            "`series` block adds the full Treasury curve, IG OAS, the 10y real "
-            "yield, breakevens, cross-asset vol (Nasdaq/Russell/oil/gold) and "
-            "the near end of the vol curve (VIX1D/VIX9D/VIX6M/VVIX), so any "
-            "spread can be built rather than only the six we picked — every "
-            "series there carries its own percentile and bucket too, and a "
-            "series with too little history to rank says `pctile: null` rather "
-            "than inventing one."
+            "every trade idea on it. The `macro` block carries six axes — vol, "
+            "vol_term (VIX minus VIX3M; POSITIVE = inverted = stress priced now, "
+            "not someday), credit (HY OAS), funding (SOFR minus IORB; the GAP, "
+            "not the level — the resting ample-reserves state is a small "
+            "NEGATIVE gap, so a rising gap means funding firming, and because "
+            "this window starts 2021 a `high` bucket means firm-vs-recent-years, "
+            "never 2019-style stress), curve (10y-2y), dollar — and `series` "
+            "carries all 29 raw series (full Treasury curve, IG OAS, real yield, "
+            "breakevens, cross-asset vol, VIX1D/9D/6M/VVIX) so any spread can be "
+            "built. Every entry in both has a self-relative percentile + bucket "
+            "ranked against history TRUNCATED at the reported date; check "
+            "`history_since` before comparing two series, since their windows "
+            "differ. Too little history to rank says `pctile: null` rather than "
+            "inventing one, and a null `value` means stale, not absent."
         ),
         "filters": {},
         "read": _read_market,

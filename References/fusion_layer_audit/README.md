@@ -236,7 +236,8 @@ and the `MAX()` latch, and report its firing rate.
 
 #### Section 1 — Round A SHIPPED 2026-08-11 (card #302)
 
-**What the substrate carries now: 25 series, 6 report axes, all six at 100% coverage over 250 sessions.**
+**What the substrate carries now: 29 series (25 FRED + 4 Cboe), 6 report axes, all six at 100%
+coverage over 250 sessions.**
 Round A widened the substrate and wired it; the dot consolidation and the dead `market_shock` arm are
 Round B and are NOT done.
 
@@ -260,7 +261,7 @@ vol** (`VXNCLS`/`RVXCLS`/`OVXCLS`/`GVZCLS` — where the fear actually is, invis
 founder's "credit was the last war" point made measurable). 34,485 rows of deep history backfilled.
 
 Verified reachable on **both** agent surfaces, not assumed: `tools/perception_query.py query market`
-returns all 14 new fields in a 5,757-byte payload. `_axis_history` now takes any `A-B` spread instead of
+returns all 14 new fields. `_axis_history` now takes any `A-B` spread instead of
 special-casing the curve, and `macro_snapshot` walks both source dicts — a series stored but absent from
 the snapshot is invisible to every agent, which is the exact failure this section exists to stop.
 
@@ -275,7 +276,42 @@ entry); and — the worst of them — once percentiles were attached, `VIX9D` re
 bucket high" off a sample of one**, arithmetically true and a lie in ordinary reading. `macro_snapshot`
 now ranks every series against its own as-of-truncated history and reports `pctile: null` below a
 60-observation floor. Final state: **29 series reach the headless agent, 25 ranked, 4 honestly
-withholding a rank they cannot support, 0 bare — in a 4,825-byte payload.**
+withholding a rank they cannot support, 0 bare.** Payload 6,110 bytes as the resource returns it
+(the headless CLI pretty-prints, so the number against `_RESULT_CHAR_CAP = 20_000` is larger — quote
+one or the other, never both as if they were the same measurement).
+
+#### ★ Two independent Opus reviews, split mandates (2026-08-11) — 6 MAJOR, all fixed
+
+Commissioned by the founder *because the author of the code cannot be its reviewer*. Correctness and
+simplicity were given to separate agents so neither could inherit the other's blind spot. **Two claims
+made to the founder were refuted:**
+
+1. **"No lookahead" was FALSE where it mattered.** `macro_snapshot` truncated as-of; `regime_report` —
+   the surface `signals/dossier.py` backdates per episode — ranked every historical session against
+   the store's FULL history. Measured bucket flips: credit 2024-04-16 `mid`→`low`, funding `mid`→`high`,
+   vol_term 2022-10-20 `high`→`mid`. **This is the `dossier-claim-matrix-inverted` defect in another
+   costume.** Fixed; all four of the reviewer's counterexamples now reproduce its truncated column.
+2. **The funding axis's stated rationale was impossible.** The comment claimed it would have caught
+   Sept 2019 and March 2020; `IORB` begins **2021-07-29**, so neither event is in its window or ever
+   can be. Worse, `-0.02` is the *resting* ample-reserves state and it was bucketing **"high" on 217 of
+   250 sessions**. Axis kept (the gap vs its own recent history is real information), rationale
+   corrected, and the manifest now tells the agent `high` here means firm-vs-recent-years, not stress.
+
+Also fixed: the 60-obs floor guarded only `macro_snapshot`, so one payload could carry
+`axes.vol.pctile=100` above `series.VIXCLS.pctile=null` — **live-reachable on any box where the backend
+loop ran but the backfill did not, which is every fresh deploy since `data/` is gitignored**; a null or
+garbage `last_trade_time` sliced to the literal string `'None'`, which sorts AFTER every ISO date and
+so became a forward-only series' permanent "latest" row; no sanity check on the Cboe level at all
+(`0.0` written straight through, and Cboe emits `0.0` placeholders elsewhere in the same payload); a
+>7-day-stale store returned `None` for the whole block, **discarding 29 live series** because six axes
+were stale; and the Cboe cron was the only data cron on the box with no ntfy dead-man — a silent freeze
+is indistinguishable from "still accumulating history" for three months.
+
+Flagged and NOT fixed (recorded so they are not rediscovered): the `<=` tie convention inflates ranks
+on step-function series (IORB reads 38.4 with ties, 25.1 strictly-below — opposite sides of the bucket
+cut; documented at `_percentile`); an intraday Cboe row carries no settle-vs-live marker until the cron
+corrects it; and three axes are duplicated between the `axes` and `series` blocks (~1.1KB), which every
+proposed fix made worse.
 
 **Open, deliberately:** (1) no UI surface renders these axes — founder's call where it lands, and
 **no new widget**; (2) Round B is the dot consolidation itself + the dead `market_shock` VIX arm + the

@@ -6,6 +6,7 @@ No network anywhere: fetches are monkeypatched; the report runs on seeded histor
 from __future__ import annotations
 
 import asyncio
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -92,47 +93,81 @@ def test_backfill_reports_zero_for_empty_series(
 
 
 def test_snapshot_refuses_a_percentile_it_cannot_support(macro_db: Path) -> None:
-    """Thin history reports pctile None, never a number.
-
-    One observation ranks at the 100th percentile of itself — arithmetically
-    true, and it reads as "extreme" to anything consuming it. The Cboe series
-    are forward-only, so day 1 is exactly this case.
-    """
+    """One observation ranks at the 100th percentile of itself — arithmetically
+    true, and it reads as "extreme" to anything consuming it. The Cboe series are
+    forward-only, so day 1 is exactly this case."""
     upsert_macro([("VIX9D", "2026-08-11", 12.5)], db_path=macro_db)
     thin = macro_snapshot(db_path=macro_db)["VIX9D"]
-    assert thin["history_n"] == 1
-    assert thin["pctile"] is None and thin["bucket"] is None
-    assert thin["value"] == 12.5  # the VALUE is still reported — only the rank is withheld
+    assert (thin["history_n"], thin["pctile"], thin["bucket"]) == (1, None, None)
+    assert thin["value"] == 12.5  # the value still reports; only the rank is withheld
 
     # Cross the floor and the rank appears.
     upsert_macro(
-        [("VIX9D", f"2026-05-{d:02d}", float(d)) for d in range(1, 32)]
-        + [("VIX9D", f"2026-06-{d:02d}", float(d)) for d in range(1, 31)],
+        [("VIX9D", f"2026-{m:02d}-{d:02d}", float(d)) for m in (5, 6) for d in range(1, 31)],
         db_path=macro_db,
     )
     ranked = macro_snapshot(db_path=macro_db)["VIX9D"]
-    assert ranked["history_n"] >= 60
     assert ranked["pctile"] is not None and ranked["bucket"] is not None
+
+
+def test_regime_report_ranks_only_against_the_past(macro_db: Path) -> None:
+    """The dossier backdates this call per episode. Ranking a 2020 session against
+    2026 data stamps it with a bucket computed from its own future — the same
+    defect class as the claim-matrix inversion."""
+    # A monotonically rising series spanning well past the ranking floor.
+    start = date(2026, 1, 1)
+    upsert_macro(
+        [("VIXCLS", (start + timedelta(days=i)).isoformat(), 10.0 + i)
+         for i in range(200)],
+        db_path=macro_db,
+    )
+    mid_day = (start + timedelta(days=120)).isoformat()
+    last_day = (start + timedelta(days=199)).isoformat()
+    early = regime_report([mid_day], db_path=macro_db)["axes"]["vol"]
+    late = regime_report([last_day], db_path=macro_db)["axes"]["vol"]
+    e, latest = early["per_date"][mid_day], late["per_date"][last_day]
+    # Mid-series on a monotonically rising series is the TOP of what was known
+    # then. Full-history ranking would have put it near the middle instead.
+    assert e["pctile"] == 100.0 and e["bucket"] == "high"
+    assert e["ranked_against"] < latest["ranked_against"]
+
+
+def test_regime_report_withholds_a_rank_it_cannot_support(macro_db: Path) -> None:
+    """The floor guards this surface too — it used to guard only macro_snapshot,
+    so one payload could carry axes.vol pctile=100 above series.VIXCLS pctile=null."""
+    upsert_macro([("VIXCLS", "2026-08-10", 15.46)], db_path=macro_db)
+    vol = regime_report(["2026-08-10"], db_path=macro_db)["axes"]["vol"]
+    observed = vol["per_date"]["2026-08-10"]
+    assert observed["value"] == 15.46  # value still stated
+    assert observed["pctile"] is None and observed["bucket"] is None
+    assert vol["composition"]["unranked"] == 1
 
 
 def test_regime_report_discloses_reference_depth(macro_db: Path) -> None:
     _seed_axis_history(macro_db)
     report = regime_report(["2026-07-16"], db_path=macro_db)
     hist = report["axes"]["vol"]["history"]
-    assert hist == {"n": 10, "first": "2026-07-07", "last": "2026-07-16"}
+    assert hist == {"n": _SEED_N, "first": "2026-05-18", "last": "2026-07-16"}
+
+
+_SEED_N = 60  # _PCTILE_MIN_OBS — below it regime_report withholds the rank
 
 
 def _seed_axis_history(db: Path) -> None:
-    # 10 sessions of history per axis; the last date is the extreme so the
-    # percentile of the final session is deterministic.
+    # _SEED_N sessions per axis ending 2026-07-16; the last date is the extreme
+    # so the final session's percentile is deterministic. The count is the floor,
+    # not a round number: one row fewer and every percentile below is None.
+    start = date(2026, 7, 16) - timedelta(days=_SEED_N - 1)
     rows: list[tuple[str, str, float]] = []
-    for i in range(1, 11):
-        d = f"2026-07-{i + 6:02d}"  # 07-07 .. 07-16
-        rows.append(("VIXCLS", d, 15.0 + i))  # rises to 25.0
-        rows.append(("BAMLH0A0HYM2", d, 3.0 + 0.1 * i))
-        rows.append(("DTWEXBGS", d, 120.0 - i))  # falls to 110.0
+    for i in range(1, _SEED_N + 1):
+        d = (start + timedelta(days=i - 1)).isoformat()
+        # Endpoints match the original 10-session seed so the assertions below
+        # still describe the same series; only the sample count changed.
+        rows.append(("VIXCLS", d, 15.0 + 10.0 * i / _SEED_N))  # rises to 25.0
+        rows.append(("BAMLH0A0HYM2", d, 3.0 + 1.0 * i / _SEED_N))  # rises to 4.0
+        rows.append(("DTWEXBGS", d, 120.0 - 10.0 * i / _SEED_N))  # falls to 110.0
         rows.append(("DGS2", d, 4.0))
-        rows.append(("DGS10", d, 4.0 + 0.05 * i))  # spread rises to +0.5
+        rows.append(("DGS10", d, 4.0 + 0.5 * i / _SEED_N))  # spread rises to +0.5
     upsert_macro(rows, db_path=db)
 
 
@@ -143,7 +178,9 @@ def test_regime_report_composition_and_percentiles(macro_db: Path) -> None:
     assert vol["per_date"]["2026-07-16"]["value"] == 25.0
     assert vol["per_date"]["2026-07-16"]["pctile"] == 100.0
     assert vol["per_date"]["2026-07-16"]["bucket"] == "high"
-    assert vol["composition"] == {"low": 0, "mid": 0, "high": 1, "missing": 0}
+    assert vol["composition"] == {
+        "low": 0, "mid": 0, "high": 1, "unranked": 0, "missing": 0,
+    }
     dollar = report["axes"]["dollar"]
     assert dollar["per_date"]["2026-07-16"]["value"] == 110.0
     assert dollar["per_date"]["2026-07-16"]["bucket"] == "low"
