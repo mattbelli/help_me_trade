@@ -23,6 +23,19 @@ logger = logging.getLogger(__name__)
 
 _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
+_BARS_PAGE_LIMIT = 10000  # the `limit` sent on every bars request
+# Bars produced per SYMBOL per calendar day of the requested window. Calendar,
+# not trading, because callers ask in calendar days: ~252 sessions / 365 days,
+# and an RTH session is 6.5h.
+_SESSIONS_PER_CALENDAR_DAY: dict[str, float] = {
+    "1Day": 252 / 365,
+    "1Week": 52 / 365,
+    "1Month": 12 / 365,
+    "1Hour": (252 / 365) * 7,
+    "1H": (252 / 365) * 7,
+    "5Min": (252 / 365) * 78,
+    "1Min": (252 / 365) * 390,
+}
 
 
 def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
@@ -667,6 +680,20 @@ class AlpacaAdapter:
             if not page_token:
                 break
         else:
+            # A capped BATCH is silently partial in the worst possible way: the
+            # API fills pages symbol-alphabetically, so the tail of the alphabet
+            # simply vanishes and the caller reports it as "no data for N
+            # symbols" — indistinguishable from those tickers not existing.
+            # Measured 2026-08-11: a 503-symbol × 5-year request needs ~627k bars
+            # against a 50 × 10,000 budget, and SHW/SJM/SLB/SMCI/SNA came back
+            # empty while AAPL got all 1,253 sessions. Raising lets the per-chunk
+            # fail-soft in aget_stock_bars_batch treat it as the failure it is.
+            if is_batch:
+                raise BrokerError(
+                    f"Bar pagination capped at {_MAX_BAR_PAGES} pages for {context}"
+                    " — batch result would be silently truncated; request fewer"
+                    " symbols per chunk or a shorter window"
+                )
             logger.warning(
                 "Bar pagination capped at %d pages for %s",
                 _MAX_BAR_PAGES,
@@ -986,8 +1013,9 @@ class AlpacaAdapter:
             return {}
 
         merged: dict[str, list] = {}
-        for start in range(0, len(cleaned), self._BATCH_BARS_CHUNK):
-            chunk = cleaned[start : start + self._BATCH_BARS_CHUNK]
+        size = self._batch_chunk_size(timeframe=timeframe, days=days)
+        for start in range(0, len(cleaned), size):
+            chunk = cleaned[start : start + size]
             # Fail-soft per chunk (same contract as aget_day_volumes): one slow
             # chunk must not discard the rest of the sweep — absent symbols
             # simply retry on the caller's next pass.
@@ -1020,8 +1048,9 @@ class AlpacaAdapter:
             return {}
 
         merged: dict[str, list] = {}
-        for start in range(0, len(cleaned), self._BATCH_BARS_CHUNK):
-            chunk = cleaned[start : start + self._BATCH_BARS_CHUNK]
+        size = self._batch_chunk_size(timeframe=timeframe, days=days)
+        for start in range(0, len(cleaned), size):
+            chunk = cleaned[start : start + size]
             # Fail-soft per chunk (same contract as aget_day_volumes): one slow
             # chunk must not discard the rest of the sweep — absent symbols
             # simply retry on the caller's next pass.
@@ -1043,6 +1072,23 @@ class AlpacaAdapter:
     # httpx caps any one URL component at 65,536 chars; the fusion universe
     # (~9.8K symbols, commas URL-encoded to %2C) measures ~77KB in one query.
     _BATCH_BARS_CHUNK = 500
+
+    @classmethod
+    def _batch_chunk_size(cls, *, timeframe: str, days: int) -> int:
+        """Symbols per request, capped so pagination cannot silently truncate.
+
+        Two independent ceilings. The URL one (`_BATCH_BARS_CHUNK`) is fixed. The
+        PAGE one moves with how much history is asked for: the budget is
+        `_MAX_BAR_PAGES × limit` bars TOTAL across the batch, so the deeper the
+        window the fewer symbols fit. A 503-symbol × 5-year daily request needs
+        ~627k bars against a 500k budget — measured 2026-08-11, and it dropped
+        the alphabetical tail without erroring.
+        """
+        per_symbol = days * _SESSIONS_PER_CALENDAR_DAY.get(timeframe, 1.0)
+        if per_symbol <= 0:
+            return cls._BATCH_BARS_CHUNK
+        budget = int(_MAX_BAR_PAGES * _BARS_PAGE_LIMIT / per_symbol)
+        return max(1, min(cls._BATCH_BARS_CHUNK, budget))
     _EXT_QUOTES_CHUNK = 200
 
     @staticmethod

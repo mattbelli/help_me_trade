@@ -18,10 +18,20 @@ What they answer, which no vendor series does:
 
 ⚠️ Source is ``momentum_daily_bars`` (S&P 500, maintained by the scheduler's
 ``momentum_bars_refresh`` job, NOT by the momentum strategy's enabled flag).
-That store begins 2025-03-03, so these percentiles rest on ~1.4 years — thin,
-and honestly disclosed by ``history_since`` on the payload. A deeper, purpose-
-built daily-bar backfill is the next item and will widen it without changing
-anything here.
+Backfilled to 2021-08-13 on 2026-08-11, so ~5 years / ~1,230 sessions.
+
+⚠️⚠️ **SURVIVORSHIP.** The panel is TODAY's S&P 500 members, priced backwards.
+Names dropped from the index over the window are absent, and recent additions
+carry their pre-addition history. So historical breadth is "how many of today's
+members were above their 200-day average then", not "how many members at the
+time" — the two differ, and the first flatters the past because dropped names
+were usually falling. Free point-in-time constituents do not exist; the Norgate
+corpus that has them is Windows-PC-only. Read the percentiles with that in mind.
+
+The depth matters more than it sounds: on the 1.4-year window this store had
+before the backfill, breadth read 99.4th percentile ("high"). On five years
+including 2022 the SAME value reads 77.7th ("mid"). The thin window was not
+merely imprecise, it was misleading.
 """
 
 from __future__ import annotations
