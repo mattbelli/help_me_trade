@@ -63,15 +63,28 @@ AUDIT_LOOP_NAMES = [
 
 
 @pytest.fixture(autouse=True)
-def _reset_jobs_registry() -> None:
+def _reset_jobs_registry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     import api.main as main_mod
 
     jobs.JOBS.clear()
     jobs._name_index.clear()
     jobs._watchdog_stale_last_date.clear()
     jobs._watchdog_backup_last_date = None
+    jobs._watchdog_off_box_last_date = None
     jobs._watchdog_last_closed_mono = None
     main_mod._background_jobs_registered = False
+    # The watchdog reads BACKUP_DIR off the real filesystem. Without this, every
+    # test here passes or fails on whatever /home/mbelli/backups happens to hold
+    # on the machine running it — green on serv, red on CI. Default everything
+    # to fresh so a watchdog test only pages when the test itself arranges it:
+    # last_pull silences the off-box block, trading-*.db the backup-stale block.
+    isolated = tmp_path / "_jobs_backups"
+    isolated.mkdir()
+    (isolated / "last_pull").touch()
+    (isolated / "trading-isolated.db").touch()
+    monkeypatch.setattr(jobs, "BACKUP_DIR", isolated)
 
 
 @pytest.mark.asyncio
@@ -349,6 +362,9 @@ async def test_watchdog_notifies_on_stale_backup_once_per_day(
     import os
 
     os.utime(old, (old_mtime, old_mtime))
+    # Fresh off-box marker: isolates this test to the local-staleness block, so
+    # the strict count below stays a real assertion about backup_stale alone.
+    (backup_dir / "last_pull").write_text("2026-06-24T03:30:00\n")
 
     notify_calls: list[dict] = []
 
@@ -370,6 +386,120 @@ async def test_watchdog_notifies_on_stale_backup_once_per_day(
     assert "backup is stale" in notify_calls[0]["title"].lower()
 
 
+@pytest.mark.asyncio
+async def test_watchdog_pages_when_off_box_marker_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()  # no last_pull marker, no local snapshots
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "off-box-test"}
+
+    fixed_now = datetime(2026, 6, 24, 12, 0, tzinfo=_ET)
+    monkeypatch.setattr(jobs, "BACKUP_DIR", backup_dir)
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    monkeypatch.setattr(jobs, "datetime", type("DT", (), {"now": staticmethod(lambda tz=None: fixed_now)}))
+
+    await jobs._watchdog_once()
+
+    assert len(notify_calls) == 1
+    assert notify_calls[0]["group_key"] == "off_box_pull_stale"
+    assert notify_calls[0]["severity"] == "warning"
+    assert "has not reported" in notify_calls[0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_pages_when_off_box_marker_older_than_48h(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    marker = backup_dir / "last_pull"
+    marker.write_text("2026-06-22T03:30:00\n")
+    stale = time.time() - (61.2 * 3600)
+    import os
+
+    os.utime(marker, (stale, stale))
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "off-box-test"}
+
+    fixed_now = datetime(2026, 6, 24, 12, 0, tzinfo=_ET)
+    monkeypatch.setattr(jobs, "BACKUP_DIR", backup_dir)
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    monkeypatch.setattr(jobs, "datetime", type("DT", (), {"now": staticmethod(lambda tz=None: fixed_now)}))
+
+    await jobs._watchdog_once()
+
+    assert len(notify_calls) == 1
+    assert notify_calls[0]["group_key"] == "off_box_pull_stale"
+    assert notify_calls[0]["severity"] == "warning"
+    assert "61.2h ago" in notify_calls[0]["body"]
+
+
+@pytest.mark.asyncio
+async def test_watchdog_silent_when_off_box_marker_fresh(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    (backup_dir / "last_pull").write_text("2026-06-24T03:30:00\n")
+    # A fresh local snapshot too, so a zero-notify result can only mean both
+    # the backup-stale block and the off-box block stayed quiet.
+    (backup_dir / "trading-fresh.db").write_bytes(b"x")
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "off-box-test"}
+
+    fixed_now = datetime(2026, 6, 24, 12, 0, tzinfo=_ET)
+    monkeypatch.setattr(jobs, "BACKUP_DIR", backup_dir)
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    monkeypatch.setattr(jobs, "datetime", type("DT", (), {"now": staticmethod(lambda tz=None: fixed_now)}))
+
+    await jobs._watchdog_once()
+
+    assert notify_calls == []
+
+
+@pytest.mark.asyncio
+async def test_watchdog_pages_off_box_once_per_et_day(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    register_job(Job(name="watchdog", fn=jobs._watchdog_once, interval_s=600.0))
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+
+    notify_calls: list[dict] = []
+
+    async def fake_notify(**kwargs):
+        notify_calls.append(kwargs)
+        return {"id": "off-box-test"}
+
+    fixed_now = datetime(2026, 6, 24, 12, 0, tzinfo=_ET)
+    monkeypatch.setattr(jobs, "BACKUP_DIR", backup_dir)
+    monkeypatch.setattr("signals.notify.notify", fake_notify)
+    monkeypatch.setattr(jobs, "datetime", type("DT", (), {"now": staticmethod(lambda tz=None: fixed_now)}))
+
+    await jobs._watchdog_once()
+    await jobs._watchdog_once()
+
+    assert len(notify_calls) == 1
+    assert notify_calls[0]["group_key"] == "off_box_pull_stale"
+
+
 def test_health_v2_includes_jobs_and_db_size(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -378,6 +508,7 @@ def test_health_v2_includes_jobs_and_db_size(
 
     monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr("api.main.newest_backup_age_s", lambda: None)
+    monkeypatch.setattr("api.main.off_box_pull_age_s", lambda: 3600.0)
 
     from api.main import app
 
@@ -392,6 +523,7 @@ def test_health_v2_includes_jobs_and_db_size(
     assert "poll_healthy" in body
     assert body["db_size_bytes"] == 5
     assert body["newest_backup_age_s"] is None
+    assert body["off_box_pull_age_s"] == 3600.0
     job_names = {row["name"] for row in body["jobs"]}
     assert AUDIT_LOOP_NAMES[0] in job_names
     assert "watchdog" in job_names

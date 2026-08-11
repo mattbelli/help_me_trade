@@ -35,9 +35,11 @@ find "$DEST" -maxdepth 1 -name 'trading-*.db' -mtime +14 -delete
 find "$DEST" -maxdepth 1 -name 'hmt-config-*.tar.gz' -mtime +14 -delete
 
 # --- OFF-BOX COPY ---------------------------------------------------------------
-# mattpc pulls this directory nightly at 03:30 over Tailscale (Windows scp +
-# Task Scheduler "HMT backup pull") — that pull is the off-box copy. If it ever
-# stops, uncomment a push instead:
+# mattpc pulls this directory nightly at 03:30 over Tailscale (Task Scheduler
+# "HMT backup pull" runs deploy/pull-backups.ps1) — that pull is the off-box
+# copy. It writes $DEST/last_pull on success; if that file goes stale the pull
+# is dead and we are back to "backups never leave the box". If it ever stops,
+# uncomment a push instead:
 # rsync -a "$DEST/trading-$STAMP.db" "$DEST/hmt-config-$STAMP.tar.gz" mbelli@<tailnet-host>:/path/to/hmt-backups/
 # ----------------------------------------------------------------------------------
 
