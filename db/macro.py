@@ -37,6 +37,59 @@ def init_macro_table(db_path: Path = DEFAULT_MACRO_DB_PATH) -> None:
         conn.commit()
 
 
+def init_events_table(db_path: Path = DEFAULT_MACRO_DB_PATH) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS macro_events (
+                date TEXT NOT NULL,
+                release TEXT NOT NULL,
+                release_id INTEGER NOT NULL,
+                PRIMARY KEY (date, release_id)
+            )
+            """
+        )
+        conn.commit()
+
+
+def upsert_events(
+    rows: list[tuple[str, str, int]],
+    *,
+    db_path: Path = DEFAULT_MACRO_DB_PATH,
+) -> int:
+    """Insert/refresh (date, release, release_id) rows. Returns rows written."""
+    init_events_table(db_path)
+    if not rows:
+        return 0
+    with _connect(db_path) as conn:
+        conn.executemany(
+            "INSERT INTO macro_events (date, release, release_id) VALUES (?, ?, ?) "
+            "ON CONFLICT(date, release_id) DO UPDATE SET release = excluded.release",
+            rows,
+        )
+        conn.commit()
+    return len(rows)
+
+
+def events_between(
+    start: str,
+    end: str,
+    *,
+    db_path: Path = DEFAULT_MACRO_DB_PATH,
+) -> list[tuple[str, str]]:
+    """(date, release) in [start, end], chronological."""
+    init_events_table(db_path)
+    with _connect(db_path) as conn:
+        return [
+            (r[0], r[1])
+            for r in conn.execute(
+                "SELECT date, release FROM macro_events WHERE date BETWEEN ? AND ? "
+                "ORDER BY date, release",
+                (start, end),
+            ).fetchall()
+        ]
+
+
 def upsert_macro(
     rows: list[tuple[str, str, float]],
     *,

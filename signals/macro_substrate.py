@@ -32,9 +32,12 @@ from pathlib import Path
 
 import httpx
 
+from config.settings import fred_api_key, fred_is_configured
 from db.macro import (
     DEFAULT_MACRO_DB_PATH,
+    events_between,
     series_history,
+    upsert_events,
     upsert_macro,
 )
 from signals.regime import fetch_fred_csv
@@ -99,7 +102,35 @@ CBOE_SERIES: dict[str, str] = {
 }
 CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
 
+# FRED release id -> label. Scheduled events the tape actually reprices on, which
+# is a much shorter list than FRED's ~300 daily releases. Keyed by ID, not name,
+# because names get reworded upstream.
+# ⚠️ Release 101 "FOMC Press Release" is DELIBERATELY ABSENT: FRED marks it on
+# EVERY calendar day (measured 36/37 days in a 37-day window vs 1/37 for CPI), so
+# whitelisting it would tell the agent there is a Fed decision daily — a calendar
+# that is worse than no calendar. Release 326 carries the real quarterly meeting
+# dates instead. ⚠️ That means the four NON-projection FOMC meetings a year are
+# ABSENT from this calendar; FRED has no free source for them.
+MACRO_EVENT_RELEASES: dict[int, str] = {
+    10: "CPI",
+    46: "PPI",
+    50: "Employment Situation",
+    53: "GDP",
+    54: "Personal Income and Outlays (PCE)",
+    9: "Retail Sales",
+    180: "Jobless Claims",
+    192: "JOLTS",
+    326: "FOMC projections",
+}
+FRED_RELEASE_DATES_URL = "https://api.stlouisfed.org/fred/release/dates"
+# A scheduled event is rare by definition. Weekly claims — the densest real entry
+# — land on ~13.5% of days; the FOMC artifact lands on 97.3%. Anything above this
+# is a continuously-updated series wearing an event's clothes, so drop it and say
+# so rather than flooding the agent with a daily "event".
+_EVENT_MAX_DAY_SHARE = 0.5
+
 _CBOE_TIMEOUT = 15.0
+_FRED_API_TIMEOUT = 30.0
 _REFRESH_LIMIT = 15  # daily job: recent observations only
 _BACKFILL_LIMIT = 1_000_000  # fredgraph.csv returns full history; take it all
 
@@ -182,6 +213,62 @@ def _fetch_cboe(index: str) -> list[tuple[str, str, float]]:
     return [(index, obs_date, value)]
 
 
+def refresh_macro_events(
+    *,
+    start: str | None = None,
+    days: int = 120,
+    db_path: Path = DEFAULT_MACRO_DB_PATH,
+) -> dict[str, int]:
+    """Scheduled macro-release dates into the store. Fail-soft per release.
+
+    Needs the FRED key (the keyless fredgraph.csv endpoint serves series, not the
+    release calendar), so it no-ops without one rather than failing the refresh.
+    """
+    if not fred_is_configured():
+        logger.info("macro events: no FRED key configured, skipping")
+        return {}
+    begin = start or (date.today() - timedelta(days=14)).isoformat()
+    end = (date.fromisoformat(begin) + timedelta(days=days)).isoformat()
+    span_days = (date.fromisoformat(end) - date.fromisoformat(begin)).days or 1
+    out: dict[str, int] = {}
+    for release_id, label in MACRO_EVENT_RELEASES.items():
+        try:
+            payload = httpx.get(
+                FRED_RELEASE_DATES_URL,
+                params={
+                    "api_key": fred_api_key(),
+                    "file_type": "json",
+                    "release_id": release_id,
+                    "realtime_start": begin,
+                    "realtime_end": end,
+                    "sort_order": "asc",
+                    "limit": 1000,
+                    # Without this the endpoint returns only dates that ALREADY
+                    # released — i.e. the entire forward calendar, the only part
+                    # that matters, is silently missing.
+                    "include_release_dates_with_no_data": "true",
+                },
+                timeout=_FRED_API_TIMEOUT,
+            )
+            payload.raise_for_status()
+            dates = [r["date"] for r in payload.json().get("release_dates", [])]
+        except Exception:
+            logger.warning("macro events fetch failed for %s", label, exc_info=True)
+            out[label] = 0
+            continue
+        if len(set(dates)) > span_days * _EVENT_MAX_DAY_SHARE:
+            logger.warning(
+                "macro events: %s marked on %d of %d days — not an event, dropped",
+                label, len(set(dates)), span_days,
+            )
+            out[label] = 0
+            continue
+        out[label] = upsert_events(
+            [(d, label, release_id) for d in dates], db_path=db_path
+        )
+    return out
+
+
 def refresh_cboe_curve(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[str, int]:
     """Snapshot the Cboe vol curve into the store. Fail-soft per index.
 
@@ -217,6 +304,10 @@ async def refresh_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> i
     cboe = refresh_cboe_curve(db_path=db_path)
     written += sum(cboe.values())
     fetched.update(cboe)
+    try:
+        written += sum(refresh_macro_events(db_path=db_path).values())
+    except Exception:
+        logger.warning("macro events refresh failed", exc_info=True)
     empty = sorted(s for s, n in fetched.items() if n == 0)
     logger.info(
         "Macro substrate refresh: %d rows across %d/%d series%s",
@@ -268,6 +359,36 @@ def _axis_history(axis_series: str, db_path: Path) -> dict[str, float]:
         right = dict(series_history(b, db_path=db_path))
         return {d: round(left[d] - right[d], 4) for d in left.keys() & right.keys()}
     return dict(series_history(axis_series, db_path=db_path))
+
+
+def event_calendar(
+    today: str,
+    *,
+    ahead_days: int = 10,
+    db_path: Path = DEFAULT_MACRO_DB_PATH,
+) -> dict:
+    """{"today": [...], "upcoming": [{date, release, in_days}]} — what reprices the
+    tape on a schedule. Blindness to this is what it fixes: on 2026-08-11 neither
+    paper book mentioned that CPI printed the next morning, because nothing in
+    production had ever carried a macro calendar."""
+    end = (date.fromisoformat(today) + timedelta(days=ahead_days)).isoformat()
+    rows = events_between(today, end, db_path=db_path)
+    here = date.fromisoformat(today)
+    return {
+        "today": [name for d, name in rows if d == today],
+        "upcoming": [
+            {
+                "date": d,
+                "release": name,
+                "in_days": (date.fromisoformat(d) - here).days,
+            }
+            for d, name in rows
+            if d != today
+        ],
+        # Stated, not silent: an agent that sees a calendar with no FOMC could
+        # reasonably infer there is no meeting scheduled.
+        "not_covered": "FOMC meetings without projections (no free source)",
+    }
 
 
 def regime_report(

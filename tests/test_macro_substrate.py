@@ -11,12 +11,20 @@ from pathlib import Path
 
 import pytest
 
-from db.macro import coverage, latest_value, series_history, upsert_macro
+from db.macro import (
+    coverage,
+    events_between,
+    latest_value,
+    series_history,
+    upsert_events,
+    upsert_macro,
+)
 from signals import macro_substrate
 from signals.macro_substrate import (
     CBOE_SERIES,
     MACRO_SERIES,
     backfill_macro_substrate,
+    event_calendar,
     macro_snapshot,
     refresh_macro_substrate,
     regime_report,
@@ -66,9 +74,10 @@ def test_refresh_is_fail_soft_per_series(
         return [(index, "2026-07-17", 1.0)]
 
     monkeypatch.setattr(macro_substrate, "fetch_fred_csv", fake_fetch)
-    # Stubbed, not merely counted: without this the refresh reaches out to Cboe
-    # for real, which makes a unit test both online and non-deterministic.
+    # Stubbed, not merely counted: without these the refresh reaches out to Cboe
+    # and FRED for real, which makes a unit test both online and non-deterministic.
     monkeypatch.setattr(macro_substrate, "_fetch_cboe", fake_cboe)
+    monkeypatch.setattr(macro_substrate, "refresh_macro_events", lambda **kw: {})
     written = asyncio.run(refresh_macro_substrate(db_path=macro_db))
     assert written == (len(MACRO_SERIES) - 1) + (len(CBOE_SERIES) - 1)
     assert latest_value("DGS10", db_path=macro_db) is None
@@ -108,6 +117,43 @@ def test_snapshot_refuses_a_percentile_it_cannot_support(macro_db: Path) -> None
     )
     ranked = macro_snapshot(db_path=macro_db)["VIX9D"]
     assert ranked["pctile"] is not None and ranked["bucket"] is not None
+
+
+def test_event_calendar_separates_today_from_upcoming(macro_db: Path) -> None:
+    upsert_events(
+        [("2026-08-11", "PPI", 46), ("2026-08-12", "CPI", 10),
+         ("2026-09-30", "GDP", 53)],  # outside the 10-day horizon
+        db_path=macro_db,
+    )
+    cal = event_calendar("2026-08-11", db_path=macro_db)
+    assert cal["today"] == ["PPI"]
+    assert cal["upcoming"] == [{"date": "2026-08-12", "release": "CPI", "in_days": 1}]
+    assert "FOMC" in cal["not_covered"]  # the gap is stated, not silent
+
+
+def test_event_refresh_drops_a_release_that_is_not_an_event(
+    macro_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FRED marks "FOMC Press Release" on EVERY calendar day. Whitelisting it would
+    tell the agent there is a Fed decision daily — worse than no calendar. The guard
+    is on DENSITY, not on the id, so it catches the next one too."""
+    class _Resp:
+        def raise_for_status(self) -> None: ...
+        def json(self) -> dict:
+            return {"release_dates": [
+                {"date": (date(2026, 1, 1) + timedelta(days=i)).isoformat()}
+                for i in range(90)
+            ]}
+
+    monkeypatch.setattr(macro_substrate, "fred_is_configured", lambda: True)
+    monkeypatch.setattr(macro_substrate, "fred_api_key", lambda: "k")
+    monkeypatch.setattr(macro_substrate, "MACRO_EVENT_RELEASES", {101: "Daily artifact"})
+    monkeypatch.setattr(macro_substrate.httpx, "get", lambda *a, **k: _Resp())
+    written = macro_substrate.refresh_macro_events(
+        start="2026-01-01", days=90, db_path=macro_db
+    )
+    assert written == {"Daily artifact": 0}
+    assert events_between("2026-01-01", "2026-12-31", db_path=macro_db) == []
 
 
 def test_regime_report_ranks_only_against_the_past(macro_db: Path) -> None:

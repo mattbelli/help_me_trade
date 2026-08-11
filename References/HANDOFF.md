@@ -26,6 +26,17 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
   thin `regime_macro`), delete `market_shock`'s dead VIX arm + the never-resetting `MAX()` latch.
 - ▶ **founder call**: no UI surface renders the 6 regime axes. **No new widget** (standing rule) — so
   this needs a merge target on an existing widget, or it stays agent-only.
+- ⏳ **check 08-12 PM**: did the paper books mention CPI? The calendar shipped 08-11 evening and the
+  rows are already in `macro.db`, so the session should see `events.today = ["CPI"]`. If a book still
+  ignores it, the gap is the book PROMPT, not perception — different fix entirely.
+- ▶ **Founder's 1-by-1 queue** (his order, after the reviews): ~~1 apply reviews~~ ✅ · ~~2 macro event
+  calendar~~ ✅ · **3 correlation (implied COR1M/COR3M from Cboe + realized from our own bars) +
+  breadth** · 4 deeper daily-bar backfill so 3's percentiles rest on years not 7 months · 5 SKEW +
+  check whether `VXTLT`/`VXEEM` are actually updating (both showed current == prev, smells frozen) ·
+  6 index GEX/vanna/charm as regime AXES + the SME collar as reference LEVELS · 7 Round B cleanup.
+- ▶ **Design settled 08-11**: index-level GEX/vanna/charm become regime *axes* (day-scoped, ranked,
+  inheriting the honesty floor) rather than a new subsystem; the SME collar is a known POSITION so it
+  belongs with reference levels, not as a statistic; single-name GEX stays in Section 3.
 - ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
   (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
 

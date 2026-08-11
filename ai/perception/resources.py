@@ -513,7 +513,7 @@ def _macro_block() -> dict[str, Any] | None:
     """
     from datetime import datetime as _datetime
 
-    from signals.macro_substrate import macro_snapshot, regime_report
+    from signals.macro_substrate import event_calendar, macro_snapshot, regime_report
     from trading.market_hours import _ET
 
     # ET, not the box clock — serv runs UTC, so between 00:00 and 04:00 UTC
@@ -548,6 +548,11 @@ def _macro_block() -> dict[str, Any] | None:
         # The raw latest observation per stored series — the whole curve, so a
         # reader can build any spread rather than only the ones we picked.
         "series": series,
+        # Scheduled releases. On 2026-08-11 neither paper book mentioned that CPI
+        # printed the next morning — not a reasoning failure, they had no calendar
+        # to read. Sizing into a print is a different decision from sizing on a
+        # quiet Tuesday, so this rides the same block as the regime it modifies.
+        "events": event_calendar(today),
         "note": (
             "percentiles are self-relative against this store's own history and "
             "TRUNCATED at the reported date (see history_since / ranked_against "
@@ -1369,7 +1374,13 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "ranked against history TRUNCATED at the reported date; check "
             "`history_since` before comparing two series, since their windows "
             "differ. Too little history to rank says `pctile: null` rather than "
-            "inventing one, and a null `value` means stale, not absent."
+            "inventing one, and a null `value` means stale, not absent. An "
+            "`events` block lists the scheduled macro releases that reprice the "
+            "whole tape — what prints TODAY and what is coming in the next 10 "
+            "days (CPI, PPI, jobs, GDP, PCE, retail sales, claims, JOLTS, FOMC "
+            "projections) — so sizing into a print is never mistaken for sizing "
+            "on a quiet day; read `events.not_covered` before concluding no Fed "
+            "meeting is scheduled."
         ),
         "filters": {},
         "read": _read_market,
