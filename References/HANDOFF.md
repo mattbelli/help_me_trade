@@ -29,11 +29,28 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
 - ⏳ **check 08-12 PM**: did the paper books mention CPI? The calendar shipped 08-11 evening and the
   rows are already in `macro.db`, so the session should see `events.today = ["CPI"]`. If a book still
   ignores it, the gap is the book PROMPT, not perception — different fix entirely.
-- ▶ **Founder's 1-by-1 queue** (his order, after the reviews): ~~1 apply reviews~~ ✅ · ~~2 macro event
-  calendar~~ ✅ · **3 correlation (implied COR1M/COR3M from Cboe + realized from our own bars) +
-  breadth** · 4 deeper daily-bar backfill so 3's percentiles rest on years not 7 months · 5 SKEW +
-  check whether `VXTLT`/`VXEEM` are actually updating (both showed current == prev, smells frozen) ·
-  6 index GEX/vanna/charm as regime AXES + the SME collar as reference LEVELS · 7 Round B cleanup.
+- ▶ **Founder's 1-by-1 queue**: ~~1 apply reviews~~ ✅ · ~~2 macro event calendar~~ ✅ ·
+  ~~3 correlation + breadth~~ ✅ · ~~4 deeper daily-bar backfill~~ ✅ (found + fixed a silent
+  batch-pagination truncation; a second review then found 6 MAJORs in that fix — all closed) ·
+  ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · **6 dealer positioning — HALF DONE, see below** ·
+  7 Round B cleanup.
+- ▶ **Item 6 state.** The **collar half needs no work — it already exists**: `db/oi_walls.py` has the
+  matched-leg triple detector (with a design law that structures are labelled generically, never by
+  fund name) and it is already a wired perception resource (card #291). An orchestrator started
+  rebuilding it before finding that; the duplicate was deleted. **The GEX/vanna/charm half is NOT
+  built.** Feasibility established 2026-08-11, all pieces present: per-strike OI for SPX/SPXW back to
+  2013 in `oi_walls.oi_daily`; Alpaca serves SPX **and** SPXW chains with `latestQuote` (no vendor
+  greeks, which is exactly what `signals/black76.py` exists to fill — it inverts IV off the chain's
+  OWN forward, so no dividend or borrow feed is needed); `black76.greeks()` already returns gamma
+  **w.r.t. spot**. What remains: chain paging (the default caps at 2 pages / 2,000 contracts and SPX
+  alone exceeds that), the OCC↔`(root,expiry,cp,strike)` join to the OI store, the aggregation, the
+  zero-gamma flip solve, and vanna/charm. Design already settled: it lands as regime **axes** with
+  percentiles, output as ~6 numbers, never a strike table.
+- ⚠️ **Found, NOT fixed — the `oi_walls` resource overflows the agent cap.** Its payload is **26,502
+  chars against `_RESULT_CHAR_CAP = 20_000`** (identical constant in `research/book_tools.py` and
+  `tools/perception_query.py`), so the agent receives JSON truncated mid-object — unparseable, not
+  merely shortened. Verified 2026-08-11. Needs either a tighter default row count or a summarised
+  shape; do not just raise the cap.
 - ▶ **Design settled 08-11**: index-level GEX/vanna/charm become regime *axes* (day-scoped, ranked,
   inheriting the honesty floor) rather than a new subsystem; the SME collar is a known POSITION so it
   belongs with reference levels, not as a statistic; single-name GEX stays in Section 3.
