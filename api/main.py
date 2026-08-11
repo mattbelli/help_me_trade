@@ -71,6 +71,7 @@ from brokers.factory import (
 from brokers.market_clock import market_session as _market_session
 from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
 from brokers.schwab_market_stream import SchwabMarketStreamHub
+from config.log_redaction import install_log_redaction
 from config.settings import (
     SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
@@ -273,10 +274,14 @@ _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
 _PROPOSAL_SWEEP_INTERVAL_SECONDS = 60.0
 _IDEA_TRACKER_INTERVAL_MARKET_SECONDS = 1800.0
 _IDEA_TRACKER_INTERVAL_OFF_SECONDS = 3600.0
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format=_LOG_FORMAT,
 )
+# Vendor keys ride in the query string (Finnhub token, FRED api_key, AV apikey) and
+# httpx logs full URLs — redact before anything reaches the journal.
+install_log_redaction(_LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
