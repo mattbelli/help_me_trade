@@ -1277,6 +1277,8 @@ def test_macro_weekend_gap_still_fresh(db: Path, tmp_path: Path) -> None:
         rows.append(("VXVCLS", d, 18.0 + i))  # vol_term
         rows.append(("SOFR", d, 3.6))  # funding
         rows.append(("IORB", d, 3.65))
+        rows.append(("corr_realized_21d", d, 0.10))  # correlation
+        rows.append(("breadth_above_200dma", d, 70.0))  # breadth
     upsert_macro(rows, db_path=macro_db)
     episode = _seed_episode(db)
 

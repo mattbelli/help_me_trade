@@ -40,6 +40,7 @@ from db.macro import (
     upsert_events,
     upsert_macro,
 )
+from signals.market_internals import DERIVED_SERIES, compute_internals
 from signals.regime import fetch_fred_csv
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,13 @@ CBOE_SERIES: dict[str, str] = {
     "VIX9D": "vol_term",
     "VIX6M": "vol_term",
     "VVIX": "vol_term",  # vol OF vol — how jumpy VIX itself is priced to be
+    # Implied correlation — the market's FORECAST of how much stocks move as one
+    # blob. Pairs with the realized measure computed from our own bars in
+    # signals/market_internals.py: two independent sources for the one regime
+    # question a stock picker actually cares about, and when they agree the read
+    # is trustworthy in a way a single number never is.
+    "COR1M": "correlation",
+    "COR3M": "correlation",
 }
 CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
 
@@ -156,6 +164,15 @@ REPORT_AXES: dict[str, str] = {
     # for vol — VIX at 15 is meaningless without knowing 3-month vol is 19.
     "vol_term": "VIXCLS-VXVCLS",  # negative = normal, positive = inverted
     "funding": "SOFR-IORB",
+    # The two that say whether SINGLE-NAME work is worth doing at all, which is
+    # the whole product. High correlation = everything trades as one macro blob
+    # and selection is just leveraged beta; narrow breadth = the index is being
+    # carried by a handful of names and a $10B-$500B book is not in them.
+    # Realized, not implied, is the axis: COR1M/COR3M are forward-only from
+    # 2026-08-11 and cannot be ranked for another quarter — they sit in `series`
+    # as the independent cross-check.
+    "correlation": "corr_realized_21d",
+    "breadth": "breadth_above_200dma",
 }
 
 
@@ -308,6 +325,14 @@ async def refresh_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> i
         written += sum(refresh_macro_events(db_path=db_path).values())
     except Exception:
         logger.warning("macro events refresh failed", exc_info=True)
+    # Derived from our own bars, so it needs no vendor and cannot fail on one —
+    # but it reads a different store, so it fails independently of everything above.
+    try:
+        written += sum(
+            (await asyncio.to_thread(compute_internals, macro_db_path=db_path)).values()
+        )
+    except Exception:
+        logger.warning("market internals recompute failed", exc_info=True)
     empty = sorted(s for s, n in fetched.items() if n == 0)
     logger.info(
         "Macro substrate refresh: %d rows across %d/%d series%s",
@@ -481,7 +506,7 @@ def macro_snapshot(
     future, and the buckets are the house 33/80 REPORTING cuts, never signals.
     """
     out: dict[str, dict] = {}
-    for series_id, axis in {**MACRO_SERIES, **CBOE_SERIES}.items():
+    for series_id, axis in {**MACRO_SERIES, **CBOE_SERIES, **DERIVED_SERIES}.items():
         rows = [(d, v) for d, v in series_history(series_id, db_path=db_path)
                 if as_of is None or d <= as_of]
         if not rows:
