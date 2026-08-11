@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-10",
+ "updated_at": "2026-08-11",
  "lanes": [
   "inbox",
   "founder",
@@ -17,8 +17,8 @@
    "type": "research",
    "priority": "high",
    "owner": "agent",
-   "updated_at": "2026-08-10",
-   "notes": "Obligations 1+2+3/3b ALL DISCHARGED 07-31 (BUILD_LOG rows). Ob-3 registered run: Q5 null USABLE (SE 0.09pt, 23,763 distinct); f=7.890% vs f0=8.757% (f BELOW null, MRD 0.46pt — gate resolves 1.0pt); 3b PRIMARY CELL = Q5 (192/192, adjudicated key order in the artifact); tilt AR(1) real +0.033 vs null -0.008 (confound runs the OTHER way — strengthens the read). DEAD (dilution) now the near-certain scoring verdict, exactly as the registration disclosed. REMAINING: obligations 5+6 + the scoring run — ALL calendar-blocked until >= close of Thu 2026-08-07 (need bars through d+10). Artifact: data/flow_obligation3_record.json (guarded).\n2026-08-10: RESTORED — this card was silently DROPPED on 2026-08-01 by merge 520e944c, whose conflict resolution took a stale side-branch board.json wholesale (16 cards + #9's park lost; discovered 08-10 while answering a status question). Content verbatim from mainline parent d0d2b14a; original num #None (numbering reformed since, so a fresh num was assigned).\n2026-08-10: The 'scoring run >= close 2026-08-07' apparently never ran (no BUILD_LOG row since the card vanished); untracked tools/test_flow_obligation3.py sits in the dev tree — in-flight obligation work that lost its card mid-thread."
+   "updated_at": "2026-08-11",
+   "notes": "Obligations 1+2+3/3b ALL DISCHARGED 07-31 (BUILD_LOG rows). Ob-3 registered run: Q5 null USABLE (SE 0.09pt, 23,763 distinct); f=7.890% vs f0=8.757% (f BELOW null, MRD 0.46pt — gate resolves 1.0pt); 3b PRIMARY CELL = Q5 (192/192, adjudicated key order in the artifact); tilt AR(1) real +0.033 vs null -0.008 (confound runs the OTHER way — strengthens the read). DEAD (dilution) now the near-certain scoring verdict, exactly as the registration disclosed. REMAINING: obligations 5+6 + the scoring run — ALL calendar-blocked until >= close of Thu 2026-08-07 (need bars through d+10). Artifact: data/flow_obligation3_record.json (guarded).\n2026-08-10: RESTORED — this card was silently DROPPED on 2026-08-01 by merge 520e944c, whose conflict resolution took a stale side-branch board.json wholesale (16 cards + #9's park lost; discovered 08-10 while answering a status question). Content verbatim from mainline parent d0d2b14a; original num #None (numbering reformed since, so a fresh num was assigned).\n2026-08-10: The 'scoring run >= close 2026-08-07' apparently never ran (no BUILD_LOG row since the card vanished); untracked tools/test_flow_obligation3.py sits in the dev tree — in-flight obligation work that lost its card mid-thread.\n2026-08-11: 2026-08-11: orphaned pin suites LANDED — test_flow_obligation3.py (39 hermetic pins on the registered 3/3b pipeline) + test_root_classification_build.py (108 pins on G.8 + 1 env-gated live guard, skipped by default). Both green under uv; freeze integrity verified (h1_quiet_tape.py untouched since a2cf65f4). Next: bars-through-d+10 coverage check, then the ob-5/6 recorder + scoring run."
   },
   {
    "num": 298,
