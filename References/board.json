@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 300,
+   "id": "off-box-pull-watchdog",
+   "title": "Off-box backup pull: 47.8 GB re-copied nightly for 4.4 GB of new data, and nothing watched the leg (Fable 07-06 MEDIUM-5)",
+   "lane": "done",
+   "type": "ops",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-11",
+   "notes": "MEASURED 2026-08-11 (founder: 'its running longer than usual'): mattpc's Task Scheduler pull ran `scp mbelli@100.94.77.104:/home/mbelli/backups/* C:\\Users\\matth\\hmt-backups` — a stateless wildcard, so every run re-copied all 14 snapshots. 47.8 GB in 8m30s at a dead-flat 91-97 MB/s per file (gigabit line rate; a constant rate independent of file size = bandwidth-limited pipe, not hashing). Verified via ext4 atime march across all 14 trading-*.db in date order + enp5s0 tx=461 GB/12d uptime. Cost ~11x, growing +2.56 GB (~27s) per night as trading.db grows and the 14-day window rolls.\n\nROOT CAUSE, from the trail: the 07-02 ops audit CRIT-2 ('backups never leave the box') prescribed **rsync** ('uncomment the rsync -> old Windows box / any tailnet host'); what shipped was a Windows-side **scp** pull, which has no incremental logic. That half lives on the PC, so it never appeared in a git diff or a review — the only trace in-repo was a 4-line comment. Card #74 then closed 07-05 having verified the right thing for the wrong question: 'dated files accumulating, not overwriting' is retention correctness, not transfer cost. Invisible at the time because trading.db was 96 MB (06-20) -> 502 MB (07-02); a full re-copy took under a minute. Same audit filed HIGH-3 'the database grows without bound' — fixing CRIT-2 multiplied HIGH-3 by 14 and nobody connected the two sections.\n\nSHIPPED both halves. (1) deploy/pull-backups.ps1 — replaces the wildcard scp: name+size listing, copies only missing/mismatched, verifies each copy's length (scp reports success on a truncated file), writes /home/mbelli/backups/last_pull on success. Never deletes. Founder ran it by hand 14:43:38Z — marker updated, full chain green. (2) api/jobs.py off_box_pull_age_s() + a watchdog block that FAILS CLOSED (missing marker pages; the sibling local-backup block still fails open — tracked on postgres-migration-decision), warning not critical (local snapshots unaffected = degraded DR, not emergency), 48h = two nights missed, once per ET day, group_key off_box_pull_stale; exposed as off_box_pull_age_s on /health.\n\nREVIEW CAUGHT A REAL DEFECT: the new block coupled 5 pre-existing watchdog tests to the real /home/mbelli/backups (none patched BACKUP_DIR; all assert exact notify counts). Green locally ONLY because the orchestrator had hand-created the marker 20 min earlier; `HMT_BACKUP_DIR=/tmp/empty pytest` = 5 failed/15 passed. Fixed in the autouse fixture (isolated tmp BACKUP_DIR seeded fresh) rather than in 5 tests; both runs now 20 passed. Coder had hedged correctly ('one sample can't tell me whether that marker came from the real pull') and overrode its own doubt — the empty-dir run is now the regression test.\n\nFOUNDER TODO: repoint Task Scheduler at the .ps1 (marker clock is live — no repoint within 48h = a warning ping, which is the watchdog working). Also ~100-120 GB of never-pruned snapshots on C: since 06-20; retention flag deliberately NOT added (deleting backups is his call)."
+  },
+  {
    "num": 299,
    "id": "flow-scoring-obligations",
    "title": "Addendum G pre-run obligations 1→6 (scoring run ≥ close 2026-08-07)",

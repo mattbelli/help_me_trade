@@ -33,6 +33,7 @@ from api.jobs import (
     jobs_health,
     mark_alive,
     newest_backup_age_s,
+    off_box_pull_age_s,
     register_job,
     register_watchdog_job,
     start_all,
@@ -2360,6 +2361,7 @@ def health() -> dict[str, int | str | float | bool | list | None]:
         "jobs": jobs_health(),
         "db_size_bytes": db_size_bytes,
         "newest_backup_age_s": newest_backup_age_s(),
+        "off_box_pull_age_s": off_box_pull_age_s(),
         # Both safety states, reported independently. kill_switch = total freeze
         # (human-only); entries_halted = HALT (blocks exposure-increasing orders,
         # exits still flow; armed by the daily-loss breaker or a human).

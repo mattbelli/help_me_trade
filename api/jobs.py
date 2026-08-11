@@ -21,6 +21,7 @@ WATCHDOG_INTERVAL_S = 600.0
 
 _watchdog_stale_last_date: dict[str, date] = {}
 _watchdog_backup_last_date: date | None = None
+_watchdog_off_box_last_date: date | None = None
 # Last watchdog pass that saw the market CLOSED. Staleness for a
 # market_hours_only job is measured from here, never across a closed session:
 # its last success is yesterday's tape (or a boot baseline after an overnight
@@ -139,6 +140,18 @@ def newest_backup_age_s() -> float | None:
     return time.time() - newest_mtime
 
 
+def off_box_pull_age_s() -> float | None:
+    """Seconds since mattpc last confirmed an off-box pull.
+
+    None means the marker is absent — never pulled, or the leg is gone. That is
+    a real staleness signal, NOT "nothing to check": callers fail CLOSED on it.
+    """
+    try:
+        return time.time() - (BACKUP_DIR / "last_pull").stat().st_mtime
+    except OSError:
+        return None
+
+
 async def _watchdog_once() -> None:
     from signals.notify import notify
 
@@ -198,6 +211,38 @@ async def _watchdog_once() -> None:
                 group_key="backup_stale",
             )
             _watchdog_backup_last_date = today_et
+
+    # The off-box leg: mattpc pulls the backup dir nightly and touches
+    # last_pull. Fail CLOSED — a missing marker is the dead-pull case we are
+    # watching for, not "nothing to check". warning, not critical: local
+    # backups still exist and pass integrity_check, so this is a degraded DR
+    # guarantee rather than an emergency.
+    pull_age = off_box_pull_age_s()
+    if pull_age is None or pull_age > 48 * 3600:
+        global _watchdog_off_box_last_date
+        if _watchdog_off_box_last_date != today_et:
+            if pull_age is None:
+                title = "Off-box backup pull has not reported"
+                body = (
+                    "No pull marker on serv: mattpc has never confirmed an "
+                    "off-box copy, or the pull task is gone. Backups may not be "
+                    "leaving the box. Local snapshots are unaffected."
+                )
+            else:
+                title = "Off-box backup pull is stale"
+                body = (
+                    f"Off-box pull last confirmed {pull_age / 3600:.1f}h ago "
+                    "(threshold 48h — two nights missed). Local snapshots are "
+                    "unaffected."
+                )
+            await notify(
+                severity="warning",
+                kind="job_watchdog",
+                title=title,
+                body=body,
+                group_key="off_box_pull_stale",
+            )
+            _watchdog_off_box_last_date = today_et
 
 
 def jobs_health() -> list[dict[str, float | int | str | bool | None]]:
