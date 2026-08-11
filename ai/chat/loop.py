@@ -44,11 +44,20 @@ from ai.llm.base import (
     ToolCall,
     ToolSpec,
 )
+from ai.perception.resources import fit_to_cap
 
 logger = logging.getLogger(__name__)
 
 # Mirrors the web route's stepCountIs(6) and tool_loop.DEFAULT_MAX_ITERATIONS.
 MAX_ITERATIONS = 6
+
+# One tool result must not eat the turn. The book surfaces capped from the start; the
+# web/mobile chat — the surface the user actually talks to — never did, and it showed:
+# a live DeepSeek turn on 2026-08-11 pulled 39,367 + 31,199 chars from two `query`
+# calls, hit finish_reason=length mid-stream, and answered the question with one
+# sentence. Capping here rather than in each executor covers web, mobile and the book
+# drivers at the one place a tool result enters the conversation.
+TOOL_RESULT_CHAR_CAP = 20_000
 
 ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
@@ -298,7 +307,8 @@ async def run_chat_loop(
                 return
             yield ToolCallStarted(call.id, call.name, call.arguments)
             try:
-                output = await execute(call.name, call.arguments)
+                output = fit_to_cap(await execute(call.name, call.arguments),
+                                    cap=TOOL_RESULT_CHAR_CAP)
             except Exception as exc:
                 logger.exception("tool %s failed", call.name)
                 output = {"error": str(exc)}

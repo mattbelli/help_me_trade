@@ -95,11 +95,20 @@ def test_indent_is_measured_the_way_the_caller_will_print_it() -> None:
     assert len(json.dumps(fitted, indent=2)) <= 20_000
 
 
-def test_a_payload_with_no_rows_still_gets_capped() -> None:
-    """get_context and web_search return no `rows` list; they must still be bounded,
-    and the slice is the honest fallback when there is nothing whole to drop."""
-    fitted = fit_to_cap({"resource": "x", "blob": "y" * 30_000}, cap=1_000)
+def test_a_long_string_result_is_sliced() -> None:
+    """Web search and report text are unstructured — a slice loses the tail and
+    nothing else, which is the honest trade."""
+    fitted = fit_to_cap("y" * 30_000, cap=1_000)
     assert isinstance(fitted, str) and len(fitted) < 1_100 and "truncated" in fitted
+
+
+def test_a_structured_payload_with_no_rows_is_returned_WHOLE() -> None:
+    """Only what can be cut without corrupting it is cut. `list_capabilities` is
+    20,364 chars of nested dicts with no `rows` to drop; slicing it at 20,000 would
+    hand the model a broken manifest — a worse outcome than a long one, and the very
+    bug this function replaces. Oversized-but-valid beats undersized-but-invalid."""
+    payload = {"resource": "x", "blob": "y" * 30_000}
+    assert fit_to_cap(payload, cap=1_000) is payload
 
 
 @pytest.mark.asyncio

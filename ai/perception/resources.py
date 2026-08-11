@@ -566,8 +566,76 @@ def _macro_block() -> dict[str, Any] | None:
     }
 
 
+_MACRO_HISTORY_DEFAULT = 120  # ~6 months of trading days
+_MACRO_HISTORY_MAX = 1000
+
+
+def _read_macro_history(name: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    """One macro series or axis over time — the drill-down behind the snapshot.
+
+    The snapshot told an agent that credit spreads sit at the 4.9th percentile of
+    4,700 observations and then gave it no way to SEE those observations: 196,058
+    rows on disk, reachable only as today's number. An agent that cannot look at the
+    series behind a percentile has to take the percentile on faith, and cannot answer
+    "what did this do in March 2020" about data we hold.
+    """
+    from signals.macro_substrate import DEPTH_NOTES, REPORT_AXES, history, known_names
+
+    rows = history(name)
+    if rows is None:
+        return [{"error": f"unknown series or axis {name!r}", **known_names()}]
+    depth_note = DEPTH_NOTES.get(REPORT_AXES.get(name, name))
+    since = str(filters.get("since") or "").strip()
+    until = str(filters.get("until") or "").strip()
+    window = [
+        (d, v) for d, v in rows if (not since or d >= since) and (not until or d <= until)
+    ]
+    try:
+        limit = max(1, min(int(filters.get("limit") or _MACRO_HISTORY_DEFAULT),
+                           _MACRO_HISTORY_MAX))
+    except (TypeError, ValueError):
+        limit = _MACRO_HISTORY_DEFAULT
+    if not window:
+        note = (f"no observations in that window; the series runs "
+                f"{rows[0][0]}..{rows[-1][0]} ({len(rows)} observations)")
+        return [{
+            "series": name, "since": since or None, "until": until or None,
+            "unavailable": True,
+            "note": f"{note} — {depth_note}" if depth_note else note,
+        }]
+    # NEWEST first, deliberately: the result cap drops from the tail, so the oldest
+    # end of the window is the right end to lose when one has to be lost.
+    kept = window[-limit:][::-1]
+    # No "rows returned" field here: the cap can drop rows AFTER this reader runs, and
+    # a count written before that is simply wrong. `count` and the rows themselves say
+    # how many arrived; this says how many existed to choose from.
+    #
+    # The extremes are STATED, not left to be inferred from the rows. Measured on a
+    # live DeepSeek turn 2026-08-11: asked for 1,000 observations of HY OAS, it got 496
+    # after the cap (back to 2024-09-18) and reported its visible high of 4.61 as "the
+    # most stressed reading in the entire window" — the real one is 5.99 in July 2022,
+    # off the end of what it could see. Every disclosure was present and correct and it
+    # generalised anyway, so the fix is to remove the inference, not to disclose harder.
+    lo = min(window, key=lambda r: r[1])
+    hi = max(window, key=lambda r: r[1])
+    context: dict[str, Any] = {
+        "series": name,
+        "observations_in_window": len(window),
+        "rows_are": "the NEWEST slice of the window, newest first — the window's own "
+                    "high/low are given here because they may pre-date the oldest row",
+        "window_low": {"date": lo[0], "value": lo[1]},
+        "window_high": {"date": hi[0], "value": hi[1]},
+        "series_span": f"{rows[0][0]}..{rows[-1][0]} ({len(rows)} observations)",
+    }
+    if depth_note:
+        context["depth"] = depth_note
+    return [{**context, "date": d, "value": v} for d, v in kept]
+
+
 def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
-    del filters
+    series = str(filters.get("series") or "").strip()
+    if series:
+        return _read_macro_history(series, filters)
     from db.regime import recent_observations
     from signals.regime import market_regime, regime_is_fresh
 
@@ -1391,9 +1459,23 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "days (CPI, PPI, jobs, GDP, PCE, retail sales, claims, JOLTS, FOMC "
             "projections) — so sizing into a print is never mistaken for sizing "
             "on a quiet day; read `events.not_covered` before concluding no Fed "
-            "meeting is scheduled."
+            "meeting is scheduled. "
+            "★ Pass `series` to DRILL DOWN into any of it over time — the snapshot "
+            "ranks a number against thousands of observations, and `series` is how "
+            "you actually look at them ('what did credit do in March 2020', 'is this "
+            "VIX move big for this year'). Takes an axis name (credit, curve, vol, "
+            "vol_term, funding, correlation, breadth, dollar) or a raw series id; an "
+            "axis resolves to exactly the series the snapshot ranked, and a spread "
+            "axis comes back date-joined rather than as two levels to subtract. An "
+            "unknown name returns the full list of what resolves."
         ),
-        "filters": {},
+        "filters": {
+            "series": "optional — an axis name or series id; returns that one over "
+                      "time instead of the snapshot. Unknown names list what exists",
+            "since": "optional YYYY-MM-DD lower bound (with `series`)",
+            "until": "optional YYYY-MM-DD upper bound (with `series`)",
+            "limit": "optional observations, newest first — default 120, max 1000",
+        },
         "read": _read_market,
     },
     "fundamentals": {
@@ -1803,9 +1885,15 @@ def fit_to_cap(output: Any, *, cap: int, indent: int | None = None) -> Any:
     2026-08-11 against the shared 20,000-char cap, three resources were over it and
     `flow_perception` was 2.9x. Readers order rows most-significant-first, so the tail
     is the right end to drop. A payload with no `rows` list has no rows to drop and
-    still falls back to the slice. `indent` must match how the caller will finally
-    render it — the CLI prints indent=2, which is ~40% more characters than the
-    compact form, so measuring compact would silently overrun its own cap.
+    Only what can be cut WITHOUT corrupting it is cut. A string (web search, a report)
+    slices safely. A payload with `rows` drops rows. A structured payload with neither
+    is returned WHOLE and logged, because slicing it is the very bug this replaces —
+    `list_capabilities` is 20,364 chars of nested dicts, and a cap that cut it at
+    20,000 would hand the model a broken manifest instead of a long one.
+
+    `indent` must match how the caller will finally render it — the CLI prints
+    indent=2, ~40% more characters than compact, so measuring compact would silently
+    overrun its own cap.
     """
     def size(payload: Any) -> int:
         return len(json.dumps(payload, indent=indent, default=str))
@@ -1815,9 +1903,12 @@ def fit_to_cap(output: Any, *, cap: int, indent: int | None = None) -> Any:
     )
     if len(rendered) <= cap:
         return output
+    if isinstance(output, str):
+        return rendered[:cap] + f"\n…(truncated at {cap:,} chars)"
     rows = output.get("rows") if isinstance(output, dict) else None
     if not isinstance(rows, list) or not rows:
-        return rendered[:cap] + f"\n…(truncated at {cap:,} chars)"
+        logger.info("over-cap payload has no rows to drop (%d chars)", len(rendered))
+        return output
     # The note is measured too: sizing the rows alone lets the explanation itself push
     # the result back over the cap it just enforced.
     kept = list(rows)

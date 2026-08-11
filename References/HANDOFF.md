@@ -46,6 +46,11 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
   alone exceeds that), the OCC↔`(root,expiry,cp,strike)` join to the OI store, the aggregation, the
   zero-gamma flip solve, and vanna/charm. Design already settled: it lands as regime **axes** with
   percentiles, output as ~6 numbers, never a strike table.
+- ▶ **FOUNDER CALL — chat answers still truncate at `max_tokens=4000`.** Measured on a live
+  DeepSeek turn 2026-08-11: a full analytical answer was cut mid-sentence at the limit (already
+  raised 1200→4000 for exactly this). Raising it (DeepSeek's ceiling is ~8k) costs tokens on every
+  chat turn, so it is a live cost/behaviour decision rather than something to bundle into a
+  perception commit. `ai/chat/loop.py::run_chat_loop(max_tokens=...)`.
 - ✅ **Agent result cap — FIXED 08-11** (BUILD_LOG). It was never an `oi_walls` problem: three live
   resources were over the 20,000-char cap and the largest offender in each was one constant sentence
   repeated per row (`flow_perception` 57,781 chars, 38% of it one disclaimer × 50). `query()` now

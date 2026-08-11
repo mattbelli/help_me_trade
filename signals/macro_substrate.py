@@ -398,6 +398,52 @@ def _axis_history(axis_series: str, db_path: Path) -> dict[str, float]:
     return dict(series_history(axis_series, db_path=db_path))
 
 
+# Why a series is shorter than an agent expects, where we KNOW why. Without this an
+# agent that asks for 2008 credit spreads, gets a 2021 start and no reason, concludes
+# the app is incomplete and goes to the open web for data we already reason about —
+# the exact failure the perception layer exists to stop.
+DEPTH_NOTES: dict[str, str] = {
+    "BAMLH0A0HYM2": "ICE truncates BAML OAS history at FRED to a rolling window; "
+                    "2021-07-29 onward is a verified one-time import and is ALL that "
+                    "exists here — 2008/2020 credit is not obtainable free, so do not "
+                    "go looking for it, and read this axis as calm-vs-recent-years",
+    "BAMLC0A0CM": "same ICE truncation as HY OAS — this window has no crisis in it",
+}
+
+
+def known_names() -> dict[str, list[str]]:
+    """{"axes": [...], "series": [...]} — what `history()` will resolve."""
+    return {
+        "axes": sorted(REPORT_AXES),
+        "series": sorted({**MACRO_SERIES, **CBOE_SERIES, **DERIVED_SERIES}),
+    }
+
+
+def history(
+    name: str,
+    *,
+    db_path: Path | None = None,
+) -> list[tuple[str, float]] | None:
+    """(date, value) ASCENDING for a series id, a report AXIS name, or an `A-B`
+    spread; None if the name resolves to nothing.
+
+    The drill-down behind the snapshot. An axis name resolves through REPORT_AXES to
+    exactly the series the report ranked — ask for "credit" or "BAMLH0A0HYM2" and the
+    numbers agree, and "curve" gets the date-JOINED spread rather than two levels the
+    caller would have to subtract (and would subtract across dates sooner or later).
+    """
+    # Resolved at CALL time, never as a default argument — a module-level default
+    # binds at import and silently pins every caller (tests included) to the real
+    # store, the lesson db/oi_walls.py records against standing_walls.
+    db_path = db_path or DEFAULT_MACRO_DB_PATH
+    target = REPORT_AXES.get(name, name)
+    known = {**MACRO_SERIES, **CBOE_SERIES, **DERIVED_SERIES}
+    parts = target.split("-", 1) if "-" in target else [target]
+    if not all(p in known for p in parts):
+        return None
+    return sorted(_axis_history(target, db_path).items())
+
+
 def event_calendar(
     today: str,
     *,
