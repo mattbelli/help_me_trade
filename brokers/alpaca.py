@@ -953,7 +953,9 @@ class AlpacaAdapter:
         seen: set[str] = set()
         for raw in symbols:
             sym = raw.strip().upper()
-            if sym and sym not in seen:
+            # "/" = futures notation (e.g. /CL): Alpaca stocks endpoints 400
+            # the entire batch on one such symbol.
+            if sym and sym not in seen and not sym.startswith("/"):
                 seen.add(sym)
                 cleaned.append(sym)
 
@@ -983,8 +985,26 @@ class AlpacaAdapter:
         if not cleaned:
             return {}
 
-        data = self._get_all_bar_pages(_BATCH_BARS_PATH, params)
-        return self._parse_batch_bars(data.get("bars") or {})
+        merged: dict[str, list] = {}
+        for start in range(0, len(cleaned), self._BATCH_BARS_CHUNK):
+            chunk = cleaned[start : start + self._BATCH_BARS_CHUNK]
+            # Fail-soft per chunk (same contract as aget_day_volumes): one slow
+            # chunk must not discard the rest of the sweep — absent symbols
+            # simply retry on the caller's next pass.
+            try:
+                data = self._get_all_bar_pages(
+                    _BATCH_BARS_PATH, dict(params, symbols=",".join(chunk))
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca batch bars chunk failed (%d symbols, offset %d)",
+                    len(chunk),
+                    start,
+                    exc_info=True,
+                )
+                continue
+            merged.update(data.get("bars") or {})
+        return self._parse_batch_bars(merged)
 
     async def aget_stock_bars_batch(
         self,
@@ -999,9 +1019,30 @@ class AlpacaAdapter:
         if not cleaned:
             return {}
 
-        data = await self._aget_all_bar_pages(_BATCH_BARS_PATH, params)
-        return self._parse_batch_bars(data.get("bars") or {})
+        merged: dict[str, list] = {}
+        for start in range(0, len(cleaned), self._BATCH_BARS_CHUNK):
+            chunk = cleaned[start : start + self._BATCH_BARS_CHUNK]
+            # Fail-soft per chunk (same contract as aget_day_volumes): one slow
+            # chunk must not discard the rest of the sweep — absent symbols
+            # simply retry on the caller's next pass.
+            try:
+                data = await self._aget_all_bar_pages(
+                    _BATCH_BARS_PATH, dict(params, symbols=",".join(chunk))
+                )
+            except Exception:
+                logger.warning(
+                    "Alpaca batch bars chunk failed (%d symbols, offset %d)",
+                    len(chunk),
+                    start,
+                    exc_info=True,
+                )
+                continue
+            merged.update(data.get("bars") or {})
+        return self._parse_batch_bars(merged)
 
+    # httpx caps any one URL component at 65,536 chars; the fusion universe
+    # (~9.8K symbols, commas URL-encoded to %2C) measures ~77KB in one query.
+    _BATCH_BARS_CHUNK = 500
     _EXT_QUOTES_CHUNK = 200
 
     @staticmethod
@@ -1134,7 +1175,9 @@ class AlpacaAdapter:
         seen: set[str] = set()
         for raw in symbols:
             sym = raw.strip().upper()
-            if sym and sym not in seen:
+            # "/" = futures notation (e.g. /CL): one such symbol 400s the
+            # whole 200-symbol snapshot chunk.
+            if sym and sym not in seen and not sym.startswith("/"):
                 seen.add(sym)
                 cleaned.append(sym)
         if not cleaned:

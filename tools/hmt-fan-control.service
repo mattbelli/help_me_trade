@@ -1,0 +1,29 @@
+# Temperature-driven fan control for the NZXT H1 V2 case controller.
+# Install:  sudo cp tools/hmt-fan-control.service /etc/systemd/system/
+#           sudo systemctl daemon-reload && sudo systemctl enable --now hmt-fan-control
+#
+# Runs as root: the case controller is a USB HID device and /dev/hidraw* is
+# root-only. A udev rule could avoid this, but a root unit is one less moving
+# part for a machine that trades money, and the daemon writes nothing else.
+
+[Unit]
+Description=serv fan control (NZXT H1 V2 case controller)
+Documentation=https://github.com/liquidctl/liquidctl/blob/main/docs/nzxt-hue2-guide.md
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/mbelli/dev/help_me_trade/tools/fan_control.py
+Restart=always
+RestartSec=5
+
+# The controller holds the last duty written to it forever, so a dead daemon
+# leaves the fans wherever they were. The daemon's own failsafe covers a clean
+# exit; this covers a kill -9 by re-asserting a safe duty before any restart.
+ExecStopPost=-/usr/bin/liquidctl --match "H1 V2" set sync speed 80
+
+Nice=-5
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

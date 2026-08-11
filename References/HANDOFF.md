@@ -15,6 +15,19 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
+
+Since Fri 08-07 ~10:00 ET the v1beta1/opra trades WS lags 8-12s (p50, RTH) and silently drops
+~30% of prints under load (measured vs the Databento spine; BUILD_LOG 08-11 row has the numbers,
+scratch analysis method: pairing-shadow `wire_lag_ms`/`dbn=`/`alp=` counters). Founder posted the
+stats to the Alpaca forum. Spine unaffected; live impact = pairing enrichment (matched 98%→~57%)
+and the GTH/overnight tape (Alpaca-only, no fallback).
+- ⏳ **check by 08-14**: has alp/dbn recovered to ~99%+ and matched% to ~98? (one journal grep of
+  `pairing shadow`). If recovered, delete this entry; if not, consider a degraded-lane flag on
+  GTH-fed consumers.
+- ⏳ unexplained: flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then stabilized — if
+  that wasn't founder/deploy activity, worth one journal look before deleting this line.
+
 ## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
 
 Merge `520e944c` (08-01) silently dropped 16 board cards; all restored 08-10 as #284–#299
