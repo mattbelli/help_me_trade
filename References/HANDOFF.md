@@ -46,11 +46,11 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
   alone exceeds that), the OCC↔`(root,expiry,cp,strike)` join to the OI store, the aggregation, the
   zero-gamma flip solve, and vanna/charm. Design already settled: it lands as regime **axes** with
   percentiles, output as ~6 numbers, never a strike table.
-- ⚠️ **Found, NOT fixed — the `oi_walls` resource overflows the agent cap.** Its payload is **26,502
-  chars against `_RESULT_CHAR_CAP = 20_000`** (identical constant in `research/book_tools.py` and
-  `tools/perception_query.py`), so the agent receives JSON truncated mid-object — unparseable, not
-  merely shortened. Verified 2026-08-11. Needs either a tighter default row count or a summarised
-  shape; do not just raise the cap.
+- ✅ **Agent result cap — FIXED 08-11** (BUILD_LOG). It was never an `oi_walls` problem: three live
+  resources were over the 20,000-char cap and the largest offender in each was one constant sentence
+  repeated per row (`flow_perception` 57,781 chars, 38% of it one disclaimer × 50). `query()` now
+  states constant fields once in `shared`, and `fit_to_cap()` drops whole ROWS with a stated count
+  instead of slicing JSON mid-object. Nothing is over cap.
 - ▶ **Design settled 08-11**: index-level GEX/vanna/charm become regime *axes* (day-scoped, ranked,
   inheriting the honesty floor) rather than a new subsystem; the SME collar is a known POSITION so it
   belongs with reference levels, not as a statistic; single-name GEX stays in Section 3.

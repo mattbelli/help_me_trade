@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
@@ -1786,6 +1787,86 @@ _RESOURCE_ALIASES = {
 }
 
 
+# Characters a repeated field must waste before it is worth hoisting out of the rows.
+# Low enough to catch every real offender measured 2026-08-11 (the shortest was
+# oi_walls' 12-char `as_of` at 468 wasted chars), high enough that short flags stay
+# where a reader expects them.
+_HOIST_MIN_SAVING = 300
+
+
+def fit_to_cap(output: Any, *, cap: int, indent: int | None = None) -> Any:
+    """Trim an over-cap agent result by dropping whole ROWS, never mid-object.
+
+    Both agent surfaces cap what one tool call may pull into context, and both used
+    to do it by slicing the rendered JSON at a character index — which hands the model
+    an unparseable fragment and says nothing about what went missing. Measured
+    2026-08-11 against the shared 20,000-char cap, three resources were over it and
+    `flow_perception` was 2.9x. Readers order rows most-significant-first, so the tail
+    is the right end to drop. A payload with no `rows` list has no rows to drop and
+    still falls back to the slice. `indent` must match how the caller will finally
+    render it — the CLI prints indent=2, which is ~40% more characters than the
+    compact form, so measuring compact would silently overrun its own cap.
+    """
+    def size(payload: Any) -> int:
+        return len(json.dumps(payload, indent=indent, default=str))
+
+    rendered = output if isinstance(output, str) else json.dumps(
+        output, indent=indent, default=str
+    )
+    if len(rendered) <= cap:
+        return output
+    rows = output.get("rows") if isinstance(output, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return rendered[:cap] + f"\n…(truncated at {cap:,} chars)"
+    # The note is measured too: sizing the rows alone lets the explanation itself push
+    # the result back over the cap it just enforced.
+    kept = list(rows)
+    while kept:
+        kept.pop()
+        fitted = {
+            **output,
+            "rows": kept,
+            "truncated": (
+                f"{len(rows) - len(kept)} of {len(rows)} rows dropped to fit the "
+                f"{cap:,}-char result cap — rows are ordered most-significant-first, "
+                "so these are the top ones; narrow the filters (symbol, root, limit, "
+                "expiry) to reach further down"
+            ),
+        }
+        if size(fitted) <= cap:
+            break
+    return fitted
+
+
+def _hoist_shared(rows: list[Any]) -> tuple[dict[str, Any], list[Any]]:
+    """State once what every row says identically; return (shared, slimmed rows).
+
+    Readers stamp per-source facts and honesty caveats onto every row — right at the
+    row level, ruinous at the payload level. Measured 2026-08-11 against the agents'
+    20,000-char result cap: `oi_walls` spent 44% of 22,388 chars on ONE caveat repeated
+    40 times, `flow_perception` 38% of 57,781 on one disclaimer repeated 50 times, and
+    `options_flow` 16% of 19,230. Nothing is dropped — the model reads the same
+    envelope in the same breath — it is just not said 50 times.
+
+    Only fields identical across EVERY row hoist, only from 3 rows up, and only when
+    the repetition actually costs something. That last gate is what keeps the shape
+    STABLE: `strategies` happens to have `enabled: false` on every row today, and
+    hoisting a five-character field would have moved it in and out of `rows` depending
+    on whether the user had enabled one — churn for a saving of ten characters.
+    """
+    if len(rows) < 3 or not all(isinstance(r, dict) for r in rows):
+        return {}, rows
+    shared = {
+        k: v
+        for k, v in rows[0].items()
+        if all(k in r and r[k] == v for r in rows[1:])
+        and len(json.dumps(v, default=str)) * (len(rows) - 1) >= _HOIST_MIN_SAVING
+    }
+    if not shared:
+        return {}, rows
+    return shared, [{k: v for k, v in r.items() if k not in shared} for r in rows]
+
+
 async def query(
     resource: str,
     filters: dict | None = None,
@@ -1813,7 +1894,10 @@ async def query(
         logger.debug("Resource read failed for %s", key, exc_info=True)
         return {"resource": key, "error": str(exc), "rows": []}
 
+    shared, rows = _hoist_shared(rows)
     result: dict[str, Any] = {"resource": key, "count": len(rows), "rows": rows}
+    if shared:
+        result["shared"] = shared
     # Opt-in aggregate block for resources that register a ``summarize`` fn (e.g. the
     # journal's stats / the user's behavioral profile). Fail-soft — a summary failure
     # never sinks the rows.

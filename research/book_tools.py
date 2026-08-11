@@ -9,12 +9,12 @@ watchlist edits, memories, start_research — are structurally out).
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from ai.chat.tool_specs import chat_tool_specs
 from ai.llm.base import ToolSpec
+from ai.perception.resources import fit_to_cap
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +46,4 @@ async def analyst_execute(name: str, args: dict[str, Any]) -> Any:
         return {"error": f"tool {name!r} is not available to book analysts"}
     from ai.chat.tools import execute_tool
 
-    output = await execute_tool(name, args)
-    rendered = output if isinstance(output, str) else json.dumps(output, default=str)
-    if len(rendered) > _RESULT_CHAR_CAP:
-        return rendered[:_RESULT_CHAR_CAP] + f"\n…(truncated at {_RESULT_CHAR_CAP} chars)"
-    return output
+    return fit_to_cap(await execute_tool(name, args), cap=_RESULT_CHAR_CAP)
