@@ -13,6 +13,7 @@ import pytest
 from db.macro import coverage, latest_value, series_history, upsert_macro
 from signals import macro_substrate
 from signals.macro_substrate import (
+    CBOE_SERIES,
     MACRO_SERIES,
     backfill_macro_substrate,
     macro_snapshot,
@@ -58,11 +59,21 @@ def test_refresh_is_fail_soft_per_series(
             raise RuntimeError("boom")
         return [("2026-07-17", 1.0)]
 
+    def fake_cboe(index: str) -> list[tuple[str, str, float]]:
+        if index == "VVIX":
+            raise RuntimeError("boom")
+        return [(index, "2026-07-17", 1.0)]
+
     monkeypatch.setattr(macro_substrate, "fetch_fred_csv", fake_fetch)
+    # Stubbed, not merely counted: without this the refresh reaches out to Cboe
+    # for real, which makes a unit test both online and non-deterministic.
+    monkeypatch.setattr(macro_substrate, "_fetch_cboe", fake_cboe)
     written = asyncio.run(refresh_macro_substrate(db_path=macro_db))
-    assert written == len(MACRO_SERIES) - 1
+    assert written == (len(MACRO_SERIES) - 1) + (len(CBOE_SERIES) - 1)
     assert latest_value("DGS10", db_path=macro_db) is None
+    assert latest_value("VVIX", db_path=macro_db) is None
     assert latest_value("VIXCLS", db_path=macro_db) == ("2026-07-17", 1.0)
+    assert latest_value("VIX9D", db_path=macro_db) == ("2026-07-17", 1.0)
 
 
 def test_backfill_reports_zero_for_empty_series(

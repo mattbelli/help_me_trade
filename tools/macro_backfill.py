@@ -14,13 +14,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db.macro import coverage  # noqa: E402
-from signals.macro_substrate import MACRO_SERIES, backfill_macro_substrate  # noqa: E402
+from signals.macro_substrate import (  # noqa: E402
+    MACRO_SERIES,
+    backfill_macro_substrate,
+    refresh_cboe_curve,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("macro_backfill")
 
 
 def main() -> int:
+    if "--cboe" in sys.argv:
+        # Close-time snapshot of the Cboe vol curve (cron). The FRED half has no
+        # business running here — its series publish on their own schedule.
+        rows = refresh_cboe_curve()
+        logger.info("cboe curve: %s", ", ".join(f"{k}={v}" for k, v in rows.items()))
+        return 0 if all(rows.values()) else 1
     written = backfill_macro_substrate()
     failed = sorted(s for s, n in written.items() if n == 0)
     for row in coverage():

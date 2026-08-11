@@ -234,6 +234,41 @@ requests a symbol that has never existed on disk. Section 1 = point this at `mac
 day-scoped record instead of a per-name dot, wire it to all three agent surfaces, delete the dead arm
 and the `MAX()` latch, and report its firing rate.
 
+#### Section 1 — Round A SHIPPED 2026-08-11 (card #302)
+
+**What the substrate carries now: 25 series, 6 report axes, all six at 100% coverage over 250 sessions.**
+Round A widened the substrate and wired it; the dot consolidation and the dead `market_shock` arm are
+Round B and are NOT done.
+
+| axis | series | history | 250-session buckets (low/mid/high) |
+|---|---|---|---|
+| vol | `VIXCLS` | 9,248 since 1990-01-02 | 25 / 204 / 21 |
+| **vol_term** | `VIXCLS-VXVCLS` | 4,699 since 2007-12-04 | 144 / 75 / 31 |
+| credit | `BAMLH0A0HYM2` | 1,318 since 2021-07-29 | 216 / 34 / 0 |
+| **funding** | `SOFR-IORB` | 1,255 since 2021-07-29 | 5 / 28 / 217 |
+| curve | `DGS10-DGS2` | 12,543 since 1976-06-01 | 23 / 227 / 0 |
+| dollar | `DTWEXBGS` | 5,164 since 2006-01-02 | 0 / 61 / 189 |
+
+**On the ">20% of name-days is a failure" rule: it does not apply to this section.** Regime is a
+day-scoped *context* read, not an event detector — 100% coverage is the target, and an axis at 0% would
+be the failure. The rule governs Sections 2–6, where a dot is supposed to be rare.
+
+Added, all free and keyless: **vol term structure** (`VXVCLS` deep + `VIX1D`/`VIX9D`/`VIX6M`/`VVIX` from
+Cboe — no FRED equivalent at any depth, so those four are forward-only from 2026-08-11); **cross-asset
+vol** (`VXNCLS`/`RVXCLS`/`OVXCLS`/`GVZCLS` — where the fear actually is, invisible to VIX);
+**funding plumbing** (`SOFR`/`IORB`/`RRPONTSYD`/`WRESBAL` — the channel credit spreads miss, which is the
+founder's "credit was the last war" point made measurable). 34,485 rows of deep history backfilled.
+
+Verified reachable on **both** agent surfaces, not assumed: `tools/perception_query.py query market`
+returns all 14 new fields in a 5,757-byte payload. `_axis_history` now takes any `A-B` spread instead of
+special-casing the curve, and `macro_snapshot` walks both source dicts — a series stored but absent from
+the snapshot is invisible to every agent, which is the exact failure this section exists to stop.
+
+**Open, deliberately:** (1) no UI surface renders these axes — founder's call where it lands, and
+**no new widget**; (2) Round B is the dot consolidation itself + the dead `market_shock` VIX arm + the
+`MAX()` latch; (3) the Cboe close-snapshot cron (22:00 + 23:00 UTC weekdays, both post-settle in either
+DST regime) has not yet survived a live firing — first one is tonight.
+
 **Correction (2026-08-11): neither of the two items first listed here as "urgent leaks" is urgent, and
 one of them is not ours.** Both were measured; both claims were wrong.
 

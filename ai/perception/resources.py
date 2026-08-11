@@ -1337,10 +1337,17 @@ RESOURCES: dict[str, dict[str, Any]] = {
     "market": {
         "description": (
             "Current market regime (yield-curve term spread + VIX) — condition "
-            "every trade idea on it. Includes a `macro` block: HY and IG credit "
-            "spreads (OAS), the full Treasury curve, the 10y real yield, "
-            "breakevens and the broad dollar, each with a self-relative "
-            "percentile and low/mid/high bucket."
+            "every trade idea on it. Includes a `macro` block with SIX axes, "
+            "each carrying a self-relative percentile and low/mid/high bucket: "
+            "vol (VIX), vol_term (VIX minus VIX3M — POSITIVE means the curve is "
+            "inverted, i.e. stress priced now rather than someday), credit (HY "
+            "OAS), funding (SOFR minus IORB — the gap, not the level, is what "
+            "says someone is scrambling for overnight cash; the channel credit "
+            "spreads structurally miss), curve (10y-2y) and dollar. The raw "
+            "`series` block adds the full Treasury curve, IG OAS, the 10y real "
+            "yield, breakevens, cross-asset vol (Nasdaq/Russell/oil/gold) and "
+            "the near end of the vol curve (VIX1D/VIX9D/VIX6M/VVIX), so any "
+            "spread can be built rather than only the six we picked."
         ),
         "filters": {},
         "read": _read_market,

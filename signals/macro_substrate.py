@@ -29,6 +29,8 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 
+import httpx
+
 from db.macro import (
     DEFAULT_MACRO_DB_PATH,
     latest_value,
@@ -57,8 +59,41 @@ MACRO_SERIES: dict[str, str] = {
     "DFII10": "real_yield",  # 10y TIPS real yield
     "DTWEXBGS": "dollar",  # broad trade-weighted dollar
     "VIXCLS": "vol",
+    # --- vol term structure (Section 1) ---------------------------------------
+    # VIX alone is a level; the SHAPE is the regime read. VIX > VIX3M (inversion)
+    # is the market pricing stress NOW rather than someday. 2007+ on FRED, so the
+    # percentile has 19 years behind it — the near-term terms (VIX1D/9D) have no
+    # FRED equivalent at all and arrive from Cboe below, forward-only.
+    "VXVCLS": "vol_term",  # VIX3M
+    # --- cross-asset vol ------------------------------------------------------
+    # Where the fear actually is. Equity vol calm while oil or gold vol is bid is
+    # a different regime from everything calm, and neither shows up in VIX.
+    "VXNCLS": "vol_cross",  # Nasdaq-100
+    "RVXCLS": "vol_cross",  # Russell 2000 — the small-cap read our universe cares about
+    "OVXCLS": "vol_cross",  # crude oil
+    "GVZCLS": "vol_cross",  # gold
+    # --- funding / plumbing ---------------------------------------------------
+    # The channel credit spreads MISS. Sept 2019 and March 2020 both showed here
+    # days before equities cared: SOFR pulling above what the Fed pays on reserves
+    # means someone is paying up for overnight cash.
+    "SOFR": "funding",
+    "IORB": "funding",
+    "RRPONTSYD": "funding",  # overnight reverse repo — cash with nowhere to go
+    "WRESBAL": "funding",  # bank reserve balances
 }
 
+# Cboe index -> axis tag. NOT on FRED at any depth (checked 2026-08-11), so these
+# start from the day we begin polling and carry no backfill. Free, keyless, and
+# the only source for the near end of the curve.
+CBOE_SERIES: dict[str, str] = {
+    "VIX1D": "vol_term",
+    "VIX9D": "vol_term",
+    "VIX6M": "vol_term",
+    "VVIX": "vol_term",  # vol OF vol — how jumpy VIX itself is priced to be
+}
+CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
+
+_CBOE_TIMEOUT = 15.0
 _REFRESH_LIMIT = 15  # daily job: recent observations only
 _BACKFILL_LIMIT = 1_000_000  # fredgraph.csv returns full history; take it all
 
@@ -75,6 +110,11 @@ REPORT_AXES: dict[str, str] = {
     "credit": "BAMLH0A0HYM2",
     "curve": "DGS10-DGS2",
     "dollar": "DTWEXBGS",
+    # Both are spreads for the same reason the curve is: the LEVEL of SOFR says
+    # what the Fed set, the GAP to IORB says whether anyone is scrambling. Same
+    # for vol — VIX at 15 is meaningless without knowing 3-month vol is 19.
+    "vol_term": "VIXCLS-VXVCLS",  # negative = normal, positive = inverted
+    "funding": "SOFR-IORB",
 }
 
 
@@ -99,6 +139,38 @@ def _fetch_rows(
     return [(series_id, obs_date, value) for obs_date, value in observations]
 
 
+def _fetch_cboe(index: str) -> list[tuple[str, str, float]]:
+    """One Cboe index snapshot -> a single row. The payload's own ``last_trade_time``
+    supplies the date: it is ET, the box clock is UTC, and after 20:00 UTC those
+    disagree — dating a session by the box would file the close under tomorrow."""
+    resp = httpx.get(CBOE_QUOTE_URL.format(index), timeout=_CBOE_TIMEOUT)
+    resp.raise_for_status()
+    payload = resp.json()["data"]
+    return [(index, str(payload["last_trade_time"])[:10],
+             float(payload["current_price"]))]
+
+
+def refresh_cboe_curve(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> dict[str, int]:
+    """Snapshot the Cboe vol curve into the store. Fail-soft per index.
+
+    Called from two places on purpose. The backend's daily loop keeps today's row
+    LIVE during the session (an agent asking "what is vol doing right now" gets a
+    real answer); a close-time cron then overwrites it with the settle, because
+    the percentile these feed is computed against FRED CLOSING history and an
+    11am reading is not comparable to a close. Upsert semantics make the last
+    write of the day win, so ordering is the only thing that matters, not count.
+    """
+    out: dict[str, int] = {}
+    for index in CBOE_SERIES:
+        try:
+            rows = _fetch_cboe(index)
+        except Exception:
+            logger.warning("Cboe fetch failed for %s", index, exc_info=True)
+            rows = []
+        out[index] = upsert_macro(rows, db_path=db_path) if rows else 0
+    return out
+
+
 async def refresh_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> int:
     """Daily refresh: recent observations for every series. Fail-soft per series."""
     written = 0
@@ -112,6 +184,9 @@ async def refresh_macro_substrate(*, db_path: Path = DEFAULT_MACRO_DB_PATH) -> i
         fetched[series_id] = len(rows)
         if rows:
             written += upsert_macro(rows, db_path=db_path)
+    cboe = refresh_cboe_curve(db_path=db_path)
+    written += sum(cboe.values())
+    fetched.update(cboe)
     empty = sorted(s for s, n in fetched.items() if n == 0)
     logger.info(
         "Macro substrate refresh: %d rows across %d/%d series%s",
@@ -149,11 +224,14 @@ def _bucket(pctile: float) -> str:
 
 
 def _axis_history(axis_series: str, db_path: Path) -> dict[str, float]:
-    """date -> value for a report axis; the curve axis is a date-joined spread."""
-    if axis_series == "DGS10-DGS2":
-        ten = dict(series_history("DGS10", db_path=db_path))
-        two = dict(series_history("DGS2", db_path=db_path))
-        return {d: round(ten[d] - two[d], 4) for d in ten.keys() & two.keys()}
+    """date -> value for a report axis. An ``A-B`` axis is a date-JOINED spread —
+    never a cross-date subtraction, the same rule the fusion regime dot follows.
+    No series id contains a hyphen, so the split is unambiguous."""
+    if "-" in axis_series:
+        a, b = axis_series.split("-", 1)
+        left = dict(series_history(a, db_path=db_path))
+        right = dict(series_history(b, db_path=db_path))
+        return {d: round(left[d] - right[d], 4) for d in left.keys() & right.keys()}
     return dict(series_history(axis_series, db_path=db_path))
 
 
@@ -226,9 +304,14 @@ def macro_snapshot(
     as_of: str | None = None,
     db_path: Path = DEFAULT_MACRO_DB_PATH,
 ) -> dict[str, dict]:
-    """Latest (date, value) per stored series — the substrate's quick health read."""
+    """Latest (date, value) per stored series — the substrate's quick health read.
+
+    Walks BOTH source dicts: a series stored but absent from this snapshot is
+    invisible to every agent surface, which is the failure this whole section
+    exists to stop.
+    """
     out: dict[str, dict] = {}
-    for series_id, axis in MACRO_SERIES.items():
+    for series_id, axis in {**MACRO_SERIES, **CBOE_SERIES}.items():
         obs = latest_value(series_id, as_of=as_of, db_path=db_path)
         if obs is not None:
             out[series_id] = {"axis": axis, "date": obs[0], "value": obs[1]}

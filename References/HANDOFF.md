@@ -15,6 +15,20 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
+
+Section-by-section rebuild (founder's method) per `References/fusion_layer_audit/README.md`; card #302.
+Round A widened the macro substrate and wired it to both agent surfaces (BUILD_LOG 08-11 row).
+- ⏳ **check 08-12 AM**: did the Cboe close cron fire? `tail data/research/cboe_curve.log` and confirm
+  `VIX1D/VIX9D/VIX6M/VVIX` have an 08-11 row holding the *settle*, not an intraday value. First live
+  firing was tonight 22:00/23:00 UTC — never yet observed.
+- ▶ **Round B** (not started): consolidate the fusion regime dot onto `macro.db` (it still reads the
+  thin `regime_macro`), delete `market_shock`'s dead VIX arm + the never-resetting `MAX()` latch.
+- ▶ **founder call**: no UI surface renders the 6 regime axes. **No new widget** (standing rule) — so
+  this needs a merge target on an existing widget, or it stays agent-only.
+- ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
+  (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
+
 ## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
 
 Since Fri 08-07 ~10:00 ET the v1beta1/opra trades WS lags 8-12s (p50, RTH) and silently drops
