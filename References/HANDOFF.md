@@ -15,18 +15,13 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-10 board restore — 3 revived threads need action, 2 founder calls back in queue
+## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
 
 Merge `520e944c` (08-01) silently dropped 16 board cards; all restored 08-10 as #284–#299
-(BUILD_LOG row has the forensics). The open remnants, each dateless for 9 days through no one's
-choice:
+(BUILD_LOG row has the forensics). #299 (Addendum-G scoring) and #298 (quiet-tape prereg) closed
+08-11 — both registered runs completed, both verdicts DEAD (see the BUILD_LOG row + the cards).
+Remaining:
 
-- ⏳ **#299 Addendum-G scoring obligations** — the registered scoring run was due ≥ close 08-07
-  and apparently never ran (no BUILD_LOG row); untracked `tools/test_flow_obligation3.py` +
-  `tools/test_root_classification_build.py` sit in the dev tree mid-thread. Re-establish where
-  obligations 1→6 actually stand before running anything.
-- ⏳ **#298 quiet-tape prereg** — the ≥08-08 input-records/calibration date passed; check the
-  G-verdict precondition, then either run or re-date.
 - ⏳ **#297 Schwab re-auth Akamai** — "VERDICT 2026-08-06" passed unobserved; check the manual
   bridge + daily cron actually held (last successful re-auth timestamp) before closing.
 - **Founder lane refilled:** #294 (multi-angle reasoning A/B greenlight, waiting since 07-19) and
