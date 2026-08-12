@@ -47,12 +47,21 @@ export function mergeFetchedBars(
 }
 
 /**
- * A fresh forming bar for the next interval bucket, spanning `prev.close` to
+ * A fresh forming bar `steps` buckets after `prev`, spanning its open to
  * `price`. Pure construction — the caller decides whether appending is
- * legitimate (single-step rollover only; gaps are a refetch, never fabricated
- * buckets).
+ * legitimate. `steps > 1` skips buckets rather than fabricating them: one bar
+ * lands in the bucket containing `now` and the missing ones stay missing until
+ * a refetch supplies them.
  *
- * It opens at the PREVIOUS bar's close, not at `price`. Opening at `price`
+ * The open depends on contiguity. A contiguous rollover (`steps === 1`) opens
+ * at `prev.close` — see below. A skipped-bucket rollover opens at `price`,
+ * because bars are genuinely absent between the two and the gap IS the honest
+ * rendering: on a thin symbol (FXE, measured 2026-08-12: 69.5% of RTH minute
+ * bars are >=2 intervals apart, median gap 180s, max 40min) nothing traded in
+ * between, so the first print of the new bucket is its open.
+ *
+ * The contiguous case opens at the PREVIOUS bar's close, not at `price`.
+ * Opening at `price`
  * fabricated a visible gap on every rollover, because the bar we follow closed
  * at a VENDOR SNAPSHOT that trails real time: measured 2026-08-12 on TSLA 1Min,
  * the served tail sat 93-133s behind with its close frozen at 325.91 while the
@@ -70,10 +79,15 @@ export function mergeFetchedBars(
  * just don't have the vendor's bucket boundary yet. Vendor truth overwrites the
  * whole bar within a refresh or two.
  */
-export function rolledOverBar(prev: EngineBar, intervalMs: number, price: number): EngineBar {
-  const open = prev.close;
+export function rolledOverBar(
+  prev: EngineBar,
+  intervalMs: number,
+  price: number,
+  steps = 1,
+): EngineBar {
+  const open = steps > 1 ? price : prev.close;
   return {
-    time: prev.time + intervalMs,
+    time: prev.time + intervalMs * steps,
     open,
     high: Math.max(open, price),
     low: Math.min(open, price),

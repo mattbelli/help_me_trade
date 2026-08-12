@@ -824,11 +824,25 @@ export function NativeChart({
     const lastSec = Math.floor(last.time / 1000);
     const nowSec = Math.floor(Date.now() / 1000);
 
-    // Staleness gate: a tail ≥2 intervals behind the clock means the page was
-    // backgrounded past the freshness window — merging would fuse the gap into
-    // one candle. Refetch real bars instead (once per episode, with an
-    // off-hours cooldown so overnight ext ticks don't refetch all night).
-    if (intervalSec > 0 && nowSec - lastSec >= 2 * intervalSec) {
+    // How many buckets the clock has moved past the tail. Counting them (rather
+    // than testing "is it stale?") is what lets a lagging tail still merge: the
+    // rollover lands in the bucket containing `now`, so it can never fuse the
+    // gap into one candle.
+    const steps =
+      intervalSec > 0 ? Math.floor((nowSec - lastSec) / intervalSec) : 0;
+
+    // A tail ≥2 buckets behind means real bars are missing — ask the vendor for
+    // them (once per episode, with an off-hours cooldown so overnight ext ticks
+    // don't refetch all night). This no longer blocks the merge. It used to,
+    // and that made the chart bistable: once rollover is running the tail stays
+    // fresh and the gate is unreachable, but a load whose first payload was
+    // already ≥2 intervals old never started that loop and stayed shut. Our own
+    // worst-case tail age (vendor lag + the 60s bars cache) is ~138s measured
+    // against a 120s threshold on 1Min, so that coin flip came up often, and on
+    // a thin symbol it never recovered at all — no newer bar exists to fetch.
+    // Measured 2026-08-12 replaying this effect on the live tick stream: SPY
+    // dropped 427/1400 ticks (91s of 300s frozen), FXE dropped 10/10.
+    if (steps >= 2) {
       const cooldownSec = Math.max(2 * intervalSec, 300);
       if (
         !staleRefetchPendingRef.current &&
@@ -839,7 +853,6 @@ export function NativeChart({
         invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
         setRefreshNonce((n) => n + 1);
       }
-      return;
     }
 
     // Plausibility band vs the prior COMPLETED bar (live ticks mutate `last`,
@@ -847,10 +860,10 @@ export function NativeChart({
     const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
     if (ref > 0 && (tick > ref * 1.5 || tick * 2 < ref)) return;
 
-    // Single-step rollover: the clock crossed into the next bucket, so open
-    // the forming bar there instead of polluting the completed one.
-    if (intervalSec > 0 && nowSec >= lastSec + intervalSec) {
-      engine.rollover(intervalSec * 1000, tick);
+    // The clock crossed into a later bucket, so open the forming bar there
+    // instead of polluting the completed one.
+    if (steps >= 1) {
+      engine.rollover(intervalSec * 1000, tick, steps);
       return;
     }
 
