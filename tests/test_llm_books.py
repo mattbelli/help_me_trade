@@ -332,3 +332,59 @@ async def test_paused_book_refuses_to_run_on_every_path(tmp_path: Path) -> None:
         "panel", "# report", {"candidates": []}, db_path=db
     )
     assert submitted["status"] == "skipped" and submitted["reason"] == "paused"
+
+
+def _stub_frame_db_reads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Silence the frame's other DB readers so the assertions are about the two
+    lines under test, not about which table a tmp DB happens to be missing."""
+    import db.reports as reports_mod
+    import signals.fusion.attention as attention_mod
+
+    monkeypatch.setattr(attention_mod, "hot_lane_rows", lambda **_k: [])
+    monkeypatch.setattr(reports_mod, "recent_reports_by_kind", lambda *_a, **_k: [])
+
+
+def test_market_frame_carries_the_macro_calendar_and_the_gamma_regime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both shipped to the `market` perception resource FIRST and to this pack only
+    afterwards — and the pack is what a book reads before it asks anything. Measured
+    on the 2026-08-11 packs: no CPI line on the eve of CPI, and the one book that
+    mentioned it had gone to the open web for a date sitting in our own store."""
+    import db.gamma_exposure as gex_mod
+    import signals.macro_substrate as macro_mod
+    from research.books import _market_frame_section
+
+    _stub_frame_db_reads(monkeypatch)
+    monkeypatch.setattr(macro_mod, "event_calendar", lambda *_a, **_k: {
+        "today": [], "not_covered": "FOMC meetings without projections",
+        "upcoming": [{"date": "2026-08-12", "release": "CPI", "in_days": 1}],
+    })
+    monkeypatch.setattr(gex_mod, "history", lambda **_k: [{
+        "as_of": "2026-08-11T19:59:59Z", "oi_as_of": "2026-08-11", "spot": 7725.35,
+        "net_b": 65.8, "call_b": 285.6, "put_b": 219.8, "flip": 7617.7,
+        "spot_above_flip_pct": 1.41,
+    }])
+
+    frame = _market_frame_section(tmp_path / "t.db")
+    assert "CPI in 1d (2026-08-12)" in frame
+    assert "not covered" in frame  # an absent FOMC must not read as "no meeting"
+    assert "net $+65.8B per 1%" in frame
+    assert "flip 7,618" in frame
+    # The convention travels with the number or the number is misread as measured.
+    assert "ASSUMES dealers long calls / short puts" in frame
+
+
+def test_market_frame_stays_honest_when_those_two_stores_are_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import db.gamma_exposure as gex_mod
+    import signals.macro_substrate as macro_mod
+    from research.books import _market_frame_section
+
+    _stub_frame_db_reads(monkeypatch)
+    monkeypatch.setattr(gex_mod, "history", lambda **_k: [])
+    monkeypatch.setattr(macro_mod, "event_calendar", lambda *_a, **_k: None)
+    frame = _market_frame_section(tmp_path / "t.db")
+    assert "- macro calendar: _unavailable_" in frame
+    assert "- SPX gamma: _no stored snapshot_" in frame

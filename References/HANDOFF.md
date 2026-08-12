@@ -19,41 +19,47 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 Section-by-section rebuild (founder's method) per `References/fusion_layer_audit/README.md`; card #302.
 Round A widened the macro substrate and wired it to both agent surfaces (BUILD_LOG 08-11 row).
-- ⏳ **check 08-12 AM**: did the Cboe close cron fire? `tail data/research/cboe_curve.log` and confirm
-  `VIX1D/VIX9D/VIX6M/VVIX` have an 08-11 row holding the *settle*, not an intraday value. First live
-  firing was tonight 22:00/23:00 UTC — never yet observed.
+- ✅ **Cboe close cron — CHECKED 08-12, passed.** Both firings (22:00 + 23:00 UTC) wrote 08-11 rows for
+  all 7 series, and the values are the settle: `last_trade_time` is 16:15:01 ET, the index settlement
+  print. ⚠️ Two gotchas for whoever reads these next: post-settle Cboe rolls `prev_day_close` forward
+  so it EQUALS today's close on every series — the VXTLT/VXEEM rejection test was never really about
+  that field, it was about `last_trade_time` (16:02 + a different tz = not a settle); and VIX1D and
+  VIX9D both printed exactly 12.52, which is coincidence, not a duplicated feed — their open/high/low
+  differ (7.52/12.63/7.07 vs 12.95/13.10/12.32), checked against the vendor directly.
 - ▶ **Round B** (not started): consolidate the fusion regime dot onto `macro.db` (it still reads the
   thin `regime_macro`), delete `market_shock`'s dead VIX arm + the never-resetting `MAX()` latch.
-- ▶ **founder call**: no UI surface renders the 6 regime axes. **No new widget** (standing rule) — so
-  this needs a merge target on an existing widget, or it stays agent-only.
-- ⏳ **check 08-12 PM**: did the paper books mention CPI? The calendar shipped 08-11 evening and the
-  rows are already in `macro.db`, so the session should see `events.today = ["CPI"]`. If a book still
-  ignores it, the gap is the book PROMPT, not perception — different fix entirely.
+- ▶ **founder call**: no UI surface renders the regime axes (now 8 + index gamma). **No new widget**
+  (standing rule) — so this needs a merge target on an existing widget, or it stays agent-only.
+- ✅ **CPI check — ANSWERED EARLY 08-12, and it found the real gap.** The books were not blind (fable's
+  08-11 session does discuss CPI) but it had gone to the OPEN WEB for it: the calendar shipped onto the
+  `market` perception resource and **not onto the nightly book pack**, which is what a book reads
+  first — the 08-11 packs carry no CPI line at all. Fixed at the same edit site as the gamma line
+  (`research/books._market_frame_section`); the pack now renders `CPI in 1d (2026-08-12)` plus the
+  `not_covered` caveat, pinned by two tests. Same class as `research-engine-bypassed-perception`: a
+  source is not wired until EVERY consumer surface has it, and the pack was the one skipped.
 - ▶ **Founder's 1-by-1 queue**: ~~1 apply reviews~~ ✅ · ~~2 macro event calendar~~ ✅ ·
   ~~3 correlation + breadth~~ ✅ · ~~4 deeper daily-bar backfill~~ ✅ (found + fixed a silent
   batch-pagination truncation; a second review then found 6 MAJORs in that fix — all closed) ·
   ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · **6 dealer positioning — HALF DONE, see below** ·
   7 Round B cleanup.
-- ▶ **Item 6 state.** The **collar half needs no work — it already exists**: `db/oi_walls.py` has the
-  matched-leg triple detector (with a design law that structures are labelled generically, never by
-  fund name) and it is already a wired perception resource (card #291). An orchestrator started
-  rebuilding it before finding that; the duplicate was deleted. **The GEX/vanna/charm half is NOT
-  built.** Feasibility established 2026-08-11, all pieces present: per-strike OI for SPX/SPXW back to
-  2013 in `oi_walls.oi_daily`; Alpaca serves SPX **and** SPXW chains with `latestQuote` (no vendor
-  greeks, which is exactly what `signals/black76.py` exists to fill — it inverts IV off the chain's
-  OWN forward, so no dividend or borrow feed is needed); `black76.greeks()` already returns gamma
-  **w.r.t. spot**. What remains: chain paging (the default caps at 2 pages / 2,000 contracts and SPX
-  alone exceeds that), the OCC↔`(root,expiry,cp,strike)` join to the OI store, the aggregation, the
-  zero-gamma flip solve, and vanna/charm. Design already settled: it lands as regime **axes** with
-  percentiles, output as ~6 numbers, never a strike table.
-- ✅ **Agent result cap — FIXED 08-11** (BUILD_LOG). It was never an `oi_walls` problem: three live
-  resources were over the 20,000-char cap and the largest offender in each was one constant sentence
-  repeated per row (`flow_perception` 57,781 chars, 38% of it one disclaimer × 50). `query()` now
-  states constant fields once in `shared`, and `fit_to_cap()` drops whole ROWS with a stated count
-  instead of slicing JSON mid-object. Nothing is over cap.
-- ▶ **Design settled 08-11**: index-level GEX/vanna/charm become regime *axes* (day-scoped, ranked,
-  inheriting the honesty floor) rather than a new subsystem; the SME collar is a known POSITION so it
-  belongs with reference levels, not as a statistic; single-name GEX stays in Section 3.
+- ▶ **Item 6 — GEX SHIPPED 08-12 (#303, BUILD_LOG row); VANNA + CHARM still open.** The collar half
+  already existed (#291) and gamma is now done end to end. What remains is **vanna and charm on the
+  same board** — `signals/gamma_exposure.build_board()` already hands back every priced leg (strike,
+  T, discount, forward, sigma, OI), so both are a greek in `black76` plus an aggregation; validate
+  each against a finite difference of the pricer the way gamma was. Then decide whether they earn a
+  place in the `summary` view or stay a `view=` of their own.
+- ▶ **Three carried-forward notes from the gamma round** (notes, not cards): `oi_walls` still cannot
+  filter by strike or read a past date despite 27.6M rows of per-strike history — the gamma work
+  needed the whole latest board and got `oi_board()`, but a strike/date drill-down is still missing;
+  `list_capabilities()` is now **22,168 chars against a 20,000 tool-result cap** (was 20,364 before
+  the `gex` entry) — it has no rows to drop so `fit_to_cap` passes it through whole rather than
+  corrupting it, but every manifest read spends ~5.5k tokens, and the fix is a two-tier manifest
+  (names + one-liners, full descriptions on request), not a shorter description; and a **VIX-flat
+  historical backfill of the FLIP level only** is defensible research — the flip is far less
+  vol-sensitive than the magnitude — which would give percentiles years earlier than waiting 60
+  sessions. Unrun.
+- ▶ **Design still standing**: the SME collar is a known POSITION so it belongs with reference levels,
+  not as a statistic; single-name GEX stays in Section 3.
 - ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
   (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
 

@@ -80,6 +80,7 @@ def test_list_resources_catalog() -> None:
         "flow_perception",
         "overnight_flow",
         "oi_walls",
+        "gex",
         "dossier",
         "episodes",
         "bars",

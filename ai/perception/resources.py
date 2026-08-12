@@ -632,6 +632,17 @@ def _read_macro_history(name: str, filters: dict[str, Any]) -> list[dict[str, An
     return [{**context, "date": d, "value": v} for d, v in kept]
 
 
+# A second, shorter wording of gamma_exposure.CONVENTION rather than a reuse of it:
+# that one points at field names ("call_gamma and put_gamma below") which do not
+# exist in this block, and a caveat that names the wrong fields is worse than none.
+# The claim must stay identical in both — the net is an assumption, not an
+# observation — even though the sentence does not.
+_GEX_CONVENTION_SHORT = (
+    "net ASSUMES dealers are long every call and short every put — the industry "
+    "convention, not measured inventory; call/put above are the unconditional facts"
+)
+
+
 def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     series = str(filters.get("series") or "").strip()
     if series:
@@ -672,6 +683,30 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
         macro = None
     if macro is not None:
         row["macro"] = macro
+    # Index gamma regime, from the snapshot store — NOT recomputed here. Pricing the
+    # board is a 2.3 s broker fetch and this resource is the fast always-on regime
+    # read; the stored row carries its own timestamps so its staleness is visible,
+    # and `gex` recomputes live for anyone who needs the current board.
+    try:
+        from db.gamma_exposure import history as gex_history
+
+        stored = (gex_history(limit=1) or [None])[0]
+    except Exception:
+        logger.debug("Gamma exposure read failed", exc_info=True)
+        stored = None
+    if stored:
+        row["index_gamma"] = {
+            "net_usd_per_1pct_b": stored["net_b"],
+            "call_usd_per_1pct_b": stored["call_b"],
+            "put_usd_per_1pct_b": stored["put_b"],
+            "flip_spot": stored["flip"],
+            "spot_above_flip_pct": stored["spot_above_flip_pct"],
+            "spot": stored["spot"],
+            "priced_at": stored["as_of"],
+            "oi_as_of": stored["oi_as_of"],
+            "convention": _GEX_CONVENTION_SHORT,
+            "live_and_deeper": "query the `gex` resource",
+        }
     return [row]
 
 
@@ -938,6 +973,76 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
         r["caveat"] = caveat
         out.append(r)
     return out
+
+
+_GEX_VIEWS = ("summary", "strikes", "expiries", "profile")
+# Keys the drill-down context block occupies. A row field of the same name would
+# silently win the merge below and overwrite it — which is exactly what the profile
+# view's "spot" did before it was renamed. Named here so the test guards the real
+# list rather than a copy of it.
+_GEX_CONTEXT_KEYS = ("index", "spot", "oi_as_of", "convention", "units")
+
+
+def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # live chain + the OI research store, not the trading DB
+    from signals.gamma_exposure import (
+        cached_board,
+        expiry_rows,
+        profile_rows,
+        strike_rows,
+        summarize,
+    )
+
+    view = str(filters.get("view") or "summary").strip().lower()
+    if view not in _GEX_VIEWS:
+        return [{"error": f"unknown view {view!r}", "views": list(_GEX_VIEWS)}]
+    try:
+        limit = max(1, min(int(filters.get("limit") or 20), _MAX_ROWS))
+    except (TypeError, ValueError):
+        limit = 20
+
+    board = cached_board()
+    if board is None:
+        return [{
+            "unavailable": True,
+            "note": "no priced board — needs the OPRA OI store (data/oi_walls.db) "
+                    "AND a live index chain; either being absent means no answer, "
+                    "not a flat one",
+        }]
+    if view == "summary":
+        from db.gamma_exposure import percentile
+
+        row = summarize(board)
+        # Ranked against our OWN stored snapshots, which start the day the first one
+        # was taken. The block reports its observation count either way so an absent
+        # percentile reads as "not enough history yet", never as "unremarkable".
+        row["net_gamma_history"] = percentile("net_b", row["net_gamma_usd_per_1pct_b"])
+        return [row]
+
+    # Drill-down rows travel without the summary, so each one carries the context
+    # needed to read it. Identical on every row, so _hoist_shared lifts it into
+    # `shared` and it costs one copy — the lesson from the macro-history drill-down,
+    # where a model with a partial view generalised past what it could see.
+    from signals.gamma_exposure import CONVENTION
+
+    context = dict(zip(
+        _GEX_CONTEXT_KEYS,
+        (
+            "SPX",
+            board.spot,
+            board.oi_as_of,
+            CONVENTION,
+            "billions of dollars of dealer delta per 1% move in the index",
+        ),
+        strict=True,
+    ))
+    if view == "strikes":
+        rows = strike_rows(board, limit=limit)
+    elif view == "expiries":
+        rows = expiry_rows(board, limit=limit)
+    else:
+        rows = profile_rows(board)
+    return [{**context, **row} for row in rows]
 
 
 def _read_oi_walls(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
@@ -1460,6 +1565,13 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "projections) — so sizing into a print is never mistaken for sizing "
             "on a quiet day; read `events.not_covered` before concluding no Fed "
             "meeting is scheduled. "
+            "An `index_gamma` block carries the SPX option board's dealer-gamma "
+            "regime — net/call/put gamma per 1% move plus the gamma-flip level — "
+            "read from the LAST STORED post-close snapshot, so check `priced_at` "
+            "before treating it as live, and note its net rests on a stated "
+            "CONVENTION about who holds what, never on measured inventory. Query "
+            "the `gex` resource for a live board and its strike/expiry/spot-ladder "
+            "drill-downs. "
             "★ Pass `series` to DRILL DOWN into any of it over time — the snapshot "
             "ranks a number against thousands of observations, and `series` is how "
             "you actually look at them ('what did credit do in March 2020', 'is this "
@@ -1718,6 +1830,39 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_flow_perception,
     },
+    "gex": {
+        "description": (
+            "Index gamma exposure — the SPX board's standing open interest priced "
+            "through our own Black-76 gamma, as a REGIME axis: how option inventory "
+            "would make hedging behave if the index moves, not where it is going. "
+            "Headline numbers are the net and the two unconditional magnitudes (call "
+            "gamma, put gamma) in billions of dollars of dealer delta per 1% move, "
+            "plus the gamma-flip level and how far spot sits above it. "
+            "★ THE NET RESTS ON A CONVENTION, NOT A MEASUREMENT: netting calls "
+            "against puts assumes dealers are long every call and short every put. "
+            "We have no dealer-inventory data. Quote the convention whenever you "
+            "quote the net, and never call it observed positioning — call_gamma and "
+            "put_gamma are the facts, the net is the fact PLUS the assumption. "
+            "Alpaca publishes no greeks at all on index options (0 of 12,563 "
+            "measured), so every gamma here is OUR model output off the chain's own "
+            "parity forward — greeks_source says black76 for that reason. Open "
+            "interest is published overnight and is always the prior session's "
+            "positioning; oi_as_of and its age are on every row. PERCEPTION ONLY: "
+            "nothing here has been tested against forward returns, so there is no "
+            "edge, probability or win rate to quote from it. "
+            "★ Pass `view` to DRILL DOWN: strikes (where gamma concentrates, ranked "
+            "by gross because hedging happens against the gross), expiries (the term "
+            "structure — the DTE cut moves the net by 2x, so this is the shape of "
+            "the headline, not a detail), profile (net gamma across a ladder of "
+            "hypothetical index levels — how fast the board crosses the flip, which "
+            "one level cannot say)."
+        ),
+        "filters": {
+            "view": "optional — summary (default) | strikes | expiries | profile",
+            "limit": "optional int for strikes/expiries — default 20, max 50",
+        },
+        "read": _read_gex,
+    },
     "oi_walls": {
         "description": (
             "Standing option open-interest walls on the index complex — the largest "
@@ -1852,6 +1997,11 @@ _RESOURCE_ALIASES = {
     "fusion_episodes": "episodes",
     "evidence_stacks": "episodes",
     "stacks": "episodes",
+    "gamma": "gex",
+    "gamma_exposure": "gex",
+    "dealer_gamma": "gex",
+    "gamma_flip": "gex",
+    "zero_gamma": "gex",
     "collar": "oi_walls",
     "jpm_collar": "oi_walls",
     "open_interest": "oi_walls",
