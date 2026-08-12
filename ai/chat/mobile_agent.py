@@ -132,8 +132,8 @@ async def run_mobile_chat_stream(
 
     # approval_tools=frozenset(): route approval tools to _execute (where they are
     # diverted) rather than pausing on them — mobile has no in-chat HITL card.
-    # max_tokens inherits run_chat_loop's default (raised to 4000 serv-side to stop
-    # report truncation) — keep it central so web + mobile stay in lockstep.
+    # max_tokens inherits run_chat_loop's default (8000, raised on measured
+    # truncations) — keep it central so web + mobile stay in lockstep.
     async for event in run_chat_loop(
         llm, convo, tools, execute=_execute, approval_tools=frozenset()
     ):
