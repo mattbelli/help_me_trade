@@ -47,16 +47,36 @@ export function mergeFetchedBars(
 }
 
 /**
- * A fresh forming bar for the next interval bucket, opened at `price`.
- * Pure construction — the caller decides whether appending is legitimate
- * (single-step rollover only; gaps are a refetch, never fabricated buckets).
+ * A fresh forming bar for the next interval bucket, spanning `prev.close` to
+ * `price`. Pure construction — the caller decides whether appending is
+ * legitimate (single-step rollover only; gaps are a refetch, never fabricated
+ * buckets).
+ *
+ * It opens at the PREVIOUS bar's close, not at `price`. Opening at `price`
+ * fabricated a visible gap on every rollover, because the bar we follow closed
+ * at a VENDOR SNAPSHOT that trails real time: measured 2026-08-12 on TSLA 1Min,
+ * the served tail sat 93-133s behind with its close frozen at 325.91 while the
+ * live tape was 326.04 — and the drift grows with staleness. Worse, that window
+ * is exactly when no live tick had a chance to walk the previous close forward:
+ * `native-chart`'s staleness gate blocks the merge while the tail is >=2
+ * intervals old, so the first tick after a fresh payload lands rolls over
+ * immediately and the whole vendor lag becomes one jump. Distinct from the
+ * 07-29 phantom-gap fix (a cache HIT re-applying a payload and deleting the
+ * forming bar) — that one is fixed and still stands; this is the cache-MISS
+ * path, where the vendor bar legitimately replaces ours but is already stale.
+ *
+ * Opening at the prior close draws the move as a wick instead of a gap, which
+ * is the honest shape: we know price travelled between those two points, we
+ * just don't have the vendor's bucket boundary yet. Vendor truth overwrites the
+ * whole bar within a refresh or two.
  */
-export function rolledOverBar(lastBarTimeMs: number, intervalMs: number, price: number): EngineBar {
+export function rolledOverBar(prev: EngineBar, intervalMs: number, price: number): EngineBar {
+  const open = prev.close;
   return {
-    time: lastBarTimeMs + intervalMs,
-    open: price,
-    high: price,
-    low: price,
+    time: prev.time + intervalMs,
+    open,
+    high: Math.max(open, price),
+    low: Math.min(open, price),
     close: price,
     volume: 0,
   };

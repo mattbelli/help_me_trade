@@ -100,14 +100,43 @@ describe("mergeFetchedBars", () => {
 });
 
 describe("rolledOverBar", () => {
-  it("opens a flat zero-volume bar exactly one interval later", () => {
-    const b = rolledOverBar(3000, 60_000, 12.4);
+  const prev: EngineBar = {
+    time: 3000,
+    open: 12,
+    high: 12.5,
+    low: 11.5,
+    close: 12.2,
+    volume: 300,
+  };
+
+  it("opens at the PREVIOUS close, never at the live price — no fabricated gap", () => {
+    const b = rolledOverBar(prev, 60_000, 12.4);
     expect(b).toEqual({
       time: 63_000,
-      open: 12.4,
+      open: 12.2, // prev.close, not the 12.4 tick
       high: 12.4,
-      low: 12.4,
+      low: 12.2,
       close: 12.4,
+      volume: 0,
+    });
+  });
+
+  it("spans downward moves too — the tick becomes the low, not the open", () => {
+    const b = rolledOverBar(prev, 60_000, 11.9);
+    expect(b.open).toBe(12.2);
+    expect(b.high).toBe(12.2);
+    expect(b.low).toBe(11.9);
+    expect(b.close).toBe(11.9);
+  });
+
+  it("is a flat doji when price has not moved since the previous close", () => {
+    const b = rolledOverBar(prev, 60_000, 12.2);
+    expect(b).toEqual({
+      time: 63_000,
+      open: 12.2,
+      high: 12.2,
+      low: 12.2,
+      close: 12.2,
       volume: 0,
     });
   });

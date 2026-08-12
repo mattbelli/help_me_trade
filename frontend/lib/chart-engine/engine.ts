@@ -230,7 +230,7 @@ export class ChartEngine {
     const last = this.bars[this.bars.length - 1];
     if (!last || !Number.isFinite(price) || price <= 0) return;
     const atRightEdge = this.vp.rightEdgeIndex >= this.bars.length - 1;
-    this.bars.push(rolledOverBar(last.time, intervalMs, price));
+    this.bars.push(rolledOverBar(last, intervalMs, price));
     if (atRightEdge) {
       this.vp = clampViewport(
         { barSpacing: this.vp.barSpacing, rightEdgeIndex: this.vp.rightEdgeIndex + 1 },
