@@ -40,24 +40,22 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
 - ▶ **Founder's 1-by-1 queue**: ~~1 apply reviews~~ ✅ · ~~2 macro event calendar~~ ✅ ·
   ~~3 correlation + breadth~~ ✅ · ~~4 deeper daily-bar backfill~~ ✅ (found + fixed a silent
   batch-pagination truncation; a second review then found 6 MAJORs in that fix — all closed) ·
-  ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · **6 dealer positioning — HALF DONE, see below** ·
-  7 Round B cleanup.
-- ▶ **Item 6 — GEX SHIPPED 08-12 (#303, BUILD_LOG row); VANNA + CHARM still open.** The collar half
-  already existed (#291) and gamma is now done end to end. What remains is **vanna and charm on the
-  same board** — `signals/gamma_exposure.build_board()` already hands back every priced leg (strike,
-  T, discount, forward, sigma, OI), so both are a greek in `black76` plus an aggregation; validate
-  each against a finite difference of the pricer the way gamma was. Then decide whether they earn a
-  place in the `summary` view or stay a `view=` of their own.
-- ▶ **Three carried-forward notes from the gamma round** (notes, not cards): `oi_walls` still cannot
-  filter by strike or read a past date despite 27.6M rows of per-strike history — the gamma work
-  needed the whole latest board and got `oi_board()`, but a strike/date drill-down is still missing;
-  `list_capabilities()` is now **22,168 chars against a 20,000 tool-result cap** (was 20,364 before
-  the `gex` entry) — it has no rows to drop so `fit_to_cap` passes it through whole rather than
-  corrupting it, but every manifest read spends ~5.5k tokens, and the fix is a two-tier manifest
-  (names + one-liners, full descriptions on request), not a shorter description; and a **VIX-flat
-  historical backfill of the FLIP level only** is defensible research — the flip is far less
-  vol-sensitive than the magnitude — which would give percentiles years earlier than waiting 60
-  sessions. Unrun.
+  ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · ~~6 dealer positioning~~ ✅ (gamma 08-12, vanna + charm
+  08-12; #303 + two BUILD_LOG rows) · **7 Round B cleanup — the only one left.**
+- ▶ **Three carried-forward notes from the dealer-exposure rounds** (notes, not cards): `oi_walls`
+  still cannot filter by strike or read a past date despite 27.6M rows of per-strike history — the
+  gamma work needed the whole latest board and got `oi_board()`, but a strike/date drill-down is
+  still missing; `list_capabilities()` is now **~22.7k chars against a 20,000 tool-result cap** (was
+  20,364 before `gex`, 22,168 after it, and the vanna/charm round gave most of its own increase back
+  by compressing the `gex` description) — it has no rows to drop so `fit_to_cap` passes it through
+  whole rather than corrupting it, but every manifest read spends ~5.5k tokens, and the fix is a
+  two-tier manifest (names + one-liners, full descriptions on request), not a shorter description;
+  and a **VIX-flat historical backfill of the FLIP level only** is defensible research — the flip is
+  far less vol-sensitive than the magnitude — which would give percentiles years earlier than
+  waiting 60 sessions. Unrun.
+- ▶ **No UI surface renders any of the regime axes** (8 macro + gamma/vanna/charm). Founder's call,
+  and it stays agent-only until he makes it: standing instruction is **no new widget**, so this needs
+  a merge target on an existing one (`widget-consolidation-direction`).
 - ▶ **Design still standing**: the SME collar is a known POSITION so it belongs with reference levels,
   not as a statistic; single-name GEX stays in Section 3.
 - ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`

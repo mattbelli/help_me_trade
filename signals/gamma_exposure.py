@@ -1,4 +1,4 @@
-"""Index gamma exposure — standing OI × our own gamma, as a regime axis.
+"""Index dealer exposure — standing OI × our own gamma, vanna and charm.
 
 The question this answers is not "where will SPX go" but "how is the option board
 likely to make dealers behave if it moves". Positive net gamma means the hedging
@@ -7,6 +7,13 @@ flow that option inventory forces is *counter*-trend (sell strength, buy weaknes
 about mechanics, and it is only as good as the assumption underneath it, which is
 stated in the payload every single time — see CONVENTION below.
 
+**Three axes, one board.** All three are dollars of dealer delta, and they differ
+only in what has to move to create that delta: gamma needs the index to move 1%,
+vanna needs implied vol to move 1 point, charm needs nothing to move at all —
+just a day to pass. Same board, same OI, same convention; three different
+questions asked of it. They are NOT comparable to each other as numbers, because
+a 1% index move and a 1-point vol move are not the same size of event.
+
 **Where each number comes from.**
   * Open interest: ``data/oi_walls.db``, the OPRA per-strike daily store. It is
     published overnight, so it is ALWAYS the prior session's positioning — the
@@ -14,11 +21,13 @@ stated in the payload every single time — see CONVENTION below.
   * Quotes: the live Alpaca chain for both index roots (SPX = AM-settled
     monthlies, SPXW = the PM dailies/weeklies — two different boards under one
     index, and leaving either out drops real gamma).
-  * IV and gamma: ours, via ``signals.black76``, off the chain's own parity
-    forward. ⚠️ Measured 2026-08-11: Alpaca publishes greeks and IV on 0 of
-    12,563 index contracts. On equities black76 is a fallback that fills vendor
-    holes; here there is no vendor value at all, so every gamma in this module is
-    model output and ``greeks_source`` says so.
+  * IV, gamma, vanna and charm: ours, via ``signals.black76``, off the chain's
+    own parity forward. ⚠️ Measured 2026-08-11: Alpaca publishes greeks and IV on
+    0 of 12,563 index contracts. On equities black76 is a fallback that fills
+    vendor holes; here there is no vendor value at all, so every greek in this
+    module is model output and ``greeks_source`` says so. Each was checked against
+    a central finite difference of the pricer before being trusted — gamma against
+    the price, vanna and charm against the analytic delta.
   * Spot: index options have no stock quote, so the level is read back out of
     put-call parity on the nearest expiry.
 
@@ -45,6 +54,17 @@ Real vol moves when spot moves, so the flip is a level on today's surface, not a
 forecast of where the board will actually flip. And gamma is a model number, not
 an observation: a strike whose quote will not invert is skipped rather than
 guessed at, which is why ``coverage`` reports the OI that got priced.
+
+⚠️ **Charm is an instantaneous rate, and a chunk of it is not drift at all.**
+Measured 2026-08-11: for the 98.9% of legs that survive a day, multiplying the
+rate by one day lands within 1.7% of actually rolling the clock forward — so the
+linear read is fine there. But **26% of the board's headline charm sat in
+contracts expiring within that same day** ($4.79B of $18.65B). Those do not drift
+toward a new delta, they resolve to zero or to parity, and no rate describes that.
+``charm_from_expiring_b`` reports that piece each day so the headline is read with
+it rather than extrapolated past it — as a level rather than a share, because the
+front of the board and the rest of it can point opposite ways and a share then
+prints above 100% and reads like an error.
 
 **No edge is claimed.** Nothing here has been backtested against forward returns.
 This is a perception source — one angle on the tape — and it must be presented as
@@ -106,6 +126,14 @@ class Leg(NamedTuple):
     discount: float
     forward: float
     sigma: float
+
+
+class Exposure(NamedTuple):
+    """One leg's three dollar-delta sensitivities. Fields are in dollars of delta."""
+
+    gamma: float  # per 1% move in the index
+    vanna: float  # per 1 volatility point
+    charm: float  # per calendar day
 
 
 class Board(NamedTuple):
@@ -273,19 +301,51 @@ def cached_board(*, ttl: int = _CACHE_TTL_SECONDS) -> Board | None:
     return board
 
 
+def _leg_greeks(leg: Leg, spot: float, base_spot: float) -> dict[str, float]:
+    """Per-contract greeks at a hypothetical index level.
+
+    The forward is scaled with spot because ``F = S*e^((r-q)T)`` is linear in S;
+    the contract's implied vol is held fixed (sticky-strike), which is the
+    approximation the module docstring flags.
+    """
+    forward = leg.forward * spot / base_spot
+    return greeks(
+        forward, leg.strike, leg.t_years, leg.discount, leg.sigma, leg.cp == "C", spot=spot
+    )
+
+
 def leg_gamma_usd(leg: Leg, spot: float, base_spot: float) -> float:
     """Dollar gamma of one leg's open interest per 1% move, evaluated at ``spot``.
 
     ``gamma * OI * 100 * S^2 * 0.01`` is the change in the position's delta, in
-    dollars, for a 1% move in the index. The forward is scaled with spot because
-    ``F = S*e^((r-q)T)`` is linear in S; the contract's implied vol is held fixed
-    (sticky-strike), which is the approximation the docstring flags.
+    dollars, for a 1% move in the index. Kept separate from
+    :func:`leg_exposures_usd` because the flip search evaluates this alone across
+    a grid — up to 65 passes over 21k legs — with no use for the other two.
     """
-    forward = leg.forward * spot / base_spot
-    gamma = greeks(
-        forward, leg.strike, leg.t_years, leg.discount, leg.sigma, leg.cp == "C", spot=spot
-    )["gamma"]
-    return gamma * leg.oi * CONTRACT_MULTIPLIER * spot * spot * 0.01
+    greek = _leg_greeks(leg, spot, base_spot)["gamma"]
+    return greek * leg.oi * CONTRACT_MULTIPLIER * spot * spot * 0.01
+
+
+def leg_exposures_usd(leg: Leg, spot: float, base_spot: float) -> Exposure:
+    """All three dollar exposures of one leg's open interest, from one greeks call.
+
+    Each is the same shape — a per-contract sensitivity times the position's index
+    notional (``OI * 100 * S``) — differing only in what moves:
+      * gamma: delta change for a **1% move** in the index (hence the extra
+        ``S * 0.01``, converting per-point gamma into per-percent);
+      * vanna: delta change for a **1 volatility-point** rise in implied vol;
+      * charm: delta change from **one calendar day** passing, nothing else moving.
+    All in dollars of delta, so they add across legs and are directly comparable
+    to a dollar position — but only gamma is per-1%, so they are NOT comparable to
+    each other without saying what moved.
+    """
+    g = _leg_greeks(leg, spot, base_spot)
+    notional = leg.oi * CONTRACT_MULTIPLIER * spot
+    return Exposure(
+        gamma=g["gamma"] * notional * spot * 0.01,
+        vanna=g["vanna"] * notional,
+        charm=g["charm"] * notional,
+    )
 
 
 def net_gamma_at(legs: tuple[Leg, ...], spot: float, base_spot: float) -> float:
@@ -338,13 +398,31 @@ def gamma_flip(legs: tuple[Leg, ...], base_spot: float) -> tuple[float | None, i
 
 
 # --- views over a priced board ------------------------------------------------
-def _signed(board: Board) -> list[tuple[Leg, float]]:
-    """Each leg with its dollar gamma at today's spot, call-positive/put-negative."""
+def _signed(board: Board) -> list[tuple[Leg, Exposure]]:
+    """Each leg's exposures at today's spot, signed by CONVENTION (puts negated).
+
+    ⚠️ The sign flip is the convention, not arithmetic: it is what turns "the board
+    holds this much" into "dealers are exposed this much". Summing these gives the
+    net; summing by ``leg.cp`` first gives the two unconditional magnitudes.
+    """
     out = []
     for leg in board.legs:
-        value = leg_gamma_usd(leg, board.spot, board.spot)
-        out.append((leg, value if leg.cp == "C" else -value))
+        exposure = leg_exposures_usd(leg, board.spot, board.spot)
+        out.append((leg, exposure if leg.cp == "C" else Exposure(*(-v for v in exposure))))
     return out
+
+
+def _split(signed: list[tuple[Leg, Exposure]], field: str) -> tuple[float, float, float]:
+    """(calls, puts, net) for one exposure field — calls and puts UNCONDITIONAL.
+
+    ⚠️ Splits on ``leg.cp``, never on the sign of the value. Gamma is positive for
+    both rights so the sign happens to identify the side; vanna is negative below
+    the forward for calls and puts alike, so a sign-based split would file half the
+    call book under "puts".
+    """
+    calls = sum(getattr(e, field) for leg, e in signed if leg.cp == "C")
+    puts = -sum(getattr(e, field) for leg, e in signed if leg.cp != "C")
+    return calls, puts, calls - puts
 
 
 def _billions(value: float) -> float:
@@ -354,28 +432,27 @@ def _billions(value: float) -> float:
 def summarize(board: Board) -> dict[str, Any]:
     """The regime axes: a handful of numbers plus everything needed to read them."""
     signed = _signed(board)
-    calls = sum(v for _leg, v in signed if v > 0)
-    puts = -sum(v for _leg, v in signed if v < 0)
-    net = calls - puts
+    calls, puts, net = _split(signed, "gamma")
+    v_calls, v_puts, v_net = _split(signed, "vanna")
+    c_calls, c_puts, c_net = _split(signed, "charm")
     flip, crossings = gamma_flip(board.legs, board.spot)
 
     horizons = []
-    for cap in HORIZONS:
-        rows = [(leg, v) for leg, v in signed if leg.dte <= cap]
+    for cap in (*HORIZONS, None):
+        rows = [(leg, e) for leg, e in signed if cap is None or leg.dte <= cap]
         if not rows:
             continue
         horizons.append({
             "dte_max": cap,
-            "net_usd_per_1pct_b": _billions(sum(v for _l, v in rows)),
-            "gross_usd_per_1pct_b": _billions(sum(abs(v) for _l, v in rows)),
-            "open_interest": sum(leg.oi for leg, _v in rows),
+            "net_usd_per_1pct_b": _billions(sum(e.gamma for _l, e in rows)),
+            "gross_usd_per_1pct_b": _billions(sum(abs(e.gamma) for _l, e in rows)),
+            # Vanna and charm concentrate at a different point on the curve than
+            # gamma does — gamma is a front-week number, vanna lives further out —
+            # so the term row carries all three or it misleads about two of them.
+            "net_vanna_usd_per_volpt_b": _billions(sum(e.vanna for _l, e in rows)),
+            "net_charm_usd_per_day_b": _billions(sum(e.charm for _l, e in rows)),
+            "open_interest": sum(leg.oi for leg, _e in rows),
         })
-    horizons.append({
-        "dte_max": None,
-        "net_usd_per_1pct_b": _billions(net),
-        "gross_usd_per_1pct_b": _billions(sum(abs(v) for _l, v in signed)),
-        "open_interest": sum(leg.oi for leg in board.legs),
-    })
 
     row: dict[str, Any] = {
         "index": "SPX",
@@ -389,12 +466,21 @@ def summarize(board: Board) -> dict[str, Any]:
         "put_gamma_usd_per_1pct_b": _billions(puts),
         "gamma_flip_spot": flip,
         "gamma_flip_crossings": crossings,
+        "net_vanna_usd_per_volpt_b": _billions(v_net),
+        "call_vanna_usd_per_volpt_b": _billions(v_calls),
+        "put_vanna_usd_per_volpt_b": _billions(v_puts),
+        "net_charm_usd_per_day_b": _billions(c_net),
+        "call_charm_usd_per_day_b": _billions(c_calls),
+        "put_charm_usd_per_day_b": _billions(c_puts),
         "by_horizon": horizons,
         "greeks_source": "black76",
         "convention": CONVENTION,
         "units": (
-            "usd_per_1pct_b = billions of dollars of dealer delta that would change "
-            "hands for a 1% move in the index; it is a sensitivity, not a position"
+            "all three are billions of dollars of dealer DELTA that would change "
+            "hands — sensitivities, not positions — and they differ only in what "
+            "moves: gamma per 1% move in the index, vanna per 1 volatility point of "
+            "implied vol, charm per calendar day with nothing else moving. Same "
+            "units, different denominators: never compare them to each other"
         ),
         "not_a_signal": (
             "no edge has been measured for any of this against forward returns — "
@@ -411,6 +497,26 @@ def summarize(board: Board) -> dict[str, Any]:
             "counter-trend (sells strength, buys weakness) and tends to dampen "
             "moves; negative: it is pro-trend and tends to amplify them"
         )
+    # The charm sitting in contracts that expire within the day. Those resolve
+    # rather than drift, so the headline rate does not describe them — measured at
+    # $4.79B of $18.65B on 2026-08-11, far too big to leave implied. Reported as a
+    # LEVEL, not a share: the front and the rest of the board can point opposite
+    # ways, and a share then prints 129% and reads like a bug.
+    row["charm_from_expiring_b"] = _billions(
+        sum(e.charm for leg, e in signed if leg.dte <= 1)
+    )
+    row["vanna_charm_mean"] = (
+        "SAME convention, so the same caveat. VANNA: dealer delta created by a 1 "
+        "point rise in implied vol. Positive means a vol RISE leaves them longer so "
+        "the re-hedge is selling, and a vol collapse leaves them shorter so it is "
+        "buying — the usual post-event 'vanna rally' story runs that way. CHARM: "
+        "the delta the clock alone creates. Positive means the hedge drifts toward "
+        "selling on a day the tape does nothing; negative means it drifts toward "
+        "buying. ⚠️ charm_from_expiring_b is the part of it carried by contracts "
+        "expiring within the day — those RESOLVE rather than drift, so subtract it "
+        "before reading the rest as a smooth overnight flow. Both are "
+        "mechanical claims about hedging; neither is tested against forward returns"
+    )
     row["coverage"] = board.coverage
     return row
 
@@ -424,12 +530,16 @@ def strike_rows(board: Board, *, limit: int = 20) -> list[dict[str, Any]]:
     its size. Hedging happens against the gross; the net only says which way.
     """
     totals: dict[float, dict[str, Any]] = {}
-    for leg, value in _signed(board):
+    for leg, exposure in _signed(board):
         agg = totals.setdefault(
-            leg.strike, {"strike": leg.strike, "net": 0.0, "call": 0.0, "put": 0.0, "oi": 0}
+            leg.strike,
+            {"strike": leg.strike, "net": 0.0, "call": 0.0, "put": 0.0,
+             "vanna": 0.0, "charm": 0.0, "oi": 0},
         )
-        agg["net"] += value
-        agg["call" if leg.cp == "C" else "put"] += abs(value)
+        agg["net"] += exposure.gamma
+        agg["call" if leg.cp == "C" else "put"] += abs(exposure.gamma)
+        agg["vanna"] += exposure.vanna
+        agg["charm"] += exposure.charm
         agg["oi"] += leg.oi
     ranked = sorted(
         totals.values(), key=lambda a: a["call"] + a["put"], reverse=True
@@ -441,6 +551,11 @@ def strike_rows(board: Board, *, limit: int = 20) -> list[dict[str, Any]]:
             "net_gamma_usd_per_1pct_b": _billions(a["net"]),
             "call_gamma_usd_per_1pct_b": _billions(a["call"]),
             "put_gamma_usd_per_1pct_b": _billions(a["put"]),
+            # Net only: a call and a put at one strike have the SAME vanna, so a
+            # call/put split of it would be two copies of the moneyness, not a
+            # split of anything. The gamma split above is the one that informs.
+            "net_vanna_usd_per_volpt_b": _billions(a["vanna"]),
+            "net_charm_usd_per_day_b": _billions(a["charm"]),
             "open_interest": a["oi"],
         }
         for a in sorted(ranked, key=lambda a: a["strike"])
@@ -448,14 +563,18 @@ def strike_rows(board: Board, *, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def expiry_rows(board: Board, *, limit: int = 20) -> list[dict[str, Any]]:
-    """Gamma by expiry, nearest first — the term structure behind the headline."""
+    """Gamma, vanna and charm by expiry, nearest first — the term structure."""
     totals: dict[str, dict[str, Any]] = {}
-    for leg, value in _signed(board):
+    for leg, exposure in _signed(board):
         agg = totals.setdefault(
-            leg.expiry, {"expiry": leg.expiry, "dte": leg.dte, "net": 0.0, "gross": 0.0, "oi": 0}
+            leg.expiry,
+            {"expiry": leg.expiry, "dte": leg.dte, "net": 0.0, "gross": 0.0,
+             "vanna": 0.0, "charm": 0.0, "oi": 0},
         )
-        agg["net"] += value
-        agg["gross"] += abs(value)
+        agg["net"] += exposure.gamma
+        agg["gross"] += abs(exposure.gamma)
+        agg["vanna"] += exposure.vanna
+        agg["charm"] += exposure.charm
         agg["oi"] += leg.oi
     return [
         {
@@ -463,6 +582,8 @@ def expiry_rows(board: Board, *, limit: int = 20) -> list[dict[str, Any]]:
             "dte": a["dte"],
             "net_gamma_usd_per_1pct_b": _billions(a["net"]),
             "gross_gamma_usd_per_1pct_b": _billions(a["gross"]),
+            "net_vanna_usd_per_volpt_b": _billions(a["vanna"]),
+            "net_charm_usd_per_day_b": _billions(a["charm"]),
             "open_interest": a["oi"],
         }
         for a in sorted(totals.values(), key=lambda a: a["dte"])[:limit]

@@ -9,12 +9,13 @@ tell the two apart.
 Why a store at all: every headline number here except the dollar magnitudes is
 interpretable on its own (a flip level, a distance to it, a sign). The magnitudes
 are not — "$65.8B of net gamma" means nothing without knowing whether that is a
-big number for this board. That takes history, and there is none to backfill: the
-OI store goes to 2013 but per-strike index IV does not exist anywhere we hold, so
-a historical gamma would have to be modelled from a flat VIX and would be a
-statement about the model, not the market. So history accrues forward from the
-first snapshot, and until it is deep enough the percentile is reported as absent
-rather than computed off a handful of days.
+big number for this board, and that goes double for net vanna and net charm,
+which have no folk reference point at all. That takes history, and there is none
+to backfill: the OI store goes to 2013 but per-strike index IV does not exist
+anywhere we hold, so a historical greek would have to be modelled from a flat VIX
+and would be a statement about the model, not the market. So history accrues
+forward from the first snapshot, and until it is deep enough the percentile is
+reported as absent rather than computed off a handful of days.
 """
 
 from __future__ import annotations
@@ -35,7 +36,13 @@ MIN_OBSERVATIONS = 60
 _FIELDS = (
     "session", "oi_as_of", "spot", "net_b", "call_b", "put_b",
     "gross_b", "flip", "spot_above_flip_pct", "oi_covered_pct",
+    "net_vanna_b", "net_charm_b",
 )
+
+# Added after the first snapshots were already stored. Nullable on purpose: the
+# rows taken before vanna and charm existed genuinely have no value for them, and
+# a backfilled zero would be indistinguishable from a board that netted to zero.
+_ADDED_COLUMNS = {"net_vanna_b": "REAL", "net_charm_b": "REAL"}
 
 
 def init_gex_table(db_path: Path = GEX_DB_PATH) -> None:
@@ -53,10 +60,16 @@ def init_gex_table(db_path: Path = GEX_DB_PATH) -> None:
                 gross_b REAL NOT NULL,
                 flip REAL,
                 spot_above_flip_pct REAL,
-                oi_covered_pct REAL
+                oi_covered_pct REAL,
+                net_vanna_b REAL,
+                net_charm_b REAL
             )
             """
         )
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(gex_snapshots)")}
+        for name, decl in _ADDED_COLUMNS.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE gex_snapshots ADD COLUMN {name} {decl}")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_gex_session ON gex_snapshots (session)"
         )
@@ -88,6 +101,8 @@ def record(summary: dict[str, Any], *, db_path: Path = GEX_DB_PATH) -> str | Non
         summary.get("gamma_flip_spot"),
         summary.get("spot_above_flip_pct"),
         (summary.get("coverage") or {}).get("open_interest_covered_pct"),
+        summary.get("net_vanna_usd_per_volpt_b"),
+        summary.get("net_charm_usd_per_day_b"),
     )
     with _connect(db_path) as conn:
         conn.execute(
@@ -145,4 +160,25 @@ def percentile(
     at_or_below = sum(1 for v in values if v <= value)
     out["percentile"] = round(100 * at_or_below / len(values), 1)
     out["window"] = f"{len(values)} stored snapshots"
+    return out
+
+
+def percentiles(
+    values: dict[str, float], *, db_path: Path = GEX_DB_PATH
+) -> dict[str, Any]:
+    """Rank several fields at once, with the shared caveat said exactly once.
+
+    Three axes each carrying their own copy of the same 200-character "not enough
+    history yet" note is three times the tokens for one fact — and it reads like
+    three separate problems rather than one store that is young.
+    """
+    ranked = {field: percentile(field, value, db_path=db_path)
+              for field, value in values.items()}
+    out: dict[str, Any] = {
+        "observations": max((r["observations"] for r in ranked.values()), default=0),
+        "percentiles": {field: r["percentile"] for field, r in ranked.items()},
+    }
+    notes = {r["note"] for r in ranked.values() if r.get("note")}
+    if notes:
+        out["note"] = sorted(notes)[0]
     return out

@@ -701,6 +701,10 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
             "put_usd_per_1pct_b": stored["put_b"],
             "flip_spot": stored["flip"],
             "spot_above_flip_pct": stored["spot_above_flip_pct"],
+            # Null on rows stored before these two existed — an old snapshot has no
+            # vanna, which is not the same as a board whose vanna was zero.
+            "net_vanna_usd_per_volpt_b": stored["net_vanna_b"],
+            "net_charm_usd_per_day_b": stored["net_charm_b"],
             "spot": stored["spot"],
             "priced_at": stored["as_of"],
             "oi_as_of": stored["oi_as_of"],
@@ -1010,13 +1014,17 @@ def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]
                     "not a flat one",
         }]
     if view == "summary":
-        from db.gamma_exposure import percentile
+        from db.gamma_exposure import percentiles
 
         row = summarize(board)
         # Ranked against our OWN stored snapshots, which start the day the first one
         # was taken. The block reports its observation count either way so an absent
         # percentile reads as "not enough history yet", never as "unremarkable".
-        row["net_gamma_history"] = percentile("net_b", row["net_gamma_usd_per_1pct_b"])
+        row["history"] = percentiles({
+            "net_b": row["net_gamma_usd_per_1pct_b"],
+            "net_vanna_b": row["net_vanna_usd_per_volpt_b"],
+            "net_charm_b": row["net_charm_usd_per_day_b"],
+        })
         return [row]
 
     # Drill-down rows travel without the summary, so each one carries the context
@@ -1032,7 +1040,10 @@ def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]
             board.spot,
             board.oi_as_of,
             CONVENTION,
-            "billions of dollars of dealer delta per 1% move in the index",
+            "billions of dollars of dealer delta; _per_1pct_ = per 1% move in the "
+            "index, _per_volpt_ = per 1 volatility point of implied vol, _per_day_ "
+            "= per calendar day with nothing else moving. Do not compare the three "
+            "to each other — same units, different denominators",
         ),
         strict=True,
     ))
@@ -1565,12 +1576,13 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "projections) — so sizing into a print is never mistaken for sizing "
             "on a quiet day; read `events.not_covered` before concluding no Fed "
             "meeting is scheduled. "
-            "An `index_gamma` block carries the SPX option board's dealer-gamma "
-            "regime — net/call/put gamma per 1% move plus the gamma-flip level — "
-            "read from the LAST STORED post-close snapshot, so check `priced_at` "
-            "before treating it as live, and note its net rests on a stated "
-            "CONVENTION about who holds what, never on measured inventory. Query "
-            "the `gex` resource for a live board and its strike/expiry/spot-ladder "
+            "An `index_gamma` block carries the SPX option board's dealer-exposure "
+            "regime — net/call/put gamma per 1% move, the gamma-flip level, and net "
+            "vanna (per volatility point) and charm (per calendar day) — read from "
+            "the LAST STORED post-close snapshot, so check `priced_at` before "
+            "treating it as live, and note every net rests on a stated CONVENTION "
+            "about who holds what, never on measured inventory. Query the `gex` "
+            "resource for a live board and its strike/expiry/spot-ladder "
             "drill-downs. "
             "★ Pass `series` to DRILL DOWN into any of it over time — the snapshot "
             "ranks a number against thousands of observations, and `series` is how "
@@ -1832,30 +1844,35 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "gex": {
         "description": (
-            "Index gamma exposure — the SPX board's standing open interest priced "
-            "through our own Black-76 gamma, as a REGIME axis: how option inventory "
-            "would make hedging behave if the index moves, not where it is going. "
-            "Headline numbers are the net and the two unconditional magnitudes (call "
-            "gamma, put gamma) in billions of dollars of dealer delta per 1% move, "
-            "plus the gamma-flip level and how far spot sits above it. "
-            "★ THE NET RESTS ON A CONVENTION, NOT A MEASUREMENT: netting calls "
-            "against puts assumes dealers are long every call and short every put. "
-            "We have no dealer-inventory data. Quote the convention whenever you "
-            "quote the net, and never call it observed positioning — call_gamma and "
-            "put_gamma are the facts, the net is the fact PLUS the assumption. "
-            "Alpaca publishes no greeks at all on index options (0 of 12,563 "
-            "measured), so every gamma here is OUR model output off the chain's own "
-            "parity forward — greeks_source says black76 for that reason. Open "
-            "interest is published overnight and is always the prior session's "
-            "positioning; oi_as_of and its age are on every row. PERCEPTION ONLY: "
-            "nothing here has been tested against forward returns, so there is no "
-            "edge, probability or win rate to quote from it. "
-            "★ Pass `view` to DRILL DOWN: strikes (where gamma concentrates, ranked "
-            "by gross because hedging happens against the gross), expiries (the term "
-            "structure — the DTE cut moves the net by 2x, so this is the shape of "
-            "the headline, not a detail), profile (net gamma across a ladder of "
-            "hypothetical index levels — how fast the board crosses the flip, which "
-            "one level cannot say)."
+            "Index dealer exposure — the SPX board's standing open interest priced "
+            "through our own Black-76 greeks, as REGIME axes: how option inventory "
+            "makes hedging behave, not where the index is going. THREE axes off one "
+            "board, all in billions of dollars of dealer delta and differing only in "
+            "what must move: GAMMA per 1% index move (with the gamma-flip level and "
+            "how far spot sits above it), VANNA per 1 volatility point, CHARM per "
+            "calendar day with nothing moving. Same unit, different denominators — "
+            "never compare them to each other. "
+            "★ EVERY NET RESTS ON A CONVENTION, NOT A MEASUREMENT: netting calls "
+            "against puts assumes dealers are long every call and short every put, "
+            "and we have no dealer-inventory data. Quote the convention whenever you "
+            "quote a net and never call it observed positioning — call_gamma and "
+            "put_gamma are facts, the net is fact PLUS assumption. Alpaca publishes "
+            "no greeks at all on index options (0 of 12,563 measured), so every greek "
+            "here is OUR model output off the chain's own parity forward, each checked "
+            "against a finite difference of the pricer; greeks_source says black76. "
+            "Open interest is published overnight, so it is always the prior session's "
+            "positioning (oi_as_of + age on every row). ⚠️ charm_from_expiring_b is "
+            "the part of charm in contracts expiring within the day — those RESOLVE "
+            "rather than drift (26% of the board when measured), so subtract it before "
+            "reading the rest as smooth overnight flow. PERCEPTION ONLY: nothing here "
+            "is tested against forward returns, so there is no edge, probability or "
+            "win rate to quote. "
+            "★ Pass `view` to DRILL DOWN: strikes (where exposure concentrates, ranked "
+            "by gross gamma because hedging happens against the gross), expiries (the "
+            "term structure — the DTE cut moves net gamma by 2x, and gamma is a "
+            "front-week number while vanna sits further out), profile (net gamma "
+            "across a ladder of hypothetical index levels — how fast the board crosses "
+            "the flip, which one level cannot say)."
         ),
         "filters": {
             "view": "optional — summary (default) | strikes | expiries | profile",
@@ -2002,6 +2019,11 @@ _RESOURCE_ALIASES = {
     "dealer_gamma": "gex",
     "gamma_flip": "gex",
     "zero_gamma": "gex",
+    # The resource is named for gamma but answers all three; a model asked about
+    # vanna will type "vanna" long before it thinks to look under "gex".
+    "vanna": "gex",
+    "charm": "gex",
+    "dealer_exposure": "gex",
     "collar": "oi_walls",
     "jpm_collar": "oi_walls",
     "open_interest": "oi_walls",

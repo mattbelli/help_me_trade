@@ -427,15 +427,25 @@ def _market_frame_section(db_path: Path) -> str:
             if gex.get("flip") is not None
             else ", no flip found in ±30%"
         )
+        # Vanna and charm are null on snapshots stored before they existed — an old
+        # row has no value for them, which is not the same as a board that was flat.
+        extra = "".join(
+            f", net {name} ${gex[key]:+,.1f}B per {per}"
+            for name, key, per in (
+                ("vanna", "net_vanna_b", "vol pt"), ("charm", "net_charm_b", "day")
+            )
+            if gex.get(key) is not None
+        )
         lines.append(
-            f"- SPX gamma: net ${gex['net_b']:+,.1f}B per 1% (calls ${gex['call_b']:,.1f}B "
-            f"vs puts ${gex['put_b']:,.1f}B){flip}; spot {gex['spot']:,.2f}, "
-            f"OI as of {gex['oi_as_of']}, priced {gex['as_of'][:16]}Z. "
-            "Net ASSUMES dealers long calls / short puts — the convention, not "
+            f"- SPX dealer exposure: net gamma ${gex['net_b']:+,.1f}B per 1% (calls "
+            f"${gex['call_b']:,.1f}B vs puts ${gex['put_b']:,.1f}B){flip}{extra}; "
+            f"spot {gex['spot']:,.2f}, OI as of {gex['oi_as_of']}, "
+            f"priced {gex['as_of'][:16]}Z. "
+            "Every net ASSUMES dealers long calls / short puts — the convention, not "
             "measured inventory; no edge tested. `query gex` for strikes/expiries/profile"
         )
     else:
-        lines.append("- SPX gamma: _no stored snapshot_")
+        lines.append("- SPX dealer exposure: _no stored snapshot_")
 
     hot = hot_lane_rows(db_path=db_path)
     if hot:

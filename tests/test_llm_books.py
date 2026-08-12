@@ -369,10 +369,33 @@ def test_market_frame_carries_the_macro_calendar_and_the_gamma_regime(
     frame = _market_frame_section(tmp_path / "t.db")
     assert "CPI in 1d (2026-08-12)" in frame
     assert "not covered" in frame  # an absent FOMC must not read as "no meeting"
-    assert "net $+65.8B per 1%" in frame
+    assert "net gamma $+65.8B per 1%" in frame
     assert "flip 7,618" in frame
     # The convention travels with the number or the number is misread as measured.
     assert "ASSUMES dealers long calls / short puts" in frame
+    # This stub row predates vanna and charm, as the real stored rows do. A snapshot
+    # that never measured them must print nothing, not a fabricated $0.0B.
+    assert "vanna" not in frame
+
+
+def test_market_frame_prints_vanna_and_charm_once_a_snapshot_carries_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import db.gamma_exposure as gex_mod
+    import signals.macro_substrate as macro_mod
+    from research.books import _market_frame_section
+
+    _stub_frame_db_reads(monkeypatch)
+    monkeypatch.setattr(macro_mod, "event_calendar", lambda *_a, **_k: None)
+    monkeypatch.setattr(gex_mod, "history", lambda **_k: [{
+        "as_of": "2026-08-12T19:59:59Z", "oi_as_of": "2026-08-12", "spot": 7725.35,
+        "net_b": 65.8, "call_b": 285.6, "put_b": 219.8, "flip": 7617.7,
+        "spot_above_flip_pct": 1.41, "net_vanna_b": 50.2, "net_charm_b": -18.6,
+    }])
+
+    frame = _market_frame_section(tmp_path / "t.db")
+    assert "net vanna $+50.2B per vol pt" in frame
+    assert "net charm $-18.6B per day" in frame
 
 
 def test_market_frame_stays_honest_when_those_two_stores_are_missing(
@@ -387,4 +410,4 @@ def test_market_frame_stays_honest_when_those_two_stores_are_missing(
     monkeypatch.setattr(macro_mod, "event_calendar", lambda *_a, **_k: None)
     frame = _market_frame_section(tmp_path / "t.db")
     assert "- macro calendar: _unavailable_" in frame
-    assert "- SPX gamma: _no stored snapshot_" in frame
+    assert "- SPX dealer exposure: _no stored snapshot_" in frame

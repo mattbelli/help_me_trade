@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot index gamma exposure into the history store. One row per run.
+"""Snapshot index dealer exposure into the history store. One row per run.
 
 Cron this AFTER the close: Alpaca option quotes are RTH-only and freeze at 16:00
 ET, so a post-close run prices the board on the session's closing quotes against
@@ -38,6 +38,8 @@ def main() -> int:
         "stored": as_of,
         "spot": summary["spot"],
         "net_b": summary["net_gamma_usd_per_1pct_b"],
+        "net_vanna_b": summary["net_vanna_usd_per_volpt_b"],
+        "net_charm_b": summary["net_charm_usd_per_day_b"],
         "flip": summary.get("gamma_flip_spot"),
         "oi_as_of": summary["oi_as_of"],
         "contracts": summary["coverage"]["contracts_priced"],

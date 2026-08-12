@@ -1,27 +1,37 @@
-"""Index gamma exposure — the aggregation, the flip solve, and the honesty rails.
+"""Index dealer exposure — the aggregation, the flip solve, and the honesty rails.
 
-The gamma itself is checked against a finite difference of the pricer rather than
-against another formula, so a sign or scaling slip has nowhere to hide. Everything
-above that is checked on synthetic boards with known answers: a board built only
-of calls MUST net positive, a board with no crossing MUST report no flip rather
-than name one, and the drill-down rows MUST NOT be able to overwrite the context
-they travel with.
+Every greek is checked against a finite difference rather than against another
+formula, so a sign or scaling slip has nowhere to hide: gamma against a second
+difference of the PRICE, vanna and charm against a first difference of the
+analytic DELTA. Everything above that is checked on synthetic boards with known
+answers: a board built only of calls MUST net positive, a board with no crossing
+MUST report no flip rather than name one, and the drill-down rows MUST NOT be able
+to overwrite the context they travel with.
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
 
-from db.gamma_exposure import MIN_OBSERVATIONS, history, percentile, record
-from signals.black76 import black76_price
+from db.gamma_exposure import (
+    MIN_OBSERVATIONS,
+    history,
+    init_gex_table,
+    percentile,
+    percentiles,
+    record,
+)
+from signals.black76 import black76_price, greeks
 from signals.gamma_exposure import (
     CONTRACT_MULTIPLIER,
     Board,
     Leg,
     expiry_rows,
     gamma_flip,
+    leg_exposures_usd,
     leg_gamma_usd,
     net_gamma_at,
     profile_rows,
@@ -77,6 +87,113 @@ def test_call_and_put_at_one_strike_carry_identical_gamma() -> None:
     call = leg_gamma_usd(_leg("C", 7700.0), 7700.0, 7700.0)
     put = leg_gamma_usd(_leg("P", 7700.0), 7700.0, 7700.0)
     assert abs(call - put) < 1e-9
+
+
+# --- vanna and charm ----------------------------------------------------------
+# Spot-delta cases spanning ITM/ATM/OTM, 1 day to 2 years, dividend above and below
+# the rate. Each is (spot, strike, t_years, rate, yield, sigma).
+_GREEK_CASES = (
+    (7725.0, 7700.0, 30 / 365, 0.043, 0.013, 0.13),
+    (7725.0, 7000.0, 30 / 365, 0.043, 0.013, 0.22),
+    (7725.0, 8500.0, 180 / 365, 0.043, 0.013, 0.12),
+    (7725.0, 7725.0, 1 / 365, 0.043, 0.013, 0.09),
+    (100.0, 95.0, 2.0, 0.02, 0.04, 0.45),
+)
+
+
+def _spot_greeks(spot, strike, t, rate, div, sigma, is_call) -> dict[str, float]:
+    """Greeks with the forward and discount rebuilt from S, r, q and T.
+
+    Both must be rebuilt, not held fixed, or the finite differences below would be
+    testing a different question than the one charm actually answers.
+    """
+    forward = spot * math.exp((rate - div) * t)
+    return greeks(forward, strike, t, math.exp(-rate * t), sigma, is_call, spot=spot)
+
+
+@pytest.mark.parametrize("case", _GREEK_CASES)
+@pytest.mark.parametrize("is_call", [True, False])
+def test_vanna_matches_a_finite_difference_of_delta(case, is_call: bool) -> None:
+    """Vanna IS d(delta)/d(vol), so difference the delta and the two must agree."""
+    spot, strike, t, rate, div, sigma = case
+    h = 1e-5
+    up = _spot_greeks(spot, strike, t, rate, div, sigma + h, is_call)["delta"]
+    down = _spot_greeks(spot, strike, t, rate, div, sigma - h, is_call)["delta"]
+    # /100 because the reported vanna is per 1 volatility POINT, not per 1.0 of vol.
+    finite = (up - down) / (2 * h) / 100.0
+    assert abs(_spot_greeks(spot, strike, t, rate, div, sigma, is_call)["vanna"] / finite - 1) < 1e-5
+
+
+@pytest.mark.parametrize("case", _GREEK_CASES)
+@pytest.mark.parametrize("is_call", [True, False])
+def test_charm_matches_a_finite_difference_of_delta(case, is_call: bool) -> None:
+    """Charm is delta drift as time PASSES, so the difference is negated: shrinking
+    time to expiry is the clock running forward."""
+    spot, strike, t, rate, div, sigma = case
+    h = 1e-6
+    later = _spot_greeks(spot, strike, t + h, rate, div, sigma, is_call)["delta"]
+    sooner = _spot_greeks(spot, strike, t - h, rate, div, sigma, is_call)["delta"]
+    finite = -(later - sooner) / (2 * h) / 365.0  # per calendar day
+    assert abs(_spot_greeks(spot, strike, t, rate, div, sigma, is_call)["charm"] / finite - 1) < 1e-4
+
+
+def test_call_and_put_at_one_strike_carry_identical_vanna() -> None:
+    """Same parity consequence as gamma — which is exactly why a sign-based
+    call/put split of vanna would be meaningless."""
+    call = leg_exposures_usd(_leg("C", 7900.0), 7700.0, 7700.0)
+    put = leg_exposures_usd(_leg("P", 7900.0), 7700.0, 7700.0)
+    assert abs(call.vanna - put.vanna) < 1e-9
+    assert abs(call.charm - put.charm) > 1e-6  # charm, unlike vanna, is not
+
+
+def test_exposures_scale_linearly_with_open_interest() -> None:
+    one = leg_exposures_usd(_leg("C", 7900.0, oi=1), 7700.0, 7700.0)
+    many = leg_exposures_usd(_leg("C", 7900.0, oi=250), 7700.0, 7700.0)
+    for field in ("gamma", "vanna", "charm"):
+        assert abs(getattr(many, field) / getattr(one, field) - 250) < 1e-9
+
+
+def test_call_vanna_is_split_by_right_not_by_sign() -> None:
+    """The bug this guards: gamma is positive for both rights, so the sign of a
+    signed value happens to identify the side. Vanna is negative below the forward
+    for calls too — split on the sign and half the call book files under puts."""
+    board = _board((_leg("C", 7000.0, oi=5000), _leg("C", 7100.0, oi=5000)))
+    row = summarize(board)
+    assert row["call_vanna_usd_per_volpt_b"] < 0  # below the forward, so negative
+    assert row["put_vanna_usd_per_volpt_b"] == 0.0  # there are no puts on this board
+    assert row["net_vanna_usd_per_volpt_b"] == row["call_vanna_usd_per_volpt_b"]
+
+
+def test_charm_reports_how_much_of_itself_expires_within_the_day() -> None:
+    """26% of the real board's charm sat in contracts expiring that same day. Those
+    resolve rather than drift, so the headline must not be extrapolated past them.
+
+    Reported as a level rather than a share because the front of the board and the
+    rest of it can point opposite ways — this very board does, and the share form
+    of this number printed 129%.
+    """
+    # Index-scale open interest: at a few hundred contracts every figure here
+    # rounds to 0.0 billions and the test would pass without measuring anything.
+    board = _board((
+        _leg("C", 7700.0, dte=1, oi=2_000_000), _leg("C", 7700.0, dte=200, oi=2_000_000)
+    ))
+    row = summarize(board)
+    front, back = (leg_exposures_usd(leg, board.spot, board.spot) for leg in board.legs)
+    assert row["charm_from_expiring_b"] == pytest.approx(front.charm / 1e9, abs=1e-3)
+    # The offsetting case the level form survives and a percentage does not: the
+    # front alone is bigger than the whole board, so the share form printed 129%.
+    assert (front.charm > 0) != (back.charm > 0)
+    assert abs(row["charm_from_expiring_b"]) > abs(row["net_charm_usd_per_day_b"]) > 0
+
+
+def test_every_drilldown_row_carries_all_three_axes() -> None:
+    """A view that reports gamma and quietly drops vanna would read as a board with
+    no vanna rather than a view that does not show it."""
+    board = _board((_leg("C", 7900.0, dte=10), _leg("P", 7500.0, dte=45)))
+    for rows in (strike_rows(board), expiry_rows(board), summarize(board)["by_horizon"]):
+        for row in rows:
+            assert "net_vanna_usd_per_volpt_b" in row
+            assert "net_charm_usd_per_day_b" in row
 
 
 # --- the convention -----------------------------------------------------------
@@ -182,6 +299,10 @@ def test_summary_always_carries_the_convention_the_source_and_the_disclaimer() -
     # The unconditional facts must be present beside the conditional net.
     assert row["call_gamma_usd_per_1pct_b"] > 0
     assert row["put_gamma_usd_per_1pct_b"] > 0
+    # Three axes in one unit is a trap unless the denominators are named.
+    for denominator in ("1% move", "volatility point", "calendar day"):
+        assert denominator in row["units"]
+    assert "tested against forward returns" in row["vanna_charm_mean"]
 
 
 def test_summary_signs_the_distance_to_the_flip() -> None:
@@ -228,6 +349,8 @@ def _summary_for(net: float, as_of: str = "2026-08-10T20:00:00Z") -> dict:
         "put_gamma_usd_per_1pct_b": 285.0 - net,
         "gamma_flip_spot": 7600.0,
         "spot_above_flip_pct": 1.6,
+        "net_vanna_usd_per_volpt_b": net / 2,
+        "net_charm_usd_per_day_b": -net / 4,
         "by_horizon": [{"dte_max": None, "gross_usd_per_1pct_b": 500.0}],
         "coverage": {"open_interest_covered_pct": 92.5},
     }
@@ -242,7 +365,56 @@ def test_record_round_trips_and_is_idempotent_on_one_quote_timestamp(tmp_path: P
     rows = history(db_path=db)
     assert len(rows) == 1
     assert rows[0]["net_b"] == 65.8
+    assert rows[0]["net_vanna_b"] == 32.9
+    assert rows[0]["net_charm_b"] == -16.45
     assert rows[0]["session"] == "2026-08-10"
+
+
+def test_a_store_written_before_vanna_existed_migrates_instead_of_failing(
+    tmp_path: Path,
+) -> None:
+    """The production store already held snapshots when these two columns landed.
+
+    The old rows read back NULL rather than 0.0 on purpose — a board that was never
+    measured for vanna is not a board whose vanna was zero, and a backfilled zero
+    would be indistinguishable from the real thing in every percentile after it.
+    """
+    import sqlite3
+
+    db = tmp_path / "gex.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "CREATE TABLE gex_snapshots (as_of TEXT PRIMARY KEY, session TEXT NOT NULL,"
+            " oi_as_of TEXT NOT NULL, spot REAL NOT NULL, net_b REAL NOT NULL,"
+            " call_b REAL NOT NULL, put_b REAL NOT NULL, gross_b REAL NOT NULL,"
+            " flip REAL, spot_above_flip_pct REAL, oi_covered_pct REAL)"
+        )
+        conn.execute(
+            "INSERT INTO gex_snapshots VALUES"
+            " ('2026-08-11T19:59:59Z','2026-08-11','2026-08-11',7725.35,65.8,"
+            "285.6,219.8,505.4,7617.7,1.41,92.5)"
+        )
+    init_gex_table(db)
+    record(_summary_for(70.0, "2026-08-12T19:59:59Z"), db_path=db)
+
+    rows = {r["as_of"]: r for r in history(db_path=db)}
+    assert rows["2026-08-11T19:59:59Z"]["net_vanna_b"] is None
+    assert rows["2026-08-12T19:59:59Z"]["net_vanna_b"] == 35.0
+
+
+def test_percentiles_says_the_shared_caveat_once_not_once_per_axis(
+    tmp_path: Path,
+) -> None:
+    """Three copies of one 200-character note reads like three problems."""
+    db = tmp_path / "gex.db"
+    record(_summary_for(65.8), db_path=db)
+    out = percentiles(
+        {"net_b": 65.8, "net_vanna_b": 32.9, "net_charm_b": -16.45}, db_path=db
+    )
+    assert out["observations"] == 1
+    assert set(out["percentiles"]) == {"net_b", "net_vanna_b", "net_charm_b"}
+    assert all(v is None for v in out["percentiles"].values())
+    assert isinstance(out["note"], str)  # exactly one, not one per field
 
 
 def test_record_refuses_a_summary_with_no_quote_timestamp(tmp_path: Path) -> None:
@@ -276,7 +448,7 @@ def test_percentile_ranks_once_the_window_is_deep_enough(tmp_path: Path) -> None
 
 def test_percentile_rejects_a_field_that_is_not_stored(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unknown field"):
-        percentile("vanna", 1.0, db_path=tmp_path / "gex.db")
+        percentile("skew_b", 1.0, db_path=tmp_path / "gex.db")
 
 
 def test_history_on_a_missing_store_is_empty_not_an_error(tmp_path: Path) -> None:

@@ -483,11 +483,16 @@ def _fill_computed_greeks(
             if sigma is None:
                 continue
             side["iv"] = round(sigma, 4)
-            for key, val in black76_greeks(
+            computed_greeks = black76_greeks(
                 forward, row["strike"], t_years, discount, sigma,
                 right == "call", spot=underlying_price,
-            ).items():
-                side[key] = round(val, 4)
+            )
+            # Only the four the vendor also publishes. black76 returns vanna and
+            # charm too, but a column that exists on our rows and not on vendor
+            # rows reads as missing data, and at 4dp charm rounds to 0.0000
+            # anyway — the gamma-exposure aggregate is where those two belong.
+            for key in ("delta", "gamma", "theta", "vega"):
+                side[key] = round(computed_greeks[key], 4)
             computed += 1
     if computed and vendor:
         return "mixed"
