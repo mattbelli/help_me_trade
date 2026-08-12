@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 305,
+   "id": "futures-4h-candles-were-sliced-on-utc-midnight-n",
+   "title": "Futures 4H candles were sliced on UTC midnight, not the 18:00 ET Globex open — 2h off ToS, drifting with DST",
+   "lane": "done",
+   "type": "bug",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-12",
+   "notes": "Founder: '/ES candles don't match ToS, they skip depending on time frame.' Measured root cause: _aggregate_to_4hourly bucketed on int(ts)//(4*3600) — 18:00 ET is 22:00/23:00 UTC, not a multiple of 4h, so every 4H futures candle sat 2h off ToS AND the grid slid an hour at each DST switch (measured /ES 180d: 12 distinct ET bucket starts instead of 6). The 16:00 ET bucket swallowed the 17:00-18:00 maintenance break plus the next session's open, hiding the session boundary inside a candle. Fixed: _globex_bucket_epoch anchors futures on the 18:00 ET open (3h stub 14:00-17:00, matching ToS); equities keep UTC buckets. Verified live: 6 anchors over 180d, 0 missing / 0 extra / 0 OHLC mismatch vs a ToS-anchored reconstruction from Schwab 1-min truth. Cleared as NOT broken by the same measurement: Schwab raw feed (full 24h, ranges honored, need_extended_hours_data is a no-op for futures), 5m/15m/1h (0 missing, 0 extra, 0 OHLC mismatch vs 1-min truth), daily (= exact 18:00->17:00 session), weekly/monthly anchors, and the /api/bars incremental-merge cache (3 live passes: 0 dupes, 0 out-of-order). Follow-ups NOT taken, with the measurement: futures 1H/4H skip the incremental cache, but Schwab returns any range in ONE request (1H full 0.59s/1 req vs incremental 0.20s/1 req) so request rate to the WAF is identical — no load problem (bars_prewarm lag 0.15s on a 15s interval, 0 failures). Dead code flagged not deleted: _resolve_timeframe('4Hour') is unreachable (caller intercepts 4H first) and a test asserts on it. HybridMarketData.aget_stock_bars_range drops extended_hours for futures — measured harmless today since Schwab ignores it for futures."
+  },
+  {
    "num": 304,
    "id": "sector-radar-was-91-unclassified-a-60-min-vendor",
    "title": "Sector radar was 91% unclassified: a 60/min vendor cap burst on every load, with no persistence",

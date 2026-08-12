@@ -86,6 +86,44 @@ def test_aggregate_to_hourly_multiple_hours_and_two_halves() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _aggregate_to_4hourly — futures anchor on the 18:00 ET Globex open
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_to_4hourly_utc_anchored_by_default() -> None:
+    """Non-futures keep UTC-midnight buckets (00/04/08/12/16/20 UTC) — both bars
+    fall in the same 20:00Z bucket, which is exactly what futures must NOT do."""
+    bars = [_bar("2026-08-11T21:30:00Z"), _bar("2026-08-11T22:00:00Z")]
+    four = SchwabMarketData._aggregate_to_4hourly(bars)
+    assert [b.time for b in four] == ["2026-08-11T20:00:00Z"]
+
+
+def test_aggregate_to_4hourly_futures_anchor_on_session_open() -> None:
+    """22:00Z = 18:00 ET is a session OPEN — it must start its own bucket, not
+    fall into the 20:00Z bucket that holds the prior session's 17:30 ET bar."""
+    bars = [
+        _bar("2026-08-11T21:30:00Z"),  # 17:30 ET — prior session's 14:00 ET stub
+        _bar("2026-08-11T22:00:00Z"),  # 18:00 ET — new session opens
+        _bar("2026-08-12T01:30:00Z"),  # 21:30 ET — same 18:00 ET bucket
+        _bar("2026-08-12T02:00:00Z"),  # 22:00 ET — next bucket
+    ]
+    four = SchwabMarketData._aggregate_to_4hourly(bars, session_anchored=True)
+    assert [b.time for b in four] == [
+        "2026-08-11T18:00:00Z",  # 14:00 ET stub (14:00–17:00 ET)
+        "2026-08-11T22:00:00Z",  # 18:00 ET session open
+        "2026-08-12T02:00:00Z",  # 22:00 ET
+    ]
+
+
+def test_aggregate_to_4hourly_futures_anchor_survives_dst() -> None:
+    """Under EST the 18:00 ET open is 23:00Z — the bucket must follow the ET
+    wall clock, not stay pinned to the summer 22:00Z grid."""
+    bars = [_bar("2026-01-05T23:00:00Z"), _bar("2026-01-06T02:30:00Z")]
+    four = SchwabMarketData._aggregate_to_4hourly(bars, session_anchored=True)
+    assert [b.time for b in four] == ["2026-01-05T23:00:00Z"]
+
+
+# ---------------------------------------------------------------------------
 # extended_hours threads to Schwab client
 # ---------------------------------------------------------------------------
 
