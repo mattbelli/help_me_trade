@@ -1,6 +1,9 @@
-"""HTTP middleware for Host and API token checks, plus API cache policy."""
+"""HTTP middleware for Host and API token checks, API cache policy, slow-request log."""
 
 from __future__ import annotations
+
+import logging
+import time
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
@@ -15,6 +18,23 @@ from api.auth import (
     verify_request_host,
     verify_request_token,
 )
+
+logger = logging.getLogger(__name__)
+
+# Nothing recorded how long a request took, so an intermittent "the chart just sits
+# there" was undiagnosable: we could not tell a slow backend from a request that never
+# arrived. Warm /api/bars is 8-30ms and a cold long-range intraday load is under a
+# second (worst measured 5.2s), so a request past this threshold is always an anomaly
+# worth one line. Absence of a line is the informative half — it means the browser
+# never got its request to us.
+_SLOW_REQUEST_SEC = 3.0
+
+
+def _loggable_query(request: Request) -> str:
+    """Query string with the API token stripped — `apiUrlWithToken` puts the token in
+    the query for WS/SSE URLs, and the journal is not a place for secrets."""
+    kept = [(k, v) for k, v in request.query_params.multi_items() if k != "token"]
+    return "?" + "&".join(f"{k}={v}" for k, v in kept) if kept else ""
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
@@ -39,7 +59,18 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     )
                 )
 
-        return _no_store(await call_next(request))
+        started = time.perf_counter()
+        response = await call_next(request)
+        elapsed = time.perf_counter() - started
+        if elapsed >= _SLOW_REQUEST_SEC:
+            logger.warning(
+                "slow request %.1fs %s %s%s",
+                elapsed,
+                request.method,
+                request.url.path,
+                _loggable_query(request),
+            )
+        return _no_store(response)
 
 
 def _no_store(response: Response) -> Response:

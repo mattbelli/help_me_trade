@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 308,
+   "id": "intermittent-20s-chart-load-hang-ruled-out-the-b",
+   "title": "Intermittent ~20s chart-load hang: ruled out the backend, added slow-request logging to catch the next one",
+   "lane": "in_progress",
+   "type": "bug",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-12",
+   "notes": "Founder reports charts occasionally 'just don't load — sits there flashing', ~20s, fixed by a hard refresh; rare, most loads snappy. My cold-cache answer (#307 round) CANNOT explain it: measured warm /api/bars 8-30ms, cold 1Hour/180d 0.87s median, worst 5.2s, and a fresh TSLA 1Hour cold load logged at 4.1s tonight — an order of magnitude short of 20s. RULED OUT by measurement, not reasoning: (a) provider fallback — equities route Alpaca-only in HybridMarketData and there were ZERO '/api/bars provider failed' lines in 2 days; (b) upstream rate limiting — all 244 'Too Many Requests' in 2 days are Finnhub profile2, none Alpaca (the raw '429' grep count of 19,540 is contaminated: ',429' is a millisecond field); (c) httpx pool exhaustion — client is cached+reused with default limits and there were ZERO PoolTimeouts (the 134 timeouts are ReadTimeouts); (d) service restarts — backend up since 15:58, hang was ~21:1x; (e) tailnet relay flapping — all 3 of his devices are same-LAN with DIRECT paths, 1 link change in 2 days, DERP nyc 10.6ms; (f) browser HTTP/1.1 connection starvation — tailscale serve negotiates HTTP/2 on :8443. NOT reproduced: a 14-min 1Hz dual-path probe (real https://serv...:8443 proxy URL vs direct 127.0.0.1:8000, same warm key) found no unexplained stall; the only spikes were the initial TLS handshake and two cold-cache loads after my own restart, both attributable. REAL but unattributed: 134 httpx ReadTimeouts (30s, no response) to Alpaca in 2 days, incl. clusters at 21:14:43 and 21:15:33 tonight inside his usage window — all on the trading API via _poll_account (/v2/account, /v2/positions), none observed on the bars path, and outbound volume then was only 74-100/min so it is upstream slowness, not our load. Gap that blocked the diagnosis: NOTHING recorded request duration, so we could not tell a slow backend from a request that never arrived. Shipped: api/middleware.py logs one WARNING per request >=3.0s (path + query, token redacted — apiUrlWithToken puts the token in the query). Verified live: caught 'slow request 4.1s GET /api/bars?symbol=TSLA&timeframe=1Hour&days=180'. NEXT OCCURRENCE decides it — a line present means the backend was slow; NO line means the request never reached us and it is the browser/connection (leading remaining suspects: a wedged HTTP/2 connection after laptop sleep/wifi, which a hard refresh would fix, and the frontend bars-cache 'inflight' Map holding every duplicate request behind one hung 60s promise). Separate finding, own follow-up: a nightly job fires 19,129 batch /v2/stocks/bars calls in 4 min at 04:02-04:05 (peak 7,349/min) — far above Alpaca's documented limits; 04:0x so not this bug, but worth pacing."
+  },
+  {
    "num": 307,
    "id": "chart-staleness-gate-dropped-live-ticks-instead-",
    "title": "Chart staleness gate dropped live ticks instead of rolling the bar forward — thin symbols never updated at all",
