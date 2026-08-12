@@ -114,6 +114,29 @@ def _clear_options_chain_contracts_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_company_profile_cache(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The Finnhub profile cache persists to its own DB outside DEFAULT_DB_PATH, so
+    # the env-var isolation at the top of this file doesn't cover it. Measured
+    # 2026-08-12: a mocked-payload test wrote a fake Apple row ("logo":
+    # "https://logo") into the real data/company_profiles.db, and the next test in
+    # the same file then read it back instead of its own mock.
+    from signals import finnhub
+
+    monkeypatch.setattr(
+        finnhub,
+        "PROFILE_DB_PATH",
+        tmp_path_factory.mktemp("profiles") / "company_profiles.db",
+    )
+    finnhub._company_cache.clear()
+    # The per-minute budget is module state too: without this, enough mocked
+    # Finnhub tests in one minute spend the real budget and later tests get
+    # refused slots (a 5s stall, then an empty result) for no reason of their own.
+    finnhub._rate_calls.clear()
+
+
+@pytest.fixture(autouse=True)
 def _clear_fusion_context_memo() -> None:
     # The fusion intake memoizes market-wide context reads (60s TTL) in module
     # state, and it negative-caches: a test that runs intake, seeds regime or

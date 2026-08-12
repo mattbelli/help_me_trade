@@ -3,16 +3,17 @@
 Positions come from a mocked ``get_schwab_accounts_sync`` (aggregate-real path, no
 network); realized P&L comes from real trade events written to a tmp trades db
 (same DB helpers the performance dashboard uses). Sector lookup is mocked via
-``signals.sector_breakdown.afetch_company_profile`` (module-level import) — never
-hits Finnhub. Nothing here touches the real Schwab API.
+``signals.sector_breakdown.profile_from_disk`` (module-level import) — never reads
+the real profile cache and never hits Finnhub. Nothing here touches the real Schwab API.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -98,8 +99,8 @@ async def test_sector_breakdown_groups_and_handles_unclassified(
         lambda: _fake_schwab_accounts(),
     )
     monkeypatch.setattr(
-        "signals.sector_breakdown.afetch_company_profile",
-        AsyncMock(side_effect=lambda sym, **_: _fake_profile(sym)),
+        "signals.sector_breakdown.profile_from_disk",
+        lambda sym: _fake_profile(sym),
     )
 
     result = await sector_breakdown(account_id=None, period="all", db_path=db_path)
@@ -142,8 +143,8 @@ async def test_sector_breakdown_empty_when_no_positions_or_trades(
         "brokers.schwab_accounts.get_schwab_accounts_sync",
         lambda: {"authenticated": True, "accounts": []},
     )
-    profile_mock = AsyncMock(return_value={})
-    monkeypatch.setattr("signals.sector_breakdown.afetch_company_profile", profile_mock)
+    disk_mock = Mock(return_value={})
+    monkeypatch.setattr("signals.sector_breakdown.profile_from_disk", disk_mock)
 
     result = await sector_breakdown(account_id=None, period="all", db_path=db_path)
 
@@ -153,4 +154,35 @@ async def test_sector_breakdown_empty_when_no_positions_or_trades(
         "market_value": "0",
         "realized_pnl": "0",
     }
-    profile_mock.assert_not_called()  # empty universe → no Finnhub calls at all
+    disk_mock.assert_not_called()  # empty universe → no lookups at all
+
+
+@pytest.mark.asyncio
+async def test_uncached_symbols_dont_block_and_fill_in_background(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bug this replaced: ~100 uncached symbols were fetched inline, blew the
+    60/min free tier, and 429'd into a mostly-"unclassified" widget on every load.
+    Now a miss returns immediately as unclassified and is fetched in the background."""
+    db_path = tmp_path / "empty.db"
+    monkeypatch.setattr(
+        "brokers.schwab_accounts.get_schwab_accounts_sync",
+        lambda: _fake_schwab_accounts(),
+    )
+    monkeypatch.setattr("signals.sector_breakdown.profile_from_disk", lambda sym: None)
+    fetch_mock = AsyncMock(return_value={})
+    monkeypatch.setattr("signals.sector_breakdown.afetch_company_profile", fetch_mock)
+    monkeypatch.setattr("signals.sector_breakdown._FILL_INTERVAL_SECONDS", 0)
+
+    result = await sector_breakdown(account_id=None, period="all", db_path=db_path)
+
+    assert result["sectors"] == []
+    assert result["unclassified"]["symbols"] == ["AAPL", "MSFT", "ZZZZ"]
+    fetch_mock.assert_not_called()  # nothing fetched on the request path
+
+    await asyncio.sleep(0.05)  # let the scheduled background fill run
+    assert sorted(c.args[0] for c in fetch_mock.call_args_list) == [
+        "AAPL",
+        "MSFT",
+        "ZZZZ",
+    ]

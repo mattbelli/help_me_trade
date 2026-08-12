@@ -67,6 +67,51 @@ async def test_afetch_company_profile_trims_and_caches(
 
 
 @pytest.mark.asyncio
+async def test_profile_persists_to_disk_and_is_served_without_a_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sector-radar fix: the in-process cache alone died with the process, so a
+    ~100-position account re-burst the whole universe past the 60/min cap on every
+    load. A second process must be served from disk with no HTTP client at all."""
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+    payload = {"name": "Nvidia", "ticker": "NVDA", "finnhubIndustry": "Semiconductors"}
+    with patch("httpx.AsyncClient", return_value=_mock_client(payload)):
+        await finnhub.afetch_company_profile("NVDA")
+
+    finnhub._company_cache.clear()  # stand in for a backend restart
+    assert finnhub.profile_from_disk("NVDA") == payload
+    with patch("httpx.AsyncClient") as cls:
+        again = await finnhub.afetch_company_profile("NVDA")
+    assert again == payload
+    assert cls.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_no_profile_persists_as_a_negative(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A well-formed 200 with no company (ETFs, most ADRs) is a real answer. Not
+    persisting it made those symbols re-spend a quota slot on every single load."""
+    monkeypatch.setattr(finnhub, "finnhub_api_key", lambda: "fake-key")
+    with patch("httpx.AsyncClient", return_value=_mock_client({})):
+        assert await finnhub.afetch_company_profile("SPY") == {}
+
+    assert finnhub.profile_from_disk("SPY") == {}  # {} is a hit, None is a miss
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_admits_the_budget_then_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MEASURED 2026-08-12: the free tier is exactly 60 per-symbol calls per rolling
+    minute. Nothing used to stop a caller bursting past it — 429s then degraded into
+    silently missing data."""
+    monkeypatch.setattr(finnhub, "_RATE_LIMIT_PER_MIN", 3)
+    monkeypatch.setattr(finnhub, "_RATE_LIMIT_MAX_WAIT", 0.0)
+
+    assert [await finnhub._rate_limit() for _ in range(3)] == [True, True, True]
+    assert await finnhub._rate_limit() is False  # budget spent, caller fails soft
+
+
+@pytest.mark.asyncio
 async def test_afetch_company_profile_empty_on_missing_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

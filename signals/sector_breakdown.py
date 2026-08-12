@@ -7,10 +7,10 @@ Fuses three existing read-only sources — nothing here reimplements them:
   - **realized P&L per symbol**: FIFO round-trips (``db.analytics.compute_round_trips``)
     over the SAME account scope as the positions, summed per symbol and filtered to the
     requested period by ``close_date``.
-  - **sector/industry per symbol**: Finnhub's company profile
-    (``signals.finnhub.afetch_company_profile``, already 24h-cached). Fetched with bounded
-    concurrency to respect the free-tier rate limit. Fail-soft: a symbol whose profile
-    can't be resolved lands in ``unclassified`` rather than erroring the whole request.
+  - **sector/industry per symbol**: Finnhub's company profile, read from the persistent
+    cache (``signals.finnhub.profile_from_disk``) — the request path never hits the
+    network. Fail-soft: a symbol whose profile can't be resolved lands in
+    ``unclassified`` rather than erroring the whole request.
 """
 
 from __future__ import annotations
@@ -27,11 +27,16 @@ from db.analytics import compute_round_trips, resolve_period
 from db.base import DEFAULT_DB_PATH
 from db.trades import list_trade_events
 from imports.money import decimal_to_str
-from signals.finnhub import afetch_company_profile
+from signals.finnhub import afetch_company_profile, profile_from_disk
 
-# Free-tier Finnhub is ~60 req/min; the 24h profile cache means only symbols never
-# seen before actually hit the network, so a small bound is plenty.
-_SECTOR_FETCH_CONCURRENCY = 5
+# Fetching sectors inline doesn't scale: a ~100-position account burst 100 requests
+# at a 60/min free tier, 429'd most of them, and fail-soft turned that into 91%
+# "unclassified" — on EVERY load, since the old cache was in-process and success-only.
+# So the request path is cache-only and misses fill in the background, paced under
+# the budget. A cold symbol set completes in ~2min; every load after is instant.
+_FILL_INTERVAL_SECONDS = 1.2  # ~50/min, inside signals.finnhub's 55/min budget
+_fill_inflight: set[str] = set()
+_fill_tasks: set[asyncio.Task[None]] = set()
 
 
 def _relevant_trade_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -134,18 +139,44 @@ def _realized_pnl_by_symbol(
     return out
 
 
-async def _sectors_for_symbols(symbols: list[str]) -> dict[str, str | None]:
-    if not symbols:
-        return {}
-    sem = asyncio.Semaphore(_SECTOR_FETCH_CONCURRENCY)
+async def _fill_profiles(symbols: list[str]) -> None:
+    """Populate the persistent profile cache one symbol at a time, under the budget."""
+    try:
+        for sym in symbols:
+            await afetch_company_profile(sym)
+            await asyncio.sleep(_FILL_INTERVAL_SECONDS)
+    finally:
+        _fill_inflight.difference_update(symbols)
 
-    async def _one(sym: str) -> tuple[str, str | None]:
-        async with sem:
-            profile = await afetch_company_profile(sym)
-        return sym, (profile.get("finnhubIndustry") or None)
 
-    pairs = await asyncio.gather(*[_one(s) for s in symbols])
-    return dict(pairs)
+def _schedule_fill(symbols: list[str]) -> None:
+    pending = [s for s in symbols if s not in _fill_inflight]
+    if not pending:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # called outside a loop (a script/test) — nothing to fill into
+        return
+    _fill_inflight.update(pending)
+    task = loop.create_task(_fill_profiles(pending))
+    _fill_tasks.add(task)  # a bare create_task can be garbage-collected mid-flight
+    task.add_done_callback(_fill_tasks.discard)
+
+
+def _sectors_for_symbols(symbols: list[str]) -> dict[str, str | None]:
+    """Industry per symbol from the persistent cache. Never blocks on the network:
+    unknown symbols come back None and are fetched in the background for next load."""
+    out: dict[str, str | None] = {}
+    misses: list[str] = []
+    for sym in symbols:
+        profile = profile_from_disk(sym)
+        if profile is None:
+            misses.append(sym)
+            out[sym] = None
+        else:
+            out[sym] = profile.get("finnhubIndustry") or None
+    _schedule_fill(misses)
+    return out
 
 
 async def sector_breakdown(
@@ -177,7 +208,7 @@ async def sector_breakdown(
     )
 
     universe = sorted(set(pos_by_symbol) | set(realized_by_symbol))
-    sector_by_symbol = await _sectors_for_symbols(universe)
+    sector_by_symbol = _sectors_for_symbols(universe)
 
     groups: dict[str, dict[str, Any]] = {}
     unclassified_symbols: list[str] = []
