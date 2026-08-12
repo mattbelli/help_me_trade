@@ -161,7 +161,11 @@ from signals.options_flow.runner import OptionsFlowRunner
 from signals.regime import refresh_regime_macro
 from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
-from signals.session_node_strategy import compute_session_levels, run_session_node_scan
+from signals.session_node_strategy import (
+    compute_session_levels,
+    compute_session_levels_batch,
+    run_session_node_scan,
+)
 from signals.social_buzz import _LOOP_INTERVAL_SECONDS as _SOCIAL_BUZZ_INTERVAL_SECONDS
 from signals.social_buzz import social_buzz_loop
 from signals.strategy_kinds import strategy_kind
@@ -1894,19 +1898,21 @@ def _fusion_levels_pending_symbols_sync(as_of: str) -> list[str]:
     )
 
 
-# Back-off for symbols that yielded NO levels: {symbol: monotonic ts of the empty read}.
-# The pending set is "universe minus symbols STAMPED today", and a symbol with no levels
-# is never stamped — so without this it stays pending forever and is re-fetched on every
-# 300s cycle. Not a rare edge: index-style tickers (XSP, XND, YOOV) have no ordinary
-# share bars, and 115 of them were burning ~38k Alpaca calls/day (measured 2026-08-12).
-#
-# A cooldown, NOT a skip-for-the-day: the pending count fell 132 -> 115 across 2026-08-12,
-# so some empties are transient and DO start resolving later in the session — skipping
-# for the day would silently cost those symbols their levels. One attempt per hour keeps
-# recovery inside an hour and still drops 12 attempts/hour to 1. Only the empty RESULT
-# backs off; a provider failure is never recorded and retries on the next cycle.
-_FUSION_LEVELS_EMPTY_COOLDOWN_S = 3600.0
-_FUSION_LEVELS_EMPTY: dict[str, float] = {}
+def _fusion_levels_store_sync(
+    payloads: dict[str, dict], as_of: str
+) -> int:
+    """Stamp a batch of computed levels — sync SQLite writes, thread-only. One hop for
+    the whole sweep, not one per symbol (the midnight pass stamps ~9.8K of them)."""
+    from db.fusion import put_session_levels
+
+    stamped = 0
+    for symbol, payload in payloads.items():
+        levels = list(payload.get("levels") or [])
+        if not levels:
+            continue
+        put_session_levels(symbol, as_of, levels)
+        stamped += 1
+    return stamped
 
 
 async def _fusion_levels_refresh_once() -> None:
@@ -1914,45 +1920,35 @@ async def _fusion_levels_refresh_once() -> None:
 
     Structure sibling of _fusion_atr_refresh_once: stamps each pending symbol's latest
     completed session nodes into fusion_session_levels so the hot intake path only ever
-    READS them (never a live compute during a burst). compute_session_levels fetches
-    through get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
-    producer — so this never bursts Schwab. Bounded fan-out under a small semaphore;
-    per-symbol failures are counted and skipped, the job never raises."""
-    from db.fusion import put_session_levels
+    READS them (never a live compute during a burst). Fetches through
+    get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
+    producer — so this never bursts Schwab.
+
+    BATCHED, and that is what keeps it affordable: compute_session_levels_batch asks the
+    provider once per 100-symbol slice instead of twice per symbol, so the midnight pass
+    (~9.8K symbols, every one pending at the as_of rollover) costs ~120 requests instead
+    of ~19,750 — measured 2026-08-12 at 7,349/min peak against a 200/min ceiling. It also
+    removes the need for any back-off: a symbol that yields nothing rides along in a
+    slice for free, so it can be re-attempted every cycle and recovers the moment its
+    data appears, with no interval to tune and no state to lose across a restart.
+    """
     from db.lane_stats import bump
 
     as_of = datetime.now(_ET).date().isoformat()
-    pending = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
-    now = time.monotonic()
-    symbols = [
-        sym
-        for sym in pending
-        if now - _FUSION_LEVELS_EMPTY.get(sym, -_FUSION_LEVELS_EMPTY_COOLDOWN_S)
-        >= _FUSION_LEVELS_EMPTY_COOLDOWN_S
-    ]
+    symbols = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
     if not symbols:
         return
-    sem = asyncio.Semaphore(6)
-
-    async def _stamp_one(symbol: str) -> None:
-        async with sem:
-            try:
-                payload = await compute_session_levels(symbol=symbol)
-                levels = (
-                    list(payload.get("levels") or [])
-                    if isinstance(payload, dict)
-                    else []
-                )
-                if not levels:
-                    _FUSION_LEVELS_EMPTY[symbol] = time.monotonic()
-                    return
-                await asyncio.to_thread(put_session_levels, symbol, as_of, levels)
-                await asyncio.to_thread(bump, "fusion_intake", "levels_stamped")
-            except Exception:
-                logger.exception("fusion levels refresh failed for %s", symbol)
-                await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
-
-    await asyncio.gather(*(_stamp_one(symbol) for symbol in symbols))
+    try:
+        payloads = await compute_session_levels_batch(symbols)
+    except Exception:
+        # Per-slice failures are already absorbed inside the batch; reaching here means
+        # the sweep itself broke. Count it and leave everyone pending for the next pass.
+        logger.exception("fusion levels refresh failed (%d symbols)", len(symbols))
+        await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
+        return
+    stamped = await asyncio.to_thread(_fusion_levels_store_sync, payloads, as_of)
+    if stamped:
+        await asyncio.to_thread(bump, "fusion_intake", "levels_stamped", stamped)
 
 
 async def _fusion_reason_once() -> None:

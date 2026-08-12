@@ -398,12 +398,23 @@ async def _fetch_rth_sessions(
     bars_by_symbol = await provider.aget_stock_bars_batch(
         [sym], timeframe="1Min", days=bar_days
     )
-    raw = bars_by_symbol.get(sym, [])
+    return _segment_bars(sym, bars_by_symbol.get(sym) or [])
+
+
+def _segment_bars(
+    sym: str, raw: list
+) -> tuple[list[IntradayBar], dict[date, list[IntradayBar]]] | None:
+    """Segment one symbol's raw 1-min bars into sessions — the I/O-free half of
+    ``_fetch_rth_sessions``, shared with the batch path so a symbol's levels are
+    identical however its bars were fetched."""
     if not raw:
         return None
-
     all_bars = [_stockbar_to_intraday(bar) for bar in raw]
-    sessions = segment_globex_sessions(all_bars) if is_futures else segment_rth_sessions(all_bars)
+    sessions = (
+        segment_globex_sessions(all_bars)
+        if sym.startswith("/")
+        else segment_rth_sessions(all_bars)
+    )
     if not sessions:
         return None
     return all_bars, sessions
@@ -455,11 +466,22 @@ async def _prior_week_levels(symbol: str) -> list[dict[str, Any]]:
         bars_by_symbol = await provider.aget_stock_bars_batch(
             [symbol], timeframe="1Day", days=_WEEKLY_BAR_DAYS
         )
+    except Exception:
+        logger.debug("prior-week bars unavailable for %s", symbol, exc_info=True)
+        return []
+    return _prior_week_levels_from_bars(bars_by_symbol.get(symbol) or [])
+
+
+def _prior_week_levels_from_bars(daily_bars: list) -> list[dict[str, Any]]:
+    """PWH/PWL from already-fetched daily bars — the I/O-free half of
+    ``_prior_week_levels``, shared with the batch path. Failure-soft by the same
+    contract: any shape problem returns [] rather than costing the session nodes."""
+    try:
         today = to_ny(datetime.now(UTC).isoformat()).date()
         this_monday = today - timedelta(days=today.weekday())
         prior = [
             (to_ny(bar.time).date(), bar)
-            for bar in bars_by_symbol.get(symbol, [])
+            for bar in daily_bars
             if to_ny(bar.time).date() < this_monday
         ]
         if not prior:
@@ -481,7 +503,7 @@ async def _prior_week_levels(symbol: str) -> list[dict[str, Any]]:
             },
         ]
     except Exception:
-        logger.debug("prior-week levels unavailable for %s", symbol, exc_info=True)
+        logger.debug("prior-week levels unavailable", exc_info=True)
         return []
 
 
@@ -502,6 +524,21 @@ async def compute_session_levels(
         return None
     _all_bars, sessions = fetched
 
+    sym = symbol.strip().upper()
+    payload = _session_levels_payload(sym, sessions)
+    if payload is None:
+        return None
+    if not sym.startswith("/"):
+        payload["levels"].extend(await _prior_week_levels(sym))
+    return payload
+
+
+def _session_levels_payload(
+    sym: str, sessions: dict[date, list[IntradayBar]]
+) -> dict[str, Any] | None:
+    """The five intraday-derived levels (POC/VAH/VAL/PDH/PDL) for one symbol's
+    segmented sessions. I/O-free and shared by the single-symbol and batch paths;
+    callers extend ``levels`` with PWH/PWL, which come from daily bars."""
     dates = sorted(sessions)
     if is_market_open():
         # Current session is still forming — reference the prior COMPLETED one.
@@ -516,24 +553,99 @@ async def compute_session_levels(
     if nodes is None:
         return None
 
-    sym = symbol.strip().upper()
-    levels = [
-        {"name": name, "price": price, "kind": _LEVEL_KINDS[name]}
-        for name, price in (
-            ("POC", nodes.poc),
-            ("VAH", nodes.vah),
-            ("VAL", nodes.val),
-            ("PDH", nodes.pdh),
-            ("PDL", nodes.pdl),
-        )
-    ]
-    if not sym.startswith("/"):
-        levels.extend(await _prior_week_levels(sym))
     return {
         "symbol": sym,
         "session_date": nodes.session_date.isoformat(),
-        "levels": levels,
+        "levels": [
+            {"name": name, "price": price, "kind": _LEVEL_KINDS[name]}
+            for name, price in (
+                ("POC", nodes.poc),
+                ("VAH", nodes.vah),
+                ("VAL", nodes.val),
+                ("PDH", nodes.pdh),
+                ("PDL", nodes.pdl),
+            )
+        ],
     }
+
+
+# Symbols per minute-bar slice. NOT a rate-limit knob — a MEMORY one: 5 days of 1-min
+# bars is ~1,950 bars/symbol, so asking for the whole ~9.9K-symbol fusion universe in
+# one call would materialise ~19M bar objects before a single level was computed. Slice
+# → fetch → reduce to levels → drop the bars keeps peak memory to one slice. 100 sits
+# just under Alpaca's own 105-symbol page budget for this window, so a slice is one
+# request.
+_LEVELS_BATCH_SIZE = 100
+
+
+async def compute_session_levels_batch(
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Session levels for many symbols, keyed by symbol; symbols with no usable
+    bars are simply absent.
+
+    Identical output to :func:`compute_session_levels` — both reduce through
+    ``_session_levels_payload`` — but the provider is asked once per SLICE instead of
+    twice per SYMBOL. That is the whole point: a dead symbol riding along in a
+    100-symbol request costs nothing, so a caller can sweep its full universe every
+    cycle and needs no back-off policy to stay affordable.
+
+    Daily bars are fetched once for the entire equity set (they are tiny — ~15
+    bars/symbol — and batch 500 at a time); only the minute-bar leg is sliced.
+    """
+    equities: list[str] = []
+    futures: list[str] = []
+    for raw_sym in symbols:
+        sym = raw_sym.strip().upper()
+        if sym:
+            (futures if sym.startswith("/") else equities).append(sym)
+    if not equities and not futures:
+        return {}
+
+    provider = get_market_data_provider()
+
+    daily_bars: dict[str, list] = {}
+    if equities:
+        try:
+            daily_bars = await provider.aget_stock_bars_batch(
+                equities, timeframe="1Day", days=_WEEKLY_BAR_DAYS
+            )
+        except Exception:
+            # PWH/PWL are additive: losing them must not cost anyone their session
+            # nodes, same contract as the single-symbol path.
+            logger.warning("batch prior-week bars failed; levels stay daily-only", exc_info=True)
+
+    out: dict[str, dict[str, Any]] = {}
+    for group, bar_days in ((equities, _BAR_DAYS), (futures, _FUTURES_BAR_DAYS)):
+        for start in range(0, len(group), _LEVELS_BATCH_SIZE):
+            slice_syms = group[start : start + _LEVELS_BATCH_SIZE]
+            try:
+                minute_bars = await provider.aget_stock_bars_batch(
+                    slice_syms, timeframe="1Min", days=bar_days
+                )
+            except Exception:
+                # One bad slice must not discard the sweep — those symbols stay
+                # unstamped and are picked up on the caller's next pass.
+                logger.warning(
+                    "batch session-levels slice failed (%d symbols at %d)",
+                    len(slice_syms),
+                    start,
+                    exc_info=True,
+                )
+                continue
+            for sym in slice_syms:
+                segmented = _segment_bars(sym, minute_bars.get(sym) or [])
+                if segmented is None:
+                    continue
+                payload = _session_levels_payload(sym, segmented[1])
+                if payload is None:
+                    continue
+                if not sym.startswith("/"):
+                    payload["levels"].extend(
+                        _prior_week_levels_from_bars(daily_bars.get(sym) or [])
+                    )
+                out[sym] = payload
+    return out
 
 
 async def run_session_node_scan(
