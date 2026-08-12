@@ -93,6 +93,9 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     # Deterministic universe; individual tests override as needed.
     monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: [])
+    # The no-levels back-off is module state — reset it or one test's empty result
+    # silences the next one.
+    main._FUSION_LEVELS_EMPTY.clear()
     return db
 
 
@@ -195,6 +198,79 @@ async def test_second_run_same_day_no_ops(
     assert calls == ["AAA"]
     meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_stamped") == 1.0
+
+
+@pytest.mark.asyncio
+async def test_symbol_with_no_levels_is_not_refetched_within_the_cooldown(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A symbol yielding no levels is never stamped, so it stays in the pending set
+    # forever and the 300s job re-fetched it every cycle (115 symbols, ~38k calls/day).
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["EMPTY"])
+    calls: list[str] = []
+
+    async def fake_compute(symbol: str, **_kw: object) -> dict:
+        calls.append(symbol)
+        return {"levels": []}
+
+    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
+
+    await main._fusion_levels_refresh_once()
+    await main._fusion_levels_refresh_once()
+    await main._fusion_levels_refresh_once()
+
+    # Still pending (nothing to stamp), but attempted once instead of once per cycle.
+    assert "EMPTY" in main._fusion_levels_pending_symbols_sync(_today())
+    assert calls == ["EMPTY"]
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_is_retried_unlike_an_empty_result(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The skip set caches "this symbol has no levels", NOT "the fetch failed" — a
+    # transient provider error must still retry on the next cycle.
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["BAD"])
+    calls: list[str] = []
+
+    async def fake_compute(symbol: str, **_kw: object) -> dict:
+        calls.append(symbol)
+        raise RuntimeError("provider blew up")
+
+    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
+
+    await main._fusion_levels_refresh_once()
+    await main._fusion_levels_refresh_once()
+
+    assert calls == ["BAD", "BAD"]
+
+
+@pytest.mark.asyncio
+async def test_empty_symbol_is_retried_once_the_cooldown_expires(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The whole reason this is a cooldown and not a skip-for-the-day: an empty read can
+    # be transient (the live pending set fell 132 -> 115 across a session), so a symbol
+    # that starts resolving mid-day must get picked up rather than silenced until
+    # tomorrow. First it recovers levels, then it stamps.
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["LATE"])
+    calls: list[str] = []
+
+    async def fake_compute(symbol: str, **_kw: object) -> dict:
+        calls.append(symbol)
+        return _levels_payload(symbol) if len(calls) > 1 else {"levels": []}
+
+    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
+
+    await main._fusion_levels_refresh_once()
+    assert get_session_levels("LATE", db_path=env) == []  # empty read, nothing stamped
+
+    # Age the back-off entry past the cooldown instead of sleeping an hour.
+    main._FUSION_LEVELS_EMPTY["LATE"] -= main._FUSION_LEVELS_EMPTY_COOLDOWN_S + 1
+    await main._fusion_levels_refresh_once()
+
+    assert calls == ["LATE", "LATE"]
+    assert get_session_levels("LATE", db_path=env)  # recovered and stamped
 
 
 def test_stored_levels_round_trip_through_nearest_level(tmp_path: Path) -> None:

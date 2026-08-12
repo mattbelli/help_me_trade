@@ -1894,6 +1894,21 @@ def _fusion_levels_pending_symbols_sync(as_of: str) -> list[str]:
     )
 
 
+# Back-off for symbols that yielded NO levels: {symbol: monotonic ts of the empty read}.
+# The pending set is "universe minus symbols STAMPED today", and a symbol with no levels
+# is never stamped — so without this it stays pending forever and is re-fetched on every
+# 300s cycle. Not a rare edge: index-style tickers (XSP, XND, YOOV) have no ordinary
+# share bars, and 115 of them were burning ~38k Alpaca calls/day (measured 2026-08-12).
+#
+# A cooldown, NOT a skip-for-the-day: the pending count fell 132 -> 115 across 2026-08-12,
+# so some empties are transient and DO start resolving later in the session — skipping
+# for the day would silently cost those symbols their levels. One attempt per hour keeps
+# recovery inside an hour and still drops 12 attempts/hour to 1. Only the empty RESULT
+# backs off; a provider failure is never recorded and retries on the next cycle.
+_FUSION_LEVELS_EMPTY_COOLDOWN_S = 3600.0
+_FUSION_LEVELS_EMPTY: dict[str, float] = {}
+
+
 async def _fusion_levels_refresh_once() -> None:
     """Once-daily external work, deliberately separate from trigger intake.
 
@@ -1907,7 +1922,14 @@ async def _fusion_levels_refresh_once() -> None:
     from db.lane_stats import bump
 
     as_of = datetime.now(_ET).date().isoformat()
-    symbols = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
+    pending = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
+    now = time.monotonic()
+    symbols = [
+        sym
+        for sym in pending
+        if now - _FUSION_LEVELS_EMPTY.get(sym, -_FUSION_LEVELS_EMPTY_COOLDOWN_S)
+        >= _FUSION_LEVELS_EMPTY_COOLDOWN_S
+    ]
     if not symbols:
         return
     sem = asyncio.Semaphore(6)
@@ -1922,6 +1944,7 @@ async def _fusion_levels_refresh_once() -> None:
                     else []
                 )
                 if not levels:
+                    _FUSION_LEVELS_EMPTY[symbol] = time.monotonic()
                     return
                 await asyncio.to_thread(put_session_levels, symbol, as_of, levels)
                 await asyncio.to_thread(bump, "fusion_intake", "levels_stamped")
