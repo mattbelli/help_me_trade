@@ -821,15 +821,43 @@ def put_session_levels(
         conn.commit()
 
 
-def get_session_levels(symbol: str, *, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
-    """The cached session nodes for *symbol*, or ``[]`` — storm-cheap intake read."""
+def get_session_levels(
+    symbol: str, *, as_of: str | None = None, db_path: Path = DEFAULT_DB_PATH
+) -> list[dict]:
+    """The cached session nodes for *symbol*, or ``[]`` when absent OR stale
+    (> FUSION_LEVELS_MAX_AGE_DAYS behind ``as_of`` — an ISO date, defaulting to
+    today ET). Storm-cheap intake read.
+
+    The staleness fence is the one get_atr already carries, applied here for the
+    same reason and a sharper one: a symbol whose refresh keeps failing (delisted,
+    or too thin for a volume profile) was serving its LAST successful stamp as
+    though it were current, so "PDH" named a day that was not the caller's prior
+    day at all (2026-08-12 audit: 102 symbols 1-22 days old, EA among them, 3 days
+    after it stopped trading). Stale now reads as missing — the structure dot is
+    simply not minted, which is a missing angle rather than a false one.
+
+    Both bounds, as in get_atr: a row NEWER than the caller's session is lookahead
+    and a replay of old events must never see it."""
+    from config.idea_engine import FUSION_LEVELS_MAX_AGE_DAYS
+
     init_fusion_tables(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
-            "SELECT levels_json FROM fusion_session_levels WHERE symbol = ?",
+            "SELECT levels_json, as_of_date FROM fusion_session_levels WHERE symbol = ?",
             (symbol.strip().upper(),),
         ).fetchone()
     if row is None:
+        return []
+    try:
+        anchor = (
+            date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(_ET).date()
+        )
+    except ValueError:
+        anchor = datetime.now(_ET).date()
+    as_of_date = str(row["as_of_date"])
+    if as_of_date > anchor.isoformat():
+        return []
+    if as_of_date < (anchor - timedelta(days=FUSION_LEVELS_MAX_AGE_DAYS)).isoformat():
         return []
     try:
         parsed = json.loads(row["levels_json"])

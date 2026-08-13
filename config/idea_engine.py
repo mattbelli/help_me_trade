@@ -143,6 +143,14 @@ FUSION_MIN_ATR_PCT = 1.0  # FOUNDER DIAL
 # on a weeks-old ATR measures nothing; the dot stays unstamped and is counted
 # by the existing unstampable dispositions instead.
 FUSION_ATR_MAX_AGE_DAYS = 5
+# The same guard for fusion_session_levels — but DELIBERATELY TIGHTER than ATR's 5,
+# because the two quantities decay differently. ATR(14) is a 14-day average and barely
+# moves in a week; a session level names ONE specific day ("PDH" = the prior day's
+# high), so a 4-day-old row is not a stale number, it is a FALSE LABEL. 1 day is the
+# floor that still absorbs the ~4-minute ET-midnight window while the sweep restamps
+# the whole universe (measured 2026-08-12: 102 rows were being served 1-22 days old,
+# incl. delisted EA, as if current).
+FUSION_LEVELS_MAX_AGE_DAYS = 1
 # Whole-market price fallback (fusion_spot_cache, fed by the equity collector's
 # wildcard tape): a spot older than this is refused — overnight/halted/collector-
 # down must read as missing, never as a price. 15 min is generous for any
@@ -280,6 +288,7 @@ def validate_config() -> None:
     # Mechanical-registration dials (2026-07-28 round).
     assert FUSION_MIN_ATR_PCT >= 0
     assert FUSION_ATR_MAX_AGE_DAYS >= 1
+    assert FUSION_LEVELS_MAX_AGE_DAYS >= 1
     assert FUSION_SPOT_MAX_AGE_S > 0
     # Fusion C2 dossier invariant.
     assert DOSSIER_SUMMARY_MAX_CHARS > 0

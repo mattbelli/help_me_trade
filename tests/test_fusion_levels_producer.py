@@ -255,6 +255,36 @@ async def test_uncomputable_symbol_is_reattempted_every_cycle(
     assert main._fusion_levels_pending_symbols_sync(_today()) == []
 
 
+def test_reader_refuses_a_stale_row_but_serves_yesterdays(tmp_path: Path) -> None:
+    # The defect this guard closes (2026-08-12 audit): a symbol whose refresh keeps
+    # failing — delisted, or too thin for a volume profile — kept serving its LAST
+    # successful stamp as current, so "PDH" named a day that was not the caller's
+    # prior day. One day of slack is deliberate: it absorbs the ET-midnight window
+    # while the sweep restamps the whole universe.
+    db = tmp_path / "stale.db"
+    init_fusion_tables(db)
+    levels = [{"name": "PDH", "price": 320.5}]
+    put_session_levels("FRESH", "2026-08-12", levels, db_path=db)
+    put_session_levels("YDAY", "2026-08-11", levels, db_path=db)
+    put_session_levels("DEAD", "2026-08-09", levels, db_path=db)
+
+    assert get_session_levels("FRESH", as_of="2026-08-12", db_path=db) == levels
+    assert get_session_levels("YDAY", as_of="2026-08-12", db_path=db) == levels
+    assert get_session_levels("DEAD", as_of="2026-08-12", db_path=db) == []
+    # ...and the same DEAD row reads fine to a caller whose own session is that day.
+    assert get_session_levels("DEAD", as_of="2026-08-09", db_path=db) == levels
+
+
+def test_reader_refuses_a_row_newer_than_the_caller(tmp_path: Path) -> None:
+    # get_atr's upper bound, for the same reason: replaying an old event must never
+    # see levels that did not exist yet.
+    db = tmp_path / "lookahead.db"
+    init_fusion_tables(db)
+    put_session_levels("TSLA", "2026-08-12", [{"name": "PDH", "price": 320.5}], db_path=db)
+
+    assert get_session_levels("TSLA", as_of="2026-07-20", db_path=db) == []
+
+
 def test_stored_levels_round_trip_through_nearest_level(tmp_path: Path) -> None:
     # Store EXACTLY the producer's output (compute_session_levels' "levels" list),
     # read it back through the intake accessor, and prove nearest_level consumes it.
@@ -263,7 +293,7 @@ def test_stored_levels_round_trip_through_nearest_level(tmp_path: Path) -> None:
     producer_levels = _levels_payload("TSLA")["levels"]
     put_session_levels("TSLA", "2026-07-20", producer_levels, db_path=db)
 
-    read_back = get_session_levels("TSLA", db_path=db)
+    read_back = get_session_levels("TSLA", as_of="2026-07-20", db_path=db)
 
     # ATR 10 → 0.5×10 = 5.0 threshold; 320.4 is 0.1 from PDH (320.5).
     hit = nearest_level(price=320.4, levels=read_back, alert_prices=[], atr_value=10.0)
