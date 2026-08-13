@@ -33,6 +33,7 @@ from research.fundamentals import (
     concept_series,
     latest_financials,
     search_concepts,
+    statement_headline,
 )
 
 
@@ -304,6 +305,59 @@ def test_abandoned_series_is_flagged_stale_per_bucket(
 def test_unknown_symbol_returns_none(cache_db: Path, facts_db: Path) -> None:
     assert latest_financials("NOSUCH", cache_db=cache_db, facts_db=facts_db) is None
     assert concept_series("NOSUCH", "Revenues", cache_db=cache_db, facts_db=facts_db) is None
+    assert statement_headline("NOSUCH", cache_db=cache_db, facts_db=facts_db) is None
+
+
+def test_statement_headline_is_revenue_and_eps_not_the_full_dump(
+    cache_db: Path, facts_db: Path
+) -> None:
+    """get_context cannot carry the ~18k latest_financials payload. The headline
+    is the newest quarter's revenue + diluted EPS + filed date."""
+    _load(
+        cache_db,
+        facts_db,
+        "AAPL",
+        "320193",
+        {
+            "Revenues": {
+                "units": {
+                    "USD": [
+                        _entry(
+                            "2026-03-30",
+                            "2026-06-28",
+                            94_036e6,
+                            filed="2026-07-31",
+                            form="10-Q",
+                            fp="Q3",
+                            fy=2026,
+                        )
+                    ]
+                }
+            },
+            "EarningsPerShareDiluted": {
+                "units": {
+                    "USD/shares": [
+                        _entry(
+                            "2026-03-30",
+                            "2026-06-28",
+                            1.57,
+                            filed="2026-07-31",
+                            form="10-Q",
+                            fp="Q3",
+                            fy=2026,
+                        )
+                    ]
+                }
+            },
+        },
+    )
+    headline = statement_headline("AAPL", cache_db=cache_db, facts_db=facts_db)
+    assert headline is not None
+    assert headline["revenue"] == 94_036e6
+    assert headline["eps_diluted"] == 1.57
+    assert headline["filed"] == "2026-07-31"
+    assert headline["form"] == "10-Q"
+    assert headline["source"] == "SEC EDGAR XBRL companyfacts"
 
 
 @pytest.mark.asyncio

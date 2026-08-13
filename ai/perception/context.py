@@ -491,6 +491,16 @@ async def build_symbol_context(
             logger.debug("Fundamentals block failed for %s", sym, exc_info=True)
 
     try:
+        from research.fundamentals import statement_headline
+
+        headline = statement_headline(sym)
+        if headline:
+            block = ctx.setdefault("fundamentals", {})
+            block["statements"] = headline
+    except Exception:
+        logger.debug("EDGAR statements block failed for %s", sym, exc_info=True)
+
+    try:
         earnings: dict[str, Any] = {}
         last = last_earnings_date(sym, today_iso, db_path=db_path)
         nxt = next_earnings_date(sym, today_iso, db_path=db_path)

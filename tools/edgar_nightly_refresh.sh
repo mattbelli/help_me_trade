@@ -8,6 +8,16 @@
 # Measured 2026-08-02, AAPL's newest facts were 2026-05-01 — its fiscal-Q3 10-Q
 # was simply absent — while 10-Q/10-K land 0-3 days after the earnings release.
 #
+# STEPS (after a successful CRC run; 2 and 3 are non-fatal so they cannot fail
+# the facts dead-man):
+#   1. CRC diff of companyfacts.zip → ingest changed filers, stamp checked_at
+#   2. --sync-tickers from company_tickers.json (one HTTP request). The zip has
+#      no ticker map; without this, a new listing's facts sit in edgar_facts.db
+#      but latest_financials returns None because it looks up `companies` first.
+#   3. 8-K exhibit backfill for calendar names in the last 21 days with no stored
+#      release. The 5-min poll stays on the current-events feed; this is the
+#      hole-fill for prints that landed before that archive existed.
+#
 # THE DEAD-MAN: like tools/oi_refresh.sh, the check is on the OUTCOME, not on the
 # exit code alone. "Checked, nothing new" is the normal night — 97.7% of entries
 # are byte-identical — and it must stay quiet. "Could not check" is an error and
@@ -84,3 +94,14 @@ if (( RC != 0 )); then
   exit 1
 fi
 echo "edgar_nightly_refresh: ok — newest SEC check ${NEWEST} (${AGE}d)"
+
+# The zip has no ticker map. One GET of company_tickers.json; a stale map must
+# not fail the facts dead-man above.
+if ! .venv/bin/python -m research.edgar_bulk --sync-tickers; then
+  echo "edgar_nightly_refresh: ticker-map sync failed (non-fatal)" >&2
+fi
+
+# Hole-fill Item 2.02 exhibits. Not the 5-min current-events poll.
+if ! .venv/bin/python -m signals.earnings_exhibit --backfill-days 21; then
+  echo "edgar_nightly_refresh: 8-K backfill failed (non-fatal)" >&2
+fi

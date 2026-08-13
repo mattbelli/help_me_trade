@@ -8,6 +8,8 @@ release's numbers only survive extraction if tables are kept row-wise.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from signals.earnings_exhibit import (
     exhibit_text,
     parse_current_feed,
@@ -116,3 +118,117 @@ def test_extraction_keeps_numbers_attached_to_their_labels() -> None:
     assert "North America | 116,200 | 100,100" in text
     assert "Segment | Q2 2026 | Q2 2025" in text
     assert "ignored()" not in text
+
+
+def test_symbol_for_cik_prefers_the_common_share(tmp_path: Path) -> None:
+    """Length-only used to pick BML-PG over BAC (preferreds are often shorter)."""
+    from db.base import connect
+    from research.fundamentals import _ensure_schema, _upsert_company
+    from signals.earnings_exhibit import _symbol_for_cik
+
+    db = tmp_path / "companies.db"
+    conn = connect(db)
+    try:
+        _ensure_schema(conn)
+        for symbol in ("BAC-PB", "BML-PG", "BAC", "BAC-PK"):
+            _upsert_company(conn, symbol=symbol, cik="70858", sic=6021, sic_desc="Banks")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _symbol_for_cik(70858, companies_db=db) == "BAC"
+    assert _symbol_for_cik(999, companies_db=db) is None
+
+
+def test_ingest_skips_a_known_accession_without_http(tmp_path: Path) -> None:
+    from db.base import connect
+    from signals.earnings_exhibit import _ingest_entry, ensure_release_schema
+
+    db = tmp_path / "earnings.db"
+    conn = connect(db)
+    try:
+        ensure_release_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO earnings_releases
+                (accession, cik, symbol, company, filed_date, accepted_et,
+                 session, items, exhibit, body, chars, fetched_at)
+            VALUES ('0001018724-26-000024', 1018724, 'AMZN', 'Amazon',
+                    '2026-07-30', '2026-07-30T16:06:23-04:00', 'amc',
+                    '2.02', 'ex.htm', 'body', 4, '2026-07-31T00:00:00Z')
+            """
+        )
+        conn.commit()
+
+        class Boom:
+            def get(self, *_a, **_k):
+                raise AssertionError("known accession must not re-fetch")
+
+        outcome = _ingest_entry(
+            conn,
+            Boom(),
+            {
+                "accession": "0001018724-26-000024",
+                "cik": 1018724,
+                "folder": "000101872426000024",
+                "company": "Amazon",
+                "accepted_et": "2026-07-30T16:06:23-04:00",
+                "items": "2.02",
+            },
+            listed_only=True,
+        )
+        assert outcome == "known"
+    finally:
+        conn.close()
+
+
+def test_backfill_candidates_skip_names_we_already_have(tmp_path: Path) -> None:
+    """Calendar and exhibits are different DBs. Estimates are not a fetch reason."""
+    from datetime import date
+
+    from db.base import connect
+    from db.earnings_calendar import init_earnings_calendar_tables, upsert_earnings
+    from signals.earnings_exhibit import (
+        _symbols_missing_releases,
+        ensure_release_schema,
+    )
+
+    calendar_db = tmp_path / "app.db"
+    releases_db = tmp_path / "earnings.db"
+    init_earnings_calendar_tables(calendar_db)
+    upsert_earnings(
+        [
+            {"symbol": "AMZN", "date": "2026-07-30", "source": "edgar"},
+            {"symbol": "AAPL", "date": "2026-07-31", "source": "edgar"},
+            {
+                "symbol": "MSFT",
+                "date": "2026-08-01",
+                "source": "edgar_estimate",
+                "estimated": 1,
+            },
+        ],
+        db_path=calendar_db,
+    )
+    conn = connect(releases_db)
+    try:
+        ensure_release_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO earnings_releases
+                (accession, cik, symbol, company, filed_date, accepted_et,
+                 session, items, exhibit, body, chars, fetched_at)
+            VALUES ('0000320193-26-000001', 320193, 'AAPL', 'Apple',
+                    '2026-07-31', '2026-07-31T16:30:00-04:00', 'amc',
+                    '2.02', 'ex.htm', 'body', 4, '2026-07-31T21:00:00Z')
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    missing = _symbols_missing_releases(
+        days=21,
+        calendar_db=calendar_db,
+        releases_db=releases_db,
+        as_of=date(2026, 8, 13),
+    )
+    assert missing == ["AMZN"]

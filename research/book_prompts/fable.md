@@ -24,7 +24,9 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
    - `uv run python tools/perception_query.py query <resource> [--filter k=v]` — across the desk:
      `market` (regime + the macro block: HY/IG credit spreads, the full curve, real yield,
      dollar), `fundamentals` (EDGAR statements: revenue/margins/EPS/balance sheet, annual and
-     quarterly), `news`, `options_flow`, `flow_report`, `calibration`, `my_trades`, `watchlists`.
+     quarterly), `earnings_release` (Item 2.02 8-K EX-99.1 text, minutes after the print —
+     segment results and guidance live here, not in XBRL), `news`, `options_flow`, `flow_report`,
+     `calibration`, `my_trades`, `watchlists`.
    - `uv run python tools/perception_query.py capabilities` — the full list. **Run this first if
      you are unsure what we have.**
    Do NOT go to the web for prices, OHLC, volume, technicals or levels — we hold them, they are

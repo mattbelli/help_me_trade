@@ -20,8 +20,10 @@ from __future__ import annotations
 import argparse
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import date as _date
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -39,6 +41,11 @@ DEFAULT_USER_AGENT = "help_me_trade-research matt.belliveau@gmail.com"
 CURRENT_FEED_URL = (
     "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K"
     "&company=&dateb=&owner=include&count=100&output=atom"
+)
+# Per-company 8-K atom — the backfill path. The 5-min poll stays on CURRENT_FEED.
+COMPANY_8K_FEED_URL = (
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"
+    "&type=8-K&owner=exclude&count=40&output=atom"
 )
 ARCHIVE_BASE = "https://www.sec.gov/Archives/edgar/data"
 
@@ -194,14 +201,24 @@ def parse_filing_header(html: str) -> tuple[str | None, str | None]:
     return (accepted.group(1) if accepted else None), exhibit
 
 
-def _symbol_for_cik(cik: int) -> str | None:
+def _symbol_for_cik(cik: int, *, companies_db: Path | None = None) -> str | None:
+    """Map a CIK to a listed ticker.
+
+    One CIK often has many share classes (BAC + 16 preferreds). Prefer the
+    common share: no hyphen, then shortest symbol. Length-only used to pick
+    BML-PG over BAC.
+    """
     from research.fundamentals import DEFAULT_FUNDAMENTALS_DB_PATH
 
-    conn = connect(DEFAULT_FUNDAMENTALS_DB_PATH)
+    conn = connect(companies_db or DEFAULT_FUNDAMENTALS_DB_PATH)
     try:
         row = conn.execute(
-            "SELECT symbol FROM companies WHERE cik = ? ORDER BY length(symbol) LIMIT 1",
-            (str(cik),),
+            """
+            SELECT symbol FROM companies WHERE CAST(cik AS INTEGER) = ?
+            ORDER BY (symbol LIKE '%-%') ASC, length(symbol) ASC
+            LIMIT 1
+            """,
+            (int(cik),),
         ).fetchone()
     except Exception:  # noqa: BLE001 - a missing companies table is not fatal here
         return None
@@ -216,17 +233,12 @@ def poll_once(
     user_agent: str = DEFAULT_USER_AGENT,
     limit: int | None = None,
     listed_only: bool = True,
+    companies_db: Path | None = None,
 ) -> dict:
     """Fetch new Item 2.02 releases and store their exhibit text. Idempotent."""
     import httpx
 
-    from db.base import now_iso
-
-    stored = 0
-    skipped_known = 0
-    skipped_unlisted = 0
-    failures = 0
-
+    stored = skipped_known = skipped_unlisted = failures = 0
     conn = connect(db_path)
     try:
         ensure_release_schema(conn)
@@ -238,78 +250,262 @@ def poll_once(
             entries = parse_current_feed(feed.text)
             if limit:
                 entries = entries[:limit]
-
             for entry in entries:
-                known = conn.execute(
-                    "SELECT 1 FROM earnings_releases WHERE accession = ?",
-                    (entry["accession"],),
-                ).fetchone()
-                if known:
-                    skipped_known += 1
-                    continue
-                symbol = _symbol_for_cik(entry["cik"])
-                if listed_only and not symbol:
-                    # Most Item 2.02 filers are funds, trusts and private debt
-                    # issuers with no ticker — fetching their exhibits is pure cost.
-                    skipped_unlisted += 1
-                    continue
-                try:
-                    header = client.get(
-                        _headers_url(entry["cik"], entry["folder"], entry["accession"])
-                    )
-                    header.raise_for_status()
-                    native, exhibit = parse_filing_header(header.text)
-                    body = ""
-                    if exhibit:
-                        doc = client.get(
-                            f"{ARCHIVE_BASE}/{entry['cik']}/{entry['folder']}/{exhibit}"
-                        )
-                        doc.raise_for_status()
-                        body = exhibit_text(doc.text)
-                except Exception as exc:  # noqa: BLE001 - one bad filing must not stop the poll
-                    logger.warning(
-                        "earnings exhibit %s failed (%s)", entry["accession"], str(exc)[:80]
-                    )
-                    failures += 1
-                    continue
-
-                accepted = entry["accepted_et"]
-                if native:
-                    # The native header is the filing's own record; the feed
-                    # agreed with it on every filing checked, so this is a
-                    # cross-check rather than a correction.
-                    stamped = datetime.strptime(native, "%Y%m%d%H%M%S").replace(
-                        tzinfo=_ET_TZ
-                    )
-                    accepted = stamped.isoformat()
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO earnings_releases
-                        (accession, cik, symbol, company, filed_date, accepted_et,
-                         session, items, exhibit, body, chars, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        entry["accession"],
-                        entry["cik"],
-                        symbol,
-                        entry["company"],
-                        accepted[:10],
-                        accepted,
-                        session_of(accepted),
-                        entry["items"],
-                        exhibit,
-                        body,
-                        len(body),
-                        now_iso(),
-                    ),
+                outcome = _ingest_entry(
+                    conn, client, entry, listed_only=listed_only, companies_db=companies_db
                 )
-                conn.commit()
-                stored += 1
+                if outcome == "stored":
+                    stored += 1
+                elif outcome == "known":
+                    skipped_known += 1
+                elif outcome == "unlisted":
+                    skipped_unlisted += 1
+                else:
+                    failures += 1
     finally:
         conn.close()
 
     return {
+        "stored": stored,
+        "already_had": skipped_known,
+        "unlisted": skipped_unlisted,
+        "failed": failures,
+    }
+
+
+def _ingest_entry(
+    conn,
+    client,
+    entry: dict,
+    *,
+    listed_only: bool,
+    companies_db: Path | None = None,
+) -> str:
+    """Store one Item 2.02 filing. Returns stored|known|unlisted|failed."""
+    from db.base import now_iso
+
+    known = conn.execute(
+        "SELECT 1 FROM earnings_releases WHERE accession = ?",
+        (entry["accession"],),
+    ).fetchone()
+    if known:
+        return "known"
+    symbol = _symbol_for_cik(entry["cik"], companies_db=companies_db)
+    if listed_only and not symbol:
+        # Most Item 2.02 filers are funds, trusts and private debt
+        # issuers with no ticker — fetching their exhibits is pure cost.
+        return "unlisted"
+    try:
+        header = client.get(
+            _headers_url(entry["cik"], entry["folder"], entry["accession"])
+        )
+        header.raise_for_status()
+        native, exhibit = parse_filing_header(header.text)
+        body = ""
+        if exhibit:
+            doc = client.get(
+                f"{ARCHIVE_BASE}/{entry['cik']}/{entry['folder']}/{exhibit}"
+            )
+            doc.raise_for_status()
+            body = exhibit_text(doc.text)
+    except Exception as exc:  # noqa: BLE001 - one bad filing must not stop the poll
+        logger.warning(
+            "earnings exhibit %s failed (%s)", entry["accession"], str(exc)[:80]
+        )
+        return "failed"
+
+    accepted = entry["accepted_et"]
+    if native:
+        # The native header is the filing's own record; the feed
+        # agreed with it on every filing checked, so this is a
+        # cross-check rather than a correction.
+        stamped = datetime.strptime(native, "%Y%m%d%H%M%S").replace(tzinfo=_ET_TZ)
+        accepted = stamped.isoformat()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO earnings_releases
+            (accession, cik, symbol, company, filed_date, accepted_et,
+             session, items, exhibit, body, chars, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            entry["accession"],
+            entry["cik"],
+            symbol,
+            entry["company"],
+            accepted[:10],
+            accepted,
+            session_of(accepted),
+            entry["items"],
+            exhibit,
+            body,
+            len(body),
+            now_iso(),
+        ),
+    )
+    conn.commit()
+    return "stored"
+
+
+def _cik_for_symbol(symbol: str, *, companies_db: Path | None = None) -> int | None:
+    from research.fundamentals import DEFAULT_FUNDAMENTALS_DB_PATH
+
+    conn = connect(companies_db or DEFAULT_FUNDAMENTALS_DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT cik FROM companies WHERE symbol = ?",
+            (symbol.strip().upper(),),
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        conn.close()
+    if not row or row["cik"] is None:
+        return None
+    try:
+        return int(str(row["cik"]).lstrip("0") or "0")
+    except (TypeError, ValueError):
+        return None
+
+
+def _symbols_missing_releases(
+    *,
+    days: int,
+    calendar_db: Path,
+    releases_db: Path,
+    as_of: _date | None = None,
+) -> list[str]:
+    """Calendar names in the last `days` whose print is not in earnings_releases.
+
+    Calendar lives in the app DB (`earnings_calendar`); exhibits live in
+    `data/research/earnings.db`. Confirmed dates only — estimates are not a
+    reason to hit EDGAR. A name is a candidate when ANY of its recent confirmed
+    dates has no stored release within ±2 days.
+    """
+    as_of = as_of or datetime.now(_ET_TZ).date()
+    since = (as_of - timedelta(days=int(days))).isoformat()
+    until = as_of.isoformat()
+
+    cal = connect(calendar_db)
+    try:
+        if not cal.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='earnings_calendar'"
+        ).fetchone():
+            return []
+        cal_rows = cal.execute(
+            """
+            SELECT symbol, date FROM earnings_calendar
+            WHERE date >= ? AND date <= ?
+              AND COALESCE(estimated, 0) = 0
+            """,
+            (since, until),
+        ).fetchall()
+    finally:
+        cal.close()
+
+    rel = connect(releases_db)
+    try:
+        ensure_release_schema(rel)
+        by_sym: dict[str, set[str]] = {}
+        for row in rel.execute(
+            """
+            SELECT symbol, accepted_et FROM earnings_releases
+            WHERE symbol IS NOT NULL AND accepted_et >= ?
+            """,
+            (since,),
+        ):
+            by_sym.setdefault(row["symbol"], set()).add((row["accepted_et"] or "")[:10])
+    finally:
+        rel.close()
+
+    missing: set[str] = set()
+    for row in cal_rows:
+        symbol = row["symbol"]
+        try:
+            day = _date.fromisoformat(row["date"])
+        except (TypeError, ValueError):
+            continue
+        window = {(day + timedelta(days=off)).isoformat() for off in range(-2, 3)}
+        if not (by_sym.get(symbol, set()) & window):
+            missing.add(symbol)
+    return sorted(missing)
+
+
+def backfill_missing(
+    *,
+    days: int = 21,
+    db_path: Path = DEFAULT_RELEASES_DB_PATH,
+    calendar_db: Path | None = None,
+    companies_db: Path | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
+    sleep_s: float = 0.13,
+    as_of: _date | None = None,
+) -> dict:
+    """Fetch Item 2.02 8-Ks for calendar names in the last `days` with no stored release.
+
+    Uses the per-company 8-K atom (not the live current-events feed). The 5-min
+    poll stays on the current feed; this is the nightly hole-fill for names
+    whose print landed before the archive existed (first fetch 2026-07-31).
+    """
+    import httpx
+
+    from db.base import DEFAULT_DB_PATH
+
+    names = _symbols_missing_releases(
+        days=days,
+        calendar_db=calendar_db or DEFAULT_DB_PATH,
+        releases_db=db_path,
+        as_of=as_of,
+    )
+    stored = skipped_known = skipped_unlisted = failures = 0
+    companies = 0
+    conn = connect(db_path)
+    try:
+        ensure_release_schema(conn)
+        with httpx.Client(
+            timeout=60.0, headers={"User-Agent": user_agent}, follow_redirects=True
+        ) as client:
+            for i, symbol in enumerate(names):
+                cik = _cik_for_symbol(symbol, companies_db=companies_db)
+                if not cik:
+                    skipped_unlisted += 1
+                    continue
+                companies += 1
+                if i:
+                    time.sleep(sleep_s)
+                try:
+                    feed = client.get(COMPANY_8K_FEED_URL.format(cik=f"{cik:010d}"))
+                    feed.raise_for_status()
+                    entries = [
+                        e for e in parse_current_feed(feed.text) if "2.02" in e["items"]
+                    ]
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("8-K backfill %s failed (%s)", symbol, str(exc)[:80])
+                    failures += 1
+                    continue
+                for entry in entries:
+                    outcome = _ingest_entry(
+                        conn,
+                        client,
+                        entry,
+                        listed_only=True,
+                        companies_db=companies_db,
+                    )
+                    if outcome == "stored":
+                        stored += 1
+                    elif outcome == "known":
+                        skipped_known += 1
+                    elif outcome == "unlisted":
+                        skipped_unlisted += 1
+                    else:
+                        failures += 1
+                    time.sleep(sleep_s)
+    finally:
+        conn.close()
+
+    return {
+        "candidates": len(names),
+        "companies": companies,
         "stored": stored,
         "already_had": skipped_known,
         "unlisted": skipped_unlisted,
@@ -352,6 +548,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--poll", action="store_true", help="Fetch new releases now")
     parser.add_argument("--limit", type=int, help="Cap filings processed this poll")
     parser.add_argument("--all-filers", action="store_true", help="Include filers with no ticker")
+    parser.add_argument(
+        "--backfill-days",
+        type=int,
+        metavar="N",
+        help="Per-company 8-K atom for calendar names in the last N days with no stored release",
+    )
     parser.add_argument("--latest", metavar="SYMBOL", nargs="?", const="", help="Show stored releases")
     parser.add_argument("--show", metavar="SYMBOL", help="Print the newest release text for a symbol")
     parser.add_argument("--db", type=Path, default=DEFAULT_RELEASES_DB_PATH)
@@ -361,7 +563,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
-    if not (args.poll or args.latest is not None or args.show):
+    if not (
+        args.poll or args.backfill_days is not None or args.latest is not None or args.show
+    ):
         _parse_args(["--help"])
         return
 
@@ -370,6 +574,14 @@ def main(argv: list[str] | None = None) -> None:
             db_path=args.db, limit=args.limit, listed_only=not args.all_filers
         )
         print(
+            f"stored {summary['stored']}  already_had {summary['already_had']}  "
+            f"unlisted {summary['unlisted']}  failed {summary['failed']}"
+        )
+
+    if args.backfill_days is not None:
+        summary = backfill_missing(days=args.backfill_days, db_path=args.db)
+        print(
+            f"backfill candidates {summary['candidates']}  companies {summary['companies']}  "
             f"stored {summary['stored']}  already_had {summary['already_had']}  "
             f"unlisted {summary['unlisted']}  failed {summary['failed']}"
         )

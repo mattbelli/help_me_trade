@@ -808,8 +808,8 @@ def _read_fundamentals(filters: dict[str, Any], *, db_path: Path) -> list[dict[s
         reported = company_concepts(symbol, limit=1) or []
         out["note"] = (
             f"{symbol} resolves to CIK {out['cik']} but no XBRL facts are ingested for it "
-            "— run `python -m research.edgar_bulk --download --ingest`, or "
-            f"`python -m research.fundamentals --build-financials {symbol}` for just this one."
+            "— the nightly companyfacts CRC diff should pick the filer up; "
+            "do not per-symbol REST scrape SEC for this."
             if not reported
             else (
                 f"{symbol} files XBRL, but none of the twelve canonical metrics matched"

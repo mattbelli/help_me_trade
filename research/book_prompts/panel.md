@@ -19,8 +19,9 @@ It is after hours. Tonight the panel convenes: seats argue, you judge, the book 
    > (SMA/RSI/ATR), session nodes (POC/VAH/VAL/PDH/PDL), earnings, news, decision score.
    > `uv run python tools/perception_query.py query <resource> [--filter k=v]` — `market` (regime
    > plus the macro block: HY/IG credit spreads, full curve, real yield, dollar), `fundamentals`
-   > (EDGAR statements: revenue/margins/EPS/balance sheet), `news`, `options_flow`, `flow_report`,
-   > `calibration`, `my_trades`, `watchlists`.
+   > (EDGAR statements: revenue/margins/EPS/balance sheet), `earnings_release` (Item 2.02 8-K
+   > EX-99.1 text, minutes after the print — segment results and guidance live here, not in
+   > XBRL), `news`, `options_flow`, `flow_report`, `calibration`, `my_trades`, `watchlists`.
    > `uv run python tools/perception_query.py capabilities` — the full list; run it if unsure.
    > NEVER go to the web for prices, OHLC, volume, technicals or levels — ours are current and
    > free sites are delayed or wrong. The web is for filings detail, sentiment, and the story

@@ -447,6 +447,44 @@ def _market_frame_section(db_path: Path) -> str:
     else:
         lines.append("- SPX dealer exposure: _no stored snapshot_")
 
+    # Same miss as the 08-11 macro calendar: `earnings_release` shipped to the
+    # perception resource and not onto this pack, which is what a book reads first.
+    try:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _ZoneInfo
+
+        from signals.earnings_exhibit import DEFAULT_RELEASES_DB_PATH, latest_releases
+
+        if not DEFAULT_RELEASES_DB_PATH.exists():
+            today_exhibits = None
+        else:
+            today_et = _dt.now(_ZoneInfo("America/New_York")).date().isoformat()
+            today_exhibits = [
+                r
+                for r in latest_releases(limit=40)
+                if (r.get("accepted_et") or "")[:10] == today_et
+            ]
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack earnings exhibits read failed")
+        today_exhibits = None
+    if today_exhibits:
+        shown = ", ".join(
+            f"{r.get('symbol') or r.get('company') or '?'}"
+            + (f" {r['session']}" if r.get("session") else "")
+            for r in today_exhibits[:8]
+        )
+        extra = (
+            f" +{len(today_exhibits) - 8} more" if len(today_exhibits) > 8 else ""
+        )
+        lines.append(
+            f"- today's 8-K earnings exhibits: {shown}{extra}"
+            " · `query earnings_release` for text; `query fundamentals` for XBRL"
+        )
+    elif today_exhibits == []:
+        lines.append("- today's 8-K earnings exhibits: none stored")
+    else:
+        lines.append("- today's 8-K earnings exhibits: _unavailable_")
+
     hot = hot_lane_rows(db_path=db_path)
     if hot:
         # Mechanical-idea attention first — "position" rows are mostly other

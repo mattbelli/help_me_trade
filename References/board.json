@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 312,
+   "id": "fundamentals-health",
+   "title": "Fundamentals health pass — ticker map, agent wiring, 8-K backfill, no overlapping fetch",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-13",
+   "notes": "Visible-layer pass (same method as regime), NOT a new algorithm. Dossier stays paused.\n\nMeasured 2026-08-13 before edits:\n- Nightly companyfacts CRC diff is LIVE and healthy (07:11 UTC today, 385 filers / 3.4M facts). DERA weekly idle waiting on 2026q2. Live 8-K poll every 5 min is storing (195 releases today, skip-known so no re-fetch spam). Calendar PK clean (no symbol+date dupes).\n- HOLES (regime-shaped): (1) ticker map in fundamentals.db frozen 2026-07-31 — nightly does not sync company_tickers.json; (2) get_context.fundamentals is Finnhub pe/eps/div, not EDGAR statements — query fundamentals is the good store; (3) book pack never mentions 8-K releases or EDGAR; (4) exhibit archive started 2026-07-31 22:58 ET so AAPL/MSFT/AMZN/NVDA last print is missing (AMZN 16:06 that day); (5) resource error still tells agents to --build-financials (the per-symbol REST the nightly zip replaced); (6) one CIK → many share-class tickers, 8-K mapper picks shortest (usually OK).\n2026-08-13: Wiring in progress on fundamentals-health (dossier still paused):\n- get_context.fundamentals.statements = EDGAR headline (pe kept)\n- nightly: --sync-tickers then --backfill-days 21 after CRC (both non-fatal)\n- book pack names today's 8-K exhibits; prompts name earnings_release\n- 8-K mapper prefers no-hyphen common share (BAC over BAC-PB)\n- --backfill-days uses per-company atom, NOT the 5-min current-events loop\nDo not run backfill from this worktree against production earnings.db.\n2026-08-13: Committed on fundamentals-health (BUILD_LOG 08-13 row). Awaiting deploy + first nightly (ticker sync + 21d 8-K backfill). Dossier still paused. Do not run --backfill-days from a worktree against production earnings.db."
+  },
+  {
    "num": 311,
    "id": "flow-conviction-score",
    "title": "Replace widget computeScore with rarity×shape conviction (Inc 2)",
