@@ -15,6 +15,16 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-13 Abnormality scanner (#296) — brief written, awaiting founder OK
+
+`References/ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` (BUILD_LOG 08-13 row has the decisions).
+- ▶ **Founder reviews the brief** → then Inc 1 (data: 5-min store gap backfill 07-28→today +
+  `--universe` flag; new market-wide daily store). Thresholds get replay-tuned (Inc 2) before
+  anything runs live; surfaces-only launch, no notifications.
+- Side finding parked here deliberately: the **idea ledger** is mechanically alive but drowned
+  (~8.4k of 17,481 rows are fusion_mech) and the founder called it "probably dead as it stands" —
+  a revival/triage is its own future thread, not part of #296.
+
 ## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
 
 Section-by-section rebuild (founder's method) per `References/fusion_layer_audit/README.md`; card #302.

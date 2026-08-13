@@ -28,6 +28,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 
 | Doc | Status |
 |---|---|
+| `ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` | GOVERNING design for the vol/volume abnormality scanner (#296, the flow-perception replacement): range×volume abnormality on the 1.14d peer cells + nightly base-state detector, both sides; 4 founder decisions locked 08-13; thresholds replay-tuned before live; awaiting founder OK, then Inc 1 |
 | `POSTGRES_MIGRATION_2026-07-27.md` | ★ GOVERNING design for the SQLite→Postgres migration (founder-decided 07-27): scope (trading.db only), dialect danger register, atomic rehearsed cutover, frozen-SQLite rollback |
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |
 | `MULTI_ANGLE_REASONING_AB_2026-07-19.md` | Design: bull/bear/judge panel A/B vs the single veto-grade voice — paired shadow, alternating control, alpha-adjudicated prereg metrics. Opus-reviewed (fixes folded); AWAITING FOUNDER GO |
