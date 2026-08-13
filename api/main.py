@@ -3316,6 +3316,7 @@ async def api_options_flow(
     event_type: str | None = None,
     min_premium: float | None = None,
     since: str | None = None,
+    order: str = "recent",
 ):
     """Recent unusual options-activity events (Mode-A perception).
 
@@ -3323,16 +3324,19 @@ async def api_options_flow(
     ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
     (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
     ``event_type`` accepts a comma-separated list to filter the tape by kind.
+    ``order`` is recent (default), premium, unusual, or conviction.
     """
     from db.options_flow import recent_events
 
     capped = max(1, min(int(limit), 250))
+    order_key = order if order in ("recent", "premium", "unusual", "conviction") else "recent"
     try:
         events = recent_events(
             symbol=symbol,
             event_type=event_type,
             min_premium=min_premium,
             since=since,
+            order=order_key,
             limit=capped,
         )
     except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft

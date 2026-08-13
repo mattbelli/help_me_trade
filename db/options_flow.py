@@ -154,7 +154,14 @@ def init_db(db_path: Path | None = None) -> None:
         # wide_spread per fence_and_classify's scalar mirror. Annotation only —
         # detectors never gate on it. Historic rows stay NULL, never backfilled.
         _add_column_if_missing(conn, "options_flow_events", "mid_side", "TEXT")
+        # Per-name empirical rarity (db/flow_rarity.py). NULL = unranked.
+        _add_column_if_missing(conn, "options_flow_events", "rarity_p", "REAL")
+        _add_column_if_missing(conn, "options_flow_events", "rarity_n", "INTEGER")
+        _add_column_if_missing(conn, "options_flow_events", "rarity_cell", "TEXT")
+        _add_column_if_missing(conn, "options_flow_events", "rarity_asof", "TEXT")
         conn.commit()
+    from db.flow_rarity import init_tables as _init_rarity
+    _init_rarity(resolved)
     # Only after full success — a failed init must retry on the next call.
     _INIT_DONE.add(key)
 
@@ -179,6 +186,11 @@ def _row_to_event(row: Any) -> dict[str, Any]:
             out["detail"] = None
     elif raw_detail is None:
         out["detail"] = None
+    if out.get("rarity_p") is not None:
+        from db.flow_rarity import attach_sentence
+        attach_sentence(out)
+    from db.flow_conviction import attach as attach_conviction
+    attach_conviction(out)
     return out
 
 
@@ -218,6 +230,8 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
     else:
         detail_json = None
     created = event.get("created_at") or _now()
+    from db.flow_rarity import stamp_event
+    stamp_event(event, db_path=resolved)
     with _connect(resolved) as conn:
         conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
@@ -243,12 +257,14 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 otm_pct, event_type, contracts, premium_usd, vol_oi_ratio,
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
                 exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
-                coverage, minutes_into_session, mid_side
+                coverage, minutes_into_session, mid_side,
+                rarity_p, rarity_n, rarity_cell, rarity_asof
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -273,7 +289,11 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 ret_1d = excluded.ret_1d,
                 ret_5d = excluded.ret_5d,
                 detail = excluded.detail,
-                mid_side = excluded.mid_side
+                mid_side = excluded.mid_side,
+                rarity_p = COALESCE(excluded.rarity_p, options_flow_events.rarity_p),
+                rarity_n = COALESCE(excluded.rarity_n, options_flow_events.rarity_n),
+                rarity_cell = COALESCE(excluded.rarity_cell, options_flow_events.rarity_cell),
+                rarity_asof = COALESCE(excluded.rarity_asof, options_flow_events.rarity_asof)
             """,
             (
                 event["id"],
@@ -305,6 +325,10 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 event.get("coverage") or "watchlist_capped",
                 _minutes_into_session(str(event["ts"])),
                 event.get("mid_side"),
+                event.get("rarity_p"),
+                event.get("rarity_n"),
+                event.get("rarity_cell"),
+                event.get("rarity_asof"),
             ),
         )
         conn.commit()
@@ -479,14 +503,16 @@ def recent_events(
     """Event rows; ``limit`` capped at ``_RECENT_EVENTS_CAP``.
 
     ``order`` is ``recent`` (newest-first, the default), ``premium``
-    (largest-first), or ``unusual`` — the heuristic surfacing rank
+    (largest-first), ``unusual`` — the heuristic surfacing rank
     (``_UNUSUAL_WEIGHTS``) that answers "did anything unusual happen?" without
-    letting routine index/ETF size win by sheer dollars. ``universe`` filters by
-    the registered root class (``equity`` | ``etf`` | ``index``).
+    letting routine index/ETF size win by sheer dollars — or ``conviction``
+    (rarity × tenor × OTM × type; perception, not a forecast). ``universe``
+    filters by the registered root class (``equity`` | ``etf`` | ``index``).
 
-    ``order=unusual`` and ``universe`` score/filter in Python over the full
-    matching range (scan capped at ``_UNUSUAL_SCAN_CAP`` newest rows), and each
-    returned row carries ``underlying_class`` (+ ``unusual_score`` when ranked).
+    ``order=unusual``, ``order=conviction``, and ``universe`` score/filter in
+    Python over the full matching range (scan capped at ``_UNUSUAL_SCAN_CAP``
+    newest rows). Unusual rows carry ``underlying_class`` + ``unusual_score``.
+    Every returned row already carries ``conviction`` (attached at read).
 
     ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
     caller can pull just the directional tape (``sweep,block,directional_pressure``)
@@ -502,12 +528,12 @@ def recent_events(
         since=since,
         until=until,
     )
-    needs_python_pass = order == "unusual" or universe is not None
+    needs_python_pass = order in ("unusual", "conviction") or universe is not None
     if needs_python_pass:
         sql_cap = _UNUSUAL_SCAN_CAP
     else:
         sql_cap = cap
-    if order == "unusual" and event_type is None:
+    if order in ("unusual", "conviction") and event_type is None:
         # The EOD unusual_volume batch is WATCHLIST-capped day-aggregates —
         # mixing it into a market-wide unusualness rank re-creates the coverage
         # artifact this order exists to kill. Ask for it explicitly to see it.
@@ -528,13 +554,16 @@ def recent_events(
     events = [_row_to_event(r) for r in rows]
     if not needs_python_pass:
         return events
-    _classify_events(events)
+    if universe is not None or order == "unusual":
+        _classify_events(events)
     if universe is not None:
         events = [e for e in events if e["underlying_class"] == universe]
     if order == "unusual":
         for ev in events:
             ev["unusual_score"] = _unusual_score(ev)
         events.sort(key=lambda e: e["unusual_score"], reverse=True)
+    elif order == "conviction":
+        events.sort(key=lambda e: float(e.get("conviction") or 0.0), reverse=True)
     return events[:cap]
 
 

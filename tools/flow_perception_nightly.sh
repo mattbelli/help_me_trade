@@ -12,7 +12,10 @@
 # Steps (both idempotent, so a missed night self-heals on the next run):
 #   1. tools/flow_corpus_rollup.py over a 7-day lookback — skip-existing by
 #      default, so only the un-ingested session(s) actually roll (~1 min each).
-#   2. tools/flow_perception_scan.py — scans the latest corpus session into
+#   2. tools/flow_rarity_refresh.py — per-name session-peak lookup into the
+#      app DB, then backfill today's sweep/block rows. Never opens the corpus
+#      from the live insert path.
+#   3. tools/flow_perception_scan.py — scans the latest corpus session into
 #      flow_perception_daily (upsert; re-running a session replaces its rows).
 #
 # Failure is LOUD: nonzero exit from either step posts to the ntfy dead-man
@@ -69,6 +72,10 @@ nice -n 10 "$PY" tools/flow_corpus_rollup.py --start "$START" --end "$END" \
 log "earnings coverage refresh"
 nice -n 10 "$PY" tools/earnings_coverage_refresh.py \
   || log "WARN: earnings coverage refresh failed — scan continues on existing coverage"
+
+log "flow rarity lookup"
+nice -n 10 "$PY" tools/flow_rarity_refresh.py \
+  || alarm "flow rarity refresh failed"
 
 log "perception scan"
 nice -n 10 "$PY" tools/flow_perception_scan.py --top 10 \

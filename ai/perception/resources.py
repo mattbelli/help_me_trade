@@ -1229,7 +1229,7 @@ def _read_options_flow(
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since) if since else None,
         until=str(until) if until else None,
-        order=order if order in ("premium", "unusual") else "recent",
+        order=order if order in ("premium", "unusual", "conviction") else "recent",
         universe=str(universe) if universe in ("equity", "etf", "index") else None,
         limit=limit,
         db_path=db_path,
@@ -1706,8 +1706,14 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "wide_spread): the corpus midpoint rule beside DIR-1 direction — "
             "an annotation measured ~85% against stock-leg ground truth on "
             "checkable prints (o-sign Step 1', 2026-08-05), NOT a confirmed "
-            "aggressor; direction stays the never-guessed at-quote read. The "
-            "summary block aggregates the FULL range, not just returned rows."
+            "aggressor; direction stays the never-guessed at-quote read. "
+            "Sweep/block rows may carry rarity_p (Laplace rank vs that name's "
+            "own trailing-120 session peaks in the same right/DTE/moneyness "
+            "cell; smaller = rarer; NULL = unranked) plus rarity_sentence — "
+            "a description of the tape, never a win% or a move forecast. "
+            "conviction is rarity×tenor×OTM×type (0-10 display scale), same "
+            "honesty rule; clusters nearly cannot win. The summary block "
+            "aggregates the FULL range, not just returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",
@@ -1722,7 +1728,9 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "order": (
                 "optional — recent (default) | premium (largest first) | "
                 "unusual (heuristic interestingness rank; rows carry "
-                "unusual_score + underlying_class)"
+                "unusual_score + underlying_class) | conviction "
+                "(rarity×tenor×OTM×type; rows carry conviction + "
+                "conviction_parts; perception, not a forecast)"
             ),
             "universe": (
                 "optional — equity|etf|index: keep only that root class "
