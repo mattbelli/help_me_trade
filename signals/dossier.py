@@ -516,11 +516,11 @@ def _active_alert_prices(symbol: str, db_path: Path) -> list[float]:
 
 
 def _structure_protos(
-    episode: dict[str, Any], symbol: str, state_ts: str, db_path: Path
+    episode: dict[str, Any], symbol: str, window_day: str, state_ts: str, db_path: Path
 ) -> list[dict[str, Any]]:
     """Nearest cached session level + active price alerts (structure context)."""
     init_chart_features(db_path)
-    levels = fusion_db.get_session_levels(symbol, db_path=db_path)
+    levels = fusion_db.get_session_levels(symbol, as_of=window_day, db_path=db_path)
     alerts = _active_alert_prices(symbol, db_path)
     ref = _as_float_or_none(episode.get("anchor_price"))
 
@@ -1446,7 +1446,7 @@ def build_dossier(
         "tape": _tape_protos(
             symbol, window_day=window_day, opened_day=market_day, db_path=db_path
         ),
-        "structure": _structure_protos(episode, symbol, state_ts, db_path),
+        "structure": _structure_protos(episode, symbol, window_day, state_ts, db_path),
         "attention": _attention_protos(symbol, state_ts, now, db_path),
         "catalyst": _catalyst_protos(symbol, window_day, state_ts, db_path),
         "news": _news_protos(

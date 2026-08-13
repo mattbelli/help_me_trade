@@ -98,6 +98,15 @@ def _trailing_trading_days(today: date, n: int) -> list[date]:
     return out
 
 
+def _last_completed_trading_day(today: date) -> date:
+    """The most recent trading day strictly before ``today`` — the newest day
+    whose counters are complete and therefore comparable to full-day medians."""
+    d = today - timedelta(days=1)
+    while not is_trading_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
 def _lane_alive_recently(
     lane: str, counter: str, *, db_path: Path
 ) -> bool:
@@ -146,18 +155,26 @@ def _trailing_counter_median(
 
 def _collapsed_vs_baseline(
     lane: str, counter: str, today: date, *, db_path: Path
-) -> tuple[bool, float | None]:
-    values = _trailing_counter_values(lane, counter, today, db_path=db_path)
+) -> tuple[bool, float | None, date, float]:
+    """(collapsed, baseline, judged_day, judged_value) for the last COMPLETED
+    trading day.
+
+    Never judges today-in-progress: "today's" counters are legitimately
+    near-zero from midnight ET until the lane's next scheduled run, so the old
+    today-vs-full-day-median comparison paged at the first audit tick after
+    every trading midnight (07-21 → 08-11) — and its dedup burn meant a real
+    same-day death could never page. A completed day needs no trading-day guard
+    on ``today``: a Saturday tick correctly judges Friday."""
+    target = _last_completed_trading_day(today)
+    values = _trailing_counter_values(lane, counter, target, db_path=db_path)
+    current = lane_stats.day(lane, target.isoformat(), db_path=db_path).get(
+        counter, 0.0
+    )
     if len(values) < RATE_BASELINE_MIN_DAYS:
-        return False, None
+        return False, None, target, current
     baseline = float(median(values))
-    if not is_trading_day(today):
-        # A lane can't "collapse today" on a day it was never expected to run —
-        # without this, every rule with a formed baseline false-pages all
-        # weekend (today's 0 vs the weekday median).
-        return False, baseline
-    current = lane_stats.day(lane, today.isoformat(), db_path=db_path).get(counter, 0.0)
-    return baseline > 0 and current < baseline * RATE_COLLAPSE_FRACTION, baseline
+    collapsed = baseline > 0 and current < baseline * RATE_COLLAPSE_FRACTION
+    return collapsed, baseline, target, current
 
 
 # ---------------------------------------------------------------------------
@@ -186,18 +203,15 @@ def rule_setup_scan_silent(today: date, db_path: Path) -> str | None:
     Keys on the ``ran`` heartbeat, never on ``registered`` — a scan that runs
     healthily and qualifies 0 ideas is quiet, not dead (review finding: the
     two must never conflate)."""
-    collapsed, baseline = _collapsed_vs_baseline(
+    collapsed, baseline, judged, current = _collapsed_vs_baseline(
         "setup_scan", "ran", today, db_path=db_path
     )
     if baseline is not None:
         if not collapsed:
             return None
-        current = lane_stats.day(
-            "setup_scan", today.isoformat(), db_path=db_path
-        ).get("ran", 0.0)
         return (
-            f"setup_scan run heartbeat collapsed to {current:.0f} today versus "
-            f"trailing median {baseline:g} — the nightly scan lane may be dead"
+            f"setup_scan run heartbeat collapsed to {current:.0f} on {judged} "
+            f"versus trailing median {baseline:g} — the nightly scan lane may be dead"
         )
 
     # New-deploy floor: retain the old fixed streak until three observed
@@ -221,18 +235,15 @@ def rule_idea_tracker_silent(today: date, db_path: Path) -> str | None:
     ``graded``, which is legitimately lumpy on 5-21 trading-day horizons (review
     HIGH: a healthy-but-quiet grader must not page as dead, and without a
     heartbeat a truly dead sweep is indistinguishable from a quiet one)."""
-    collapsed, baseline = _collapsed_vs_baseline(
+    collapsed, baseline, judged, current = _collapsed_vs_baseline(
         "idea_tracker", "swept", today, db_path=db_path
     )
     if baseline is not None:
         if not collapsed:
             return None
-        current = lane_stats.day(
-            "idea_tracker", today.isoformat(), db_path=db_path
-        ).get("swept", 0.0)
         return (
-            f"idea_tracker sweep heartbeat collapsed to {current:.0f} today versus "
-            f"trailing median {baseline:g} — the grader loop may not be running"
+            f"idea_tracker sweep heartbeat collapsed to {current:.0f} on {judged} "
+            f"versus trailing median {baseline:g} — the grader loop may not be running"
         )
 
     for d in _trailing_trading_days(today, IDEA_TRACKER_SILENT_DAYS):

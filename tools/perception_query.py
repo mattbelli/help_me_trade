@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ai.perception import build_symbol_context, list_capabilities  # noqa: E402
-from ai.perception.resources import query  # noqa: E402
+from ai.perception.resources import fit_to_cap, query  # noqa: E402
 from db.base import DEFAULT_DB_PATH  # noqa: E402
 
 # One read can be huge (get_context on a busy symbol). Cap what a session can
@@ -87,10 +87,8 @@ def main() -> int:
             filters[key.strip()] = _coerce(value)
         payload = asyncio.run(query(args.resource, filters, db_path=DEFAULT_DB_PATH))
 
-    rendered = json.dumps(payload, indent=2, default=str)
-    if len(rendered) > args.max_chars:
-        rendered = rendered[: args.max_chars] + f"\n…(truncated at {args.max_chars:,} chars)"
-    print(rendered)
+    fitted = fit_to_cap(payload, cap=args.max_chars, indent=2)
+    print(fitted if isinstance(fitted, str) else json.dumps(fitted, indent=2, default=str))
     return 0
 
 

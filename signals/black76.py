@@ -50,7 +50,10 @@ number here; it fails soft to ``None`` rather than pretending.
 Conventions, chosen to match how a chain is read rather than how a paper is
 written: **vega per 1 volatility point** (a 1% move in IV), **theta per calendar
 day**, and **delta/gamma with respect to SPOT** — the forward is the pricing
-variable but nobody reads a delta column expecting a forward delta.
+variable but nobody reads a delta column expecting a forward delta. The two
+second-order delta sensitivities follow the same rule: **vanna is d(spot delta)
+per 1 volatility point** and **charm is d(spot delta) per calendar day of time
+passing**, both signed so that positive means the delta grows.
 """
 
 from __future__ import annotations
@@ -163,19 +166,34 @@ def greeks(
     forward: float, strike: float, t_years: float, discount: float,
     sigma: float, is_call: bool, spot: float | None = None,
 ) -> dict[str, float]:
-    """Delta/gamma/theta/vega. Delta + gamma are w.r.t. SPOT, the rest per Black-76.
+    """Delta/gamma/theta/vega/vanna/charm. Delta-family w.r.t. SPOT, rest per Black-76.
 
     ``F = S·e^{(r-q)T}`` is linear in S, so ``dF/dS`` is exactly ``F/S`` and the
     spot greeks are the forward greeks scaled by that ratio — no separate
     dividend yield needed. Index roots have no stock quote, and there ``spot``
     falls back to the forward (the ratio is then 1, which is the right answer for
     a chain whose only observable underlying IS the parity forward).
+
+    That same ratio is what makes vanna and charm computable without a dividend
+    feed. Spot delta is ``e^{-qT}·N(d1)``, and ``e^{-qT}`` is just ``D·(F/S)`` —
+    so the drift ``r-q`` falls out of the ratio and the yield out of the two
+    together. **Charm holds S, σ and that drift fixed and lets T shrink**, which
+    means the forward moves as the clock runs; that is the honest reading of
+    "what happens to my delta tomorrow if nothing moves", and it is why the
+    formula carries a ``q·e^{-qT}·N(d1)`` term the F-fixed textbook version drops.
+    Both were checked against a central finite difference of ``delta`` above at
+    ~1e-8 relative error across ITM/ATM/OTM, 1-day to 2-year, calls and puts.
     """
     vol_t = sigma * math.sqrt(t_years)
     d1 = (math.log(forward / strike) + 0.5 * sigma * sigma * t_years) / vol_t
     d2 = d1 - vol_t
     rate = -math.log(discount) / t_years if 0 < discount < 1 else 0.0
     ratio = forward / spot if spot and spot > 0 else 1.0
+    # `forward / ratio` is spot when it was supplied and the forward when it was
+    # not, so the no-spot case degrades to pure forward greeks with no branch.
+    underlying = forward / ratio
+    drift = math.log(ratio) / t_years  # r - q, and 0 when spot defaults to F
+    disc_q = discount * ratio  # e^{-qT}: the discount a SPOT delta carries
 
     fwd_delta = discount * (norm_cdf(d1) if is_call else -norm_cdf(-d1))
     fwd_gamma = discount * norm_pdf(d1) / (forward * vol_t)
@@ -184,10 +202,18 @@ def greeks(
         carry = rate * (forward * discount * norm_cdf(d1) - strike * discount * norm_cdf(d2))
     else:
         carry = rate * (strike * discount * norm_cdf(-d2) - forward * discount * norm_cdf(-d1))
+    dd1_dt = -math.log(underlying / strike) / (2.0 * sigma * t_years**1.5) + (
+        drift + 0.5 * sigma * sigma
+    ) / (2.0 * sigma * math.sqrt(t_years))
     return {
         "delta": fwd_delta * ratio,
         "gamma": fwd_gamma * ratio * ratio,
         # Per calendar day, and per 1 volatility point — the way a chain is read.
         "theta": (decay + carry) / 365.0,
         "vega": discount * forward * norm_pdf(d1) * math.sqrt(t_years) / 100.0,
+        "vanna": -disc_q * norm_pdf(d1) * d2 / sigma / 100.0,
+        "charm": (
+            (rate - drift) * disc_q * (norm_cdf(d1) - (0.0 if is_call else 1.0))
+            - disc_q * norm_pdf(d1) * dd1_dt
+        ) / 365.0,
     }

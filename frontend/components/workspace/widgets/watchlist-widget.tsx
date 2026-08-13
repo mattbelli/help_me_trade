@@ -3,14 +3,17 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { Reorder, useDragControls } from "motion/react";
 import { Check, GripVertical, Pin } from "lucide-react";
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
@@ -95,17 +98,27 @@ function earningsBadgeStyle(days: number): CSSProperties {
 function WatchlistAddRow({
   symbols,
   activeListId,
+  densityClass,
+  symbolWidth,
+  widths,
   onAdded,
   onClose,
   onPublish,
 }: {
   symbols: string[];
   activeListId: string;
+  densityClass: string;
+  symbolWidth: number;
+  widths: number[];
   onAdded: (state: WatchlistsState) => void;
   onClose: () => void;
   onPublish: (symbol: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  // Where the block cursor paints, in characters. Tracked off the input's real
+  // selectionStart (not query.length) so ← → / a click move the block with the
+  // insertion point instead of parking it at the end.
+  const [caretCh, setCaretCh] = useState(0);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -196,110 +209,163 @@ function WatchlistAddRow({
   return (
     <div
       ref={wrapRef}
-      className="relative z-30 m-1.5 flex items-center gap-x-1 rounded border border-[var(--border)] bg-[var(--bg-inset)] px-2 py-1.5 transition-colors focus-within:border-[var(--c-accent)]"
+      // One more row of the table, not an island floating over it: the same
+      // grid tracks as the rows (so the column lines run through it), the rows'
+      // divider, the rows' density pitch, the widget's own surface — no inset
+      // box, no rounding, no accent glow.
+      // z-30 is load-bearing, measured: `position: sticky` ALWAYS opens a
+      // stacking context, so the suggestions menu — a child of the sticky Sym
+      // cell, which is what pins it on horizontal scroll — is trapped at that
+      // cell's level. Without a z here the rows' own sticky cells (z-[1], later
+      // in DOM) paint over the menu; document.elementFromPoint inside the open
+      // menu returned a ROW's ticker cell. Cost of the 30: while the add row is
+      // open, vertical scroll slides its band OVER the sticky column header
+      // (z-[2]) instead of under it — pre-existing, see SUMMARY.
+      className="relative z-30 grid border-b border-[var(--line-divider)] px-1"
+      style={{ gridTemplateColumns: gridTemplate(symbolWidth, widths) }}
     >
-      <span className="w-[1.25rem] shrink-0 text-center font-mono text-[var(--c-accent)]">
-        +
-      </span>
-      <input
-        ref={inputRef}
-        type="text"
-        value={query}
-        autoFocus
-        disabled={submitting}
-        placeholder="Add symbol"
-        className="min-w-0 flex-1 bg-transparent font-mono text-[length:var(--fs-title)] uppercase text-foreground outline-none placeholder:text-[var(--fg-faint)]"
-        onChange={(e) => {
-          const next = e.target.value.toUpperCase();
-          setQuery(next);
-          setActiveIndex(-1);
-          setError(null);
-          if (!next.trim()) {
-            setSuggestions([]);
-            setOpen(false);
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            if (suggestions.length === 0) return;
-            setOpen(true);
-            setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
-            return;
-          }
-          if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setActiveIndex((i) => Math.max(i - 1, -1));
-            return;
-          }
-          if (e.key === "Enter") {
-            e.preventDefault();
-            const picked =
-              activeIndex >= 0 ? suggestions[activeIndex] : query || suggestions[0] || "";
-            void addSymbol(picked);
-          }
-          if (e.key === "Escape") {
-            e.preventDefault();
-            onClose();
-          }
-        }}
-        onFocus={() => {
-          if (suggestions.length > 0) setOpen(true);
-        }}
-      />
-      {loading ? (
-        <span className="shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-          …
-        </span>
-      ) : null}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close add symbol"
-        className="shrink-0 rounded px-0.5 font-mono text-[length:var(--fs-title)] leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+      {/* The prompt sits IN the Sym column, where the ticker it is about to add
+          will land, and sticky-left like the rows' frozen pane — so at any
+          widget width and any horizontal scroll it stays on screen (the add row
+          spans the full scrollable column span, so an unpinned input scrolled
+          clean out of view). */}
+      <div
+        className={cn(
+          "sticky left-0 z-[1] flex min-w-0 items-center gap-1 border-r border-[var(--line-divider)] bg-[var(--panel)] pr-1",
+          densityClass,
+        )}
       >
-        ×
-      </button>
-      {open && suggestions.length > 0 ? (
-        <ul
-          className="absolute right-0 left-0 top-full z-50 mt-0.5 max-h-32 overflow-auto rounded border border-[var(--border-strong)] py-0.5 shadow-2xl ring-1 ring-black/50 scroll-shadow-y"
-          style={{
-            backgroundColor: "color-mix(in srgb, var(--panel) 86%, #ffffff)",
-          }}
-        >
-          {suggestions.map((sym, i) => {
-            const already = onList.has(sym.toUpperCase());
-            return (
-              <li key={sym}>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--c-accent-soft)]",
-                    i === activeIndex && "bg-[var(--c-accent-soft)]",
-                  )}
-                  onMouseEnter={() => setActiveIndex(i)}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void addSymbol(sym);
-                  }}
-                >
-                  <span>{sym}</span>
-                  {already ? (
-                    <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-                      on list
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      {error ? (
-        <div className="absolute right-0 left-0 top-full z-50 mt-0.5 rounded border border-[var(--c-red)] bg-[var(--panel)] px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
-          {error}
+        {/* Terminal prompt, not a form field: the native caret is hidden and a
+            blinking block paints at the insertion point — with the mono face
+            every glyph is exactly 1ch wide, so the caret index IS its x. That
+            block is the whole "type here" affordance (no placeholder, no `+`).
+            research-cursor-pulse + steps(1,end) = a hard on/off blink, not a
+            fade. */}
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            autoFocus
+            disabled={submitting}
+            aria-label="Add symbol"
+            // No size class: `font: inherit` (preflight) hands the input the
+            // widget's density font + line-height, so it matches the rows at
+            // any density. p-0 kills the UA input padding that would shift the
+            // text off the caret's 1ch grid.
+            className="w-full min-w-0 bg-transparent p-0 font-mono uppercase text-foreground caret-transparent outline-none"
+            onSelect={(e) => setCaretCh(e.currentTarget.selectionStart ?? 0)}
+            onChange={(e) => {
+              const next = e.target.value.toUpperCase();
+              setQuery(next);
+              setCaretCh(e.target.selectionStart ?? next.length);
+              setActiveIndex(-1);
+              setError(null);
+              if (!next.trim()) {
+                setSuggestions([]);
+                setOpen(false);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                if (suggestions.length === 0) return;
+                setOpen(true);
+                setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveIndex((i) => Math.max(i - 1, -1));
+                return;
+              }
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const picked =
+                  activeIndex >= 0
+                    ? suggestions[activeIndex]
+                    : query || suggestions[0] || "";
+                void addSymbol(picked);
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              }
+            }}
+            onFocus={() => {
+              if (suggestions.length > 0) setOpen(true);
+            }}
+          />
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 w-[1ch] animate-[research-cursor-pulse_1.06s_steps(1,end)_infinite] bg-[var(--c-accent)] motion-reduce:animate-none"
+            style={{ left: `${caretCh}ch` }}
+          />
         </div>
-      ) : null}
+        {loading ? (
+          <span className="shrink-0 font-mono text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+            …
+          </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close add symbol"
+          className="shrink-0 rounded px-0.5 font-mono leading-none text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
+        >
+          ×
+        </button>
+        {open && suggestions.length > 0 ? (
+          <ul
+            // Anchored to the sticky prompt cell, so the menu rides the same
+            // pin. A recessed theme surface, never a white color-mix (this was
+            // the one surface in the app mixing toward #ffffff): --bg-elevated
+            // resolves to the widget's OWN fill on every theme, which left the
+            // menu edgeless — --bg-inset is a real plane apart on all five.
+            // -left-1 / +0.5rem: the cell sits inside the row's px-1 and carries
+            // pr-1, so this is what makes the menu span the Sym column exactly,
+            // edge to frozen-pane line.
+            className="absolute top-full -left-1 z-50 max-h-32 w-max min-w-[calc(100%+0.5rem)] overflow-auto border border-[var(--border-strong)] bg-[var(--bg-inset)] py-0.5 shadow-2xl"
+          >
+            {suggestions.map((sym, i) => {
+              const already = onList.has(sym.toUpperCase());
+              return (
+                <li key={sym}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 px-2 py-1 text-left font-mono text-[length:var(--fs-body)] text-foreground hover:bg-[var(--c-accent-soft)]",
+                      i === activeIndex && "bg-[var(--c-accent-soft)]",
+                    )}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      void addSymbol(sym);
+                    }}
+                  >
+                    <span>{sym}</span>
+                    {already ? (
+                      <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+                        on list
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {error ? (
+          <div className="absolute top-full -left-1 z-50 w-max min-w-full border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--c-red)]">
+            {error}
+          </div>
+        ) : null}
+      </div>
+      {/* Empty cells so the column boundary lines run through the add row the
+          same way they run through every data row. */}
+      {widths.map((_, i) => (
+        <div key={i} className={cn(densityClass, i > 0 && COL_LINE_CLASS)} />
+      ))}
     </div>
   );
 }
@@ -338,17 +404,15 @@ function WatchlistSymbolRow({
   isOvernight,
   linked,
   selected,
-  confirming,
   pinnable,
   pinned,
   onTogglePin,
   onPublish,
   onSelect,
+  onContextMenu,
   onDragStart,
   onReorderEnd,
   onDragOutRelease,
-  onConfirmAccept,
-  onConfirmCancel,
   getWidgetRect,
 }: {
   symbol: string;
@@ -362,18 +426,16 @@ function WatchlistSymbolRow({
   isOvernight: boolean;
   linked: boolean;
   selected: boolean;
-  confirming: boolean;
   // Slot-capped lists only (the flow list): pinned symbols ride above the cap.
   pinnable: boolean;
   pinned: boolean;
   onTogglePin: () => void;
   onPublish: () => void;
   onSelect: () => void;
+  onContextMenu: (e: ReactMouseEvent) => void;
   onDragStart: () => void;
   onReorderEnd: () => void;
   onDragOutRelease: () => void;
-  onConfirmAccept: () => void;
-  onConfirmCancel: () => void;
   getWidgetRect: () => DOMRect | null;
 }) {
   const controls = useDragControls();
@@ -404,6 +466,11 @@ function WatchlistSymbolRow({
 
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent) => {
+      // Left button only. A right-press used to be interrupted by the browser's
+      // own context menu; now that we preventDefault ours, an un-guarded
+      // right-press held past HOLD_MS would lift the row into a drag under the
+      // open menu.
+      if (e.button !== 0) return;
       // Never start a drag from a ticker button, ⓘ button, or any link.
       if ((e.target as HTMLElement).closest("button, a")) return;
       didDrag.current = false;
@@ -505,8 +572,9 @@ function WatchlistSymbolRow({
           getWidgetRect(),
         );
         setWillDelete(false);
-        // Release outside no longer deletes — it arms the confirm pill (the row
-        // snaps back via dragSnapToOrigin + layout). Release inside = reorder.
+        // Release outside deletes, immediately: the red ring + tint the row has
+        // been wearing since it crossed the edge IS the "let go and it's gone"
+        // warning. Release inside = reorder.
         if (outside) onDragOutRelease();
         else onReorderEnd();
       }}
@@ -517,6 +585,18 @@ function WatchlistSymbolRow({
       // !important beats framer's inline style; rows still composite while
       // actually animating.
       className="border-b border-[var(--line-divider)] [will-change:auto]!"
+      // Row identity hook for the headless UI verification scripts, which need a
+      // stable per-row selector. (The context menu gets its symbol from the
+      // handler closure, not from the DOM.)
+      data-symbol={symbol}
+      onContextMenu={(e) => {
+        // Suppress the browser menu and open ours at the pointer. Selecting the
+        // row too gives the menu a visible anchor — the tinted row is the one
+        // the menu's "delete AAPL" is about.
+        e.preventDefault();
+        onSelect();
+        onContextMenu(e);
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={clearHold}
@@ -540,7 +620,7 @@ function WatchlistSymbolRow({
           // boundary lines run edge-to-edge vertically.
           // px-1 (not 2): the hover/selected fill exposes this padding as
           // colored space left of the tickers — keep it to a 4px breath.
-          "group/row group relative grid px-1",
+          "group/row group grid px-1",
           // Frozen-for-the-night rows read dim (quote is stale until pre).
           overnightDead && "opacity-60",
           // Selection WINS over hover — hover:bg on a selected row painted the
@@ -553,52 +633,12 @@ function WatchlistSymbolRow({
             : "hover:bg-[var(--bg-hover)]",
           willDelete &&
             "rounded opacity-50 ring-1 ring-[var(--c-red)] bg-[color-mix(in_srgb,var(--c-red)_12%,transparent)]",
-          confirming &&
-            "bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]",
         )}
         style={{
           gridTemplateColumns: gridTemplate(symbolWidth, widths),
           minWidth: contentMinWidth,
         }}
       >
-        {confirming ? (
-          <div
-            role="group"
-            aria-label={`Delete ${symbol}?`}
-            // Opaque, legible confirm pill. bg uses --bg-inset, a solid hex on
-            // EVERY theme (ember #0e1013 / carbon #0e1013 / warm #161617 /
-            // oled #000000 / light #eceef1) — never a color-mix-with-transparent
-            // — so it fully covers the red-tinted row underneath. Absolute so it
-            // isn't crushed into a fixed grid cell.
-            className="absolute inset-y-1 right-1.5 z-10 flex items-center gap-1.5 rounded border border-[var(--c-red)] bg-[var(--bg-inset)] px-2 font-mono text-[length:var(--fs-table)] shadow-[0_2px_8px_rgba(0,0,0,0.5)]"
-          >
-            <span className="whitespace-nowrap text-[var(--c-red)]">
-              delete {symbol}?
-            </span>
-            <button
-              type="button"
-              aria-label={`Confirm delete ${symbol}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirmAccept();
-              }}
-              className="flex size-4 items-center justify-center rounded leading-none text-[var(--c-red)] ring-1 ring-[var(--c-red)] transition-colors hover:bg-[color-mix(in_srgb,var(--c-red)_22%,transparent)]"
-            >
-              ✓
-            </button>
-            <button
-              type="button"
-              aria-label={`Cancel delete ${symbol}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfirmCancel();
-              }}
-              className="flex size-4 items-center justify-center rounded leading-none text-[var(--fg-dim)] ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--bg-hover)] hover:text-foreground"
-            >
-              ✕
-            </button>
-          </div>
-        ) : null}
         {/* Pinned symbol cell — sticky-left with an opaque background so the
             ticker stays legible while the extra columns scroll under it. At rest
             no Reorder.Item transform is applied, so sticky resolves against the
@@ -612,9 +652,16 @@ function WatchlistSymbolRow({
             // --surface-selected is a solid per-theme hex (editor knob), so
             // the sticky cell can repaint it opaquely — scrolled columns
             // can't ghost through and the tint can't stack on the row's own.
-            selected
-              ? "bg-[var(--surface-selected)]"
-              : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
+            // Same for the drag-out danger tint: the row's version mixes red
+            // into transparent, which this opaque cell would paint over (the
+            // warning stopped dead at the frozen pane — #282 fixed exactly that
+            // for the confirm wash, and the confirm is gone), so mix the same
+            // 12% red into --panel here. One state, one fill.
+            willDelete
+              ? "bg-[color-mix(in_srgb,var(--c-red)_12%,var(--panel))]"
+              : selected
+                ? "bg-[var(--surface-selected)]"
+                : "bg-[var(--panel)] group-hover/row:bg-[var(--bg-hover)]",
           )}
         >
           <ClickableSymbol
@@ -820,6 +867,175 @@ function WatchlistSettingsPanel({
   );
 }
 
+// Keep the menu this far off every viewport edge when a right-click near a
+// border would otherwise push it half off-screen.
+const MENU_EDGE_PAD = 4;
+
+// Row right-click menu: delete, and pin/unpin. Portaled to <body> and placed
+// `fixed` at the pointer — NOT anchored anywhere in the row.
+//
+// This is the #282 lesson made structural. A row's symbol cell is
+// `position: sticky`, which ALWAYS opens a stacking context, and the whole row
+// lives inside a clipping scrollport whose content box is `contentMinWidth`
+// wide (much wider than the visible widget) — so anything anchored in there
+// either renders under a later sticky cell or lands off the visible right edge.
+// At body level, clientX/clientY ARE the coordinates: no ancestor can clip it,
+// restack it, or redefine what "fixed" is measured against.
+function WatchlistContextMenu({
+  symbol,
+  x,
+  y,
+  pinnable,
+  pinned,
+  listRef,
+  onDelete,
+  onTogglePin,
+  onClose,
+}: {
+  symbol: string;
+  x: number;
+  y: number;
+  // Same gate as the row's own pin button: pins only mean anything on
+  // slot-capped lists — on any other list the PUT succeeds but nothing
+  // visible changes, so the item would be a silent mutation.
+  pinnable: boolean;
+  pinned: boolean;
+  listRef: RefObject<HTMLDivElement | null>;
+  onDelete: () => void;
+  onTogglePin: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  // Clamp into the viewport once the menu's real size is measurable, and move
+  // focus onto the first item. A LAYOUT effect, not a passive one: the
+  // corrected position has to be in the first paint or a right-click near the
+  // bottom edge visibly flashes hanging off the screen before it snaps back.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos({
+      left: Math.max(
+        MENU_EDGE_PAD,
+        Math.min(x, window.innerWidth - width - MENU_EDGE_PAD),
+      ),
+      top: Math.max(
+        MENU_EDGE_PAD,
+        Math.min(y, window.innerHeight - height - MENU_EDGE_PAD),
+      ),
+    });
+    // Focus the MENU, not its first item. The first item is `delete`, and it
+    // sits directly under the pointer where a context menu opens — focusing it
+    // would leave a no-confirm, no-undo destructive action one Enter away the
+    // instant the menu appears. Tab still walks into the items.
+    el.focus();
+  }, [x, y, symbol]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    // Capture phase, so a right-click on a DIFFERENT row tears this menu down
+    // before that row's contextmenu handler reopens it at the new point. The
+    // contains() check is what lets an item's own click land first.
+    const onPointerDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    // Scrolling the list slides the row out from under a menu that cannot
+    // follow it (it is pinned to the viewport, not the row).
+    list?.addEventListener("scroll", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+      list?.removeEventListener("scroll", onClose);
+    };
+  }, [listRef, onClose]);
+
+  // Hand focus back to the list on close. Removing the focused item orphans
+  // focus on <body>; that check is also how we avoid stealing it when the user
+  // closed the menu by clicking some other control, which already has it.
+  useEffect(
+    () => () => {
+      if (document.activeElement === document.body) listRef.current?.focus();
+    },
+    [listRef],
+  );
+
+  // whitespace-nowrap: `left` alone makes the menu shrink-to-fit against the
+  // space left of the viewport edge, so near a right/bottom corner the labels
+  // wrapped to two lines instead of the whole menu sliding back inside
+  // (measured at a 314px viewport). Nowrap keeps the width honest, which is
+  // what the clamp above measures.
+  const itemClass =
+    "block w-full whitespace-nowrap px-2 py-1 text-left text-[length:var(--fs-body)]";
+
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      aria-label={`${symbol} actions`}
+      tabIndex={-1}
+      // Same surface as the add-row suggestions menu: a real recessed plane
+      // (--bg-inset is a solid hex on every theme), a strong border, a big
+      // shadow. Plain lowercase words, no pills, no icons.
+      // font-mono is declared HERE, not inherited: living on <body> puts the
+      // menu outside the widget root that carries the widget's mono face, so
+      // without this it rendered in the app's Inter (measured).
+      // outline-none: this container only HOLDS focus so the menu owns it (see
+      // the layout effect) — it is not a stop a keyboard user navigates to, and
+      // the UA's default focus ring on it painted a thick white box around the
+      // whole menu (measured). Tabbing to the items still rings each item.
+      className="fixed z-50 border border-[var(--border-strong)] bg-[var(--bg-inset)] py-0.5 font-mono shadow-2xl outline-none"
+      style={{ left: pos.left, top: pos.top }}
+      // A right-click ON the menu shouldn't summon the browser's menu over it.
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onDelete();
+          onClose();
+        }}
+        className={cn(
+          itemClass,
+          // Red-tinted hover rather than the shared accent wash: this is the
+          // one destructive item, and the accent (teal) hover read as "safe"
+          // under a red label. Screenshotted both — see SUMMARY.
+          "text-[var(--c-red)] hover:bg-[color-mix(in_srgb,var(--c-red)_18%,transparent)]",
+        )}
+      >
+        delete {symbol}
+      </button>
+      {pinnable ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onTogglePin();
+            onClose();
+          }}
+          className={cn(
+            itemClass,
+            "text-foreground hover:bg-[var(--c-accent-soft)]",
+          )}
+        >
+          {pinned ? "unpin" : "pin"} {symbol}
+        </button>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
 export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -828,7 +1044,13 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   const [dragOrder, setDragOrder] = useState<string[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // The one open row context menu, in viewport coordinates. Widget-level (not
+  // per-row) so only one can ever exist.
+  const [menu, setMenu] = useState<{
+    symbol: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const widgetRectRef = useRef<DOMRect | null>(null);
@@ -1304,32 +1526,25 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     [displayList, removing],
   );
 
-  // Confirm-accept (✓ / Enter): remove the armed symbol. The round-2 hand-fix
-  // — clearing the stale drag order (it still contains this symbol, and
-  // sortedSymbols renders baseOrder unfiltered) — now lives here on the accept
-  // path per the brief.
-  const acceptConfirmDelete = useCallback(() => {
-    if (!confirmDelete) return;
-    const sym = confirmDelete;
-    setConfirmDelete(null);
-    setDragOrder(null);
-    void removeSymbol(sym);
-  }, [confirmDelete, removeSymbol]);
+  // Release outside the widget deletes on the spot — no are-you-sure step
+  // (founder, overruling round 2: "I didn't want that are-you-sure feature").
+  // The red ring + tint + 50% opacity the row wore the whole time it was
+  // outside the box IS the warning, and it is live during the gesture rather
+  // than after it.
+  //
+  // Drop the in-progress drag order first: it still contains this symbol and
+  // sortedSymbols renders baseOrder unfiltered, so without this the row snaps
+  // back into the list for the length of the PUT and then vanishes.
+  const deleteFromDrag = useCallback(
+    (symbol: string) => {
+      setIsDragging(false);
+      setDragOrder(null);
+      void removeSymbol(symbol);
+    },
+    [removeSymbol],
+  );
 
-  // Confirm-cancel (✕ / Esc): un-arm; the row un-tints.
-  const cancelConfirmDelete = useCallback(() => {
-    setConfirmDelete(null);
-  }, []);
-
-  // Release outside the widget: arm the confirm instead of deleting. Drop the
-  // in-progress drag order so the list renders the persisted order under the
-  // armed row, then focus the list so Enter/Esc act without a click.
-  const armDeleteFromDrag = useCallback((symbol: string) => {
-    setIsDragging(false);
-    setDragOrder(null);
-    setConfirmDelete(symbol);
-    listRef.current?.focus();
-  }, []);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   const togglePin = useCallback(async (symbol: string) => {
     const list = displayListRef.current;
@@ -1412,18 +1627,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
       const list = sortedSymbols;
       if (list.length === 0) return;
 
-      // Confirm mode: only Enter (confirm) / Esc (cancel) act.
-      if (confirmDelete) {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          acceptConfirmDelete();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          cancelConfirmDelete();
-        }
-        return;
-      }
-
       const cur = selectedSymbol ? list.indexOf(selectedSymbol) : -1;
       // Arrow moves publish immediately (like a click) — the founder drives
       // the linked chart by holding ↑/↓, no Enter needed.
@@ -1448,9 +1651,11 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           break;
         case "Delete":
         case "Backspace":
+          // Direct, like the drag-out gesture — this key used to arm the
+          // confirm, and the confirm is gone.
           if (cur >= 0) {
             e.preventDefault();
-            setConfirmDelete(list[cur]);
+            void removeSymbol(list[cur]);
           }
           break;
         case "Escape":
@@ -1459,24 +1664,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
           break;
       }
     },
-    [
-      sortedSymbols,
-      selectedSymbol,
-      confirmDelete,
-      publish,
-      acceptConfirmDelete,
-      cancelConfirmDelete,
-    ],
-  );
-
-  const handleListBlur = useCallback(
-    (e: ReactFocusEvent<HTMLDivElement>) => {
-      // Focus truly left the list => drop any armed delete confirm.
-      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-        setConfirmDelete(null);
-      }
-    },
-    [],
+    [sortedSymbols, selectedSymbol, publish, removeSymbol],
   );
 
   // A freshly added symbol is pinned to the top of the persisted order — clear
@@ -1543,7 +1731,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
         ref={listRef}
         tabIndex={0}
         onKeyDown={handleListKeyDown}
-        onBlur={handleListBlur}
         // No scroller padding: the sticky header and the row border-b lines
         // must span the full widget width — padding left see-through gutters
         // beside the header where scrolled rows ghosted into view.
@@ -1679,6 +1866,9 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             <WatchlistAddRow
               symbols={symbols}
               activeListId={displayList.id}
+              densityClass={densityClass}
+              symbolWidth={symbolWidth}
+              widths={widths}
               onAdded={handleSymbolAdded}
               onClose={() => onConfigChange({ adding: false })}
               onPublish={publish}
@@ -1716,23 +1906,37 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 isOvernight={overnightSymbols.has(symbol.toUpperCase())}
                 linked={linked}
                 selected={selectedSymbol === symbol}
-                confirming={confirmDelete === symbol}
                 pinnable={pinnable}
                 pinned={pinnedSet.has(symbol)}
                 onTogglePin={() => void togglePin(symbol)}
                 onPublish={() => publish(symbol)}
                 onSelect={() => setSelectedSymbol(symbol)}
+                onContextMenu={(e) =>
+                  setMenu({ symbol, x: e.clientX, y: e.clientY })
+                }
                 onDragStart={handleDragStart}
                 onReorderEnd={handleReorderEnd}
-                onDragOutRelease={() => armDeleteFromDrag(symbol)}
-                onConfirmAccept={acceptConfirmDelete}
-                onConfirmCancel={cancelConfirmDelete}
+                onDragOutRelease={() => deleteFromDrag(symbol)}
                 getWidgetRect={getWidgetRect}
               />
             ))}
           </Reorder.Group>
         </div>
       </div>
+
+      {menu ? (
+        <WatchlistContextMenu
+          symbol={menu.symbol}
+          x={menu.x}
+          y={menu.y}
+          pinnable={pinnable}
+          pinned={pinnedSet.has(menu.symbol)}
+          listRef={listRef}
+          onDelete={() => void removeSymbol(menu.symbol)}
+          onTogglePin={() => void togglePin(menu.symbol)}
+          onClose={closeMenu}
+        />
+      ) : null}
     </div>
   );
 }

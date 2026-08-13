@@ -1,8 +1,14 @@
-"""One-shot full-history backfill of the macro regime substrate (data/macro.db).
+"""Full-history backfill of the macro regime substrate (data/macro.db).
 
-Keyless fredgraph.csv, sequential, ~16 requests total. Rerunnable — upserts.
+Keyless fredgraph.csv, sequential, one request per FRED series. Rerunnable — upserts.
 
-    .venv/bin/python tools/macro_backfill.py
+    .venv/bin/python tools/macro_backfill.py         # full FRED backfill
+    .venv/bin/python tools/macro_backfill.py --cboe  # Cboe vol-curve snapshot (the cron)
+
+`--cboe` exits NONZERO if any index failed, so the crontab line must post to the
+ntfy dead-man topic on failure. Without that these four series can freeze forever
+and the only symptom is `pctile: null` — indistinguishable from the expected state
+while a forward-only series is still accumulating toward its 60-observation floor.
 """
 
 from __future__ import annotations
@@ -14,13 +20,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from db.macro import coverage  # noqa: E402
-from signals.macro_substrate import MACRO_SERIES, backfill_macro_substrate  # noqa: E402
+from signals.macro_substrate import (  # noqa: E402
+    MACRO_SERIES,
+    backfill_macro_substrate,
+    refresh_cboe_curve,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger("macro_backfill")
 
 
 def main() -> int:
+    if "--cboe" in sys.argv:
+        # Close-time snapshot of the Cboe vol curve (cron). The FRED half has no
+        # business running here — its series publish on their own schedule.
+        rows = refresh_cboe_curve()
+        logger.info("cboe curve: %s", ", ".join(f"{k}={v}" for k, v in rows.items()))
+        return 0 if all(rows.values()) else 1
     written = backfill_macro_substrate()
     failed = sorted(s for s, n in written.items() if n == 0)
     for row in coverage():

@@ -32,9 +32,9 @@ const EOD_TS_SUFFIX = "T21:00:00Z";
 
 // The whole table lives in a horizontal scroller so a narrow widget keeps the
 // columns aligned instead of reflowing. These px widths mirror the mockup.
-// score | time | ticker | side | type | strike | exp | dte | size | prem | flag
-const GRID_COLS = "44px 46px 58px 66px 78px 56px 48px 30px 54px 66px 58px";
-const GRID_MIN = "min-w-[632px]";
+// score | time | ticker | side | right | type | strike | exp | dte | size | prem
+const GRID_COLS = "44px 46px 58px 64px 36px 78px 56px 48px 30px 54px 66px";
+const GRID_MIN = "min-w-[608px]";
 
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -84,12 +84,12 @@ function formatTimeEt(ts: string): string {
   }
 }
 
-function rightLetter(right: string | null): "C" | "P" | null {
-  if (!right) return null;
+function rightWord(right: string | null): string {
+  if (!right) return "—";
   const r = right.trim().toLowerCase();
-  if (r.startsWith("c")) return "C";
-  if (r.startsWith("p")) return "P";
-  return null;
+  if (r.startsWith("c")) return "call";
+  if (r.startsWith("p")) return "put";
+  return "—";
 }
 
 function flowKind(ev: OptionsFlowEvent): FlowKind {
@@ -115,21 +115,6 @@ function typeLabel(kind: FlowKind): string {
   }
 }
 
-/** SIDE cell — color follows the aggressor side, the ONLY saturated hue. */
-function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: string } {
-  const letter = rightLetter(ev.right);
-  const word = letter === "C" ? "call" : letter === "P" ? "put" : "";
-  if (ev.direction === "buy_side")
-    return { label: `▲ ${word}`.trim(), cls: "text-[var(--c-green)]", tint: "var(--c-green)" };
-  if (ev.direction === "sell_side")
-    return { label: `▼ ${word}`.trim(), cls: "text-[var(--c-red)]", tint: "var(--c-red)" };
-  return {
-    label: word ? `◇ ${word}` : "◇ mixed",
-    cls: "text-[var(--fg-faint)]",
-    tint: "var(--c-accent)",
-  };
-}
-
 /**
  * At-print NBBO lanes: the book was known at the moment of the trade, so the side
  * is a confirmed aggressor read. `dbn_nbbo` is the tcbbo book that travels ON the
@@ -141,81 +126,96 @@ function sideCell(ev: OptionsFlowEvent): { label: string; cls: string; tint: str
 const AT_PRINT_BASES = new Set(["dbn_nbbo", "stream_quote"]);
 
 /**
- * Honesty flag from ``direction_basis`` — always visible, never a tooltip.
- * live quote at ask/bid → "—"; ≤30s polled quote → "polled" (may shift);
- * mid-spread / no quote → undetermined. When undetermined but the corpus
- * midpoint rule reads a side (mid_side), show it MUTED ("mid buy"/"mid sell")
- * — an annotation (~85% vs stock-leg ground truth on checkable prints),
- * never dressed as the confirmed-aggressor read the saturated side cell means.
+ * SIDE cell — buy/sell in plain words, the ONLY saturated hue in the row.
+ * Confirmed aggressor (DIR-1) reads full-strength; when no aggressor is
+ * confirmed but the corpus midpoint rule leans, it renders MUTED ("mid buy"/
+ * "mid sell") — an annotation (~85% vs stock-leg ground truth on checkable
+ * prints), never dressed as the confirmed read. Provenance lives in the tooltip
+ * and the drawer, not a row-level column.
  */
-function honestyFlag(ev: OptionsFlowEvent): { label: string; cls: string } {
-  if (ev.direction === "undetermined") {
-    if (ev.mid_side === "buy")
-      return { label: "mid buy", cls: "text-[var(--c-green)] opacity-60" };
-    if (ev.mid_side === "sell")
-      return { label: "mid sell", cls: "text-[var(--c-red)] opacity-60" };
-    if (ev.mid_side === "wide_spread")
-      return { label: "wide", cls: "text-[var(--fg-faint)]" };
-    return { label: "no side", cls: "text-[var(--fg-faint)]" };
+function sideCell(ev: OptionsFlowEvent): {
+  label: string;
+  cls: string;
+  tint: string;
+  title: string;
+} {
+  if (ev.direction !== "undetermined") {
+    const buy = ev.direction === "buy_side";
+    return {
+      label: buy ? "buy" : "sell",
+      cls: buy ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+      tint: buy ? "var(--c-green)" : "var(--c-red)",
+      title: AT_PRINT_BASES.has(ev.direction_basis || "")
+        ? "side confirmed on the quote at print time"
+        : "side off a polled quote (≤30s, may shift)",
+    };
   }
-  const b = (ev.direction_basis || "").toLowerCase();
-  if (b.startsWith("polled"))
-    return { label: "polled", cls: "text-[var(--c-yellow)]" };
-  return { label: "—", cls: "text-[var(--fg-faint)]" };
+  if (ev.mid_side === "buy" || ev.mid_side === "sell") {
+    const buy = ev.mid_side === "buy";
+    return {
+      label: buy ? "mid buy" : "mid sell",
+      cls: buy
+        ? "text-[var(--c-green)] opacity-60"
+        : "text-[var(--c-red)] opacity-60",
+      tint: buy ? "var(--c-green)" : "var(--c-red)",
+      title: `no aggressor confirmed — ${buy ? "above" : "below"} midpoint (corpus rule, ~85% vs stock-leg ground truth on checkable prints)`,
+    };
+  }
+  if (ev.mid_side === "wide_spread")
+    return {
+      label: "wide",
+      cls: "text-[var(--fg-faint)]",
+      tint: "var(--c-accent)",
+      title: "quote too wide for a midpoint read",
+    };
+  return {
+    label: "—",
+    cls: "text-[var(--fg-faint)]",
+    tint: "var(--c-accent)",
+    title: "mid-spread — no side claimed",
+  };
 }
 
-type ScoreComp = { label: string; pts: number };
-
-const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
-// The intraday tape's detector floor is $25k and its whales top out near $5M,
-// so size is a log10 map of $25k..$5M → 0..4 points. EOD unusual-volume premiums
-// (often $1M+, up to $170M) simply saturate size at 4 — they ARE bigger.
-const L_LO = Math.log10(25_000);
-const L_HI = Math.log10(5_000_000);
+type ScoreComp = { label: string; w: number };
 
 /**
- * v1 heuristic composite — deliberately transparent (components shown on hover +
- * in the drawer), to be replaced by a calibrated score later (board: flow-notif-redesign).
- * Tuned against the real event distribution: size (log premium) + prints (sweep
- * aggression — one order swept across many exchanges) + unusualness (vol z-score,
- * or vol/OI, present on EOD events only — the intraday tape never carries them) +
- * a confirmed-aggressor bump. Real spread: tape ~0.4..6, EOD ~0.3..7.
+ * Server conviction: 10 × rarity × tenor × OTM × type. Perception, not a
+ * forecast — no known-side bonus, no 0DTE bonus. Missing score → 0.
  */
-function computeScore(ev: OptionsFlowEvent): { score: number; comps: ScoreComp[] } {
+function convictionView(ev: OptionsFlowEvent): { score: number; comps: ScoreComp[] } {
+  const score = ev.conviction ?? 0;
+  const p = ev.conviction_parts;
   const comps: ScoreComp[] = [];
-  const prem = ev.premium_usd ?? 0;
-  const size = prem > 0 ? clamp(((Math.log10(prem) - L_LO) / (L_HI - L_LO)) * 4, 0, 4) : 0;
-  if (size > 0) comps.push({ label: `size ${formatPremium(prem)}`, pts: size });
-
-  // Multi-print sweeps = one aggressor hitting many books at once (p50 6, p90 28).
-  const nPrints = ev.n_prints ?? 0;
-  const prints = nPrints > 1 ? clamp(Math.log2(nPrints) / 6, 0, 1) * 1.5 : 0;
-  if (prints > 0) comps.push({ label: `${nPrints} prints`, pts: prints });
-
-  const z = ev.vol_zscore;
-  const voi = ev.vol_oi_ratio ?? 0;
-  let unusual = 0;
-  if (z != null) {
-    unusual = clamp((z / 12) * 3, 0, 3);
-    if (unusual > 0) comps.push({ label: `vol z ${z.toFixed(1)}σ`, pts: unusual });
-  } else if (voi > 1) {
-    unusual = clamp((Math.log2(voi) / 4) * 3, 0, 3);
-    if (unusual > 0) comps.push({ label: `vol/OI ${voi.toFixed(1)}×`, pts: unusual });
+  if (p) {
+    const ranked = p.ranked && ev.rarity_p != null;
+    comps.push({
+      label: ranked ? `rarity p=${ev.rarity_p!.toFixed(2)}` : "rarity unranked",
+      w: p.rarity,
+    });
+    comps.push({
+      label: ev.dte != null ? `tenor ${ev.dte}d` : "tenor unknown",
+      w: p.dte,
+    });
+    const otm = ev.otm_pct;
+    comps.push({
+      label:
+        otm != null
+          ? `OTM ${otm >= 0 ? "+" : ""}${otm.toFixed(0)}%`
+          : "OTM unknown",
+      w: p.otm,
+    });
+    comps.push({ label: ev.event_type, w: p.type });
   }
-
-  const aggr =
-    ev.direction !== "undetermined" && AT_PRINT_BASES.has(ev.direction_basis || "")
-      ? 1.5
-      : 0;
-  if (aggr > 0) comps.push({ label: "confirmed aggressor", pts: aggr });
-
-  const score = clamp(size + prints + unusual + aggr, 0, 10);
   return { score, comps };
 }
 
-function scoreTitle(score: number, comps: ScoreComp[]): string {
-  const lines = comps.map((c) => `  +${c.pts.toFixed(1)}  ${c.label}`);
-  return `score ${score.toFixed(1)} — v1 heuristic (not calibrated)\n${lines.join("\n")}`;
+function scoreTitle(ev: OptionsFlowEvent, score: number, comps: ScoreComp[]): string {
+  const lines = comps.map((c) => `  ×${c.w.toFixed(2)}  ${c.label}`);
+  const sentence = ev.rarity_sentence ? `\n${ev.rarity_sentence}` : "";
+  return (
+    `score ${score.toFixed(1)} — rarity × tenor × OTM × type` +
+    `\nperception, not a forecast${sentence}\n${lines.join("\n")}`
+  );
 }
 
 function num(detail: Record<string, number>, key: string): number | null {
@@ -295,7 +295,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
   usePagePoll(load, POLL_MS);
 
   const rows = useMemo<Scored[]>(() => {
-    const scored = (data?.events ?? []).map((ev) => ({ ev, ...computeScore(ev) }));
+    const scored = (data?.events ?? []).map((ev) => ({ ev, ...convictionView(ev) }));
     const dir = sort.dir === "asc" ? 1 : -1;
     return scored.sort((a, b) => {
       const d = (sortValue(a, sort.key) - sortValue(b, sort.key)) * dir;
@@ -345,20 +345,24 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
         />
       ) : (
         <div className="relative min-h-0 flex-1 overflow-auto scroll-shadow-y">
-          {activeFilter ? (
-            <div className="flex items-center gap-1 border-b border-[var(--line-divider)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              <span>filtering {activeFilter}</span>
-              <span>·</span>
-              <button
-                type="button"
-                aria-label="Clear symbol filter"
-                onClick={() => setFilterCleared(true)}
-                className="text-[var(--fg-faint)] transition-colors hover:text-[var(--fg-dim)]"
-              >
-                ×
-              </button>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-1 border-b border-[var(--line-divider)] px-2 py-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
+            {activeFilter ? (
+              <>
+                <span>filtering {activeFilter}</span>
+                <span>·</span>
+                <button
+                  type="button"
+                  aria-label="Clear symbol filter"
+                  onClick={() => setFilterCleared(true)}
+                  className="text-[var(--fg-faint)] transition-colors hover:text-[var(--fg-dim)]"
+                >
+                  ×
+                </button>
+                <span>·</span>
+              </>
+            ) : null}
+            <span>rarity × tenor × OTM · perception, not a forecast</span>
+          </div>
 
           <div className={cn("relative", GRID_MIN)}>
             {/* column header — sortable like the watchlist */}
@@ -370,18 +374,17 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
               <span className={cn(headCls, sortableCls, sort.key === "time" && "text-[var(--c-accent)]")} onClick={() => handleSort("time")}>time{arrow("time")}</span>
               <span className={headCls}>ticker</span>
               <span className={headCls}>side</span>
+              <span className={headCls}>right</span>
               <span className={headCls}>type</span>
               <span className={headCls}>strike</span>
               <span className={headCls}>exp</span>
               <span className={cn(headCls, "text-right")}>dte</span>
               <span className={cn(headCls, "text-right", sortableCls, sort.key === "size" && "text-[var(--c-accent)]")} onClick={() => handleSort("size")}>size{arrow("size")}</span>
               <span className={cn(headCls, "text-right", sortableCls, sort.key === "premium" && "text-[var(--c-accent)]")} onClick={() => handleSort("premium")}>prem{arrow("premium")}</span>
-              <span className={headCls}>flag</span>
             </div>
 
             {rows.map(({ ev, score, comps }) => {
               const side = sideCell(ev);
-              const flag = honestyFlag(ev);
               const kind = flowKind(ev);
               const expanded = expandedIds.has(ev.id);
               const hasDetail = ev.detail != null && Object.keys(ev.detail).length > 0;
@@ -413,7 +416,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                     />
                     <span
                       className="tabular-nums font-medium text-[var(--c-accent)]"
-                      title={scoreTitle(score, comps)}
+                      title={scoreTitle(ev, score, comps)}
                     >
                       {score.toFixed(1)}
                     </span>
@@ -463,7 +466,10 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                         <Info className="size-3" />
                       </span>
                     </span>
-                    <span className={cn("truncate lowercase", side.cls)}>{side.label}</span>
+                    <span className={cn("truncate lowercase", side.cls)} title={side.title}>
+                      {side.label}
+                    </span>
+                    <span className="truncate lowercase text-[var(--fg-dim)]">{rightWord(ev.right)}</span>
                     <span className="truncate lowercase text-[var(--fg-dim)]">{typeLabel(kind)}</span>
                     <span className="tabular-nums text-[var(--fg-dim)]">
                       {formatStrike(ev.strike)}
@@ -479,9 +485,6 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                     </span>
                     <span className="text-right tabular-nums font-medium text-[var(--fg)]">
                       {formatPremium(ev.premium_usd)}
-                    </span>
-                    <span className={cn("truncate lowercase text-[length:var(--fs-micro)]", flag.cls)}>
-                      {flag.label}
                     </span>
                   </div>
 
@@ -560,6 +563,7 @@ function FlowDetail({
         : "side off a polled quote",
     );
   }
+  if (ev.rarity_sentence) why.push(ev.rarity_sentence);
 
   const cell = (label: string, value: string, title?: string) => (
     <div className="flex flex-col gap-0.5" title={title}>
@@ -628,14 +632,17 @@ function FlowDetail({
       {cell("side basis", basis)}
       {cell(
         "score",
-        `${score.toFixed(1)} = ${comps.map((c) => `+${c.pts.toFixed(1)}`).join(" ") || "—"}`,
+        `${score.toFixed(1)} = ${comps.map((c) => c.w.toFixed(2)).join(" × ") || "—"}`,
       )}
       {why.length ? (
         <div className="col-span-full flex gap-2 border-t border-[var(--line-divider)] pt-2 text-[var(--fg-dim)]">
           <span className="shrink-0 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
             why
           </span>
-          <span>{why.join(", ")}{!hasDetail ? " · (greeks pending)" : ""}</span>
+          <span>
+            {why.join(", ")}
+            {!hasDetail ? " · (greeks pending)" : ""}
+          </span>
         </div>
       ) : null}
     </div>

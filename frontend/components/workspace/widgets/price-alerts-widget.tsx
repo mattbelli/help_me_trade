@@ -5,6 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
 import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import {
   WidgetEmpty,
   WidgetError,
   WidgetLoading,
@@ -74,16 +78,10 @@ function NoteCell({ note }: { note?: string | null }) {
     setClamped(el.scrollHeight > el.clientHeight + 1);
   }, [note, expanded]);
 
-  if (!note) {
-    return (
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
-        —
-      </td>
-    );
-  }
+  if (!note) return <>—</>;
 
   return (
-    <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] text-[var(--fg-faint)]">
+    <>
       <p ref={ref} className={cn("break-words", !expanded && "line-clamp-2")}>
         {note}
       </p>
@@ -96,7 +94,7 @@ function NoteCell({ note }: { note?: string | null }) {
           {expanded ? "less" : "more"}
         </button>
       ) : null}
-    </td>
+    </>
   );
 }
 
@@ -211,6 +209,95 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
       );
     }
   }
+
+  const columns: DataTableColumn<PriceAlert>[] = [
+    {
+      key: "symbol",
+      header: "Sym",
+      className: "font-medium text-[var(--c-accent)]",
+      render: (alert) => (
+        <ClickableSymbol
+          symbol={alert.symbol}
+          linked={linked}
+          onActivate={() => publish(alert.symbol)}
+        />
+      ),
+    },
+    {
+      key: "price",
+      header: "Price",
+      align: "right",
+      className: "tabular-nums text-foreground",
+      render: (alert) => formatMoney(alert.price),
+    },
+    {
+      key: "direction",
+      header: "Dir",
+      className: "text-[length:var(--fs-body)] uppercase text-[var(--fg-dim)]",
+      render: (alert) => (
+        <>
+          {alert.direction}
+          {alert.repeat ? (
+            <span
+              className="ml-1 text-[var(--c-accent)]"
+              title="Persistent — re-arms after each crossing"
+            >
+              ↻
+            </span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: (alert) =>
+        cn(
+          "text-[length:var(--fs-body)] uppercase",
+          alert.triggered && !alert.repeat
+            ? "text-[var(--c-green)]"
+            : "text-[var(--c-blue)]",
+        ),
+      render: (alert) =>
+        alert.repeat
+          ? "persistent"
+          : alert.triggered
+            ? "triggered"
+            : "active",
+    },
+    {
+      key: "note",
+      header: "Note",
+      className: "text-[length:var(--fs-body)] text-[var(--fg-faint)]",
+      render: (alert) => <NoteCell note={alert.note} />,
+    },
+    {
+      key: "actions",
+      align: "right",
+      headerClassName: "w-14",
+      className: "px-1",
+      render: (alert) => (
+        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => openEditForm(alert)}
+            title="Edit alert"
+            className="rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
+          >
+            <Pencil className="size-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(alert.id)}
+            title="Delete alert"
+            className="rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="flex h-full flex-col">
@@ -337,96 +424,12 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
         ) : alerts.length === 0 ? (
           <WidgetEmpty message="No price alerts configured" className="p-0" />
         ) : (
-          <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-            <thead>
-              <tr>
-                {(["Sym", "Price", "Dir", "Status", "Note", ""] as const).map(
-                  (h, idx) => (
-                    <th
-                      key={h || "actions"}
-                      className={cn(
-                        "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
-                        idx === 0 ||
-                          h === "Dir" ||
-                          h === "Status" ||
-                          h === "Note"
-                          ? "text-left"
-                          : "text-right",
-                        h === "" && "w-14",
-                      )}
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody className="leading-[20px]">
-              {alerts.map((alert) => (
-                <tr
-                  key={alert.id}
-                  className="group group/row transition-colors hover:bg-[var(--bg-hover)]"
-                >
-                  <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-[var(--c-accent)]">
-                    <ClickableSymbol
-                      symbol={alert.symbol}
-                      linked={linked}
-                      onActivate={() => publish(alert.symbol)}
-                    />
-                  </td>
-                  <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-foreground">
-                    {formatMoney(alert.price)}
-                  </td>
-                  <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase text-[var(--fg-dim)]">
-                    {alert.direction}
-                    {alert.repeat ? (
-                      <span
-                        className="ml-1 text-[var(--c-accent)]"
-                        title="Persistent — re-arms after each crossing"
-                      >
-                        ↻
-                      </span>
-                    ) : null}
-                  </td>
-                  <td
-                    className={cn(
-                      "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-body)] uppercase",
-                      alert.triggered && !alert.repeat
-                        ? "text-[var(--c-green)]"
-                        : "text-[var(--c-blue)]",
-                    )}
-                  >
-                    {alert.repeat
-                      ? "persistent"
-                      : alert.triggered
-                        ? "triggered"
-                        : "active"}
-                  </td>
-                  <NoteCell note={alert.note} />
-                  <td className="border-b border-[var(--line-divider)] px-1 py-1.5">
-                    <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button
-                        type="button"
-                        onClick={() => openEditForm(alert)}
-                        title="Edit alert"
-                        className="rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--c-accent)]"
-                      >
-                        <Pencil className="size-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete(alert.id)}
-                        title="Delete alert"
-                        className="rounded p-0.5 text-[var(--fg-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--c-red)]"
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            columns={columns}
+            rows={alerts}
+            rowKey={(alert) => alert.id}
+            rowClassName="group"
+          />
         )}
       </div>
     </div>

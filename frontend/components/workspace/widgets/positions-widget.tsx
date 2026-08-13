@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   WidgetEmpty,
@@ -28,6 +33,7 @@ import {
 
 type SortKey =
   | "symbol"
+  | "account"
   | "qty"
   | "side"
   | "entered_at"
@@ -36,21 +42,127 @@ type SortKey =
   | "market_value"
   | "unrealized_pl";
 
-// One alignment rule: Symbol anchors left, everything else is right-aligned.
-const COLUMNS: {
-  label: string;
-  key: SortKey;
-  align: "left" | "right";
-}[] = [
-  { label: "Symbol", key: "symbol", align: "left" },
-  { label: "Qty", key: "qty", align: "right" },
-  { label: "Side", key: "side", align: "right" },
-  { label: "Entered", key: "entered_at", align: "right" },
-  { label: "Entry", key: "avg_entry_price", align: "right" },
-  { label: "Price", key: "current_price", align: "right" },
-  { label: "Value", key: "market_value", align: "right" },
-  { label: "Unrealized", key: "unrealized_pl", align: "right" },
-];
+/** Tick-flash wrapper — the cell highlights for 500ms when its number moves. */
+function FlashCell({
+  value,
+  children,
+}: {
+  value: number;
+  children: ReactNode;
+}) {
+  const flash = usePriceFlash(value);
+  return (
+    <span
+      className={cn(
+        "-mx-0.5 inline-flex w-fit rounded px-0.5",
+        flash === "up" && "tick-flash-up",
+        flash === "down" && "tick-flash-down",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+// One alignment rule: Symbol and Account anchor left, everything else is
+// right-aligned.
+function paperColumns(
+  linked: boolean,
+  publish: (symbol: string) => void,
+): DataTableColumn<TaggedPosition, SortKey>[] {
+  return [
+    {
+      key: "symbol",
+      header: "Symbol",
+      sortable: true,
+      className: "font-medium text-foreground",
+      render: (p) => (
+        <ClickableSymbol
+          symbol={p.symbol}
+          linked={linked}
+          onActivate={() => publish(p.symbol)}
+        />
+      ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      sortable: true,
+      render: (p) => <Tag tone="dim">{p.accountLabel || "—"}</Tag>,
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      sortable: true,
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (p) => formatQty(p.qty),
+    },
+    {
+      key: "side",
+      header: "Side",
+      align: "right",
+      sortable: true,
+      className:
+        "text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase",
+      render: (p) => p.side,
+    },
+    {
+      key: "entered_at",
+      header: "Entered",
+      align: "right",
+      sortable: true,
+      className: "tabular-nums text-[var(--fg-faint)]",
+      title: (p) => p.entered_at ?? undefined,
+      render: (p) => formatEntered(p.entered_at),
+    },
+    {
+      key: "avg_entry_price",
+      header: "Entry",
+      align: "right",
+      sortable: true,
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (p) => formatMoney(p.avg_entry_price),
+    },
+    {
+      key: "current_price",
+      header: "Price",
+      align: "right",
+      sortable: true,
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (p) => formatMoney(p.current_price),
+    },
+    {
+      key: "market_value",
+      header: "Value",
+      align: "right",
+      sortable: true,
+      className: "tabular-nums text-foreground",
+      render: (p) => (
+        <FlashCell value={p.market_value}>
+          {formatMoney(p.market_value)}
+        </FlashCell>
+      ),
+    },
+    {
+      key: "unrealized_pl",
+      header: "Unrealized",
+      align: "right",
+      sortable: true,
+      className: (p) =>
+        cn(
+          "tabular-nums",
+          p.unrealized_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
+        ),
+      render: (p) => (
+        <>
+          {p.unrealized_pl >= 0 ? "+" : ""}
+          {formatMoney(p.unrealized_pl)}
+        </>
+      ),
+    },
+  ];
+}
 
 // ISO timestamp → "07/16/2026 09:33" in the viewer's local time.
 function formatEntered(iso: string | null | undefined): string {
@@ -80,6 +192,10 @@ function sortPositions(
   const mul = dir === "asc" ? 1 : -1;
 
   return [...rows].sort((a, b) => {
+    if (key === "account") {
+      return mul * (a.accountLabel ?? "").localeCompare(b.accountLabel ?? "");
+    }
+
     const va = a[key];
     const vb = b[key];
 
@@ -106,82 +222,6 @@ function markPaper(
     market_value: p.market_value + delta,
     unrealized_pl: p.unrealized_pl + delta,
   };
-}
-
-function PositionRow({
-  p,
-  idx,
-  linked,
-  onPublish,
-}: {
-  p: TaggedPosition;
-  idx: number;
-  linked: boolean;
-  onPublish: (symbol: string) => void;
-}) {
-  const valueFlash = usePriceFlash(p.market_value);
-
-  return (
-    <tr
-      key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
-      className="group/row transition-colors hover:bg-[var(--bg-hover)]"
-    >
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <ClickableSymbol
-            symbol={p.symbol}
-            linked={linked}
-            onActivate={() => onPublish(p.symbol)}
-          />
-          {p.accountLabel ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              {p.accountLabel}
-            </span>
-          ) : null}
-        </span>
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-        {formatQty(p.qty)}
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right text-[length:var(--fs-body)] tracking-[0.08em] text-[var(--fg-faint)] uppercase">
-        {p.side}
-      </td>
-      <td
-        className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-faint)]"
-        title={p.entered_at ?? undefined}
-      >
-        {formatEntered(p.entered_at)}
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-        {formatMoney(p.avg_entry_price)}
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-        {formatMoney(p.current_price)}
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-foreground">
-        <span
-          className={cn(
-            "-mx-0.5 inline-flex w-fit rounded px-0.5",
-            valueFlash === "up" && "tick-flash-up",
-            valueFlash === "down" && "tick-flash-down",
-          )}
-        >
-          {formatMoney(p.market_value)}
-        </span>
-      </td>
-      <td
-        className={cn(
-          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
-          p.unrealized_pl >= 0
-            ? "text-[var(--c-green)]"
-            : "text-[var(--c-red)]",
-        )}
-      >
-        {p.unrealized_pl >= 0 ? "+" : ""}
-        {formatMoney(p.unrealized_pl)}
-      </td>
-    </tr>
-  );
 }
 
 function PaperPositions({
@@ -226,7 +266,7 @@ function PaperPositions({
   }, []);
 
   if (loading && !snapshot) {
-    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+    return <WidgetLoading cols={[3, 2, 1, 1, 3, 2, 2, 2, 2]} />;
   }
 
   if (error && !snapshot) {
@@ -243,59 +283,16 @@ function PaperPositions({
 
   return (
     <div className="h-full overflow-auto px-1.5 py-1 scroll-shadow-y">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            {COLUMNS.map(({ label, key, align }) => (
-              <th
-                key={key}
-                className={cn(
-                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
-                  align === "left" ? "text-left" : "text-right",
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleSortHeaderClick(key)}
-                  className={cn(
-                    "w-full",
-                    align === "left" ? "text-left" : "text-right",
-                  )}
-                >
-                  {label}
-                  {sortState?.key === key ? (
-                    <span className="ml-0.5">
-                      {sortState.dir === "asc" ? "▲" : "▼"}
-                    </span>
-                  ) : null}
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {sortedPositions.map((p, idx) => (
-            <PositionRow
-              key={`${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
-              p={p}
-              idx={idx}
-              linked={linked}
-              onPublish={publish}
-            />
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        columns={paperColumns(linked, publish)}
+        rows={sortedPositions}
+        rowKey={(p, idx) => `${p.accountLabel ?? ""}-${p.symbol}-${idx}`}
+        sort={sortState}
+        onSortChange={handleSortHeaderClick}
+      />
     </div>
   );
 }
-
-const REAL_COLUMNS: { label: string; align: "left" | "right" }[] = [
-  { label: "Symbol", align: "left" },
-  { label: "Qty", align: "right" },
-  { label: "Price", align: "right" },
-  { label: "Unrealized", align: "right" },
-  { label: "Day P/L", align: "right" },
-];
 
 type RealRow = {
   symbol: string;
@@ -339,81 +336,77 @@ function markReal(p: RealRow, marks: Record<string, number>): RealRow {
   };
 }
 
-function RealPositionRow({
-  p,
-  idx,
-  linked,
-  publish,
-}: {
-  p: RealRow;
-  idx: number;
-  linked: boolean;
-  publish: (symbol: string) => void;
-}) {
-  const unrealizedFlash = usePriceFlash(p.unrealized_pl);
-  const dayFlash = usePriceFlash(p.day_pl);
-
-  return (
-    <tr
-      key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
-      className="group/row transition-colors hover:bg-[var(--bg-hover)]"
-    >
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 font-medium text-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <ClickableSymbol
-            symbol={p.symbol}
-            linked={linked}
-            onActivate={() => publish(p.symbol)}
-          />
-          {p.accountLast4 ? (
-            <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-              ••{p.accountLast4}
-            </span>
-          ) : null}
-        </span>
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-        {formatQty(p.qty)}
-      </td>
-      <td className="border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums text-[var(--fg-dim)]">
-        {formatMoney(p.current_price)}
-      </td>
-      <td
-        className={cn(
-          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
+function realColumns(
+  linked: boolean,
+  publish: (symbol: string) => void,
+): DataTableColumn<RealRow>[] {
+  return [
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium text-foreground",
+      render: (p) => (
+        <ClickableSymbol
+          symbol={p.symbol}
+          linked={linked}
+          onActivate={() => publish(p.symbol)}
+        />
+      ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      render: (p) => (
+        <Tag tone="dim">{p.accountLast4 ? `••${p.accountLast4}` : "—"}</Tag>
+      ),
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (p) => formatQty(p.qty),
+    },
+    {
+      key: "current_price",
+      header: "Price",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (p) => formatMoney(p.current_price),
+    },
+    {
+      key: "unrealized_pl",
+      header: "Unrealized",
+      align: "right",
+      className: (p) =>
+        cn(
+          "tabular-nums",
           p.unrealized_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
-        )}
-      >
-        <span
-          className={cn(
-            "-mx-0.5 inline-flex w-fit rounded px-0.5",
-            unrealizedFlash === "up" && "tick-flash-up",
-            unrealizedFlash === "down" && "tick-flash-down",
-          )}
-        >
+        ),
+      render: (p) => (
+        <FlashCell value={p.unrealized_pl}>
           {p.unrealized_pl >= 0 ? "+" : ""}
           {formatMoney(p.unrealized_pl)}
-        </span>
-      </td>
-      <td
-        className={cn(
-          "border-b border-[var(--line-divider)] px-2 py-1.5 text-right tabular-nums",
+        </FlashCell>
+      ),
+    },
+    {
+      key: "day_pl",
+      header: "Day P/L",
+      align: "right",
+      className: (p) =>
+        cn(
+          "tabular-nums",
           p.day_pl >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
-        )}
-      >
-        <span
-          className={cn(
-            "-mx-0.5 inline-flex w-fit rounded px-0.5",
-            dayFlash === "up" && "tick-flash-up",
-            dayFlash === "down" && "tick-flash-down",
-          )}
-        >
+        ),
+      render: (p) => (
+        <FlashCell value={p.day_pl}>
           {p.day_pl >= 0 ? "+" : ""}
           {formatMoney(p.day_pl)}
-        </span>
-      </td>
-    </tr>
-  );
+        </FlashCell>
+      ),
+    },
+  ];
 }
 
 function RealPositions({
@@ -443,7 +436,7 @@ function RealPositions({
   );
 
   if (realLoading && realAccounts.length === 0) {
-    return <WidgetLoading cols={[3, 2, 2, 2]} />;
+    return <WidgetLoading cols={[3, 2, 1, 2, 2, 2]} />;
   }
 
   if (!realAuthenticated) {
@@ -456,34 +449,11 @@ function RealPositions({
 
   return (
     <div className="h-full overflow-auto px-1.5 py-1 scroll-shadow-y">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            {REAL_COLUMNS.map(({ label, align }) => (
-              <th
-                key={label}
-                className={cn(
-                  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-table-header)] uppercase",
-                  align === "left" ? "text-left" : "text-right",
-                )}
-              >
-                {label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {rows.map((p, idx) => (
-            <RealPositionRow
-              key={`${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
-              p={p}
-              idx={idx}
-              linked={linked}
-              publish={publish}
-            />
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        columns={realColumns(linked, publish)}
+        rows={rows}
+        rowKey={(p, idx) => `${p.accountLast4 ?? ""}-${p.symbol}-${idx}`}
+      />
     </div>
   );
 }

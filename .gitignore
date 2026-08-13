@@ -35,6 +35,7 @@ Thumbs.db
 node_modules/
 frontend/.next/
 frontend/out/
+frontend/.ui-shots/
 package-lock.json
 # Track the frontend lockfile so CI can use `npm ci` (reproducible installs).
 !frontend/package-lock.json

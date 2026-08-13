@@ -7,9 +7,13 @@ the whole universe's quarter. Free tier is 60 req/min — a daily refresh uses o
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
-from datetime import date, timedelta
+from collections import deque
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -41,6 +45,101 @@ def _cache_get(kind: str, symbol: str) -> Any | None:
 
 def _cache_set(kind: str, symbol: str, value: Any) -> None:
     _company_cache[(kind, symbol)] = (time.monotonic(), value)
+
+
+# --- Shared per-symbol rate limit ---------------------------------------------
+# MEASURED 2026-08-12: the free tier allows exactly 60 per-symbol calls per rolling
+# minute. Bursting a ~100-symbol portfolio through /stock/profile2 got 60 through
+# and 429'd the rest, which the fail-soft handlers turned into silently missing
+# data (91% of the sector radar came back "unclassified"). Every per-symbol
+# endpoint now shares one budget so no caller can burst past it.
+_RATE_LIMIT_PER_MIN = 55  # headroom under the measured 60
+_RATE_LIMIT_MAX_WAIT = 5.0  # a UI request waits this long for a slot, then gives up
+_rate_lock = asyncio.Lock()
+_rate_calls: deque[float] = deque()
+
+
+async def _rate_limit() -> bool:
+    """Reserve one per-symbol call slot. False => budget spent, caller fails soft.
+
+    The lock is held across the sleep on purpose: waiters queue FIFO instead of all
+    waking at once and re-bursting. The deadline therefore starts BEFORE the lock —
+    once the budget is spent the queue drains at ~1/s, so time spent waiting for the
+    lock is real wait and has to count, or the cap bounds one sleep and not the call.
+    """
+    deadline = time.monotonic() + _RATE_LIMIT_MAX_WAIT
+    async with _rate_lock:
+        while True:
+            now = time.monotonic()
+            while _rate_calls and now - _rate_calls[0] >= 60.0:
+                _rate_calls.popleft()
+            if len(_rate_calls) < _RATE_LIMIT_PER_MIN:
+                _rate_calls.append(now)
+                return True
+            if now >= deadline:
+                return False
+            await asyncio.sleep(min(60.0 - (now - _rate_calls[0]), deadline - now))
+
+
+# --- Persistent profile cache -------------------------------------------------
+# The in-process cache above dies with the process and holds only successes, so a
+# ~100-position portfolio re-fetched every symbol on every widget load. Company
+# profiles are near-static, so they also persist to their own small database —
+# kept off the single-writer trading.db for the same reason as db/macro.py.
+PROFILE_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "company_profiles.db"
+_PROFILE_DISK_TTL_DAYS = 30
+
+
+def _profile_conn():  # noqa: ANN202 — sqlite3.Connection
+    from db.base import connect
+
+    conn = connect(PROFILE_DB_PATH)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS company_profiles ("
+        " symbol TEXT NOT NULL PRIMARY KEY,"
+        " profile TEXT NOT NULL,"
+        " fetched_at TEXT NOT NULL)"
+    )
+    return conn
+
+
+def profile_from_disk(symbol: str) -> dict[str, Any] | None:
+    """Cached profile for ``symbol`` without touching the network. None = miss."""
+    cutoff = (datetime.now(UTC) - timedelta(days=_PROFILE_DISK_TTL_DAYS)).isoformat()
+    try:
+        conn = _profile_conn()
+        try:
+            row = conn.execute(
+                "SELECT profile FROM company_profiles WHERE symbol = ? AND fetched_at >= ?",
+                (symbol.strip().upper(), cutoff),
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — a cache read never breaks a caller
+        logger.warning("Finnhub profile cache read for %s failed: %s", symbol, exc)
+        return None
+    if row is None:
+        return None
+    try:
+        return json.loads(row["profile"])
+    except ValueError:
+        return None
+
+
+def _profile_to_disk(symbol: str, profile: dict[str, Any]) -> None:
+    try:
+        conn = _profile_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO company_profiles (symbol, profile, fetched_at)"
+                " VALUES (?, ?, ?)",
+                (symbol, json.dumps(profile), datetime.now(UTC).isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — a cache write never breaks a caller
+        logger.warning("Finnhub profile cache write for %s failed: %s", symbol, exc)
 
 
 class FinnhubError(RuntimeError):
@@ -285,7 +384,7 @@ async def afetch_company_profile(
     """Company profile from ``/stock/profile2`` (name, exchange, industry, logo…).
 
     Returns a trimmed dict (``_PROFILE_KEYS``) or ``{}`` on missing key / any error.
-    Cached ~24h per symbol.
+    Cached ~24h in-process and ~30d on disk (``PROFILE_DB_PATH``).
     """
     if not token and not finnhub_is_configured():
         return {}
@@ -295,6 +394,14 @@ async def afetch_company_profile(
     cached = _cache_get("profile", sym)
     if cached is not None:
         return cached
+    on_disk = profile_from_disk(sym)
+    if on_disk is not None:
+        _cache_set("profile", sym, on_disk)
+        return on_disk
+
+    if not await _rate_limit():
+        logger.warning("Finnhub profile for %s skipped: per-minute budget spent", sym)
+        return {}
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -313,6 +420,10 @@ async def afetch_company_profile(
     profile = {k: raw[k] for k in _PROFILE_KEYS if raw.get(k) not in (None, "")}
     if profile:
         _cache_set("profile", sym, profile)
+    # An empty profile from a well-formed 200 is a real answer ("Finnhub has no
+    # company for this symbol" — ETFs, most ADRs), so it persists too. Without
+    # that negative, those symbols re-spend a quota slot on every single load.
+    _profile_to_disk(sym, profile)
     return profile
 
 
@@ -335,6 +446,10 @@ async def afetch_company_metrics(
     cached = _cache_get("metrics", sym)
     if cached is not None:
         return cached
+
+    if not await _rate_limit():
+        logger.warning("Finnhub metrics for %s skipped: per-minute budget spent", sym)
+        return {}
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

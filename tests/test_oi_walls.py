@@ -116,3 +116,35 @@ def test_symbol_filter_is_accepted_as_root(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(oi_walls, "OI_WALLS_DB_PATH", db)
     rows = _read_oi_walls({"symbol": "SPX"}, db_path=tmp_path / "unused.db")
     assert {r["root"] for r in rows} == {"SPX"}
+
+
+def test_oi_board_returns_the_whole_latest_date_keyed_for_a_join(tmp_path: Path) -> None:
+    """Gamma exposure sums the board, and a top-N slice of a sum is not a smaller
+    answer — it is a wrong one. This reader must hand back every row, keyed on the
+    tuple the option chain parses out of an OCC symbol."""
+    rows = [
+        ("2026-08-10", "opra", "SPXW", "2026-08-21", "C", 7800.0, 111),
+        ("2026-08-11", "opra", "SPXW", "2026-08-21", "C", 7800.0, 222),
+        ("2026-08-11", "opra", "SPXW", "2026-08-21", "P", 7800.0, 333),
+        ("2026-08-11", "opra", "SPX", "2026-09-18", "C", 8000.0, 444),
+        ("2026-08-11", "opra", "XSP", "2026-09-18", "C", 800.0, 555),
+        ("2026-08-11", "sme", "SME", "2026-09", "P", 7090.0, 666),
+    ]
+    db = _store(tmp_path, rows)
+    as_of, board = oi_walls.oi_board(db_path=db)
+    assert as_of == "2026-08-11"
+    assert board == {
+        ("SPXW", "2026-08-21", "C", 7800.0): 222,
+        ("SPXW", "2026-08-21", "P", 7800.0): 333,
+        ("SPX", "2026-09-18", "C", 8000.0): 444,
+    }
+
+
+def test_oi_board_on_a_missing_store_says_so_rather_than_returning_an_empty_board(
+    tmp_path: Path,
+) -> None:
+    """An absent store and a genuinely empty date must not look alike: one means
+    'no answer', the other would sum to a confident zero."""
+    as_of, board = oi_walls.oi_board(db_path=tmp_path / "never-built.db")
+    assert as_of is None
+    assert board == {}

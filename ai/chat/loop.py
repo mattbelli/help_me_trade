@@ -44,11 +44,20 @@ from ai.llm.base import (
     ToolCall,
     ToolSpec,
 )
+from ai.perception.resources import fit_to_cap
 
 logger = logging.getLogger(__name__)
 
 # Mirrors the web route's stepCountIs(6) and tool_loop.DEFAULT_MAX_ITERATIONS.
 MAX_ITERATIONS = 6
+
+# One tool result must not eat the turn. The book surfaces capped from the start; the
+# web/mobile chat — the surface the user actually talks to — never did, and it showed:
+# a live DeepSeek turn on 2026-08-11 pulled 39,367 + 31,199 chars from two `query`
+# calls, hit finish_reason=length mid-stream, and answered the question with one
+# sentence. Capping here rather than in each executor covers web, mobile and the book
+# drivers at the one place a tool result enters the conversation.
+TOOL_RESULT_CHAR_CAP = 20_000
 
 ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
@@ -238,11 +247,14 @@ async def run_chat_loop(
     execute: ToolExecutor,
     approval_tools: frozenset[str] = APPROVAL_TOOLS,
     max_iterations: int = MAX_ITERATIONS,
-    # 4000, not 1200: DeepSeek hit finish_reason=length mid-report at 1200 (report-style
-    # answers with tables / multi-tool synthesis exceed it) — truncated answers on BOTH
-    # web and mobile. Applies per model turn; tool-call turns are tiny, so the ceiling
-    # only bites the long final answer. Mobile passes 4000 explicitly too (belt).
-    max_tokens: int = 4000,
+    # 8000, raised 1200 -> 4000 -> 8000, each time on a MEASURED truncation: 4000 was
+    # still cutting a full analytical answer mid-sentence (live turn 2026-08-11, credit
+    # spreads with drill-down). Not a guess at the ceiling either — research/book_driver
+    # has run BOOK_MAX_TOKENS = 8000 against this same provider nightly. Applies per
+    # model turn; tool-call turns are tiny, so it only ever bites the final answer.
+    # Central on purpose: mobile INHERITS this default, so web and mobile stay in
+    # lockstep and there is one number to change.
+    max_tokens: int = 8000,
 ) -> AsyncIterator[LoopEvent]:
     """Drive one chat turn to a final text answer (or an approval pause).
 
@@ -298,7 +310,8 @@ async def run_chat_loop(
                 return
             yield ToolCallStarted(call.id, call.name, call.arguments)
             try:
-                output = await execute(call.name, call.arguments)
+                output = fit_to_cap(await execute(call.name, call.arguments),
+                                    cap=TOOL_RESULT_CHAR_CAP)
             except Exception as exc:
                 logger.exception("tool %s failed", call.name)
                 output = {"error": str(exc)}

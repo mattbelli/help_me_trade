@@ -8,6 +8,7 @@ import threading
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from schwab.client import Client
 
@@ -15,8 +16,11 @@ from brokers.alpaca import StockBar
 from brokers.errors import BrokerError
 from brokers.schwab import SchwabError
 from brokers.schwab_auth import create_client
+from brokers.symbol_class import classify_symbol
 
 logger = logging.getLogger(__name__)
+
+_ET = ZoneInfo("America/New_York")
 
 _BATCH_CONCURRENCY = 6
 
@@ -198,22 +202,56 @@ class SchwabMarketData:
         return hourly
 
     @staticmethod
-    def _aggregate_to_4hourly(bars: list[StockBar]) -> list[StockBar]:
+    def _globex_bucket_epoch(dt: datetime, bucket_s: int) -> int:
+        """Epoch-second start of *dt*'s bucket, anchored on the 18:00 ET Globex open.
+
+        CME sessions run 18:00 ET (D-1) -> 17:00 ET (D), so the last bucket of a
+        session is a short stub (14:00-17:00 ET for 4H) and the next session
+        restarts the grid at 18:00 — exactly how ToS draws it. No session straddles
+        a US DST switch (both transitions land Sunday 02:00 ET, before the Sunday
+        18:00 open), so wall-clock anchoring needs no fold handling.
+        """
+        et = dt.astimezone(_ET)
+        anchor = et.replace(hour=18, minute=0, second=0, microsecond=0)
+        if et < anchor:
+            anchor -= timedelta(days=1)
+        offset = int((et - anchor).total_seconds()) // bucket_s * bucket_s
+        return int(anchor.timestamp()) + offset
+
+    @classmethod
+    def _aggregate_to_4hourly(
+        cls, bars: list[StockBar], *, session_anchored: bool = False
+    ) -> list[StockBar]:
+        """Fold 30-minute bars into 4-hour bars.
+
+        ``session_anchored`` (futures) buckets from the 18:00 ET Globex open;
+        otherwise buckets from UTC midnight. Futures NEED the session anchor:
+        18:00 ET is 22:00/23:00 UTC, neither a multiple of 4h, so UTC-epoch
+        buckets sat 2h off ToS and slid by an hour at every DST change (measured
+        on /ES: 12 distinct bucket starts across 180 days instead of 6). Worse,
+        the 16:00 ET bucket swallowed the 17:00-18:00 maintenance break AND the
+        next session's open, hiding the session boundary inside a candle. Every
+        shorter timeframe is safe because 18:00 ET is an exact multiple of
+        1/5/15/30/60 minutes from UTC midnight — 4H is the only one that isn't.
+        """
         if not bars:
             return []
 
+        bucket_s = 4 * 3600
         buckets: dict[int, list[StockBar]] = defaultdict(list)
         for bar in bars:
             dt = datetime.fromisoformat(bar.time.replace("Z", "+00:00"))
-            bucket_key = int(dt.timestamp()) // (4 * 3600)
-            buckets[bucket_key].append(bar)
+            key = (
+                cls._globex_bucket_epoch(dt, bucket_s)
+                if session_anchored
+                else int(dt.timestamp()) // bucket_s * bucket_s
+            )
+            buckets[key].append(bar)
 
         four_hourly: list[StockBar] = []
-        for bucket_key in sorted(buckets):
-            group = buckets[bucket_key]
-            bucket_start = datetime.fromtimestamp(
-                bucket_key * 4 * 3600, tz=UTC
-            )
+        for key in sorted(buckets):
+            group = buckets[key]
+            bucket_start = datetime.fromtimestamp(key, tz=UTC)
             four_hourly.append(
                 StockBar(
                     time=bucket_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -333,7 +371,9 @@ class SchwabMarketData:
                 end=end,
                 extended_hours=extended_hours,
             )
-            return self._aggregate_to_4hourly(bars)
+            return self._aggregate_to_4hourly(
+                bars, session_anchored=classify_symbol(symbol) == "future"
+            )
         if timeframe == "1Week":
             bars = await asyncio.to_thread(
                 self._fetch_bars_sync,

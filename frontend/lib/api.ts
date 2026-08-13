@@ -716,6 +716,19 @@ export type OptionsFlowEvent = {
   reason: string;
   caveat: string;
   detail?: Record<string, number> | null;
+  /** Laplace rank vs that name's own cell; smaller = rarer. Null = unranked. */
+  rarity_p?: number | null;
+  rarity_n?: number | null;
+  rarity_sentence?: string | null;
+  /** rarity × tenor × OTM × type, 0-10 display. Perception, not a forecast. */
+  conviction?: number | null;
+  conviction_parts?: {
+    rarity: number;
+    dte: number;
+    otm: number;
+    type: number;
+    ranked: boolean;
+  } | null;
 };
 
 export type OptionsFlowResult = {

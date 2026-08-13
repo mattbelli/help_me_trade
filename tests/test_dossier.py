@@ -1070,7 +1070,7 @@ def _seed_macro_axes(
     session: str = "2026-07-16",
     dollar_last: str | None = None,
 ) -> None:
-    """Seed history for all four REPORT_AXES.
+    """Seed history for the four price/credit REPORT_AXES.
 
     ``dollar_last`` caps the dollar series (inclusive) so as-of ``session`` can
     resolve to an earlier ``date_used`` (FRED lag). ``None`` → dollar tracks
@@ -1151,7 +1151,9 @@ def test_macro_stale_axis_reported_not_dropped(db: Path, tmp_path: Path) -> None
     assert "missing" in dollar["statement"]
     assert "[as of 2026-07-16]" in dollar["statement"]
     assert dollar["value"] is None
-    assert len(macros) == 4  # stale axis kept, not dropped
+    # One claim per axis — the invariant, not a count. A literal here breaks
+    # every time REPORT_AXES grows, which says nothing about D4.
+    assert len(macros) == len(REPORT_AXES)  # stale axis kept, not dropped
 
 
 def test_macro_absent_db_degrades_without_raising(db: Path, tmp_path: Path) -> None:
@@ -1270,6 +1272,13 @@ def test_macro_weekend_gap_still_fresh(db: Path, tmp_path: Path) -> None:
         rows.append(("DGS2", d, 4.0))
         rows.append(("DGS10", d, 4.0 + 0.05 * i))
         rows.append(("DTWEXBGS", d, 120.0 - i))
+        # Every REPORT_AXES input, or the assertion below degrades into "the
+        # seeded axes are fresh" and stops testing the weekend gap at all.
+        rows.append(("VXVCLS", d, 18.0 + i))  # vol_term
+        rows.append(("SOFR", d, 3.6))  # funding
+        rows.append(("IORB", d, 3.65))
+        rows.append(("corr_realized_21d", d, 0.10))  # correlation
+        rows.append(("breadth_above_200dma", d, 70.0))  # breadth
     upsert_macro(rows, db_path=macro_db)
     episode = _seed_episode(db)
 

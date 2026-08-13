@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/workspace/use-workspace-store";
 import {
   getWidgetDefinition,
@@ -21,6 +22,7 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
   const setPickerOpen = useWorkspaceStore((s) => s.setPickerOpen);
 
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
 
   const singletonTypesOnBoard = new Set(
     layout
@@ -41,6 +43,10 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
           (w.description ?? "").toLowerCase().includes(q),
       )
     : available;
+
+  // Clamp instead of resetting in render: the filter can shrink under the
+  // current highlight.
+  const active = shown.length ? Math.min(activeIndex, shown.length - 1) : -1;
 
   function close() {
     setPickerOpen(false);
@@ -85,7 +91,26 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActiveIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setActiveIndex(Math.min(active + 1, shown.length - 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setActiveIndex(Math.max(active - 1, 0));
+                return;
+              }
+              if (e.key === "Enter" && active >= 0) {
+                e.preventDefault();
+                select(shown[active].id);
+              }
+            }}
             placeholder="Search widgets…"
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
@@ -98,12 +123,22 @@ export function WorkspaceWidgetPicker({ onClose }: Props) {
               No widgets.
             </p>
           ) : null}
-          {shown.map((widget) => (
+          {shown.map((widget, i) => (
             <button
               key={widget.id}
               type="button"
               onClick={() => select(widget.id)}
-              className="flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]"
+              onMouseEnter={() => setActiveIndex(i)}
+              // Keyboard highlight scrolls into view as arrows move it.
+              ref={
+                i === active
+                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                  : undefined
+              }
+              className={cn(
+                "flex w-full flex-col items-start gap-0.5 rounded-sm px-2 py-2 text-left transition-colors",
+                i === active && "bg-[var(--bg-hover)]",
+              )}
             >
               <span className="font-mono text-[length:var(--fs-title)] font-semibold text-foreground">
                 {widget.title}

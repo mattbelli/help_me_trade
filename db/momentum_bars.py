@@ -103,6 +103,24 @@ def load_daily_bars(
     return result
 
 
+def load_all_closes(db_path: Path = DEFAULT_DB_PATH) -> list[tuple[str, str, float]]:
+    """Every (symbol, date, close) in the store, chronological.
+
+    Distinct from ``load_daily_bars``, which takes an explicit symbol list and
+    reshapes per symbol for the momentum target-set maths. Cross-sectional
+    statistics (breadth, correlation) want the whole panel at once and do not
+    know the universe in advance — that IS the universe.
+    """
+    init_momentum_bars_table(db_path)
+    with _connect(db_path) as conn:
+        return [
+            (str(r["symbol"]), str(r["date"]), float(r["close"]))
+            for r in conn.execute(
+                "SELECT symbol, date, close FROM momentum_daily_bars ORDER BY date, symbol"
+            ).fetchall()
+        ]
+
+
 def latest_bar_date(symbol: str, db_path: Path = DEFAULT_DB_PATH) -> str | None:
     init_momentum_bars_table(db_path)
     sym = symbol.strip().upper()

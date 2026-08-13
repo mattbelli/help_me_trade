@@ -1,8 +1,13 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import {
   WidgetEmpty,
   WidgetError,
@@ -67,11 +72,6 @@ const LANE_COLORS: Record<string, string> = {
   earnings_drift: "var(--c-amber)",
   convergence: "var(--c-blue)",
 };
-
-const TH =
-  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
-const ROW = "transition-colors hover:bg-[var(--bg-hover)]";
 
 function statusClass(status: string): string {
   switch (status) {
@@ -198,16 +198,38 @@ function LastVsZoneCell({ row }: { row: IdeaOutcomeRow }) {
   );
 }
 
-function StatusCell({ row }: { row: IdeaOutcomeRow }) {
-  const label = row.status.replace(/_/g, " ");
-  return (
-    <td
-      className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(row.status))}
-      title={row.notes?.trim() ? row.notes : undefined}
-    >
-      {label}
-    </td>
-  );
+// Shared by the Open and Resolved tables — same cell, same title/colour rule.
+const STATUS_COLUMN: DataTableColumn<IdeaOutcomeRow> = {
+  key: "status",
+  header: "Status",
+  className: (row) =>
+    cn("text-[length:var(--fs-body)] uppercase", statusClass(row.status)),
+  title: (row) => {
+    const notes = row.notes;
+    return notes?.trim() ? notes : undefined;
+  },
+  render: (row) => row.status.replace(/_/g, " "),
+};
+
+function symbolColumn(
+  linked: boolean,
+  publish: (symbol: string) => void,
+): DataTableColumn<IdeaOutcomeRow> {
+  return {
+    key: "symbol",
+    header: "Symbol",
+    className: "font-medium text-foreground",
+    render: (row) => (
+      <>
+        <ClickableSymbol
+          symbol={row.symbol}
+          linked={linked}
+          onActivate={() => publish(row.symbol)}
+        />
+        <OriginChip origin={row.origin} />
+      </>
+    ),
+  };
 }
 
 function OpenTable({
@@ -223,62 +245,62 @@ function OpenTable({
     return <WidgetEmpty message="No open ideas" />;
   }
 
+  const columns: DataTableColumn<IdeaOutcomeRow>[] = [
+    symbolColumn(linked, publish),
+    STATUS_COLUMN,
+    {
+      key: "entry",
+      header: "Entry",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: formatEntryZone,
+    },
+    {
+      key: "stop",
+      header: "Stop",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.stop,
+    },
+    {
+      key: "target",
+      header: "Target",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.targets[0] ?? "—",
+    },
+    {
+      key: "last",
+      header: "Last",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => <LastVsZoneCell row={row} />,
+    },
+    {
+      key: "mfe_mae",
+      header: "MFE / MAE",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => formatMfeMae(row.mfe_pct, row.mae_pct),
+    },
+    {
+      key: "as_of",
+      header: "As of",
+      className: "text-[var(--fg-faint)]",
+      render: (row) => formatDateOnly(row.as_of),
+    },
+    {
+      key: "expires_on",
+      header: "Expires",
+      className: "text-[var(--fg-faint)]",
+      title:
+        "idea TTL: 10 trading days to trigger, 20 after trigger to resolve",
+      render: (row) => formatDayString(row.expires_on),
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Status</th>
-            <th className={cn(TH, "text-left")}>Entry</th>
-            <th className={cn(TH, "text-right")}>Stop</th>
-            <th className={cn(TH, "text-right")}>Target</th>
-            <th className={cn(TH, "text-right")}>Last</th>
-            <th className={cn(TH, "text-right")}>MFE / MAE</th>
-            <th className={cn(TH, "text-left")}>As of</th>
-            <th className={cn(TH, "text-left")}>Expires</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {rows.map((row) => (
-            <tr key={row.id} className={ROW}>
-              <td className={cn(TD, "font-medium text-foreground")}>
-                <ClickableSymbol
-                  symbol={row.symbol}
-                  linked={linked}
-                  onActivate={() => publish(row.symbol)}
-                />
-                <OriginChip origin={row.origin} />
-              </td>
-              <StatusCell row={row} />
-              <td className={cn(TD, "tabular-nums text-[var(--fg-dim)]")}>
-                {formatEntryZone(row)}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {row.stop}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {row.targets[0] ?? "—"}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                <LastVsZoneCell row={row} />
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {formatMfeMae(row.mfe_pct, row.mae_pct)}
-              </td>
-              <td className={cn(TD, "text-[var(--fg-faint)]")}>
-                {formatDateOnly(row.as_of)}
-              </td>
-              <td
-                className={cn(TD, "text-[var(--fg-faint)]")}
-                title="idea TTL: 10 trading days to trigger, 20 after trigger to resolve"
-              >
-                {formatDayString(row.expires_on)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} />
     </div>
   );
 }
@@ -443,88 +465,81 @@ function ResolvedTable({
     return <WidgetEmpty message="No resolved ideas" />;
   }
 
+  const columns: DataTableColumn<IdeaOutcomeRow>[] = [
+    symbolColumn(linked, publish),
+    STATUS_COLUMN,
+    {
+      key: "resolved_at",
+      header: "Resolved",
+      className: "text-[var(--fg-dim)]",
+      render: (row) => formatDateOnly(row.resolved_at),
+    },
+    {
+      key: "resolution_price",
+      header: "Price",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.resolution_price ?? "—",
+    },
+    {
+      key: "mfe_mae",
+      header: "MFE / MAE",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => formatMfeMae(row.mfe_pct, row.mae_pct),
+    },
+    {
+      key: "grade",
+      header: "Grade",
+      className: "text-[length:var(--fs-body)]",
+      render: (row) => {
+        if (!GRADEABLE_STATUSES.has(row.status)) {
+          return <span className="text-[var(--fg-faint)]">—</span>;
+        }
+        if (gradingId === row.id) {
+          return <Tag tone="accent">grading…</Tag>;
+        }
+        if (row.verdict) {
+          return (
+            <button
+              type="button"
+              onClick={() => setGradingId(row.id)}
+              className="transition-colors hover:brightness-110"
+              title="Click to revise grade"
+            >
+              <GradeDisplay row={row} />
+            </button>
+          );
+        }
+        return (
+          <button
+            type="button"
+            onClick={() => setGradingId(row.id)}
+            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-faint)] transition-colors hover:border-[var(--c-accent)] hover:text-[var(--c-accent)]"
+          >
+            grade
+          </button>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Status</th>
-            <th className={cn(TH, "text-left")}>Resolved</th>
-            <th className={cn(TH, "text-right")}>Price</th>
-            <th className={cn(TH, "text-right")}>MFE / MAE</th>
-            <th className={cn(TH, "text-left")}>Grade</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {rows.map((row) => {
-            const gradeable = GRADEABLE_STATUSES.has(row.status);
-            const open = gradingId === row.id;
-            return (
-              <Fragment key={row.id}>
-                <tr className={ROW}>
-                  <td className={cn(TD, "font-medium text-foreground")}>
-                    <ClickableSymbol
-                      symbol={row.symbol}
-                      linked={linked}
-                      onActivate={() => publish(row.symbol)}
-                    />
-                    <OriginChip origin={row.origin} />
-                  </td>
-                  <StatusCell row={row} />
-                  <td className={cn(TD, "text-[var(--fg-dim)]")}>
-                    {formatDateOnly(row.resolved_at)}
-                  </td>
-                  <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                    {row.resolution_price ?? "—"}
-                  </td>
-                  <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                    {formatMfeMae(row.mfe_pct, row.mae_pct)}
-                  </td>
-                  <td className={cn(TD, "text-[length:var(--fs-body)]")}>
-                    {!gradeable ? (
-                      <span className="text-[var(--fg-faint)]">—</span>
-                    ) : row.verdict && !open ? (
-                      <button
-                        type="button"
-                        onClick={() => setGradingId(row.id)}
-                        className="transition-colors hover:brightness-110"
-                        title="Click to revise grade"
-                      >
-                        <GradeDisplay row={row} />
-                      </button>
-                    ) : open ? (
-                      <span className="text-[var(--c-accent)]">grading…</span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setGradingId(row.id)}
-                        className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[length:var(--fs-table)] text-[var(--fg-faint)] transition-colors hover:border-[var(--c-accent)] hover:text-[var(--c-accent)]"
-                      >
-                        grade
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {open ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="border-b border-[var(--line-divider)] bg-[var(--bg-hover)]"
-                    >
-                      <GradeForm
-                        row={row}
-                        onSubmit={(grade) => onGrade(row.id, grade)}
-                        onCancel={() => setGradingId(null)}
-                      />
-                    </td>
-                  </tr>
-                ) : null}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        renderExpanded={(row) =>
+          gradingId === row.id ? (
+            <GradeForm
+              row={row}
+              onSubmit={(grade) => onGrade(row.id, grade)}
+              onCancel={() => setGradingId(null)}
+            />
+          ) : null
+        }
+      />
     </div>
   );
 }
@@ -576,76 +591,98 @@ function LedgerTable({
   linked: boolean;
   publish: (symbol: string) => void;
 }) {
+  const columns: DataTableColumn<IdeaLedgerRow>[] = [
+    {
+      key: "as_of",
+      header: "Date",
+      headerClassName: "whitespace-nowrap",
+      className: "whitespace-nowrap text-[var(--fg-faint)]",
+      render: (row) => formatLedgerDate(row.as_of),
+    },
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium text-foreground",
+      render: (row) => (
+        <ClickableSymbol
+          symbol={row.symbol}
+          linked={linked}
+          onActivate={() => publish(row.symbol)}
+        />
+      ),
+    },
+    {
+      key: "lane",
+      header: "Lane",
+      className: "whitespace-nowrap",
+      render: (row) => (
+        <span style={{ color: LANE_COLORS[row.origin] ?? "var(--fg-dim)" }}>
+          {row.origin.toLowerCase()}
+        </span>
+      ),
+    },
+    {
+      key: "direction",
+      header: "Dir",
+      className: "text-[var(--fg-dim)]",
+      render: (row) => row.direction.toLowerCase(),
+    },
+    {
+      key: "rank",
+      header: "Rank",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.idea_index,
+    },
+    {
+      key: "entry",
+      header: "Entry",
+      align: "right",
+      className: "whitespace-nowrap tabular-nums text-[var(--fg-dim)]",
+      render: (row) => (
+        <>
+          {row.entry_low}–{row.entry_high}
+        </>
+      ),
+    },
+    {
+      key: "stop",
+      header: "Stop",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => row.stop || "—",
+    },
+    {
+      key: "target",
+      header: "Target",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (row) => firstTarget(row.targets_json),
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: "text-[var(--fg-dim)]",
+      render: (row) => row.status,
+    },
+    {
+      key: "ret_pct",
+      header: "Result %",
+      align: "right",
+      className: (row) => cn("tabular-nums", ledgerResultClass(row.ret_pct)),
+      render: (row) => formatLedgerResult(row.ret_pct),
+    },
+    {
+      key: "user_action",
+      header: "Action",
+      className: "text-[var(--fg-dim)]",
+      render: (row) => row.user_action || "skipped",
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "whitespace-nowrap text-left")}>Date</th>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left")}>Lane</th>
-            <th className={cn(TH, "text-left")}>Dir</th>
-            <th className={cn(TH, "text-right")}>Rank</th>
-            <th className={cn(TH, "text-right")}>Entry</th>
-            <th className={cn(TH, "text-right")}>Stop</th>
-            <th className={cn(TH, "text-right")}>Target</th>
-            <th className={cn(TH, "text-left")}>Status</th>
-            <th className={cn(TH, "text-right")}>Result %</th>
-            <th className={cn(TH, "text-left")}>Action</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {rows.map((row) => (
-            <tr key={row.id} className={ROW}>
-              <td className={cn(TD, "whitespace-nowrap text-[var(--fg-faint)]")}>
-                {formatLedgerDate(row.as_of)}
-              </td>
-              <td className={cn(TD, "font-medium text-foreground")}>
-                <ClickableSymbol
-                  symbol={row.symbol}
-                  linked={linked}
-                  onActivate={() => publish(row.symbol)}
-                />
-              </td>
-              <td className={cn(TD, "whitespace-nowrap")}>
-                <span
-                  style={{ color: LANE_COLORS[row.origin] ?? "var(--fg-dim)" }}
-                >
-                  {row.origin.toLowerCase()}
-                </span>
-              </td>
-              <td className={cn(TD, "text-[var(--fg-dim)]")}>
-                {row.direction.toLowerCase()}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {row.idea_index}
-              </td>
-              <td className={cn(TD, "whitespace-nowrap text-right tabular-nums text-[var(--fg-dim)]")}>
-                {row.entry_low}–{row.entry_high}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {row.stop || "—"}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {firstTarget(row.targets_json)}
-              </td>
-              <td className={cn(TD, "text-[var(--fg-dim)]")}>{row.status}</td>
-              <td
-                className={cn(
-                  TD,
-                  "text-right tabular-nums",
-                  ledgerResultClass(row.ret_pct),
-                )}
-              >
-                {formatLedgerResult(row.ret_pct)}
-              </td>
-              <td className={cn(TD, "text-[var(--fg-dim)]")}>
-                {row.user_action || "skipped"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} />
     </div>
   );
 }
@@ -787,12 +824,14 @@ export function IdeaOutcomesWidget({ config }: WidgetProps) {
           </span>
         ) : null}
         {stale ? (
-          <span
-            className="font-mono text-[length:var(--fs-micro)] tracking-[0.08em] text-[var(--c-amber)] uppercase"
+          <Tag
+            tone="amber"
+            uppercase
             title={error ?? undefined}
+            className="font-mono text-[length:var(--fs-micro)]"
           >
             stale
-          </span>
+          </Tag>
         ) : null}
       </div>
 

@@ -618,7 +618,9 @@ def _attach_structure(
     symbol = str(episode["symbol"])
     session_best = nearest_level(
         price=price_f,
-        levels=fusion_db.get_session_levels(symbol, db_path=db_path),
+        levels=fusion_db.get_session_levels(
+            symbol, as_of=_market_day(ts), db_path=db_path
+        ),
         alert_prices=[],
         atr_value=atr_f,
     )

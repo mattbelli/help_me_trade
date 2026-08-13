@@ -33,6 +33,7 @@ from api.jobs import (
     jobs_health,
     mark_alive,
     newest_backup_age_s,
+    off_box_pull_age_s,
     register_job,
     register_watchdog_job,
     start_all,
@@ -70,6 +71,7 @@ from brokers.factory import (
 from brokers.market_clock import market_session as _market_session
 from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
 from brokers.schwab_market_stream import SchwabMarketStreamHub
+from config.log_redaction import install_log_redaction
 from config.settings import (
     SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
@@ -159,7 +161,11 @@ from signals.options_flow.runner import OptionsFlowRunner
 from signals.regime import refresh_regime_macro
 from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
-from signals.session_node_strategy import compute_session_levels, run_session_node_scan
+from signals.session_node_strategy import (
+    compute_session_levels,
+    compute_session_levels_batch,
+    run_session_node_scan,
+)
 from signals.social_buzz import _LOOP_INTERVAL_SECONDS as _SOCIAL_BUZZ_INTERVAL_SECONDS
 from signals.social_buzz import social_buzz_loop
 from signals.strategy_kinds import strategy_kind
@@ -272,10 +278,14 @@ _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
 _PROPOSAL_SWEEP_INTERVAL_SECONDS = 60.0
 _IDEA_TRACKER_INTERVAL_MARKET_SECONDS = 1800.0
 _IDEA_TRACKER_INTERVAL_OFF_SECONDS = 3600.0
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 logging.basicConfig(
     level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format=_LOG_FORMAT,
 )
+# Vendor keys ride in the query string (Finnhub token, FRED api_key, AV apikey) and
+# httpx logs full URLs — redact before anything reaches the journal.
+install_log_redaction(_LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
@@ -1888,42 +1898,57 @@ def _fusion_levels_pending_symbols_sync(as_of: str) -> list[str]:
     )
 
 
+def _fusion_levels_store_sync(
+    payloads: dict[str, dict], as_of: str
+) -> int:
+    """Stamp a batch of computed levels — sync SQLite writes, thread-only. One hop for
+    the whole sweep, not one per symbol (the midnight pass stamps ~9.8K of them)."""
+    from db.fusion import put_session_levels
+
+    stamped = 0
+    for symbol, payload in payloads.items():
+        levels = list(payload.get("levels") or [])
+        if not levels:
+            continue
+        put_session_levels(symbol, as_of, levels)
+        stamped += 1
+    return stamped
+
+
 async def _fusion_levels_refresh_once() -> None:
     """Once-daily external work, deliberately separate from trigger intake.
 
     Structure sibling of _fusion_atr_refresh_once: stamps each pending symbol's latest
     completed session nodes into fusion_session_levels so the hot intake path only ever
-    READS them (never a live compute during a burst). compute_session_levels fetches
-    through get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
-    producer — so this never bursts Schwab. Bounded fan-out under a small semaphore;
-    per-symbol failures are counted and skipped, the job never raises."""
-    from db.fusion import put_session_levels
+    READS them (never a live compute during a burst). Fetches through
+    get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
+    producer — so this never bursts Schwab.
+
+    BATCHED, and that is what keeps it affordable: compute_session_levels_batch asks the
+    provider once per 100-symbol slice instead of twice per symbol, so the midnight pass
+    (~9.8K symbols, every one pending at the as_of rollover) costs ~120 requests instead
+    of ~19,750 — measured 2026-08-12 at 7,349/min peak against a 200/min ceiling. It also
+    removes the need for any back-off: a symbol that yields nothing rides along in a
+    slice for free, so it can be re-attempted every cycle and recovers the moment its
+    data appears, with no interval to tune and no state to lose across a restart.
+    """
     from db.lane_stats import bump
 
     as_of = datetime.now(_ET).date().isoformat()
     symbols = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
     if not symbols:
         return
-    sem = asyncio.Semaphore(6)
-
-    async def _stamp_one(symbol: str) -> None:
-        async with sem:
-            try:
-                payload = await compute_session_levels(symbol=symbol)
-                levels = (
-                    list(payload.get("levels") or [])
-                    if isinstance(payload, dict)
-                    else []
-                )
-                if not levels:
-                    return
-                await asyncio.to_thread(put_session_levels, symbol, as_of, levels)
-                await asyncio.to_thread(bump, "fusion_intake", "levels_stamped")
-            except Exception:
-                logger.exception("fusion levels refresh failed for %s", symbol)
-                await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
-
-    await asyncio.gather(*(_stamp_one(symbol) for symbol in symbols))
+    try:
+        payloads = await compute_session_levels_batch(symbols)
+    except Exception:
+        # Per-slice failures are already absorbed inside the batch; reaching here means
+        # the sweep itself broke. Count it and leave everyone pending for the next pass.
+        logger.exception("fusion levels refresh failed (%d symbols)", len(symbols))
+        await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
+        return
+    stamped = await asyncio.to_thread(_fusion_levels_store_sync, payloads, as_of)
+    if stamped:
+        await asyncio.to_thread(bump, "fusion_intake", "levels_stamped", stamped)
 
 
 async def _fusion_reason_once() -> None:
@@ -2360,6 +2385,7 @@ def health() -> dict[str, int | str | float | bool | list | None]:
         "jobs": jobs_health(),
         "db_size_bytes": db_size_bytes,
         "newest_backup_age_s": newest_backup_age_s(),
+        "off_box_pull_age_s": off_box_pull_age_s(),
         # Both safety states, reported independently. kill_switch = total freeze
         # (human-only); entries_halted = HALT (blocks exposure-increasing orders,
         # exits still flow; armed by the daily-loss breaker or a human).
@@ -3290,6 +3316,7 @@ async def api_options_flow(
     event_type: str | None = None,
     min_premium: float | None = None,
     since: str | None = None,
+    order: str = "recent",
 ):
     """Recent unusual options-activity events (Mode-A perception).
 
@@ -3297,16 +3324,19 @@ async def api_options_flow(
     ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
     (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
     ``event_type`` accepts a comma-separated list to filter the tape by kind.
+    ``order`` is recent (default), premium, unusual, or conviction.
     """
     from db.options_flow import recent_events
 
     capped = max(1, min(int(limit), 250))
+    order_key = order if order in ("recent", "premium", "unusual", "conviction") else "recent"
     try:
         events = recent_events(
             symbol=symbol,
             event_type=event_type,
             min_premium=min_premium,
             since=since,
+            order=order_key,
             limit=capped,
         )
     except Exception as exc:  # noqa: BLE001 — read-only endpoint, fail-soft

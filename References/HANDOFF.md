@@ -15,6 +15,90 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-13 Abnormality scanner (#296) — brief written, awaiting founder OK
+
+`References/ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` (BUILD_LOG 08-13 row has the decisions).
+- ▶ **Founder reviews the brief** → then Inc 1 (data: 5-min store gap backfill 07-28→today +
+  `--universe` flag; new market-wide daily store). Thresholds get replay-tuned (Inc 2) before
+  anything runs live; surfaces-only launch, no notifications.
+- Side finding parked here deliberately: the **idea ledger** is mechanically alive but drowned
+  (~8.4k of 17,481 rows are fusion_mech) and the founder called it "probably dead as it stands" —
+  a revival/triage is its own future thread, not part of #296.
+
+## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
+
+Section-by-section rebuild (founder's method) per `References/fusion_layer_audit/README.md`; card #302.
+Round A widened the macro substrate and wired it to both agent surfaces (BUILD_LOG 08-11 row).
+- ✅ **Cboe close cron — CHECKED 08-12, passed.** Both firings (22:00 + 23:00 UTC) wrote 08-11 rows for
+  all 7 series, and the values are the settle: `last_trade_time` is 16:15:01 ET, the index settlement
+  print. ⚠️ Two gotchas for whoever reads these next: post-settle Cboe rolls `prev_day_close` forward
+  so it EQUALS today's close on every series — the VXTLT/VXEEM rejection test was never really about
+  that field, it was about `last_trade_time` (16:02 + a different tz = not a settle); and VIX1D and
+  VIX9D both printed exactly 12.52, which is coincidence, not a duplicated feed — their open/high/low
+  differ (7.52/12.63/7.07 vs 12.95/13.10/12.32), checked against the vendor directly.
+- ▶ **Round B** (not started): consolidate the fusion regime dot onto `macro.db` (it still reads the
+  thin `regime_macro`), delete `market_shock`'s dead VIX arm + the never-resetting `MAX()` latch.
+- ▶ **founder call**: no UI surface renders the regime axes (now 8 + index gamma). **No new widget**
+  (standing rule) — so this needs a merge target on an existing widget, or it stays agent-only.
+- ✅ **CPI check — ANSWERED EARLY 08-12, and it found the real gap.** The books were not blind (fable's
+  08-11 session does discuss CPI) but it had gone to the OPEN WEB for it: the calendar shipped onto the
+  `market` perception resource and **not onto the nightly book pack**, which is what a book reads
+  first — the 08-11 packs carry no CPI line at all. Fixed at the same edit site as the gamma line
+  (`research/books._market_frame_section`); the pack now renders `CPI in 1d (2026-08-12)` plus the
+  `not_covered` caveat, pinned by two tests. Same class as `research-engine-bypassed-perception`: a
+  source is not wired until EVERY consumer surface has it, and the pack was the one skipped.
+- ▶ **Founder's 1-by-1 queue**: ~~1 apply reviews~~ ✅ · ~~2 macro event calendar~~ ✅ ·
+  ~~3 correlation + breadth~~ ✅ · ~~4 deeper daily-bar backfill~~ ✅ (found + fixed a silent
+  batch-pagination truncation; a second review then found 6 MAJORs in that fix — all closed) ·
+  ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · ~~6 dealer positioning~~ ✅ (gamma 08-12, vanna + charm
+  08-12; #303 + two BUILD_LOG rows) · **7 Round B cleanup — the only one left.**
+- ▶ **Three carried-forward notes from the dealer-exposure rounds** (notes, not cards): `oi_walls`
+  still cannot filter by strike or read a past date despite 27.6M rows of per-strike history — the
+  gamma work needed the whole latest board and got `oi_board()`, but a strike/date drill-down is
+  still missing; `list_capabilities()` is now **~22.7k chars against a 20,000 tool-result cap** (was
+  20,364 before `gex`, 22,168 after it, and the vanna/charm round gave most of its own increase back
+  by compressing the `gex` description) — it has no rows to drop so `fit_to_cap` passes it through
+  whole rather than corrupting it, but every manifest read spends ~5.5k tokens, and the fix is a
+  two-tier manifest (names + one-liners, full descriptions on request), not a shorter description;
+  and a **VIX-flat historical backfill of the FLIP level only** is defensible research — the flip is
+  far less vol-sensitive than the magnitude — which would give percentiles years earlier than
+  waiting 60 sessions. Unrun.
+- ▶ **No UI surface renders any of the regime axes** (8 macro + gamma/vanna/charm). Founder's call,
+  and it stays agent-only until he makes it: standing instruction is **no new widget**, so this needs
+  a merge target on an existing one (`widget-consolidation-direction`).
+- ▶ **Design still standing**: the SME collar is a known POSITION so it belongs with reference levels,
+  not as a statistic; single-name GEX stays in Section 3.
+- ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
+  (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
+
+## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
+
+Since Fri 08-07 ~10:00 ET the v1beta1/opra trades WS lags 8-12s (p50, RTH) and silently drops
+~30% of prints under load (measured vs the Databento spine; BUILD_LOG 08-11 row has the numbers,
+scratch analysis method: pairing-shadow `wire_lag_ms`/`dbn=`/`alp=` counters). Founder posted the
+stats to the Alpaca forum. Spine unaffected; live impact = pairing enrichment (matched 98%→~57%)
+and the GTH/overnight tape (Alpaca-only, no fallback).
+- ⏳ **check by 08-14**: has alp/dbn recovered to ~99%+ and matched% to ~98? (one journal grep of
+  `pairing shadow`). If recovered, delete this entry; if not, consider a degraded-lane flag on
+  GTH-fed consumers.
+- ⏳ unexplained: flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then stabilized — if
+  that wasn't founder/deploy activity, worth one journal look before deleting this line.
+
+## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
+
+Merge `520e944c` (08-01) silently dropped 16 board cards; all restored 08-10 as #284–#299
+(BUILD_LOG row has the forensics). #299 (Addendum-G scoring) and #298 (quiet-tape prereg) closed
+08-11 — both registered runs completed, both verdicts DEAD (see the BUILD_LOG row + the cards).
+Remaining:
+
+- ⏳ **#297 Schwab re-auth Akamai** — "VERDICT 2026-08-06" passed unobserved; check the manual
+  bridge + daily cron actually held (last successful re-auth timestamp) before closing.
+- **Founder lane refilled:** #294 (multi-angle reasoning A/B greenlight, waiting since 07-19) and
+  #295 (ext-entry sizing) are back in the queue at `/board`.
+- **Guard follow-up (unbuilt):** #276 fixed the reformat CAUSE, but no guard stops a merge
+  resolution replacing `board.json` wholesale — a card-count-drop check in the commit hook would
+  have caught this on 08-01.
+
 ## ▶ 08-09 board-format + flow-provenance round — Monday verifies owed
 
 Both shipped + deployed (BUILD_LOG rows; cards #276 and #246). `feat/wire-data-everywhere` is
@@ -30,6 +114,61 @@ merge-hazard noted here earlier is gone. Open:
   direction!='undetermined' and ts>='2026-08-10' group by 1,2`.
 - **Founder in-browser check owed:** board cards select/copy with the mouse, show `#num`, still
   toggle on click and Enter/Space; and a flow event's *side basis* cell + why-line read correctly.
+  **Extended 08-10 (card #277):** the flow widget's side column now speaks words — buy/sell
+  saturated, mid buy/mid sell muted, new dim `right` column, flag column gone; check narrow-width
+  layout too (column widths were rebalanced, min-width 632→608).
+  **Extended 08-10 pm (cards #278-280, agent-UI prep round — see BUILD_LOG):** 7 table widgets
+  migrated to the new `DataTable` primitive (deployed). Deltas to eyeball: tables should look
+  byte-identical except the ⓘ ticker button now reveals on whole-row hover in filings/desk/
+  evidence-stack/idea-outcomes (was ticker-only), and orders' Side dead-space now truncates
+  instead of forcing width. Quick tour: `/dev/gallery` renders every widget on fake data;
+  `node tools/ui-shot.mjs <widget-id>` screenshots one (dev server on 3055 first).
+  **Extended 08-10 eve (card #281, deployed):** orders/positions grew a real Account column
+  (plain dim word, chip gone, rows single-line again), order status reads lowercase words
+  (`working`/`partial fill` — partial fill now amber, was wrongly green), ALL sortable table
+  headers app-wide went back to UPPERCASE (positions/desk/etc. were silently Title-case), and a
+  failed orders snapshot now shows an error + retry instead of "Waiting for orders…".
+  **Extended 08-10 late (cards #282/#283 + picker fix, deployed):** watchlist — drag a row out
+  and release: it's DELETED, immediately, no confirm (founder overruled #282's pill the same
+  evening; red ring while dragging is the only warning, and there is no undo — his explicit
+  call). Right-click a row → context menu: `delete SYM`, plus `pin/unpin` on slot-capped lists
+  only. Delete/Backspace on the keyboard-selected row also deletes. Comfortable rows are 29px
+  (was 33); the add row is a real table row with a blinking block cursor (founder steered it
+  live in the coder's pane). Widget picker: Space→type→arrows→Enter launches a widget.
+
+## ▶ Agent-UI prep follow-ups (from the 08-10 round's day-one catches — not yet carded)
+- ~~Validation case~~ **SHIPPED 08-10 (card #281)** — the process proof worked: coder followed the
+  rule card, screenshot loop caught a wrap regression before review, ui-review found a real
+  pre-existing Blocker. New follow-ups it surfaced: (a) orders `Type`/`Mode` columns still render
+  raw enums (`labels.ts` `order_type` kind sits ready); (b) **product call:** in single-account
+  scopes `accountLabel` is empty so the Account column is all `—` — hide it there, or keep the
+  stable layout? (c) reports-widget wraps its `label()` in a bordered uppercase box — the banned
+  pill again, candidate next fix; (d) Filled/Rejected order tabs can't carry Account until the
+  backend adds an account field to `TradeEvent`/`OrderExecution`.
+- **Invisible loading skeleton (REAL bug, every theme):** skeleton cell bg == panel hex
+  (`--bg-raised`→`--surface-toolbar` == `--surface-widget`); only the reduced-motion-hidden
+  shimmer ever made it visible. One-token fix; founder pick of shade.
+- Gallery-caught layout defects awaiting their turn: idea-outcomes rows wrap/double at default
+  width; options-chain sticky header scrolls away on ATM auto-scroll; index-pressure footer
+  collides with its tabs at default width; performance-stats period selector dead space.
+- **80 pre-existing `react-hooks/*` eslint errors** block eslint ever gating; tailwind
+  `no-unknown-classes` at warn needs an allowlist of our ~155 hand-written classes before it
+  could go to error. index-pressure still carries 16 off-ladder px sizes (2 below the 10px
+  floor) + knob-family token dialect — sweep candidate.
+- `check:tokens` is green but inert until wired into pre-push/CI.
+- **Watchlist #283 leftovers:** a FAILED delete is completely silent — `removeSymbol` sets
+  `error` but it only renders when `!displayList`, i.e. never in practice (pre-existing; now
+  more exposed with three delete paths and no confirm). Two right-click menu skins exist:
+  `page-switcher.tsx` (`--panel`/rounded/Title Case) vs the watchlist's
+  (`--bg-inset`/square/lowercase) — one should win codebase-wide.
+- **Watchlist round leftovers (08-10, card #282):** gallery has NO fixture for
+  `PUT /api/watchlists/{id}` — unmatched writes answer `{}` and kill the widget, so no gallery/
+  ui-shot check can exercise ANY watchlist write (add/remove/reorder/density); worth a fixture.
+  Add-row-over-header z-order (z-30 vs header z-[2]) — pre-existing, needs a widget z-order
+  re-plan, founder saw + accepted current state. Framer `whileDrag` scale (1.02) never reverts
+  after a drag-out release — armed row sits ~2% wide/10px displaced until next re-render,
+  cosmetic. `lib/api.ts` `searchSymbols` uses banned `cache:"no-store"`. Watchlist
+  `WidgetLoading cols={[2,1,1,1]}` vs 6 real columns; earnings badge is still a boxed chip.
 - **Before merging any worktree branch**, run `git merge-tree --write-tree main <branch>` first —
   main's board was renumbered and split on 08-09, so a branch carrying its own `board.json` edits
   should take main's board wholesale and re-apply its card edits with `tools/board.py note|move`.

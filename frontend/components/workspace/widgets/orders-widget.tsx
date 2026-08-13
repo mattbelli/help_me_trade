@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { ClickableSymbol } from "@/components/workspace/clickable-symbol";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "@/components/workspace/primitives/data-table";
+import { Tag } from "@/components/workspace/primitives/tag";
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
   WidgetEmpty,
@@ -10,6 +15,7 @@ import {
   WidgetLoading,
 } from "@/components/workspace/widget-states";
 import { formatMoney } from "@/lib/api";
+import { label } from "@/lib/labels";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
 import type { WidgetProps } from "@/lib/workspace/widget-registry";
@@ -36,11 +42,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "rejected", label: "Rejected" },
 ];
 
-const TH =
-  "border-b border-[var(--line-divider)] px-2 py-1.5 text-[length:var(--fs-micro)] font-medium tracking-[0.08em] text-[var(--fg-faint)] uppercase";
-const TD = "border-b border-[var(--line-divider)] px-2 py-1.5";
-const ROW = "group/row transition-colors hover:bg-[var(--bg-hover)]";
-
 type PublishProps = {
   publish: (symbol: string) => void;
   linked: boolean;
@@ -48,8 +49,9 @@ type PublishProps = {
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
-  if (s.includes("fill")) return "text-[var(--c-green)]";
+  // partial before fill: "partially_filled" contains both.
   if (s.includes("partial")) return "text-[var(--c-amber)]";
+  if (s.includes("fill")) return "text-[var(--c-green)]";
   if (s.includes("cancel") || s.includes("reject")) return "text-[var(--c-red)]";
   if (s.includes("new") || s.includes("accept") || s.includes("pending"))
     return "text-[var(--c-blue)]";
@@ -113,81 +115,88 @@ function FilledTab({
     return <WidgetEmpty message="No trade history" />;
   }
 
+  const columns: DataTableColumn<TradeEvent>[] = [
+    {
+      key: "date",
+      header: "Date",
+      className: "whitespace-nowrap text-[var(--fg-dim)]",
+      render: (e) => {
+        const fillClock = formatFillClock(e.fill_time);
+        return (
+          <>
+            {e.trade_date}
+            {fillClock ? (
+              <span className="ml-1.5 text-[var(--fg-faint)]">{fillClock}</span>
+            ) : null}
+          </>
+        );
+      },
+    },
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium",
+      render: (e) => {
+        const sym = e.symbol;
+        return sym ? (
+          <ClickableSymbol
+            symbol={sym}
+            linked={linked}
+            onActivate={() => publish(sym)}
+          />
+        ) : (
+          "—"
+        );
+      },
+    },
+    {
+      key: "side",
+      header: "Side",
+      absorb: true,
+      className: (e) =>
+        cn(
+          "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+          sideClass(e.side),
+        ),
+      render: (e) => e.side ?? "—",
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (e) => e.quantity ?? "—",
+    },
+    {
+      key: "price",
+      header: "Price",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (e) => (e.price != null ? formatTradeMoney(e.price) : "—"),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      className: (e) =>
+        cn(
+          "tabular-nums",
+          parseMoney(e.amount) >= 0
+            ? "text-[var(--c-green)]"
+            : "text-[var(--c-red)]",
+        ),
+      render: (e) => (
+        <>
+          {parseMoney(e.amount) >= 0 ? "+" : ""}
+          {formatTradeMoney(e.amount)}
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Date</th>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left", "w-full")}>Side</th>
-            <th className={cn(TH, "text-right")}>Qty</th>
-            <th className={cn(TH, "text-right")}>Price</th>
-            <th className={cn(TH, "text-right")}>Amount</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {events.map((e) => {
-            const amount = parseMoney(e.amount);
-            const sym = e.symbol;
-            const fillClock = formatFillClock(e.fill_time);
-            return (
-              <tr key={e.id} className={ROW}>
-                <td
-                  className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}
-                >
-                  {e.trade_date}
-                  {fillClock ? (
-                    <span className="ml-1.5 text-[var(--fg-faint)]">
-                      {fillClock}
-                    </span>
-                  ) : null}
-                </td>
-                <td className={cn(TD, "font-medium")}>
-                  {sym ? (
-                    <ClickableSymbol
-                      symbol={sym}
-                      linked={linked}
-                      onActivate={() => publish(sym)}
-                    />
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td
-                  className={cn(
-                    TD,
-                    "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
-                    sideClass(e.side),
-                  )}
-                >
-                  {e.side ?? "—"}
-                </td>
-                <td
-                  className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}
-                >
-                  {e.quantity ?? "—"}
-                </td>
-                <td
-                  className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}
-                >
-                  {e.price != null ? formatTradeMoney(e.price) : "—"}
-                </td>
-                <td
-                  className={cn(
-                    TD,
-                    "text-right tabular-nums",
-                    amount >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]",
-                  )}
-                >
-                  {amount >= 0 ? "+" : ""}
-                  {formatTradeMoney(e.amount)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={events} rowKey={(e) => e.id} />
     </div>
   );
 }
@@ -195,16 +204,23 @@ function FilledTab({
 function OpenTab({
   orders,
   snapshotLoading,
+  snapshotError,
   hasSnapshot,
+  onRetry,
   publish,
   linked,
 }: {
   orders: TaggedOrder[];
   snapshotLoading: boolean;
+  snapshotError: string | null;
   hasSnapshot: boolean;
+  onRetry: () => void;
 } & PublishProps) {
   if (snapshotLoading && !hasSnapshot) {
-    return <WidgetLoading cols={[2, 1, 1, 2, 2]} />;
+    return <WidgetLoading cols={[2, 2, 3, 1, 1, 1, 2, 2]} />;
+  }
+  if (snapshotError && !hasSnapshot) {
+    return <WidgetError message={snapshotError} onRetry={onRetry} />;
   }
   if (!hasSnapshot) {
     return <WidgetEmpty message="Waiting for orders…" />;
@@ -213,65 +229,80 @@ function OpenTab({
     return <WidgetEmpty message="No open orders" />;
   }
 
+  const columns: DataTableColumn<TaggedOrder>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium text-[var(--c-accent)]",
+      render: (o) => (
+        <ClickableSymbol
+          symbol={o.symbol}
+          linked={linked}
+          onActivate={() => publish(o.symbol)}
+        />
+      ),
+    },
+    {
+      key: "account",
+      header: "Account",
+      // nowrap: `side` absorbs the leftover width, so without this the label
+      // wraps mid-word and the row goes back to two lines.
+      className: "whitespace-nowrap",
+      render: (o) => <Tag tone="dim">{o.accountLabel || "—"}</Tag>,
+    },
+    {
+      key: "side",
+      header: "Side",
+      absorb: true,
+      className: (o) =>
+        cn(
+          "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+          sideClass(o.side),
+        ),
+      render: (o) => o.side,
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (o) => o.qty,
+    },
+    {
+      key: "filled_qty",
+      header: "Filled",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (o) => o.filled_qty,
+    },
+    {
+      key: "order_type",
+      header: "Type",
+      className: "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase",
+      render: (o) => o.order_type,
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: (o) =>
+        cn(
+          "whitespace-nowrap text-[length:var(--fs-body)]",
+          statusClass(o.status),
+        ),
+      render: (o) => label("order_status", o.status),
+    },
+    {
+      key: "limit_price",
+      header: "Limit",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (o) => (o.limit_price != null ? formatMoney(o.limit_price) : "—"),
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left", "w-full")}>Side</th>
-            <th className={cn(TH, "text-right")}>Qty</th>
-            <th className={cn(TH, "text-right")}>Filled</th>
-            <th className={cn(TH, "text-left")}>Type</th>
-            <th className={cn(TH, "text-left")}>Status</th>
-            <th className={cn(TH, "text-right")}>Limit</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {orders.map((o) => (
-            <tr key={o.id} className={ROW}>
-              <td className={cn(TD, "font-medium text-[var(--c-accent)]")}>
-                <span className="inline-flex items-center gap-1.5">
-                  <ClickableSymbol
-                    symbol={o.symbol}
-                    linked={linked}
-                    onActivate={() => publish(o.symbol)}
-                  />
-                  {o.accountLabel ? (
-                    <span className="rounded border border-[var(--border)] px-1 text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
-                      {o.accountLabel}
-                    </span>
-                  ) : null}
-                </span>
-              </td>
-              <td
-                className={cn(
-                  TD,
-                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
-                  sideClass(o.side),
-                )}
-              >
-                {o.side}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {o.qty}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {o.filled_qty}
-              </td>
-              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
-                {o.order_type}
-              </td>
-              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(o.status))}>
-                {o.status.replace(/_/g, " ")}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {o.limit_price != null ? formatMoney(o.limit_price) : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={orders} rowKey={(o) => o.id} />
     </div>
   );
 }
@@ -297,58 +328,67 @@ function RejectedTab({
     return <WidgetEmpty message="No rejected orders" />;
   }
 
+  const columns: DataTableColumn<OrderExecution>[] = [
+    {
+      key: "created_at",
+      header: "Time",
+      className: "whitespace-nowrap text-[var(--fg-dim)]",
+      render: (x) => formatDateTime(x.created_at),
+    },
+    {
+      key: "symbol",
+      header: "Symbol",
+      className: "font-medium",
+      render: (x) => (
+        <ClickableSymbol
+          symbol={x.symbol}
+          linked={linked}
+          onActivate={() => publish(x.symbol)}
+        />
+      ),
+    },
+    {
+      key: "side",
+      header: "Side",
+      absorb: true,
+      className: (x) =>
+        cn(
+          "text-[length:var(--fs-body)] tracking-[0.08em] uppercase",
+          sideClass(x.side),
+        ),
+      render: (x) => x.side,
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      className: "tabular-nums text-[var(--fg-dim)]",
+      render: (x) => x.qty,
+    },
+    {
+      key: "order_type",
+      header: "Type",
+      className: "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase",
+      render: (x) => x.order_type,
+    },
+    {
+      key: "execution_mode",
+      header: "Mode",
+      className: "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase",
+      render: (x) => x.execution_mode,
+    },
+    {
+      key: "status",
+      header: "Status",
+      className: (x) =>
+        cn("text-[length:var(--fs-body)]", statusClass(x.status)),
+      render: (x) => label("order_status", x.status),
+    },
+  ];
+
   return (
     <div className="px-1.5 py-1">
-      <table className="w-full border-collapse font-mono text-[length:var(--fs-title)]">
-        <thead>
-          <tr>
-            <th className={cn(TH, "text-left")}>Time</th>
-            <th className={cn(TH, "text-left")}>Symbol</th>
-            <th className={cn(TH, "text-left", "w-full")}>Side</th>
-            <th className={cn(TH, "text-right")}>Qty</th>
-            <th className={cn(TH, "text-left")}>Type</th>
-            <th className={cn(TH, "text-left")}>Mode</th>
-            <th className={cn(TH, "text-left")}>Status</th>
-          </tr>
-        </thead>
-        <tbody className="leading-[20px]">
-          {executions.map((x) => (
-            <tr key={x.id} className={ROW}>
-              <td className={cn(TD, "whitespace-nowrap text-[var(--fg-dim)]")}>
-                {formatDateTime(x.created_at)}
-              </td>
-              <td className={cn(TD, "font-medium")}>
-                <ClickableSymbol
-                  symbol={x.symbol}
-                  linked={linked}
-                  onActivate={() => publish(x.symbol)}
-                />
-              </td>
-              <td
-                className={cn(
-                  TD,
-                  "text-[length:var(--fs-body)] tracking-[0.08em] uppercase w-full",
-                  sideClass(x.side),
-                )}
-              >
-                {x.side}
-              </td>
-              <td className={cn(TD, "text-right tabular-nums text-[var(--fg-dim)]")}>
-                {x.qty}
-              </td>
-              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
-                {x.order_type}
-              </td>
-              <td className={cn(TD, "text-[length:var(--fs-body)] text-[var(--fg-faint)] uppercase")}>
-                {x.execution_mode}
-              </td>
-              <td className={cn(TD, "text-[length:var(--fs-body)] uppercase", statusClass(x.status))}>
-                {x.status.replace(/_/g, " ")}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable columns={columns} rows={executions} rowKey={(x) => x.id} />
     </div>
   );
 }
@@ -356,7 +396,12 @@ function RejectedTab({
 export function OrdersWidget({ config }: WidgetProps) {
   const channel: ChannelId = config.channel ?? "none";
   const { publish, linked } = usePublishSymbol(channel);
-  const { snapshot, loading: snapshotLoading } = useSnapshot();
+  const {
+    snapshot,
+    loading: snapshotLoading,
+    error: snapshotError,
+    refresh,
+  } = useSnapshot();
   const { selectedAccountId } = useDashboardPrefs();
 
   const [tab, setTab] = useState<TabId>("filled");
@@ -471,7 +516,9 @@ export function OrdersWidget({ config }: WidgetProps) {
           <OpenTab
             orders={openOrders}
             snapshotLoading={snapshotLoading}
+            snapshotError={snapshotError}
             hasSnapshot={!!snapshot}
+            onRetry={refresh}
             publish={publish}
             linked={linked}
           />

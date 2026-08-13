@@ -80,6 +80,7 @@ def test_list_resources_catalog() -> None:
         "flow_perception",
         "overnight_flow",
         "oi_walls",
+        "gex",
         "dossier",
         "episodes",
         "bars",
@@ -396,12 +397,17 @@ def test_macro_block_carries_value_bucket_and_reference_depth(
 ) -> None:
     """Credit spreads reach the agent WITH the vendor-truncation disclosure — a
     16th-percentile OAS off 4 years of history is not the same claim as off 30."""
-    from datetime import date as _date
+    # ET, matching _macro_block — NOT date.today(). serv runs UTC, so every night
+    # between 20:00 ET and midnight the box is already on tomorrow's date and a fake
+    # report keyed to it lands on a date the code correctly never asks for. Caught by
+    # a real 08-11 -> 08-12 rollover mid-session.
+    from datetime import datetime as _datetime
 
     import signals.macro_substrate as macro
     from ai.perception.resources import _macro_block
+    from trading.market_hours import _ET
 
-    today = _date.today().isoformat()
+    today = _datetime.now(_ET).date().isoformat()
     monkeypatch.setattr(macro, "regime_report", lambda dates: _fake_report(today))
     monkeypatch.setattr(macro, "macro_snapshot", lambda: {"DGS10": {"axis": "curve", "value": 4.61}})
 
@@ -410,9 +416,32 @@ def test_macro_block_carries_value_bucket_and_reference_depth(
     credit = block["axes"]["credit"]
     assert credit["value"] == 2.84 and credit["bucket"] == "low"
     assert credit["history_since"] == "2021-07-29" and credit["history_n"] == 1309
-    assert "dollar" not in block["axes"]  # missing observation dropped, not surfaced as null
+    # Stale/missing axes are STATED, not dropped — the same contract
+    # signals/dossier.py already documents for this data. Dropping them used to
+    # empty `axes`, and an empty `axes` returned None for the ENTIRE block,
+    # silently taking the raw series with it; a week-long FRED gap (a government
+    # shutdown does exactly that) removed the whole macro surface from the agent.
+    assert block["axes"]["dollar"]["value"] is None
+    assert block["axes"]["dollar"]["series"] == "DTWEXBGS"
     assert block["series"]["DGS10"]["value"] == 4.61  # full curve, not just our picked axes
-    assert "not a calibrated signal" in block["note"]
+    assert "calibrated signal" in block["note"]  # the disclaimer, not its exact prose
+
+
+def test_macro_block_survives_every_axis_going_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The raw series outlive the axes. Previously `if not axes: return None`
+    discarded 29 live series because the six axes were past their staleness
+    window — the data was all still there."""
+    import signals.macro_substrate as macro
+    from ai.perception.resources import _macro_block
+
+    monkeypatch.setattr(macro, "regime_report", lambda dates: {"axes": {}})
+    monkeypatch.setattr(
+        macro, "macro_snapshot", lambda: {"OVXCLS": {"axis": "vol_cross", "value": 56.06}}
+    )
+    block = _macro_block()
+    assert block is not None and block["series"]["OVXCLS"]["value"] == 56.06
 
 
 @pytest.mark.asyncio

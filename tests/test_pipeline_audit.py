@@ -267,31 +267,52 @@ def test_rules_return_none_on_empty(tmp_path):
 
 
 def test_silent_rule_uses_trailing_observed_day_median(tmp_path):
-    # Pinned to a trading day: collapse can only fire on days the lane should
-    # have run, so evaluating "today" on a live weekend clock would (correctly)
-    # return None and break the assertion below.
+    # The rules judge the last COMPLETED trading day, never today-in-progress,
+    # so the collapse is seeded on the judged day and the baseline on the days
+    # before it.
     today = date(2026, 7, 17)
     assert pa.is_trading_day(today)
-    history = pa._trailing_trading_days(today - timedelta(days=1), 10)
+    judged = pa._last_completed_trading_day(today)
+    history = pa._trailing_trading_days(judged - timedelta(days=1), 10)
 
     collapsed_db = tmp_path / "collapsed.db"
     normal_db = tmp_path / "normal.db"
     for d in history:
         for db in (collapsed_db, normal_db):
             _seed(db, "setup_scan", d.isoformat(), "ran", 8)
-    _seed(collapsed_db, "setup_scan", today.isoformat(), "ran", 0)
-    _seed(normal_db, "setup_scan", today.isoformat(), "ran", 8)
+    _seed(collapsed_db, "setup_scan", judged.isoformat(), "ran", 0)
+    _seed(normal_db, "setup_scan", judged.isoformat(), "ran", 8)
 
     assert (
         pa._trailing_counter_median(
-            "setup_scan", "ran", today, db_path=collapsed_db
+            "setup_scan", "ran", judged, db_path=collapsed_db
         )
         == 8
     )
     collapsed = pa.rule_setup_scan_silent(today, collapsed_db)
     assert collapsed is not None
     assert "trailing median 8" in collapsed
+    assert judged.isoformat() in collapsed
     assert pa.rule_setup_scan_silent(today, normal_db) is None
+
+
+def test_collapse_rules_ignore_today_in_progress(tmp_path):
+    """The first audit tick after midnight ET must not page on an empty
+    "today" — the 07-21 → 08-11 incident: both silent rules fired at 00:0x ET
+    every trading midnight (today's 0-so-far vs a full-day median) and burned
+    the once-per-day dedup, so a real same-day death could never page."""
+    db = tmp_path / "t.db"
+    today = date(2026, 7, 17)  # a trading day with NO rows yet: midnight
+    assert pa.is_trading_day(today)
+    judged = pa._last_completed_trading_day(today)
+    history = [judged] + pa._trailing_trading_days(
+        judged - timedelta(days=1), 10
+    )
+    for d in history:
+        _seed(db, "setup_scan", d.isoformat(), "ran", 1)
+        _seed(db, "idea_tracker", d.isoformat(), "swept", 32)
+    assert pa.rule_setup_scan_silent(today, db) is None
+    assert pa.rule_idea_tracker_silent(today, db) is None
 
 
 @pytest.mark.asyncio
@@ -428,18 +449,28 @@ def test_scan_silent_keys_on_ran_heartbeat(tmp_path):
     assert "did not run" in msg
 
 
-def test_collapse_rules_never_fire_on_non_trading_days(tmp_path):
-    """A formed baseline must not page on a weekend — the lane was never
-    expected to run, so today's 0 vs the weekday median is not a collapse.
-    (Caught live: this suite first ran on a Saturday and the healthy-history
-    case above paged.)"""
-    db = tmp_path / "t.db"
+def test_weekend_tick_judges_fridays_completed_day(tmp_path):
+    """A weekend tick judges Friday (the last completed trading day): healthy
+    Friday → silent all weekend; dead Friday → pages. The old rule's weekend
+    guard suppressed "today" instead — now unnecessary because today-in-progress
+    is never judged at all."""
     saturday = date(2026, 7, 18)
     assert not pa.is_trading_day(saturday)
+    friday = pa._last_completed_trading_day(saturday)
+    history = pa._trailing_trading_days(friday - timedelta(days=1), 10)
 
-    for d in pa._trailing_trading_days(saturday, pa.SETUP_SCAN_SILENT_DAYS):
-        _seed(db, "setup_scan", d.isoformat(), "ran", 1)
-    assert pa.rule_setup_scan_silent(saturday, db) is None
+    healthy_db = tmp_path / "healthy.db"
+    dead_db = tmp_path / "dead.db"
+    for d in history:
+        for db in (healthy_db, dead_db):
+            _seed(db, "setup_scan", d.isoformat(), "ran", 1)
+    _seed(healthy_db, "setup_scan", friday.isoformat(), "ran", 1)
+    _seed(dead_db, "setup_scan", friday.isoformat(), "ran", 0)
+
+    assert pa.rule_setup_scan_silent(saturday, healthy_db) is None
+    msg = pa.rule_setup_scan_silent(saturday, dead_db)
+    assert msg is not None
+    assert friday.isoformat() in msg
 
 
 def test_path_a_failures_pure_signal(tmp_path):

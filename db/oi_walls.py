@@ -72,6 +72,43 @@ def store_status(*, db_path: Path | None = None) -> list[dict]:
     return out
 
 
+def oi_board(
+    *,
+    source: str = "opra",
+    roots: tuple[str, ...] = ("SPX", "SPXW"),
+    db_path: Path | None = None,
+) -> tuple[str | None, dict[tuple[str, str, str, float], int]]:
+    """The WHOLE standing board for one source on its latest date, keyed for joining.
+
+    ``standing_walls`` answers "which strikes are biggest"; gamma exposure needs the
+    opposite — every strike, because the aggregate is a sum and a top-N slice of it
+    is not a smaller version of the answer, it is a wrong one. Returns
+    ``(as_of, {(root, expiry, cp, strike): oi})``.
+
+    One date on one source is 23,323 rows (measured 2026-08-11) and the filter is the
+    primary key's own prefix, so this is a range seek, not the 8.3s full scan the
+    per-source coverage stats would cost.
+    """
+    db_path = db_path or OI_WALLS_DB_PATH
+    if not db_path.exists():
+        return None, {}
+    with _connect(db_path) as conn:
+        as_of = conn.execute(
+            "SELECT MAX(date) FROM oi_daily WHERE source=?", (source,)
+        ).fetchone()[0]
+        if not as_of:
+            return None, {}
+        placeholders = ",".join("?" * len(roots))
+        rows = conn.execute(
+            "SELECT root, expiry, cp, strike, oi FROM oi_daily"
+            f" WHERE date=? AND source=? AND root IN ({placeholders})",
+            (as_of, source, *roots),
+        ).fetchall()
+    return as_of, {
+        (r["root"], r["expiry"], r["cp"], float(r["strike"])): int(r["oi"]) for r in rows
+    }
+
+
 def _history(
     conn: sqlite3.Connection, source: str, as_of: str, strikes: list[float]
 ) -> dict[tuple, dict]:

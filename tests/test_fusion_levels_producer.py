@@ -3,12 +3,14 @@
 The structure sibling of the fusion ATR producer: it stamps each pending symbol's
 latest completed session nodes into ``fusion_session_levels`` so the hot intake path
 only ever READS them. These tests pin pending-symbol selection, the happy-path
-store+count, per-symbol failure isolation, the same-day no-op, and the round-trip
-contract that the stored level dicts are exactly what ``nearest_level`` consumes.
+store+count, skipping symbols the batch could not compute, sweep-failure isolation,
+the same-day no-op, the free re-ask that replaced the old per-symbol back-off, and the
+round-trip contract that the stored level dicts are exactly what ``nearest_level``
+consumes.
 
-Zero network: ``compute_session_levels`` is always monkeypatched, and every DB write
-is redirected to a tmp database (the producer hardcodes DEFAULT_DB_PATH like its ATR
-twin, so we steer its collaborators rather than thread a db_path through it).
+Zero network: ``compute_session_levels_batch`` is always monkeypatched, and every DB
+write is redirected to a tmp database (the producer hardcodes DEFAULT_DB_PATH like its
+ATR twin, so we steer its collaborators rather than thread a db_path through it).
 """
 
 from __future__ import annotations
@@ -52,6 +54,25 @@ def _flow_event(event_id: str, symbol: str) -> dict:
         "direction": "buy_side",
         "created_at": ts,
     }
+
+
+def _fake_batch(
+    *, only: set[str] | None = None, seen: list[list[str]] | None = None
+):
+    """Stand-in for compute_session_levels_batch: returns a payload for each requested
+    symbol, omitting any outside ``only`` (how the real batch reports "no usable bars").
+    ``seen`` records the symbol list of each sweep so a test can pin re-ask behaviour."""
+
+    async def _batch(symbols: list[str]) -> dict[str, dict]:
+        if seen is not None:
+            seen.append(list(symbols))
+        return {
+            sym: _levels_payload(sym)
+            for sym in symbols
+            if only is None or sym in only
+        }
+
+    return _batch
 
 
 def _levels_payload(symbol: str) -> dict:
@@ -130,18 +151,14 @@ async def test_happy_path_stores_and_counts(
 ) -> None:
     db = env
     monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA", "BBB"])
-
-    async def fake_compute(symbol: str, **_kw: object) -> dict:
-        return _levels_payload(symbol)
-
-    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
+    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch())
 
     await main._fusion_levels_refresh_once()
 
     stored = get_session_levels("AAA", db_path=db)
     assert [lvl["name"] for lvl in stored] == ["POC", "PDH", "PDL"]
     assert get_session_levels("BBB", db_path=db)  # both symbols stamped
-    # Stamped under today's as_of → nothing left pending for the day.
+    # Stamped under today's as_of -> nothing left pending for the day.
     assert main._fusion_levels_pending_symbols_sync(_today()) == []
 
     meters = lane_day("fusion_intake", et_today(), db_path=db)
@@ -150,27 +167,45 @@ async def test_happy_path_stores_and_counts(
 
 
 @pytest.mark.asyncio
-async def test_per_symbol_failure_is_counted_and_others_continue(
+async def test_symbol_with_no_levels_is_skipped_and_others_continue(
     env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The batch omits symbols it could not compute; they must not be stamped, and must
+    # not cost their slice-mates a stamp.
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["GOOD", "BAD"])
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["GOOD", "EMPTY"])
+    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(only={"GOOD"}))
 
-    async def fake_compute(symbol: str, **_kw: object) -> dict:
-        if symbol == "BAD":
-            raise RuntimeError("provider blew up")
-        return _levels_payload(symbol)
-
-    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
-
-    # A per-symbol failure must never propagate out of the job.
     await main._fusion_levels_refresh_once()
 
-    assert get_session_levels("GOOD", db_path=db)  # good symbol stored
-    assert get_session_levels("BAD", db_path=db) == []  # failed symbol skipped
+    assert get_session_levels("GOOD", db_path=db)
+    assert get_session_levels("EMPTY", db_path=db) == []
 
     meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_stamped") == 1.0
+    assert meters.get("levels_refresh_failed", 0.0) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_sweep_failure_is_counted_and_never_raises(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Per-slice failures are absorbed inside the batch; a failure reaching the job means
+    # the whole sweep broke. It must be counted and swallowed, never raised into the
+    # job runner, and must leave everyone pending for the next pass.
+    db = env
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA"])
+
+    async def boom(_symbols: list[str]) -> dict:
+        raise RuntimeError("provider blew up")
+
+    monkeypatch.setattr(main, "compute_session_levels_batch", boom)
+
+    await main._fusion_levels_refresh_once()
+
+    assert get_session_levels("AAA", db_path=db) == []
+    assert "AAA" in main._fusion_levels_pending_symbols_sync(_today())
+    meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_refresh_failed") == 1.0
 
 
@@ -180,21 +215,74 @@ async def test_second_run_same_day_no_ops(
 ) -> None:
     db = env
     monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA"])
-    calls: list[str] = []
-
-    async def fake_compute(symbol: str, **_kw: object) -> dict:
-        calls.append(symbol)
-        return _levels_payload(symbol)
-
-    monkeypatch.setattr(main, "compute_session_levels", fake_compute)
+    seen: list[list[str]] = []
+    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(seen=seen))
 
     await main._fusion_levels_refresh_once()
     await main._fusion_levels_refresh_once()
 
-    # Second pass found nothing pending → compute never called again, no re-stamp.
-    assert calls == ["AAA"]
+    # Second pass found nothing pending -> the batch is never even called again.
+    assert seen == [["AAA"]]
     meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_stamped") == 1.0
+
+
+@pytest.mark.asyncio
+async def test_uncomputable_symbol_is_reattempted_every_cycle(
+    env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # This replaces a back-off that only existed because each symbol cost its own
+    # request. Batched, re-asking is free, so the symbol is swept EVERY cycle and
+    # recovers the moment its data appears — no interval to tune, no state to lose
+    # across a restart.
+    db = env
+    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["LATE"])
+    seen: list[list[str]] = []
+    monkeypatch.setattr(
+        main, "compute_session_levels_batch", _fake_batch(only=set(), seen=seen)
+    )
+
+    await main._fusion_levels_refresh_once()
+    await main._fusion_levels_refresh_once()
+    assert seen == [["LATE"], ["LATE"]]  # re-asked, not silenced
+    assert get_session_levels("LATE", db_path=db) == []
+
+    # Its data shows up mid-day; the very next cycle stamps it.
+    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(seen=seen))
+    await main._fusion_levels_refresh_once()
+
+    assert get_session_levels("LATE", db_path=db)
+    assert main._fusion_levels_pending_symbols_sync(_today()) == []
+
+
+def test_reader_refuses_a_stale_row_but_serves_yesterdays(tmp_path: Path) -> None:
+    # The defect this guard closes (2026-08-12 audit): a symbol whose refresh keeps
+    # failing — delisted, or too thin for a volume profile — kept serving its LAST
+    # successful stamp as current, so "PDH" named a day that was not the caller's
+    # prior day. One day of slack is deliberate: it absorbs the ET-midnight window
+    # while the sweep restamps the whole universe.
+    db = tmp_path / "stale.db"
+    init_fusion_tables(db)
+    levels = [{"name": "PDH", "price": 320.5}]
+    put_session_levels("FRESH", "2026-08-12", levels, db_path=db)
+    put_session_levels("YDAY", "2026-08-11", levels, db_path=db)
+    put_session_levels("DEAD", "2026-08-09", levels, db_path=db)
+
+    assert get_session_levels("FRESH", as_of="2026-08-12", db_path=db) == levels
+    assert get_session_levels("YDAY", as_of="2026-08-12", db_path=db) == levels
+    assert get_session_levels("DEAD", as_of="2026-08-12", db_path=db) == []
+    # ...and the same DEAD row reads fine to a caller whose own session is that day.
+    assert get_session_levels("DEAD", as_of="2026-08-09", db_path=db) == levels
+
+
+def test_reader_refuses_a_row_newer_than_the_caller(tmp_path: Path) -> None:
+    # get_atr's upper bound, for the same reason: replaying an old event must never
+    # see levels that did not exist yet.
+    db = tmp_path / "lookahead.db"
+    init_fusion_tables(db)
+    put_session_levels("TSLA", "2026-08-12", [{"name": "PDH", "price": 320.5}], db_path=db)
+
+    assert get_session_levels("TSLA", as_of="2026-07-20", db_path=db) == []
 
 
 def test_stored_levels_round_trip_through_nearest_level(tmp_path: Path) -> None:
@@ -205,7 +293,7 @@ def test_stored_levels_round_trip_through_nearest_level(tmp_path: Path) -> None:
     producer_levels = _levels_payload("TSLA")["levels"]
     put_session_levels("TSLA", "2026-07-20", producer_levels, db_path=db)
 
-    read_back = get_session_levels("TSLA", db_path=db)
+    read_back = get_session_levels("TSLA", as_of="2026-07-20", db_path=db)
 
     # ATR 10 → 0.5×10 = 5.0 threshold; 320.4 is 0.1 from PDH (320.5).
     hit = nearest_level(price=320.4, levels=read_back, alert_prices=[], atr_value=10.0)

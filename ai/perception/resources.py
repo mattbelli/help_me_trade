@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
@@ -511,43 +512,141 @@ def _macro_block() -> dict[str, Any] | None:
     percentile is shallow-by-construction and must say so. Buckets are the
     house 33/80 REPORTING cuts, never calibrated signals.
     """
-    from datetime import date as _date
+    from datetime import datetime as _datetime
 
-    from signals.macro_substrate import macro_snapshot, regime_report
+    from signals.macro_substrate import event_calendar, macro_snapshot, regime_report
+    from trading.market_hours import _ET
 
-    today = _date.today().isoformat()
+    # ET, not the box clock — serv runs UTC, so between 00:00 and 04:00 UTC
+    # `date.today()` is already tomorrow in New York terms and shifts the whole
+    # staleness window by a day. Same trap `_fetch_cboe` documents.
+    today = _datetime.now(_ET).date().isoformat()
     report = regime_report([today])
     axes: dict[str, Any] = {}
     for axis, block in report.get("axes", {}).items():
         observed = block.get("per_date", {}).get(today) or {}
-        if observed.get("value") is None:
-            continue
+        # Stale axes are STATED, never dropped — the contract signals/dossier.py
+        # already claims for this same data. Dropping them used to empty `axes`,
+        # and an empty `axes` returned None for the whole block, which silently
+        # took the 29-series snapshot with it even though every series still had
+        # data. A FRED publication halt over a week (a shutdown does exactly
+        # this) removed the entire macro surface from the agent's view.
         axes[axis] = {
             "series": block.get("series"),
-            "value": observed["value"],
+            "value": observed.get("value"),
             "as_of": observed.get("date_used"),
             "pctile": observed.get("pctile"),
             "bucket": observed.get("bucket"),
+            "ranked_against": observed.get("ranked_against"),
             "history_n": (block.get("history") or {}).get("n"),
             "history_since": (block.get("history") or {}).get("first"),
         }
-    if not axes:
+    series = macro_snapshot()
+    if not axes and not series:
         return None
     return {
         "axes": axes,
         # The raw latest observation per stored series — the whole curve, so a
         # reader can build any spread rather than only the ones we picked.
-        "series": macro_snapshot(),
+        "series": series,
+        # Scheduled releases. On 2026-08-11 neither paper book mentioned that CPI
+        # printed the next morning — not a reasoning failure, they had no calendar
+        # to read. Sizing into a print is a different decision from sizing on a
+        # quiet Tuesday, so this rides the same block as the regime it modifies.
+        "events": event_calendar(today),
         "note": (
-            "percentiles are self-relative against this store's own history "
-            "(see history_since — credit is vendor-truncated to a rolling "
-            "window); reporting context, not a calibrated signal"
+            "percentiles are self-relative against this store's own history and "
+            "TRUNCATED at the reported date (see history_since / ranked_against "
+            "— windows differ per series, and credit is vendor-truncated to a "
+            "rolling window, so its percentile contains neither 2008 nor 2020); "
+            "a null pctile means too little history to rank, not zero; an axis "
+            "with a null value is stale, not absent; reporting context, never a "
+            "calibrated signal"
         ),
     }
 
 
+_MACRO_HISTORY_DEFAULT = 120  # ~6 months of trading days
+_MACRO_HISTORY_MAX = 1000
+
+
+def _read_macro_history(name: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+    """One macro series or axis over time — the drill-down behind the snapshot.
+
+    The snapshot told an agent that credit spreads sit at the 4.9th percentile of
+    4,700 observations and then gave it no way to SEE those observations: 196,058
+    rows on disk, reachable only as today's number. An agent that cannot look at the
+    series behind a percentile has to take the percentile on faith, and cannot answer
+    "what did this do in March 2020" about data we hold.
+    """
+    from signals.macro_substrate import DEPTH_NOTES, REPORT_AXES, history, known_names
+
+    rows = history(name)
+    if rows is None:
+        return [{"error": f"unknown series or axis {name!r}", **known_names()}]
+    depth_note = DEPTH_NOTES.get(REPORT_AXES.get(name, name))
+    since = str(filters.get("since") or "").strip()
+    until = str(filters.get("until") or "").strip()
+    window = [
+        (d, v) for d, v in rows if (not since or d >= since) and (not until or d <= until)
+    ]
+    try:
+        limit = max(1, min(int(filters.get("limit") or _MACRO_HISTORY_DEFAULT),
+                           _MACRO_HISTORY_MAX))
+    except (TypeError, ValueError):
+        limit = _MACRO_HISTORY_DEFAULT
+    if not window:
+        note = (f"no observations in that window; the series runs "
+                f"{rows[0][0]}..{rows[-1][0]} ({len(rows)} observations)")
+        return [{
+            "series": name, "since": since or None, "until": until or None,
+            "unavailable": True,
+            "note": f"{note} — {depth_note}" if depth_note else note,
+        }]
+    # NEWEST first, deliberately: the result cap drops from the tail, so the oldest
+    # end of the window is the right end to lose when one has to be lost.
+    kept = window[-limit:][::-1]
+    # No "rows returned" field here: the cap can drop rows AFTER this reader runs, and
+    # a count written before that is simply wrong. `count` and the rows themselves say
+    # how many arrived; this says how many existed to choose from.
+    #
+    # The extremes are STATED, not left to be inferred from the rows. Measured on a
+    # live DeepSeek turn 2026-08-11: asked for 1,000 observations of HY OAS, it got 496
+    # after the cap (back to 2024-09-18) and reported its visible high of 4.61 as "the
+    # most stressed reading in the entire window" — the real one is 5.99 in July 2022,
+    # off the end of what it could see. Every disclosure was present and correct and it
+    # generalised anyway, so the fix is to remove the inference, not to disclose harder.
+    lo = min(window, key=lambda r: r[1])
+    hi = max(window, key=lambda r: r[1])
+    context: dict[str, Any] = {
+        "series": name,
+        "observations_in_window": len(window),
+        "rows_are": "the NEWEST slice of the window, newest first — the window's own "
+                    "high/low are given here because they may pre-date the oldest row",
+        "window_low": {"date": lo[0], "value": lo[1]},
+        "window_high": {"date": hi[0], "value": hi[1]},
+        "series_span": f"{rows[0][0]}..{rows[-1][0]} ({len(rows)} observations)",
+    }
+    if depth_note:
+        context["depth"] = depth_note
+    return [{**context, "date": d, "value": v} for d, v in kept]
+
+
+# A second, shorter wording of gamma_exposure.CONVENTION rather than a reuse of it:
+# that one points at field names ("call_gamma and put_gamma below") which do not
+# exist in this block, and a caveat that names the wrong fields is worse than none.
+# The claim must stay identical in both — the net is an assumption, not an
+# observation — even though the sentence does not.
+_GEX_CONVENTION_SHORT = (
+    "net ASSUMES dealers are long every call and short every put — the industry "
+    "convention, not measured inventory; call/put above are the unconditional facts"
+)
+
+
 def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
-    del filters
+    series = str(filters.get("series") or "").strip()
+    if series:
+        return _read_macro_history(series, filters)
     from db.regime import recent_observations
     from signals.regime import market_regime, regime_is_fresh
 
@@ -570,6 +669,11 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
         values = [val for _, val in vix_hist]
         at_or_below = sum(1 for val in values if val <= vix)
         row["vix_percentile"] = round(100 * at_or_below / len(values), 1)
+        # Name the window. This field and `macro.axes.vol.pctile` rank the SAME
+        # VIX and disagree by ~26 points (8.5 vs 35.0 today) purely because this
+        # one looks back a year and that one to 1990. An unlabelled percentile
+        # sitting next to a labelled one reads as a contradiction.
+        row["vix_percentile_window"] = f"{len(values)}d trailing"
     # Fail-soft: term_spread + VIX are the contract; the substrate is enrichment
     # and its own store being absent must never sink the regime read.
     try:
@@ -579,6 +683,34 @@ def _read_market(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
         macro = None
     if macro is not None:
         row["macro"] = macro
+    # Index gamma regime, from the snapshot store — NOT recomputed here. Pricing the
+    # board is a 2.3 s broker fetch and this resource is the fast always-on regime
+    # read; the stored row carries its own timestamps so its staleness is visible,
+    # and `gex` recomputes live for anyone who needs the current board.
+    try:
+        from db.gamma_exposure import history as gex_history
+
+        stored = (gex_history(limit=1) or [None])[0]
+    except Exception:
+        logger.debug("Gamma exposure read failed", exc_info=True)
+        stored = None
+    if stored:
+        row["index_gamma"] = {
+            "net_usd_per_1pct_b": stored["net_b"],
+            "call_usd_per_1pct_b": stored["call_b"],
+            "put_usd_per_1pct_b": stored["put_b"],
+            "flip_spot": stored["flip"],
+            "spot_above_flip_pct": stored["spot_above_flip_pct"],
+            # Null on rows stored before these two existed — an old snapshot has no
+            # vanna, which is not the same as a board whose vanna was zero.
+            "net_vanna_usd_per_volpt_b": stored["net_vanna_b"],
+            "net_charm_usd_per_day_b": stored["net_charm_b"],
+            "spot": stored["spot"],
+            "priced_at": stored["as_of"],
+            "oi_as_of": stored["oi_as_of"],
+            "convention": _GEX_CONVENTION_SHORT,
+            "live_and_deeper": "query the `gex` resource",
+        }
     return [row]
 
 
@@ -847,6 +979,83 @@ def _read_index_pressure(filters: dict[str, Any], *, db_path: Path) -> list[dict
     return out
 
 
+_GEX_VIEWS = ("summary", "strikes", "expiries", "profile")
+# Keys the drill-down context block occupies. A row field of the same name would
+# silently win the merge below and overwrite it — which is exactly what the profile
+# view's "spot" did before it was renamed. Named here so the test guards the real
+# list rather than a copy of it.
+_GEX_CONTEXT_KEYS = ("index", "spot", "oi_as_of", "convention", "units")
+
+
+def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # live chain + the OI research store, not the trading DB
+    from signals.gamma_exposure import (
+        cached_board,
+        expiry_rows,
+        profile_rows,
+        strike_rows,
+        summarize,
+    )
+
+    view = str(filters.get("view") or "summary").strip().lower()
+    if view not in _GEX_VIEWS:
+        return [{"error": f"unknown view {view!r}", "views": list(_GEX_VIEWS)}]
+    try:
+        limit = max(1, min(int(filters.get("limit") or 20), _MAX_ROWS))
+    except (TypeError, ValueError):
+        limit = 20
+
+    board = cached_board()
+    if board is None:
+        return [{
+            "unavailable": True,
+            "note": "no priced board — needs the OPRA OI store (data/oi_walls.db) "
+                    "AND a live index chain; either being absent means no answer, "
+                    "not a flat one",
+        }]
+    if view == "summary":
+        from db.gamma_exposure import percentiles
+
+        row = summarize(board)
+        # Ranked against our OWN stored snapshots, which start the day the first one
+        # was taken. The block reports its observation count either way so an absent
+        # percentile reads as "not enough history yet", never as "unremarkable".
+        row["history"] = percentiles({
+            "net_b": row["net_gamma_usd_per_1pct_b"],
+            "net_vanna_b": row["net_vanna_usd_per_volpt_b"],
+            "net_charm_b": row["net_charm_usd_per_day_b"],
+        })
+        return [row]
+
+    # Drill-down rows travel without the summary, so each one carries the context
+    # needed to read it. Identical on every row, so _hoist_shared lifts it into
+    # `shared` and it costs one copy — the lesson from the macro-history drill-down,
+    # where a model with a partial view generalised past what it could see.
+    from signals.gamma_exposure import CONVENTION
+
+    context = dict(zip(
+        _GEX_CONTEXT_KEYS,
+        (
+            "SPX",
+            board.spot,
+            board.oi_as_of,
+            CONVENTION,
+            "billions of dollars of dealer delta; _per_1pct_ = per 1% move in the "
+            "index, _per_volpt_ = per 1 volatility point of implied vol, _per_day_ "
+            "= per calendar day with nothing else moving. Do not compare the three "
+            "to each other — same units, different denominators",
+        ),
+        strict=True,
+    ))
+    if view == "strikes":
+        rows = strike_rows(board, limit=limit)
+    elif view == "expiries":
+        rows = expiry_rows(board, limit=limit)
+    else:
+        rows = profile_rows(board)
+    return [{**context, **row} for row in rows]
+
+
 def _read_oi_walls(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     del db_path  # own research store, not the trading DB
     from db.oi_walls import OI_WALLS_DB_PATH, standing_walls, store_status
@@ -1020,7 +1229,7 @@ def _read_options_flow(
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since) if since else None,
         until=str(until) if until else None,
-        order=order if order in ("premium", "unusual") else "recent",
+        order=order if order in ("premium", "unusual", "conviction") else "recent",
         universe=str(universe) if universe in ("equity", "etf", "index") else None,
         limit=limit,
         db_path=db_path,
@@ -1337,12 +1546,60 @@ RESOURCES: dict[str, dict[str, Any]] = {
     "market": {
         "description": (
             "Current market regime (yield-curve term spread + VIX) — condition "
-            "every trade idea on it. Includes a `macro` block: HY and IG credit "
-            "spreads (OAS), the full Treasury curve, the 10y real yield, "
-            "breakevens and the broad dollar, each with a self-relative "
-            "percentile and low/mid/high bucket."
+            "every trade idea on it. The `macro` block carries eight axes. Read "
+            "these two FIRST, because they say whether single-name work pays at "
+            "all: `correlation` (mean pairwise correlation of S&P names over 21 "
+            "sessions — HIGH means everything trades as one macro blob and stock "
+            "selection is just leveraged beta; LOW means names move on their own "
+            "news, which is when selection pays) and `breadth` (percent of names "
+            "above their 200-day average — NARROW means the index is carried by a "
+            "handful of names, so a mid-cap book is probably not in them). Then "
+            "vol, "
+            "vol_term (VIX minus VIX3M; POSITIVE = inverted = stress priced now, "
+            "not someday), credit (HY OAS), funding (SOFR minus IORB; the GAP, "
+            "not the level — the resting ample-reserves state is a small "
+            "NEGATIVE gap, so a rising gap means funding firming, and because "
+            "this window starts 2021 a `high` bucket means firm-vs-recent-years, "
+            "never 2019-style stress), curve (10y-2y), dollar — and `series` "
+            "carries every raw series (full Treasury curve, IG OAS, real yield, "
+            "breakevens, cross-asset vol, VIX1D/9D/6M/VVIX, and Cboe IMPLIED "
+            "correlation COR1M/COR3M — the market's forecast, an independent "
+            "cross-check on the realized `correlation` axis) so any spread can be "
+            "built. Every entry in both has a self-relative percentile + bucket "
+            "ranked against history TRUNCATED at the reported date; check "
+            "`history_since` before comparing two series, since their windows "
+            "differ. Too little history to rank says `pctile: null` rather than "
+            "inventing one, and a null `value` means stale, not absent. An "
+            "`events` block lists the scheduled macro releases that reprice the "
+            "whole tape — what prints TODAY and what is coming in the next 10 "
+            "days (CPI, PPI, jobs, GDP, PCE, retail sales, claims, JOLTS, FOMC "
+            "projections) — so sizing into a print is never mistaken for sizing "
+            "on a quiet day; read `events.not_covered` before concluding no Fed "
+            "meeting is scheduled. "
+            "An `index_gamma` block carries the SPX option board's dealer-exposure "
+            "regime — net/call/put gamma per 1% move, the gamma-flip level, and net "
+            "vanna (per volatility point) and charm (per calendar day) — read from "
+            "the LAST STORED post-close snapshot, so check `priced_at` before "
+            "treating it as live, and note every net rests on a stated CONVENTION "
+            "about who holds what, never on measured inventory. Query the `gex` "
+            "resource for a live board and its strike/expiry/spot-ladder "
+            "drill-downs. "
+            "★ Pass `series` to DRILL DOWN into any of it over time — the snapshot "
+            "ranks a number against thousands of observations, and `series` is how "
+            "you actually look at them ('what did credit do in March 2020', 'is this "
+            "VIX move big for this year'). Takes an axis name (credit, curve, vol, "
+            "vol_term, funding, correlation, breadth, dollar) or a raw series id; an "
+            "axis resolves to exactly the series the snapshot ranked, and a spread "
+            "axis comes back date-joined rather than as two levels to subtract. An "
+            "unknown name returns the full list of what resolves."
         ),
-        "filters": {},
+        "filters": {
+            "series": "optional — an axis name or series id; returns that one over "
+                      "time instead of the snapshot. Unknown names list what exists",
+            "since": "optional YYYY-MM-DD lower bound (with `series`)",
+            "until": "optional YYYY-MM-DD upper bound (with `series`)",
+            "limit": "optional observations, newest first — default 120, max 1000",
+        },
         "read": _read_market,
     },
     "fundamentals": {
@@ -1449,8 +1706,14 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "wide_spread): the corpus midpoint rule beside DIR-1 direction — "
             "an annotation measured ~85% against stock-leg ground truth on "
             "checkable prints (o-sign Step 1', 2026-08-05), NOT a confirmed "
-            "aggressor; direction stays the never-guessed at-quote read. The "
-            "summary block aggregates the FULL range, not just returned rows."
+            "aggressor; direction stays the never-guessed at-quote read. "
+            "Sweep/block rows may carry rarity_p (Laplace rank vs that name's "
+            "own trailing-120 session peaks in the same right/DTE/moneyness "
+            "cell; smaller = rarer; NULL = unranked) plus rarity_sentence — "
+            "a description of the tape, never a win% or a move forecast. "
+            "conviction is rarity×tenor×OTM×type (0-10 display scale), same "
+            "honesty rule; clusters nearly cannot win. The summary block "
+            "aggregates the FULL range, not just returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",
@@ -1465,7 +1728,9 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "order": (
                 "optional — recent (default) | premium (largest first) | "
                 "unusual (heuristic interestingness rank; rows carry "
-                "unusual_score + underlying_class)"
+                "unusual_score + underlying_class) | conviction "
+                "(rarity×tenor×OTM×type; rows carry conviction + "
+                "conviction_parts; perception, not a forecast)"
             ),
             "universe": (
                 "optional — equity|etf|index: keep only that root class "
@@ -1584,6 +1849,44 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "limit": "optional row cap — default 50",
         },
         "read": _read_flow_perception,
+    },
+    "gex": {
+        "description": (
+            "Index dealer exposure — the SPX board's standing open interest priced "
+            "through our own Black-76 greeks, as REGIME axes: how option inventory "
+            "makes hedging behave, not where the index is going. THREE axes off one "
+            "board, all in billions of dollars of dealer delta and differing only in "
+            "what must move: GAMMA per 1% index move (with the gamma-flip level and "
+            "how far spot sits above it), VANNA per 1 volatility point, CHARM per "
+            "calendar day with nothing moving. Same unit, different denominators — "
+            "never compare them to each other. "
+            "★ EVERY NET RESTS ON A CONVENTION, NOT A MEASUREMENT: netting calls "
+            "against puts assumes dealers are long every call and short every put, "
+            "and we have no dealer-inventory data. Quote the convention whenever you "
+            "quote a net and never call it observed positioning — call_gamma and "
+            "put_gamma are facts, the net is fact PLUS assumption. Alpaca publishes "
+            "no greeks at all on index options (0 of 12,563 measured), so every greek "
+            "here is OUR model output off the chain's own parity forward, each checked "
+            "against a finite difference of the pricer; greeks_source says black76. "
+            "Open interest is published overnight, so it is always the prior session's "
+            "positioning (oi_as_of + age on every row). ⚠️ charm_from_expiring_b is "
+            "the part of charm in contracts expiring within the day — those RESOLVE "
+            "rather than drift (26% of the board when measured), so subtract it before "
+            "reading the rest as smooth overnight flow. PERCEPTION ONLY: nothing here "
+            "is tested against forward returns, so there is no edge, probability or "
+            "win rate to quote. "
+            "★ Pass `view` to DRILL DOWN: strikes (where exposure concentrates, ranked "
+            "by gross gamma because hedging happens against the gross), expiries (the "
+            "term structure — the DTE cut moves net gamma by 2x, and gamma is a "
+            "front-week number while vanna sits further out), profile (net gamma "
+            "across a ladder of hypothetical index levels — how fast the board crosses "
+            "the flip, which one level cannot say)."
+        ),
+        "filters": {
+            "view": "optional — summary (default) | strikes | expiries | profile",
+            "limit": "optional int for strikes/expiries — default 20, max 50",
+        },
+        "read": _read_gex,
     },
     "oi_walls": {
         "description": (
@@ -1719,6 +2022,16 @@ _RESOURCE_ALIASES = {
     "fusion_episodes": "episodes",
     "evidence_stacks": "episodes",
     "stacks": "episodes",
+    "gamma": "gex",
+    "gamma_exposure": "gex",
+    "dealer_gamma": "gex",
+    "gamma_flip": "gex",
+    "zero_gamma": "gex",
+    # The resource is named for gamma but answers all three; a model asked about
+    # vanna will type "vanna" long before it thinks to look under "gex".
+    "vanna": "gex",
+    "charm": "gex",
+    "dealer_exposure": "gex",
     "collar": "oi_walls",
     "jpm_collar": "oi_walls",
     "open_interest": "oi_walls",
@@ -1734,6 +2047,95 @@ _RESOURCE_ALIASES = {
     "unusual_options_flow": "flow_perception",
     "flow_scan": "flow_perception",
 }
+
+
+# Characters a repeated field must waste before it is worth hoisting out of the rows.
+# Low enough to catch every real offender measured 2026-08-11 (the shortest was
+# oi_walls' 12-char `as_of` at 468 wasted chars), high enough that short flags stay
+# where a reader expects them.
+_HOIST_MIN_SAVING = 300
+
+
+def fit_to_cap(output: Any, *, cap: int, indent: int | None = None) -> Any:
+    """Trim an over-cap agent result by dropping whole ROWS, never mid-object.
+
+    Both agent surfaces cap what one tool call may pull into context, and both used
+    to do it by slicing the rendered JSON at a character index — which hands the model
+    an unparseable fragment and says nothing about what went missing. Measured
+    2026-08-11 against the shared 20,000-char cap, three resources were over it and
+    `flow_perception` was 2.9x. Readers order rows most-significant-first, so the tail
+    is the right end to drop. A payload with no `rows` list has no rows to drop and
+    Only what can be cut WITHOUT corrupting it is cut. A string (web search, a report)
+    slices safely. A payload with `rows` drops rows. A structured payload with neither
+    is returned WHOLE and logged, because slicing it is the very bug this replaces —
+    `list_capabilities` is 20,364 chars of nested dicts, and a cap that cut it at
+    20,000 would hand the model a broken manifest instead of a long one.
+
+    `indent` must match how the caller will finally render it — the CLI prints
+    indent=2, ~40% more characters than compact, so measuring compact would silently
+    overrun its own cap.
+    """
+    def size(payload: Any) -> int:
+        return len(json.dumps(payload, indent=indent, default=str))
+
+    rendered = output if isinstance(output, str) else json.dumps(
+        output, indent=indent, default=str
+    )
+    if len(rendered) <= cap:
+        return output
+    if isinstance(output, str):
+        return rendered[:cap] + f"\n…(truncated at {cap:,} chars)"
+    rows = output.get("rows") if isinstance(output, dict) else None
+    if not isinstance(rows, list) or not rows:
+        logger.info("over-cap payload has no rows to drop (%d chars)", len(rendered))
+        return output
+    # The note is measured too: sizing the rows alone lets the explanation itself push
+    # the result back over the cap it just enforced.
+    kept = list(rows)
+    while kept:
+        kept.pop()
+        fitted = {
+            **output,
+            "rows": kept,
+            "truncated": (
+                f"{len(rows) - len(kept)} of {len(rows)} rows dropped to fit the "
+                f"{cap:,}-char result cap — rows are ordered most-significant-first, "
+                "so these are the top ones; narrow the filters (symbol, root, limit, "
+                "expiry) to reach further down"
+            ),
+        }
+        if size(fitted) <= cap:
+            break
+    return fitted
+
+
+def _hoist_shared(rows: list[Any]) -> tuple[dict[str, Any], list[Any]]:
+    """State once what every row says identically; return (shared, slimmed rows).
+
+    Readers stamp per-source facts and honesty caveats onto every row — right at the
+    row level, ruinous at the payload level. Measured 2026-08-11 against the agents'
+    20,000-char result cap: `oi_walls` spent 44% of 22,388 chars on ONE caveat repeated
+    40 times, `flow_perception` 38% of 57,781 on one disclaimer repeated 50 times, and
+    `options_flow` 16% of 19,230. Nothing is dropped — the model reads the same
+    envelope in the same breath — it is just not said 50 times.
+
+    Only fields identical across EVERY row hoist, only from 3 rows up, and only when
+    the repetition actually costs something. That last gate is what keeps the shape
+    STABLE: `strategies` happens to have `enabled: false` on every row today, and
+    hoisting a five-character field would have moved it in and out of `rows` depending
+    on whether the user had enabled one — churn for a saving of ten characters.
+    """
+    if len(rows) < 3 or not all(isinstance(r, dict) for r in rows):
+        return {}, rows
+    shared = {
+        k: v
+        for k, v in rows[0].items()
+        if all(k in r and r[k] == v for r in rows[1:])
+        and len(json.dumps(v, default=str)) * (len(rows) - 1) >= _HOIST_MIN_SAVING
+    }
+    if not shared:
+        return {}, rows
+    return shared, [{k: v for k, v in r.items() if k not in shared} for r in rows]
 
 
 async def query(
@@ -1763,7 +2165,10 @@ async def query(
         logger.debug("Resource read failed for %s", key, exc_info=True)
         return {"resource": key, "error": str(exc), "rows": []}
 
+    shared, rows = _hoist_shared(rows)
     result: dict[str, Any] = {"resource": key, "count": len(rows), "rows": rows}
+    if shared:
+        result["shared"] = shared
     # Opt-in aggregate block for resources that register a ``summarize`` fn (e.g. the
     # journal's stats / the user's behavioral profile). Fail-soft — a summary failure
     # never sinks the rows.

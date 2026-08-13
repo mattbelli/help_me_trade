@@ -222,15 +222,16 @@ export class ChartEngine {
   }
 
   /**
-   * Single-step bar rollover: open the next interval's forming bar at `price`.
-   * A right-edge view follows the new bar; gaps are the wrapper's refetch
-   * problem — this never fabricates skipped buckets.
+   * Bar rollover: open the forming bar for the bucket `steps` ahead at `price`.
+   * A right-edge view follows the new bar; skipped buckets are the wrapper's
+   * refetch problem — this appends exactly one bar, never fabricating the ones
+   * in between.
    */
-  rollover(intervalMs: number, price: number): void {
+  rollover(intervalMs: number, price: number, steps = 1): void {
     const last = this.bars[this.bars.length - 1];
     if (!last || !Number.isFinite(price) || price <= 0) return;
     const atRightEdge = this.vp.rightEdgeIndex >= this.bars.length - 1;
-    this.bars.push(rolledOverBar(last.time, intervalMs, price));
+    this.bars.push(rolledOverBar(last, intervalMs, price, steps));
     if (atRightEdge) {
       this.vp = clampViewport(
         { barSpacing: this.vp.barSpacing, rightEdgeIndex: this.vp.rightEdgeIndex + 1 },

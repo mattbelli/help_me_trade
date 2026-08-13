@@ -380,6 +380,73 @@ def _market_frame_section(db_path: Path) -> str:
     else:
         lines.append("- VIX: _unavailable_")
 
+    # The macro calendar shipped 2026-08-11 onto the `market` perception resource but
+    # NOT onto this pack — and the pack is what a book reads FIRST. Measured on the
+    # 08-11 packs: no CPI line, on the eve of CPI. The one book that mentioned it had
+    # gone to the open web for a date sitting in our own store. Same miss as
+    # research-engine-bypassed-perception: a source is not wired until every consumer
+    # surface has it.
+    try:
+        from datetime import datetime as _dt
+
+        from signals.macro_substrate import event_calendar
+        from trading.market_hours import _ET
+
+        # ET, not the box's UTC: between 20:00 ET and midnight serv is already on
+        # tomorrow, and the pack would ask the calendar about the wrong day.
+        cal = event_calendar(_dt.now(_ET).date().isoformat())
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack event calendar read failed")
+        cal = None
+    if cal:
+        parts = []
+        if cal["today"]:
+            parts.append("TODAY " + ", ".join(cal["today"]))
+        parts += [f"{e['release']} in {e['in_days']}d ({e['date']})" for e in cal["upcoming"][:4]]
+        lines.append(
+            f"- macro calendar: {'; '.join(parts) if parts else 'nothing scheduled in 10d'}"
+            f" · not covered: {cal['not_covered']}"
+        )
+    else:
+        lines.append("- macro calendar: _unavailable_")
+
+    # Read from the snapshot store, never recomputed here: pricing the board costs a
+    # 2.3 s broker fetch and pack generation must stay DB-only. The convention is
+    # spelled out because the net is an assumption plus a fact, not a measurement —
+    # see signals/gamma_exposure.py.
+    try:
+        from db.gamma_exposure import history as gex_history
+
+        gex = (gex_history(limit=1) or [None])[0]
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack gamma exposure read failed")
+        gex = None
+    if gex:
+        flip = (
+            f", flip {gex['flip']:,.0f} ({gex['spot_above_flip_pct']:+.2f}% away)"
+            if gex.get("flip") is not None
+            else ", no flip found in ±30%"
+        )
+        # Vanna and charm are null on snapshots stored before they existed — an old
+        # row has no value for them, which is not the same as a board that was flat.
+        extra = "".join(
+            f", net {name} ${gex[key]:+,.1f}B per {per}"
+            for name, key, per in (
+                ("vanna", "net_vanna_b", "vol pt"), ("charm", "net_charm_b", "day")
+            )
+            if gex.get(key) is not None
+        )
+        lines.append(
+            f"- SPX dealer exposure: net gamma ${gex['net_b']:+,.1f}B per 1% (calls "
+            f"${gex['call_b']:,.1f}B vs puts ${gex['put_b']:,.1f}B){flip}{extra}; "
+            f"spot {gex['spot']:,.2f}, OI as of {gex['oi_as_of']}, "
+            f"priced {gex['as_of'][:16]}Z. "
+            "Every net ASSUMES dealers long calls / short puts — the convention, not "
+            "measured inventory; no edge tested. `query gex` for strikes/expiries/profile"
+        )
+    else:
+        lines.append("- SPX dealer exposure: _no stored snapshot_")
+
     hot = hot_lane_rows(db_path=db_path)
     if hot:
         # Mechanical-idea attention first — "position" rows are mostly other

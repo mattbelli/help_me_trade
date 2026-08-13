@@ -19,12 +19,18 @@ interrupt, and correct it. This doc is the mechanics; `CLAUDE.md` rule 1 is the 
 
 ## 1. The bench (who codes what)
 
-| coder | id | use for |
+| coder | launch | use for |
 |---|---|---|
-| **Grok 4.5 High** | CLI `cursor-grok-4.5-high` · SDK `grok-4.5` | default for real coding work |
-| **Opus 5** | CLI `claude-opus-5-thinking-high` · SDK `claude-opus-5` | load-bearing / subtle work, safety-adjacent |
-| **Sonnet** | CLI `claude-sonnet-5` · SDK `claude-sonnet-5` | small mechanical tasks, sweeps, boilerplate |
+| **Grok 4.5 High** | cursor-agent: `--kind cursor -- --model cursor-grok-4.5-high` | default for real coding work |
+| **Opus 5** | Claude Code: `--kind claude -- --model opus` | load-bearing / subtle work, safety-adjacent |
+| **Sonnet** | Claude Code: `--kind claude -- --model sonnet` | small mechanical tasks, sweeps, boilerplate |
 | *GPT-5.6 via codex CLI* | — | **not available** — no Codex sub yet. Do not route here |
+
+⚠️ **Claude-family coders run via the Claude Code CLI on the founder's Claude subscription — NEVER
+through cursor-agent** (founder correction 2026-08-10: a widget dispatch used cursor's
+`claude-opus-5-thinking-high` and billed Cursor credits; cursor *offers* Claude ids, don't take them).
+cursor-agent is for non-Claude models only. (Agent sessions on the subscription are fine — the
+CLAUDE.md ToS rule forbids subscription/OAuth for the APP's runtime LLM, not for coding agents.)
 
 **Composer 2.5 is retired as a coder.** The bridge still accepts it; we don't use it. Writing slop 10x
 faster loses to well-thought-out slow development every time.
@@ -69,6 +75,13 @@ permanently checked out in the live dev tree and no two worktrees may hold the s
 **off `origin/main`** (the fetched remote-tracking ref) instead; you never need `main` checked out
 locally to start work from it. Same reason `git branch -d` refuses a branch that a worktree still
 holds: switch off it first.
+
+⚠️ **Worktree dev servers: `frontend/node_modules` is a symlink into the main dev tree, and Next 16's
+Turbopack refuses to follow it** (*"Symlink node_modules is invalid, it points out of the filesystem
+root"*). For gallery screenshots (`tools/ui-shot.mjs` needs a server on 3055) start it with
+`npx next dev --webpack -p 3055` from the worktree's `frontend/` — and note `npm run dev -- -p 3055`
+doesn't override the port anyway (the script hardcodes `-p 3001`; the flag just appends). Discovered
+by the account-column coder, 2026-08-10.
 
 ### Naming: the DIRECTORY is the tree's identity, the BRANCH is the work's identity
 

@@ -129,7 +129,11 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Args: {resource, filters?}. For a SINGLE symbol's quote/levels/score "
             "use get_context instead — but reported financials (fundamentals, "
             "segments, earnings_release: SEC EDGAR primary source) live HERE, "
-            "with {filters: {symbol}}, even for one symbol."
+            "with {filters: {symbol}}, even for one symbol. "
+            "Returns {count, rows, shared?, truncated?}: `shared` holds the fields "
+            "that were identical on every row — read it as if it were repeated on "
+            "each one; `truncated` means rows past the top ones were dropped to fit "
+            "the result cap, so narrow the filters to reach further down."
         ),
     },
     "search_memories": {

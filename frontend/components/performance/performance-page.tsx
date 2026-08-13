@@ -320,7 +320,7 @@ export function PerformancePage() {
       {
         name: "Options",
         value: ac.option_trades,
-        fill: "var(--chart-muted)",
+        fill: "var(--fg-dim)",
       },
     ].filter((x) => x.value > 0);
   }, [dashboard]);
@@ -691,7 +691,7 @@ export function PerformancePage() {
                   <ChartContainer
                     config={{
                       stocks: { label: "Stocks", color: "var(--chart-line)" },
-                      options: { label: "Options", color: "var(--chart-muted)" },
+                      options: { label: "Options", color: "var(--fg-dim)" },
                     }}
                     className="h-[220px] w-full"
                   >
