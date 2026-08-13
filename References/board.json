@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 312,
+   "id": "calendar-qty-sync",
+   "title": "Calendar updates when Schwab positions change",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-13",
+   "notes": "Positions widget already sees qty changes (~2 min Schwab snapshot TTL). Ledger sync is hourly, calendar does not poll. Hook qty-diff on a fresh Schwab snapshot to kick sync_schwab (existing lock), and poll the calendar so today's cell catches the fill."
+  },
+  {
    "num": 311,
    "id": "flow-conviction-score",
    "title": "Replace widget computeScore with rarity×shape conviction (Inc 2)",

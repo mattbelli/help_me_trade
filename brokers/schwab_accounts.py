@@ -17,11 +17,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from brokers.schwab_auth import OPEN_ORDER_STATUSES, create_client, token_exists
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 _LABELS_PATH = ROOT / "data" / "schwab_account_labels.json"
@@ -34,6 +39,12 @@ _CACHE_TTL = 120.0  # seconds
 _cache: dict = {"ts": 0.0, "data": None}
 _cache_lock = threading.Lock()  # guards _cache only — never held during a fetch
 _fetch_lock = threading.Lock()  # single-flight: at most one Schwab sweep at a time
+
+# Qty fingerprint of the last snapshot whose ledger sync completed (or the
+# first snapshot, which is the baseline — startup trade_sync already ran).
+# A skipped sync leaves this unchanged so the next snapshot retries.
+_qty_lock = threading.Lock()
+_last_synced_qty: dict[tuple[str, str], float] | None = None
 
 
 def _labels() -> dict:
@@ -48,6 +59,82 @@ def _labels() -> dict:
 def _last4(num: str) -> str:
     num = str(num or "")
     return num[-4:] if len(num) >= 4 else num
+
+
+def position_qty_map(accounts: list[dict[str, Any]]) -> dict[tuple[str, str], float]:
+    """(account_id, symbol) → qty. Price-only moves do not change this."""
+    out: dict[tuple[str, str], float] = {}
+    for acct in accounts:
+        aid = str(acct.get("id") or "")
+        for pos in acct.get("positions") or []:
+            sym = str(pos.get("symbol") or "").upper()
+            if not aid or not sym:
+                continue
+            out[(aid, sym)] = round(float(pos.get("qty") or 0), 8)
+    return out
+
+
+def reset_qty_sync_state() -> None:
+    """Test helper — drop the baseline so the next observe is a first snapshot."""
+    global _last_synced_qty
+    with _qty_lock:
+        _last_synced_qty = None
+
+
+def maybe_sync_ledger_on_qty_change(
+    accounts: list[dict[str, Any]],
+    *,
+    run_sync: Callable[[], Any] | None = None,
+) -> bool:
+    """If live position qtys changed since the last successful ledger sync, pull trades.
+
+    Returns True if a sync was started. The first snapshot is the baseline (no
+    extra pull — startup ``trade_sync`` already ran). A skipped sync (lock busy)
+    leaves the baseline unchanged so the next snapshot retries. Price-only
+    moves are ignored.
+    """
+    global _last_synced_qty
+    curr = position_qty_map(accounts)
+    with _qty_lock:
+        prev = _last_synced_qty
+        if prev is None:
+            _last_synced_qty = curr
+            return False
+        if prev == curr:
+            return False
+
+    if run_sync is not None:
+        result = run_sync()
+        _mark_qty_synced_if_complete(curr, result)
+        return True
+
+    def _run() -> None:
+        try:
+            from trading.sync import sync_schwab
+
+            result = sync_schwab()
+        except Exception:
+            logger.exception("Schwab ledger sync after position qty change failed")
+            return
+        _mark_qty_synced_if_complete(curr, result)
+        logger.info("Schwab ledger sync after position qty change: %s", result)
+
+    threading.Thread(
+        target=_run, daemon=True, name="schwab-qty-ledger-sync"
+    ).start()
+    return True
+
+
+def _mark_qty_synced_if_complete(curr: dict[tuple[str, str], float], result: Any) -> None:
+    global _last_synced_qty
+    if isinstance(result, dict) and result.get("skipped"):
+        logger.info(
+            "Schwab ledger sync skipped (%s); will retry on next snapshot",
+            result.get("skipped"),
+        )
+        return
+    with _qty_lock:
+        _last_synced_qty = curr
 
 
 def _parse_positions(sec: dict) -> list[dict]:
@@ -245,6 +332,14 @@ def get_schwab_accounts_sync(force: bool = False) -> dict:
         record_schwab_daily(data.get("accounts") or [])
     except Exception:  # noqa: BLE001 — persistence must never break the read
         pass
+    # Positions widget already sees qty changes on this snapshot. Kick the
+    # trade-ledger pull so the calendar/day-P&L catch the fill without waiting
+    # for the hourly loop. Background + existing sync lock; never blocks this
+    # read path.
+    try:
+        maybe_sync_ledger_on_qty_change(data.get("accounts") or [])
+    except Exception:  # noqa: BLE001 — ledger sync must never break the read
+        logger.exception("qty-change ledger sync kick failed")
     return data
 
 

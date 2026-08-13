@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -15,7 +15,10 @@ import {
 import { formatTradeMoney, parseMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
 import { useRealAccounts } from "@/lib/workspace/use-real-accounts";
+
+const POLL_MS = 20_000;
 
 const PERIODS: { key: PerformancePeriod; label: string }[] = [
   { key: "day", label: "Day" },
@@ -79,30 +82,40 @@ export function PerformanceStatsWidget() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetchPerformanceDashboard({ account_id: selectedAccountId, period })
-      .then((data) => {
-        if (cancelled) return;
+  const load = useCallback(
+    async (isFirst = false) => {
+      if (isFirst) setLoading(true);
+      try {
+        const data = await fetchPerformanceDashboard({
+          account_id: selectedAccountId,
+          period,
+        });
+        if (cancelledRef.current) return;
         setDashboard(data);
         setError(null);
-      })
-      .catch((err) => {
-        if (cancelled) return;
+      } catch (err) {
+        if (cancelledRef.current) return;
         setError(
           err instanceof Error ? err.message : "Failed to load performance",
         );
         setDashboard(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      } finally {
+        if (!cancelledRef.current) setLoading(false);
+      }
+    },
+    [period, selectedAccountId],
+  );
+
+  useEffect(() => {
+    cancelledRef.current = false;
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [period, selectedAccountId]);
+  }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   // Unrealized P/L is always "as of now" (not period-scoped). Per-account
   // scope shows that account's unrealized P&L; otherwise the real aggregate.

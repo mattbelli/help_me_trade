@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,6 +14,9 @@ import {
 import { formatTradeMoney } from "@/lib/trades-api";
 import { cn } from "@/lib/utils";
 import { useDashboardPrefs } from "@/lib/workspace/use-dashboard-prefs";
+import { usePagePoll } from "@/lib/workspace/use-page-poll";
+
+const POLL_MS = 20_000;
 
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -203,6 +206,7 @@ export function TradingCalendarWidget() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const { selectedAccountId } = useDashboardPrefs();
+  const cancelledRef = useRef(false);
 
   const isCurrentMonth =
     cursor.year === now.getFullYear() && cursor.month === now.getMonth();
@@ -211,11 +215,9 @@ export function TradingCalendarWidget() {
     setSelectedDate(null);
   }, [cursor.year, cursor.month, selectedAccountId]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
+  const load = useCallback(
+    async (isFirst = false) => {
+      if (isFirst) setLoading(true);
       setError(null);
       try {
         const monthStart = toDateKey(new Date(cursor.year, cursor.month, 1));
@@ -228,24 +230,29 @@ export function TradingCalendarWidget() {
           from_date: monthStart,
           to_date: monthEnd,
         });
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setDashboard(data);
       } catch (err) {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         setError(
           err instanceof Error ? err.message : "Failed to load calendar",
         );
         setDashboard(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
-    }
+    },
+    [cursor.year, cursor.month, selectedAccountId],
+  );
 
-    void load();
+  useEffect(() => {
+    cancelledRef.current = false;
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [cursor.year, cursor.month, selectedAccountId]);
+  }, [load]);
+
+  usePagePoll(load, POLL_MS);
 
   const dateMap = useMemo(() => {
     const map = new Map<
