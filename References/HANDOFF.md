@@ -71,18 +71,24 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
 - ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
   (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
 
-## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
+## ▶ 08-13 #308 chart-hang round — follow-ups (fix shipped, see BUILD_LOG 08-13)
 
-Since Fri 08-07 ~10:00 ET the v1beta1/opra trades WS lags 8-12s (p50, RTH) and silently drops
-~30% of prints under load (measured vs the Databento spine; BUILD_LOG 08-11 row has the numbers,
-scratch analysis method: pairing-shadow `wire_lag_ms`/`dbn=`/`alp=` counters). Founder posted the
-stats to the Alpaca forum. Spine unaffected; live impact = pairing enrichment (matched 98%→~57%)
-and the GTH/overnight tape (Alpaca-only, no fallback).
-- ⏳ **check by 08-14**: has alp/dbn recovered to ~99%+ and matched% to ~98? (one journal grep of
-  `pairing shadow`). If recovered, delete this entry; if not, consider a degraded-lane flag on
-  GTH-fed consumers.
-- ⏳ unexplained: flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then stabilized — if
-  that wasn't founder/deploy activity, worth one journal look before deleting this line.
+The Alpaca OPRA sidecar degradation (08-07→08-12, tracked here since 08-11) RECOVERED 08-13:
+pairing matched 99.1%, wire lag a-lane p50 11-15ms all session — entry closed per its own
+checkpoint. The #308 chart-hang verdict landed on OUR side (prewarm self-saturation since
+PR #102); serve-stale + hot-spec scope cut shipped + deployed 08-13 ~19:24 UTC.
+- ⏳ **founder in-browser feel-check**: timeframe switching should paint instantly (stale ok)
+  and never sit 10-40s; first view of a never-cached combo still cold-loads once.
+- ⏳ **WS keepalive blame probe**: the chronic stocks-stream ping timeouts (61-124/weekday
+  since ≥07-28, market-hours clustered) are ambiguous — our loop starvation vs Alpaca edge.
+  With prewarm calmed, watch the daily count; if it collapses, it was us (case closed, no
+  probe needed). If not, run a standalone minimal WS client beside the backend for a day
+  BEFORE any Alpaca ticket.
+- ⏳ **reboot-persistent bars cache** (uncarded): the 08-13 power-off cold-started every
+  cache into a vendor slow patch — worst-case UX. A periodic disk snapshot of _BARS_CACHE
+  would make reboots paint instantly. Small, wants its own round.
+- ⏳ unexplained (carried): flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then
+  stabilized — if that wasn't founder/deploy activity, worth one journal look.
 
 ## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
 

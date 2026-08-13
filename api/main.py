@@ -4270,6 +4270,14 @@ _BARS_CACHE_TTL = {
     "1Week": 300.0,
     "1Month": 300.0,
 }
+# Serve-stale-while-revalidate window for INTERACTIVE requests: an expired entry no
+# older than this past its TTL is returned immediately while the refresh task runs in
+# the background and lands in cache for the frontend's next poll (the chart walks
+# forward on live WS ticks meanwhile). Bounded so a series untouched for hours still
+# blocks for fresh data instead of silently painting a stale session. The prewarm
+# loop never serves stale — it must await fetches to pace itself (#308: the 10-40s
+# chart loads were interactive requests queued behind a saturated refresh path).
+_BARS_SERVE_STALE_MAX = 600.0
 
 # Incremental refresh: when a warm cached series is refreshed (by the prewarm loop
 # or an expired interactive miss), re-fetch only this small trailing window and merge
@@ -4341,13 +4349,18 @@ _BARS_PREWARM_PACE = 0.25  # sleep between actual fetches (s)
 _BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {
     ("1Day", 1825)
 }  # the default chart view, warm from boot
-# Broadcast the K most-recently-used distinct specs across the whole watchlist (the
-# timeframes the user is actively working in) so switching symbols — or switching to a
-# timeframe on a symbol not yet viewed there — is served warm, not cold. Kept small and
-# entry-capped because it multiplies the watchlist by (1 + K); safe now ONLY because
-# incremental refresh (fix #1) makes each warm refresh a tiny trailing-window fetch
-# rather than a full range walk (the cross-product the 07-22 storm forbade).
+# Broadcast the K most-recently-used distinct specs (the timeframes the user is
+# actively working in) so switching symbols — or switching to a timeframe on a symbol
+# not yet viewed there — is served warm, not cold.
 _BARS_HOT_SPECS_MAX = 2
+# ...but only to the N most-recently-viewed symbols, NOT the whole watchlist. The full
+# cross-product (40 symbols × K specs + defaults) exceeded the 160-entry cap on EVERY
+# cycle from PR #102 (07-22) onward — a permanently saturated queue hammering 180-260
+# upstream calls/min all day, behind which interactive chart loads queued for 10-40s
+# (#308, the real "chart won't load" mechanism; measured 270% backend CPU). A symbol
+# outside the top-N cold-loads its first view of a hot timeframe (sub-second to a few
+# seconds) and is warm from then on; serve-stale covers every repeat view.
+_BARS_HOT_SPECS_SYMBOLS = 12
 # Hard backstop on (symbol, spec) entries warmed per cycle — bounds the cross-product
 # for large/dynamic watchlists (future users: 200-300 names). Trimmed from the tail with
 # default-1Day pushed first, so the baseline view is never sacrificed to a hot-spec
@@ -4376,14 +4389,19 @@ async def api_bars(
     _BARS_SEEN_SYMBOLS[sym] = now
     _BARS_SEEN_SPECS[(sym, timeframe, int(days))] = now
 
-    response = await _get_bars_cached(sym, timeframe, int(days), ext)
+    response = await _get_bars_cached(sym, timeframe, int(days), ext, stale_ok=True)
     if response is None:
         return JSONResponse({"error": "failed to load bars"}, status_code=502)
     return response
 
 
 async def _get_bars_cached(
-    sym: str, timeframe: str, days: int, extended: bool | None = None
+    sym: str,
+    timeframe: str,
+    days: int,
+    extended: bool | None = None,
+    *,
+    stale_ok: bool = False,
 ) -> dict | None:
     """Cache-read → coalesced fetch → cache-write for chart bars.
 
@@ -4411,6 +4429,16 @@ async def _get_bars_cached(
         task = asyncio.create_task(_fetch_bars(sym, timeframe, int(days), ext, cache_key))
         _BARS_INFLIGHT[cache_key] = task
         task.add_done_callback(lambda _t, k=cache_key: _BARS_INFLIGHT.pop(k, None))
+    # Serve-stale-while-revalidate: a recently-expired payload paints the chart NOW;
+    # the fetch task just created (or already running) lands fresh data for the next
+    # poll. Only interactive callers opt in — the prewarm loop awaits so its pacing
+    # holds and fetch concurrency stays bounded.
+    if (
+        stale_ok
+        and cached is not None
+        and cached[0] > time.monotonic() - _BARS_SERVE_STALE_MAX
+    ):
+        return cached[1]
     return await task
 
 
@@ -4604,9 +4632,10 @@ async def _bars_prewarm_once() -> None:
 
     # Warm queue, priority order: (1) the default 1Day view for every symbol — the
     # baseline everyone needs and the cheapest; (2) the hot specs broadcast across the
-    # watchlist (the fix-#2 cross-product, affordable now via incremental refresh);
-    # (3) any other exact combo actually viewed on an allowed symbol (one-off long-range
-    # views). The entry cap trims from the tail, so 1Day coverage is never dropped.
+    # top-N most-recently-viewed symbols (the full-watchlist cross-product saturated
+    # the queue permanently — see _BARS_HOT_SPECS_SYMBOLS); (3) any other exact combo
+    # actually viewed on an allowed symbol (one-off long-range views). The entry cap
+    # trims from the tail, so 1Day coverage is never dropped.
     queue: list[tuple[str, str, int]] = []
     seen_q: set[tuple[str, str, int]] = set()
 
@@ -4620,7 +4649,7 @@ async def _bars_prewarm_once() -> None:
         for sym in symbols:
             _push(sym, timeframe, days)
     for timeframe, days in hot_specs:
-        for sym in symbols_by_recency:
+        for sym in symbols_by_recency[:_BARS_HOT_SPECS_SYMBOLS]:
             _push(sym, timeframe, days)
     for (sym, timeframe, days), ts in _BARS_SEEN_SPECS.items():
         if now - ts < _BARS_SEEN_TTL and sym in allowed:

@@ -349,7 +349,9 @@ def test_api_bars_resolves_extended_flag(
     (no cache/prewarm/provider interaction)."""
     calls: list[tuple] = []
 
-    async def _fake(sym: str, timeframe: str, days: int, extended: bool) -> dict:
+    async def _fake(
+        sym: str, timeframe: str, days: int, extended: bool, *, stale_ok: bool = False
+    ) -> dict:
         calls.append((sym, timeframe, days, extended))
         return {"symbol": sym, "timeframe": timeframe, "bars": []}
 
