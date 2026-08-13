@@ -1273,7 +1273,7 @@ def _context_protos(
     if int(episode.get("market_shock") or 0):
         protos.append(
             {
-                "statement": "market-shock window active (broad SPY/VIX move stamped on this episode)",
+                "statement": "market-shock window active (broad SPY move stamped on this episode)",
                 "value": 1,
                 "ts": state_ts,
                 "direction": "none",

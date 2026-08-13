@@ -344,6 +344,24 @@ def test_ensure_episode_keys_on_open_episode_per_symbol(
     assert count == 1
 
 
+def test_shock_flag_clears_when_window_expires(
+    fusion_db: Path,
+) -> None:
+    """Round B: market_shock is the current window, not a MAX() latch. Once
+    shock_lookup goes false, the open episode must drop the flag — otherwise a
+    10am print stamps the card for the rest of the episode's life."""
+    from signals.fusion.intake import _ensure_episode
+
+    ts = "2026-07-17T14:30:00+00:00"
+    shocked = _ensure_episode("TSLA", "2026-07-17", ts, True, fusion_db)
+    assert int(shocked["market_shock"]) == 1
+    cleared = _ensure_episode("TSLA", "2026-07-17", ts, False, fusion_db)
+    assert cleared["id"] == shocked["id"]
+    assert int(cleared["market_shock"]) == 0
+    rearmed = _ensure_episode("TSLA", "2026-07-17", ts, True, fusion_db)
+    assert int(rearmed["market_shock"]) == 1
+
+
 def test_rescore_persists_masses_and_last_evidence(fusion_db: Path) -> None:
     """_rescore stamps the v2 decayed thesis mass summary + last_evidence_at
     alongside the legacy undecayed score."""

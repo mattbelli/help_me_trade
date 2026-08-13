@@ -12,13 +12,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from config.idea_engine import (
-    FUSION_CONTEXT_REFRESH_S,
     FUSION_EARNINGS_AHEAD_TD,
     FUSION_EARNINGS_BEHIND_TD,
     FUSION_NEWS_BURST_POINTS,
     FUSION_NEWS_MAX_SYMBOLS,
     FUSION_NEWS_WINDOW_MIN,
-    FUSION_REGIME_STALE_DAYS,
     FUSION_REHYDRATE_SESSIONS,
     FUSION_RVOL_DAY_VOLUME_MAX_AGE_S,
     FUSION_RVOL_REFRESH_BUCKET_MIN,
@@ -211,8 +209,9 @@ def _ensure_episode(
 ) -> dict[str, Any]:
     """Return the OPEN episode for *symbol* (one per symbol — the new dedup key).
 
-    Reuse the open episode if one exists (bump updated_at + shock, keep its
-    OPENING market_day); otherwise open a NEW episode whose id is keyed on the
+    Reuse the open episode if one exists (bump updated_at, write the CURRENT
+    shock flag — not latched; a 60-min window that has expired must clear), keep
+    its OPENING market_day; otherwise open a NEW episode whose id is keyed on the
     opening dot's ts (one-open-at-a-time makes it collision-free), seeding its
     mass summary from cold storage (§2.4). A replayed first dot whose episode has
     since CLOSED finds that closed row by id and reuses it (the dot re-attaches
@@ -231,7 +230,7 @@ def _ensure_episode(
                 """
                 UPDATE fusion_episodes SET
                     updated_at = ?,
-                    market_shock = MAX(market_shock, ?)
+                    market_shock = ?
                 WHERE id = ? AND state = 'open'
                 """,
                 (now, int(shock), open_row["id"]),
@@ -780,8 +779,9 @@ def _attach_earnings(episode: dict, ts: str, market_day: str, db_path: Path) -> 
 
 
 # ------------------------------------------------------------- rvol ex-prints
-# Per-symbol memos, deliberately NOT _CONTEXT_MEMO: that one is keyed on the
-# market day alone (market-wide reads) and cannot hold a per-symbol value.
+# Per-symbol memos. Market-wide regime/index-pressure used to share a day-keyed
+# memo; those per-name stamps are gone (Round B) — day-scoped context lives on
+# macro.db via regime_report / the `market` perception resource.
 _RVOL_BUCKET_MEMO: dict[tuple[str, str], int] = {}  # (episode, day) -> last written bucket
 _RVOL_PRINTS_MEMO: dict[tuple[str, str, int], int] = {}  # (symbol, since_utc, bucket) -> shares
 _RVOL_PROFILE_MEMO: dict[str, tuple[float, Any]] = {}  # symbol -> (monotonic, Profile|None)
@@ -994,163 +994,6 @@ def _attach_rvol(episode: dict, ts: str, market_day: str, db_path: Path) -> None
     }
     _mint_rvol_dot(episode, ts, _decimal(rvol), detail, db_path)
     bump("fusion_intake", "rvol_dots", db_path=db_path)
-
-
-# Market-wide context reads are identical for every episode on a market day —
-# memoized so a busy intake pass costs one query burst per TTL, not per event.
-_CONTEXT_MEMO: dict[tuple[str, str, str], tuple[float, Any]] = {}
-
-
-def _context_memo(kind: str, market_day: str, db_path: Path, build: Callable[[], Any]) -> Any:
-    key = (kind, market_day, str(db_path))
-    hit = _CONTEXT_MEMO.get(key)
-    now = time.monotonic()
-    if hit is not None and now - hit[0] < FUSION_CONTEXT_REFRESH_S:
-        return hit[1]
-    value = build()
-    if len(_CONTEXT_MEMO) > 64:
-        _CONTEXT_MEMO.clear()  # tiny working set; clears itself across day/db rollover
-    _CONTEXT_MEMO[key] = (now, value)
-    return value
-
-
-_REGIME_SERIES = ("VIXCLS", "vix3m", "DGS2", "DGS10")
-
-
-def _regime_payload(market_day: str, db_path: Path) -> dict[str, Any] | None:
-    from db.regime import latest_observation
-
-    anchor = date.fromisoformat(market_day)
-    readings: dict[str, tuple[str, float]] = {}
-    for series in _REGIME_SERIES:
-        obs = latest_observation(series, as_of=market_day, db_path=db_path)
-        if obs is None:
-            continue
-        try:
-            age = (anchor - date.fromisoformat(obs[0])).days
-        except ValueError:
-            continue
-        if age > FUSION_REGIME_STALE_DAYS:
-            continue
-        readings[series] = obs
-    if not readings:
-        return None
-    detail: dict[str, Any] = {"stale_days_max": FUSION_REGIME_STALE_DAYS}
-    vix = readings.get("VIXCLS")
-    vix3m = readings.get("vix3m")
-    dgs2 = readings.get("DGS2")
-    dgs10 = readings.get("DGS10")
-    if vix is not None:
-        detail["vix"] = vix[1]
-        detail["vix_date"] = vix[0]
-    if vix3m is not None:
-        detail["vix3m"] = vix3m[1]
-        detail["vix3m_date"] = vix3m[0]
-    # Derived measures require DATE-ALIGNED observations — the two series come
-    # from different feeds with different lags, and a cross-date ratio inverts
-    # the term-structure verdict on exactly the spike days it exists to flag
-    # (regime_sleeves joins on date for the same reason; never a second
-    # definition). Levels above still surface individually when misaligned.
-    if vix is not None and vix3m is not None and vix[0] == vix3m[0] and vix3m[1] > 0:
-        # > 1 = term-structure backwardation (near-term stress priced above far).
-        detail["vix_term_ratio"] = round(vix[1] / vix3m[1], 4)
-    if dgs2 is not None and dgs10 is not None and dgs2[0] == dgs10[0]:
-        detail["curve_2s10s"] = round(dgs10[1] - dgs2[1], 4)
-        detail["curve_dates"] = [dgs2[0], dgs10[0]]
-    return detail
-
-
-def _attach_regime(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
-    """Context state dot (ANNOTATE-ONLY — the scorer never scores this group):
-    the macro regime read (VIX level + term ratio, 2s10s curve) riding on the
-    episode so the card/dossier can show the tape's weather. Series staler than
-    FUSION_REGIME_STALE_DAYS mint nothing — counted, never raised."""
-    detail = _context_memo(
-        "regime", market_day, db_path, lambda: _regime_payload(market_day, db_path)
-    )
-    if not detail:
-        bump("fusion_intake", "regime_skipped_stale", db_path=db_path)
-        return
-    _insert_dot(
-        episode_id=episode["id"],
-        source_store="market_context",
-        source_event_id=f"{episode['id']}:regime",
-        source_ingest_seq=0,
-        symbol=episode["symbol"],
-        ts=ts,
-        component="regime",
-        actor_group="context",
-        dot_kind="state",
-        direction="none",
-        raw_value=_decimal(detail.get("vix")),
-        points=0.0,
-        detail=detail,
-        price=None,
-        atr14=None,
-        db_path=db_path,
-    )
-    bump("fusion_intake", "regime_dots", db_path=db_path)
-
-
-def _index_pressure_payload(market_day: str, db_path: Path) -> dict[str, Any] | None:
-    from db.index_pressure import day_summary
-
-    for window in ("close", "open"):
-        rows = day_summary(market_day, window=window, db_path=db_path)
-        if not rows:
-            continue
-        bull = sum(r["bull_usd"] for r in rows)
-        bear = sum(r["bear_usd"] for r in rows)
-        gross = bull + bear + sum(r["unclassified_usd"] for r in rows)
-        return {
-            "date": market_day,
-            "window": window,
-            "bull_usd": round(bull, 2),
-            "bear_usd": round(bear, 2),
-            "net_usd": round(bull - bear, 2),
-            "classified_frac": round((bull + bear) / gross, 4) if gross > 0 else 0.0,
-            "underlyings": len(rows),
-            "top": [
-                {"underlying": r["underlying"], "net_usd": round(r["net_usd"], 2)}
-                for r in rows[:3]
-            ],
-        }
-    return None
-
-
-def _attach_index_pressure(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
-    """Context state dot (ANNOTATE-ONLY): today's index-options pressure gauge
-    read, market-wide by construction (#93 — the gauge lane, never a wildcard
-    trades sub). Prefers the close window once it has data, else the open; a day
-    with no gauge minutes mints nothing — counted, never raised."""
-    payload = _context_memo(
-        "index_pressure",
-        market_day,
-        db_path,
-        lambda: _index_pressure_payload(market_day, db_path),
-    )
-    if not payload:
-        bump("fusion_intake", "index_pressure_skipped_none", db_path=db_path)
-        return
-    _insert_dot(
-        episode_id=episode["id"],
-        source_store="index_pressure",
-        source_event_id=f"{episode['id']}:index_pressure",
-        source_ingest_seq=0,
-        symbol=episode["symbol"],
-        ts=ts,
-        component="index_pressure",
-        actor_group="context",
-        dot_kind="state",
-        direction="none",
-        raw_value=_decimal(payload.get("net_usd")),
-        points=0.0,
-        detail=payload,
-        price=None,
-        atr14=None,
-        db_path=db_path,
-    )
-    bump("fusion_intake", "index_pressure_dots", db_path=db_path)
 
 
 # ------------------------------------------------------------------- news lane
@@ -1854,8 +1697,6 @@ def intake_once(
                 context_done.add(context_key)
                 _attach_attention(episode, str(event["ts"]), db_path)
                 _attach_earnings(episode, str(event["ts"]), context_key[1], db_path)
-                _attach_regime(episode, str(event["ts"]), context_key[1], db_path)
-                _attach_index_pressure(episode, str(event["ts"]), context_key[1], db_path)
                 _attach_rvol(episode, str(event["ts"]), context_key[1], db_path)
             state = _rescore(episode["id"], db_path)
             if disposition == "scored":

@@ -15,8 +15,10 @@ Two consumers, in order (the card's scope):
    relative percentiles against the series' own full history at the house
    33/80 cut (signals/volatility.py CALM_PCTILE/STORM_PCTILE), never
    calibrated signals.
-2. LATER — a perception input (the fusion regime dot keeps reading the small
-   regime_macro table in trading.db until that consolidation is its own round).
+2. Perception + dossier — the ``market`` resource and ``signals.dossier._macro_protos``
+   read this store. Round B (2026-08-13) deleted the fusion per-name ``regime`` /
+   ``index_pressure`` stamps that used to read the thin ``regime_macro`` table;
+   day-scoped context is this report, once per pass, not once per name.
 
 The trend axis (up/down/sideways) is deliberately ABSENT: it derives from SPY
 bars the flow study already holds; a licensed FRED equity series adds nothing.

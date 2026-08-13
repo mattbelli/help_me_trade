@@ -48,7 +48,6 @@ def fusion_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _clear_memos() -> None:
-    intake._CONTEXT_MEMO.clear()
     intake._RVOL_BUCKET_MEMO.clear()
     intake._RVOL_PRINTS_MEMO.clear()
     intake._RVOL_PROFILE_MEMO.clear()
@@ -560,7 +559,6 @@ def test_five_minute_write_throttle_skips_the_same_bucket(fusion_db: Path) -> No
 
     # A second event in the SAME 5-minute bucket must not re-write the dot
     # (the memo is deliberately NOT cleared here — that is the mechanism).
-    intake._CONTEXT_MEMO.clear()
     _seed_day_volume(fusion_db, volume=9_000_000)
     insert_flow(_flow("flow-same-bucket", ts="2026-07-17T14:32:00+00:00"), fusion_db)
     _run_intake(fusion_db)

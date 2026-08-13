@@ -23,6 +23,8 @@ GROUP_COMPONENTS: dict[str, frozenset[str]] = {
     "structure": frozenset({"session_level", "price_alert"}),
     "attention": frozenset({"reddit_buzz", "stocktwits_buzz"}),
     "catalyst": frozenset({"earnings_proximity", "news"}),
+    # regime + index_pressure are no longer minted (Round B) but stay classified
+    # so leftover DB rows remain annotate-only and cannot start scoring.
     "context": frozenset({"regime", "index_pressure", "market_shock"}),
 }
 SIZE_CAP = 4.0

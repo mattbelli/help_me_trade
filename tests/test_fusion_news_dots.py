@@ -55,7 +55,6 @@ def fusion_db(tmp_path: Path) -> Path:
     init_fusion_tables(path)
     init_chart_features(path)
     init_news(path)
-    intake._CONTEXT_MEMO.clear()
     return path
 
 

@@ -238,8 +238,8 @@ and the `MAX()` latch, and report its firing rate.
 
 **What the substrate carries now: 29 series (25 FRED + 4 Cboe), 6 report axes, all six at 100%
 coverage over 250 sessions.**
-Round A widened the substrate and wired it; the dot consolidation and the dead `market_shock` arm are
-Round B and are NOT done.
+Round A widened the substrate and wired it. Round B (dot deletion + dead VIX arm + latch) shipped
+2026-08-13 — see below.
 
 | axis | series | history | 250-session buckets (low/mid/high) |
 |---|---|---|---|
@@ -314,9 +314,21 @@ corrects it; and three axes are duplicated between the `axes` and `series` block
 proposed fix made worse.
 
 **Open, deliberately:** (1) no UI surface renders these axes — founder's call where it lands, and
-**no new widget**; (2) Round B is the dot consolidation itself + the dead `market_shock` VIX arm + the
-`MAX()` latch; (3) the Cboe close-snapshot cron (22:00 + 23:00 UTC weekdays, both post-settle in either
-DST regime) has not yet survived a live firing — first one is tonight.
+**no new widget**. Cboe close-snapshot cron survived its first live firing 08-11 (checked 08-12).
+
+#### Section 1 — Round B SHIPPED 2026-08-13 (card #302 closed)
+
+Deleted, not retargeted. Per-name `regime` / `index_pressure` evidence-dot producers are gone
+(`_attach_regime`, `_attach_index_pressure`, the day-keyed `_CONTEXT_MEMO`). Day-scoped context
+already had the right readers — `regime_report` on `macro.db` via dossier `_macro_protos` and the
+`market` perception resource — and stamping those facts onto every name was the shape error the
+audit measured (5,704/5,704 episodes, fabricated `raw_value` on 57–65% of rows, score impact
+exactly zero). Index-pressure stays a per-name dossier read for the 13 gauge underlyings only.
+
+`market_shock`: dead VIX arm removed (`_fusion_cached_daily_move("VIX")` — no VIX bars on disk);
+SQL `MAX(market_shock, ?)` replaced with assignment so the 60-min window can expire. SPY ≥2%
+arm kept. Component registry still lists `regime`/`index_pressure` so leftover DB rows stay
+annotate-only and cannot start scoring.
 
 **Correction (2026-08-11): neither of the two items first listed here as "urgent leaks" is urgent, and
 one of them is not ours.** Both were measured; both claims were wrong.

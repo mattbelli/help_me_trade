@@ -1758,22 +1758,22 @@ def _fusion_cached_daily_move(symbol: str) -> float | None:
 
 
 def _fusion_shock_active() -> bool:
+    """True while SPY's daily move is ≥ the shock threshold, latched 60 min.
+
+    Round B: the VIX arm is gone. It requested the literal symbol ``"VIX"``,
+    which has never existed as bars on disk (we have VIXY, a different
+    instrument, and VIXCLS on ``macro.db``). Vol as a *regime axis* already
+    reaches every agent via ``regime_report``; this flag is the SPY jump.
+    """
     global _fusion_shock_until_mono
     from config.idea_engine import (
         FUSION_SHOCK_WINDOW_MINUTES,
         FUSION_SPY_SHOCK_MOVE_PCT,
-        FUSION_VIX_SHOCK_MOVE_PCT,
     )
 
     now = time.monotonic()
     spy_move = _fusion_cached_daily_move("SPY")
-    vix_move = _fusion_cached_daily_move("VIX")
-    if (
-        spy_move is not None
-        and abs(spy_move) >= FUSION_SPY_SHOCK_MOVE_PCT
-        or vix_move is not None
-        and vix_move >= FUSION_VIX_SHOCK_MOVE_PCT
-    ):
+    if spy_move is not None and abs(spy_move) >= FUSION_SPY_SHOCK_MOVE_PCT:
         _fusion_shock_until_mono = max(
             _fusion_shock_until_mono, now + FUSION_SHOCK_WINDOW_MINUTES * 60
         )

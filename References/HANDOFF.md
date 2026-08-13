@@ -25,51 +25,19 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
   (~8.4k of 17,481 rows are fusion_mech) and the founder called it "probably dead as it stands" —
   a revival/triage is its own future thread, not part of #296.
 
-## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
+## ▶ 08-13 Fusion rebuild — Section 1 closed, Section 2 next
 
-Section-by-section rebuild (founder's method) per `References/fusion_layer_audit/README.md`; card #302.
-Round A widened the macro substrate and wired it to both agent surfaces (BUILD_LOG 08-11 row).
-- ✅ **Cboe close cron — CHECKED 08-12, passed.** Both firings (22:00 + 23:00 UTC) wrote 08-11 rows for
-  all 7 series, and the values are the settle: `last_trade_time` is 16:15:01 ET, the index settlement
-  print. ⚠️ Two gotchas for whoever reads these next: post-settle Cboe rolls `prev_day_close` forward
-  so it EQUALS today's close on every series — the VXTLT/VXEEM rejection test was never really about
-  that field, it was about `last_trade_time` (16:02 + a different tz = not a settle); and VIX1D and
-  VIX9D both printed exactly 12.52, which is coincidence, not a duplicated feed — their open/high/low
-  differ (7.52/12.63/7.07 vs 12.95/13.10/12.32), checked against the vendor directly.
-- ▶ **Round B** (not started): consolidate the fusion regime dot onto `macro.db` (it still reads the
-  thin `regime_macro`), delete `market_shock`'s dead VIX arm + the never-resetting `MAX()` latch.
-- ▶ **founder call**: no UI surface renders the regime axes (now 8 + index gamma). **No new widget**
-  (standing rule) — so this needs a merge target on an existing widget, or it stays agent-only.
-- ✅ **CPI check — ANSWERED EARLY 08-12, and it found the real gap.** The books were not blind (fable's
-  08-11 session does discuss CPI) but it had gone to the OPEN WEB for it: the calendar shipped onto the
-  `market` perception resource and **not onto the nightly book pack**, which is what a book reads
-  first — the 08-11 packs carry no CPI line at all. Fixed at the same edit site as the gamma line
-  (`research/books._market_frame_section`); the pack now renders `CPI in 1d (2026-08-12)` plus the
-  `not_covered` caveat, pinned by two tests. Same class as `research-engine-bypassed-perception`: a
-  source is not wired until EVERY consumer surface has it, and the pack was the one skipped.
-- ▶ **Founder's 1-by-1 queue**: ~~1 apply reviews~~ ✅ · ~~2 macro event calendar~~ ✅ ·
-  ~~3 correlation + breadth~~ ✅ · ~~4 deeper daily-bar backfill~~ ✅ (found + fixed a silent
-  batch-pagination truncation; a second review then found 6 MAJORs in that fix — all closed) ·
-  ~~5 SKEW in, VXTLT/VXEEM rejected~~ ✅ · ~~6 dealer positioning~~ ✅ (gamma 08-12, vanna + charm
-  08-12; #303 + two BUILD_LOG rows) · **7 Round B cleanup — the only one left.**
-- ▶ **Three carried-forward notes from the dealer-exposure rounds** (notes, not cards): `oi_walls`
-  still cannot filter by strike or read a past date despite 27.6M rows of per-strike history — the
-  gamma work needed the whole latest board and got `oi_board()`, but a strike/date drill-down is
-  still missing; `list_capabilities()` is now **~22.7k chars against a 20,000 tool-result cap** (was
-  20,364 before `gex`, 22,168 after it, and the vanna/charm round gave most of its own increase back
-  by compressing the `gex` description) — it has no rows to drop so `fit_to_cap` passes it through
-  whole rather than corrupting it, but every manifest read spends ~5.5k tokens, and the fix is a
-  two-tier manifest (names + one-liners, full descriptions on request), not a shorter description;
-  and a **VIX-flat historical backfill of the FLIP level only** is defensible research — the flip is
-  far less vol-sensitive than the magnitude — which would give percentiles years earlier than
-  waiting 60 sessions. Unrun.
-- ▶ **No UI surface renders any of the regime axes** (8 macro + gamma/vanna/charm). Founder's call,
-  and it stays agent-only until he makes it: standing instruction is **no new widget**, so this needs
-  a merge target on an existing one (`widget-consolidation-direction`).
-- ▶ **Design still standing**: the SME collar is a known POSITION so it belongs with reference levels,
-  not as a statistic; single-name GEX stays in Section 3.
-- ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
-  (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
+Section 1 Round B shipped (card #302, BUILD_LOG 08-13 row): fusion no longer stamps per-name
+`regime`/`index_pressure` dots; day-scoped context is `regime_report` on `macro.db` (dossier +
+`market` resource). Dead VIX arm + `MAX()` shock latch gone.
+- ▶ **founder call**: no UI surface renders the regime axes (8 macro + gamma/vanna/charm). **No new
+  widget** — merge onto an existing one (`widget-consolidation-direction`) or it stays agent-only.
+- ▶ **Design still standing**: SME collar is a known POSITION (reference levels, not a statistic);
+  single-name GEX stays in Section 3.
+- ▶ **Section 2** (equity price+volume): cron `equity_bars_5min` (gap backfill already ran 08-13 on
+  the #296 tree; nightly cron still missing) then the daily rarity table (volume / true range / gap /
+  3-day persistence + already-moved, 120-day per-name empirical rank). Don't rebuild the old 20-day
+  `volume_profiles` rvol dots into the dead scorer. Intraday magnitude tell is #296, a different grain.
 
 ## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
 
@@ -84,15 +52,13 @@ and the GTH/overnight tape (Alpaca-only, no fallback).
 - ⏳ unexplained: flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then stabilized — if
   that wasn't founder/deploy activity, worth one journal look before deleting this line.
 
-## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
+## ▶ 08-10 board restore — 2 founder calls still in queue
 
 Merge `520e944c` (08-01) silently dropped 16 board cards; all restored 08-10 as #284–#299
 (BUILD_LOG row has the forensics). #299 (Addendum-G scoring) and #298 (quiet-tape prereg) closed
 08-11 — both registered runs completed, both verdicts DEAD (see the BUILD_LOG row + the cards).
 Remaining:
 
-- ⏳ **#297 Schwab re-auth Akamai** — "VERDICT 2026-08-06" passed unobserved; check the manual
-  bridge + daily cron actually held (last successful re-auth timestamp) before closing.
 - **Founder lane refilled:** #294 (multi-angle reasoning A/B greenlight, waiting since 07-19) and
   #295 (ext-entry sizing) are back in the queue at `/board`.
 - **Guard follow-up (unbuilt):** #276 fixed the reformat CAUSE, but no guard stops a merge

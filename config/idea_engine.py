@@ -81,7 +81,6 @@ FUSION_STORM_BATCH_EVENTS = 500
 FUSION_STORM_KEEP_EVENTS = 200
 FUSION_SOCIAL_SPIKE_RATIO = 2.0
 FUSION_SPY_SHOCK_MOVE_PCT = 2.0
-FUSION_VIX_SHOCK_MOVE_PCT = 8.0
 FUSION_SHOCK_WINDOW_MINUTES = 60
 FUSION_CARD_DAILY_CAP = 50
 FUSION_CARD_TRAILING_PERCENTILE = 0.75
@@ -99,14 +98,13 @@ FUSION_TRIGGER_TTL_IMPULSE_HOURS = 4  # FOUNDER DIAL — impulse-class trigger T
 FUSION_TRIGGER_TTL_THESIS_SESSIONS = 3  # FOUNDER DIAL — thesis-confirmation-class trigger TTL (trading days)
 FUSION_HOT_LANE_DEMOTE_SESSIONS = 3  # FOUNDER DIAL — quiet trading days before a hot-lane symbol demotes (Round 4)
 
-# Fusion context/catalyst minters (board fusion-unminted-dots, 2026-07-28) — the
-# registered components start minting. regime/index_pressure are ANNOTATE-ONLY
-# (never score); earnings_proximity is a scored catalyst state dot on the same
-# [0, 1] closeness scale as structure. Every value is a FOUNDER DIAL.
+# Fusion context/catalyst minters (board fusion-unminted-dots, 2026-07-28).
+# Round B (2026-08-13): regime/index_pressure per-name stamps DELETED — day-scoped
+# context lives on macro.db (regime_report / perception `market`). earnings_proximity
+# remains a scored catalyst state dot on the same [0, 1] closeness scale as structure.
+# Every value is a FOUNDER DIAL.
 FUSION_EARNINGS_AHEAD_TD = 5  # FOUNDER DIAL — upcoming earnings within N weekdays = catalyst-adjacent
 FUSION_EARNINGS_BEHIND_TD = 2  # FOUNDER DIAL — reported earnings within N weekdays = drift window
-FUSION_REGIME_STALE_DAYS = 5  # FOUNDER DIAL — macro series older than this mint nothing (stale context is worse than none)
-FUSION_CONTEXT_REFRESH_S = 60.0  # FOUNDER DIAL — memo TTL for the market-wide context reads
 
 # rvol_ex_prints → background_crowd STATE dots (board fusion-unminted-dots,
 # 2026-07-28) — the last unminted scorer component. ANNOTATE-ONLY by spec §2.2:
@@ -258,8 +256,6 @@ def validate_config() -> None:
     # Context/catalyst minter dials.
     assert FUSION_EARNINGS_AHEAD_TD >= 1
     assert FUSION_EARNINGS_BEHIND_TD >= 0
-    assert FUSION_REGIME_STALE_DAYS >= 1
-    assert FUSION_CONTEXT_REFRESH_S >= 0
     # rvol_ex_prints dials.
     assert FUSION_RVOL_REFRESH_BUCKET_MIN >= 1
     assert FUSION_RVOL_DAY_VOLUME_MAX_AGE_S > 0

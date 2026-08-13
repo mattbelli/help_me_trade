@@ -23,7 +23,6 @@ from db.earnings_calendar import upsert_earnings
 from db.fusion import init_fusion_tables, put_atr
 from db.options_flow import insert_event as insert_flow
 from db.social_mentions import et_hour_bucket, record_mentions
-from signals.fusion import intake
 from signals.fusion.intake import intake_once
 from signals.fusion.scorer import score_decayed
 from trading.market_hours import _ET
@@ -36,7 +35,6 @@ def fusion_db(tmp_path: Path) -> Path:
     path = tmp_path / "fusion.db"
     init_fusion_tables(path)
     init_chart_features(path)
-    intake._CONTEXT_MEMO.clear()
     return path
 
 
@@ -129,7 +127,6 @@ def test_attention_dot_is_rolling_and_tracks_the_reading_down(fusion_db: Path) -
 
     # The buzz dies back below the spike gate: the SAME dot is zeroed — never
     # a second row, never the frozen peak.
-    intake._CONTEXT_MEMO.clear()
     _set_today_buzz(fusion_db, 15)  # ratio 1.5, under FUSION_SOCIAL_SPIKE_RATIO
     later = "2026-07-17T15:30:00+00:00"
     insert_flow(_flow("flow-2", ts=later), fusion_db)
@@ -149,7 +146,6 @@ def test_attention_peak_does_not_pin_the_group_score(fusion_db: Path) -> None:
     ep = _episode_id(fusion_db)
     assert float(_dots(fusion_db, ep, "reddit_buzz")[0]["points"]) == pytest.approx(3.0)
 
-    intake._CONTEXT_MEMO.clear()
     _set_today_buzz(fusion_db, 25)  # ratio 2.5 → log2 ≈ 1.32
     insert_flow(_flow("flow-2", ts="2026-07-17T15:30:00+00:00"), fusion_db)
     _run_intake(fusion_db)
@@ -271,7 +267,6 @@ def test_earnings_weekday_count_and_ts_advance_across_days(fusion_db: Path) -> N
     assert float(dot["raw_value"]) == 4.0
     assert dot["ts"] == EVENT_TS
 
-    intake._CONTEXT_MEMO.clear()
     later = "2026-07-22T14:30:00+00:00"  # the day before the print
     insert_flow(_flow("flow-later", ts=later), fusion_db)
     _run_intake(fusion_db)

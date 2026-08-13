@@ -1,10 +1,10 @@
-"""Context/catalyst minters — the registered-but-unminted components start minting.
+"""Context/catalyst minters.
 
 Board card fusion-unminted-dots: earnings_proximity (catalyst, SCORED latest/best
-on structure's [0, 1] closeness scale), regime and index_pressure (context,
-ANNOTATE-ONLY — they ride the episode for the card/dossier and never score).
-These tests pin the adjacency windows, the staleness skip, the annotate-only
-invariant (context never enters group_scores), and the state-dot refresh idiom.
+on structure's [0, 1] closeness scale). Round B (card #302) deleted the per-name
+regime and index_pressure stamps — day-scoped context lives on macro.db. These
+tests pin the earnings adjacency windows, the annotate-only invariant, and that
+intake no longer mints market-wide facts onto every name.
 """
 
 from __future__ import annotations
@@ -24,7 +24,6 @@ from db.lane_stats import day as lane_day
 from db.lane_stats import et_today
 from db.options_flow import insert_event as insert_flow
 from db.regime import upsert_regime
-from signals.fusion import intake
 from signals.fusion.intake import intake_once
 
 MARKET_DAY = "2026-07-17"  # a Friday
@@ -36,7 +35,6 @@ def fusion_db(tmp_path: Path) -> Path:
     path = tmp_path / "fusion.db"
     init_fusion_tables(path)
     init_chart_features(path)
-    intake._CONTEXT_MEMO.clear()
     return path
 
 
@@ -135,7 +133,6 @@ def test_earnings_at_window_edge_scores_low_and_beyond_mints_nothing(
     (dot,) = _dots(fusion_db, ep, "earnings_proximity")
     assert float(dot["points"]) == pytest.approx(0.2)
 
-    intake._CONTEXT_MEMO.clear()
     with connect(fusion_db) as conn:
         conn.execute("DELETE FROM earnings_calendar")
         conn.commit()
@@ -191,23 +188,6 @@ def test_earnings_dot_zeroes_when_window_passes(fusion_db: Path) -> None:
     assert "catalyst" not in _group_scores(fusion_db, ep)
 
 
-def test_term_ratio_requires_date_aligned_series(fusion_db: Path) -> None:
-    # Review finding: VIXCLS and vix3m lag independently — a cross-date ratio
-    # inverts the term-structure verdict on exactly the spike days it flags.
-    _seed_actor(fusion_db)
-    upsert_regime(
-        [("VIXCLS", "2026-07-15", 21.0), ("vix3m", "2026-07-16", 24.0)],
-        db_path=fusion_db,
-    )
-    _run_intake(fusion_db)
-    ep = _episode_id(fusion_db, "TSLA")
-    (dot,) = _dots(fusion_db, ep, "regime")
-    detail = json.loads(dot["detail_json"])
-    assert detail["vix"] == 21.0
-    assert detail["vix3m"] == 24.0
-    assert "vix_term_ratio" not in detail
-
-
 def test_earnings_dot_refreshes_in_place(fusion_db: Path) -> None:
     _seed_actor(fusion_db)
     upsert_earnings([{"symbol": "TSLA", "date": "2026-07-20"}], db_path=fusion_db)
@@ -218,10 +198,12 @@ def test_earnings_dot_refreshes_in_place(fusion_db: Path) -> None:
     assert len(_dots(fusion_db, ep, "earnings_proximity")) == 1
 
 
-# ------------------------------------------------------------------ regime ----
+# ------------------------------------------------------ Round B: no per-name stamps
 
 
-def test_fresh_regime_mints_annotate_only_dot(fusion_db: Path) -> None:
+def test_regime_does_not_mint_per_name_dot(fusion_db: Path) -> None:
+    """Thin regime_macro rows used to stamp every episode. Day-scoped context
+    is regime_report on macro.db; fusion must not copy it onto TSLA."""
     _seed_actor(fusion_db)
     upsert_regime(
         [
@@ -234,32 +216,14 @@ def test_fresh_regime_mints_annotate_only_dot(fusion_db: Path) -> None:
     )
     _run_intake(fusion_db)
     ep = _episode_id(fusion_db, "TSLA")
-    (dot,) = _dots(fusion_db, ep, "regime")
-    assert dot["actor_group"] == "context"
-    assert dot["direction"] == "none"
-    assert float(dot["points"]) == 0.0
-    detail = json.loads(dot["detail_json"])
-    assert detail["vix"] == 18.6
-    assert detail["vix_term_ratio"] == pytest.approx(18.6 / 20.5, abs=1e-4)
-    assert detail["curve_2s10s"] == pytest.approx(0.5)
-    # ANNOTATE-ONLY invariant: context never enters group_scores.
-    assert "context" not in _group_scores(fusion_db, ep)
-    assert _meter(fusion_db, "regime_dots") == 1.0
-
-
-def test_stale_regime_mints_nothing(fusion_db: Path) -> None:
-    _seed_actor(fusion_db)
-    upsert_regime([("VIXCLS", "2026-07-01", 22.0)], db_path=fusion_db)  # 16 days stale
-    _run_intake(fusion_db)
-    ep = _episode_id(fusion_db, "TSLA")
     assert _dots(fusion_db, ep, "regime") == []
-    assert _meter(fusion_db, "regime_skipped_stale") >= 1.0
+    assert "context" not in _group_scores(fusion_db, ep)
+    assert _meter(fusion_db, "regime_dots") == 0.0
 
 
-# ---------------------------------------------------------- index pressure ----
-
-
-def test_index_pressure_mints_market_wide_context(fusion_db: Path) -> None:
+def test_index_pressure_does_not_stamp_unrelated_names(fusion_db: Path) -> None:
+    """The gauge is 13 underlyings. Stamping the market-wide net on TSLA was
+    the 99.4% wrong-name bug. Dossier already filters to the symbol."""
     _seed_actor(fusion_db)
     upsert_minutes(
         [
@@ -271,20 +235,6 @@ def test_index_pressure_mints_market_wide_context(fusion_db: Path) -> None:
     )
     _run_intake(fusion_db)
     ep = _episode_id(fusion_db, "TSLA")
-    (dot,) = _dots(fusion_db, ep, "index_pressure")
-    assert dot["actor_group"] == "context"
-    assert float(dot["points"]) == 0.0
-    detail = json.loads(dot["detail_json"])
-    assert detail["window"] == "open"
-    assert detail["net_usd"] == pytest.approx(300_000.0)
-    assert detail["underlyings"] == 2
-    assert detail["top"][0]["underlying"] == "SPX"
-    assert "context" not in _group_scores(fusion_db, ep)
-
-
-def test_no_gauge_day_mints_nothing(fusion_db: Path) -> None:
-    _seed_actor(fusion_db)
-    _run_intake(fusion_db)
-    ep = _episode_id(fusion_db, "TSLA")
     assert _dots(fusion_db, ep, "index_pressure") == []
-    assert _meter(fusion_db, "index_pressure_skipped_none") >= 1.0
+    assert "context" not in _group_scores(fusion_db, ep)
+    assert _meter(fusion_db, "index_pressure_dots") == 0.0
