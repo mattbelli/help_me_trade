@@ -13,23 +13,23 @@
    "num": 311,
    "id": "flow-conviction-score",
    "title": "Replace widget computeScore with rarity×shape conviction (Inc 2)",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-08-13",
-   "notes": "Inc 2 of rarity×shape. score = 10 × (1-rarity_p) × dte_kernel(~55) × otm_kernel(~12%) × type_gate (sweep 1.0 / block 0.85 / cluster 0.08). Kill computeScore. Do not call _unusual_score. No known-side or DTE≤7 bonus. Unranked names get rarity_w=0.25, not fake-rare. HTTP + agent order=conviction. Honesty string visible in the widget. Inc 3 (sticky list) is the follow-up.\n2026-08-12: Live verify 08-12 after rarity backfill (10636 sweep/block stamped). Newest-200 conviction top 12: all sweep/block, zero 0DTE, first cluster at #149 (score 0.04), first TSLA weekly at #174. Session-wide top is SBSW/PAAS/EQX 65d OTM (PAAS Oct 60C-shaped is #4). Widget still fetches recency 200 — PAAS already aged out, that's Inc 3. Not deployed."
+   "notes": "Inc 2 of rarity×shape. score = 10 × (1-rarity_p) × dte_kernel(~55) × otm_kernel(~12%) × type_gate (sweep 1.0 / block 0.85 / cluster 0.08). Kill computeScore. Do not call _unusual_score. No known-side or DTE≤7 bonus. Unranked names get rarity_w=0.25, not fake-rare. HTTP + agent order=conviction. Honesty string visible in the widget. Inc 3 (sticky list) is the follow-up.\n2026-08-12: Live verify 08-12 after rarity backfill (10636 sweep/block stamped). Newest-200 conviction top 12: all sweep/block, zero 0DTE, first cluster at #149 (score 0.04), first TSLA weekly at #174. Session-wide top is SBSW/PAAS/EQX 65d OTM (PAAS Oct 60C-shaped is #4). Widget still fetches recency 200 — PAAS already aged out, that's Inc 3. Not deployed.\n2026-08-13: Deployed 77798db1. Live GET /api/options-flow returns conviction + parts; order=conviction ranks SBSW/XLV/EQX/PAAS (65 DTE OTM). Widget honesty string live. Recency 200 still ages those out — Inc 3."
   },
   {
    "num": 310,
    "id": "flow-rarity-stamp",
    "title": "Stamp per-name flow rarity on sweep/block events (Inc 1)",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "feature",
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-08-13",
-   "notes": "Inc 1 of rarity×shape conviction score. Nightly lookup from flow_corpus into trading.db: (underlying, right, dte_bucket, mny_bucket), trailing 120 sessions, ITM its own bucket. Stamp rarity_p + rarity_n on sweep/block at insert_event. Never open the 16GB corpus on the poll path. Names with n<100 stay unranked. Not _unusual_score. Inc 2 (widget score) and Inc 3 (sticky list) are follow-ups.\n2026-08-12: Built on feat/flow-rarity-stamp. Lookup from 120 corpus sessions (2026-02-19→08-11): 3707 names, 114k cells, 2790 unranked (n<100). Walk-forward calib on 400 cells: realised/claimed 0.92× / 1.00× / 1.08× at α=0.10/0.05/0.01. Grain is session peaks (rollup has no per-order premiums). Live TSLA $765k is ordinary in 90+ OTM (p≈0.69, median daily peak $1.2M) and in 31-90 OTM (p≈0.49); a $150k PAAS/CROX 31-90 OTM is p≈0.04. That is the product: firehose mid-size prints stay down, quieter names jump. Shape kernel is Inc 2. Nightly ~87s, hooked in flow_perception_nightly.sh. Not deployed — lookup not in production trading.db yet.\n2026-08-12: Inc 2 started on the same branch (feat/flow-rarity-stamp): widget score is now rarity×shape; this card stays the stamp/lookup.\n2026-08-12: Lookup now in production trading.db (3707 names / 114k cells, asof 08-11). Backfilled 10636 of today's sweep/block rows. Columns added via worktree init_db; running backend ignores them until this branch deploys."
+   "notes": "Inc 1 of rarity×shape conviction score. Nightly lookup from flow_corpus into trading.db: (underlying, right, dte_bucket, mny_bucket), trailing 120 sessions, ITM its own bucket. Stamp rarity_p + rarity_n on sweep/block at insert_event. Never open the 16GB corpus on the poll path. Names with n<100 stay unranked. Not _unusual_score. Inc 2 (widget score) and Inc 3 (sticky list) are follow-ups.\n2026-08-12: Built on feat/flow-rarity-stamp. Lookup from 120 corpus sessions (2026-02-19→08-11): 3707 names, 114k cells, 2790 unranked (n<100). Walk-forward calib on 400 cells: realised/claimed 0.92× / 1.00× / 1.08× at α=0.10/0.05/0.01. Grain is session peaks (rollup has no per-order premiums). Live TSLA $765k is ordinary in 90+ OTM (p≈0.69, median daily peak $1.2M) and in 31-90 OTM (p≈0.49); a $150k PAAS/CROX 31-90 OTM is p≈0.04. That is the product: firehose mid-size prints stay down, quieter names jump. Shape kernel is Inc 2. Nightly ~87s, hooked in flow_perception_nightly.sh. Not deployed — lookup not in production trading.db yet.\n2026-08-12: Inc 2 started on the same branch (feat/flow-rarity-stamp): widget score is now rarity×shape; this card stays the stamp/lookup.\n2026-08-12: Lookup now in production trading.db (3707 names / 114k cells, asof 08-11). Backfilled 10636 of today's sweep/block rows. Columns added via worktree init_db; running backend ignores them until this branch deploys.\n2026-08-13: Deployed 77798db1. Lookup live in production trading.db; 10,636 of today's sweep/block rows already stamped. Inc 3 (sticky list) still open — not a card until work starts."
   },
   {
    "num": 309,
