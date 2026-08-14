@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 316,
+   "id": "deepseek-book-token-uncap",
+   "title": "Uncap the Deep Seek book's 8k token clamp — V4 thinking was eating the nightly report",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-14",
+   "notes": "Founder 08-14: \"should we just uncap it? i dont mind the token spend on deepseek.\"\n\nMEASURED: v4-flash thinking (on by default, high effort) shares max_tokens with visible content. BOOK_MAX_TOKENS=8000 was OUR clamp, not the provider ceiling (V4 max output 384k). Onset = 07-31 v4-flash switch. 08-12 body 261 chars; 08-13 cut off inside JSON, parse_fail; 08-14 finish_reason=length then repair JSON, stripped body 1271 chars ending mid-sentence, status=ok. Fable (Claude) stayed ~5-6k / 6 headings every night.\n\nSHIP: BOOK_MAX_TOKENS 8000 -> 384_000. Chat loop stays at 8000. DeepSeek HTTP timeout 120s -> 600s and BOOK_CALL_TIMEOUT_S 240 -> 600. 900s cycle wall-clock remains the spend backstop."
+  },
+  {
    "num": 315,
    "id": "book-mechanism-ledger",
    "title": "Keeper 2: closed mechanism enum + n-gated pack scoreboard for LLM books",

@@ -37,10 +37,15 @@ _ET = ZoneInfo("America/New_York")
 # After the flow_decomp report (16:xx ET) so the pack can point at today's.
 BOOK_CYCLE_AFTER_ET_HOUR = 17
 BOOK_CYCLE_AFTER_ET_MINUTE = 5
-# DeepSeek reasoning tokens eat max_tokens (deepseek-llm-lessons) — generous on
-# purpose; a length-truncated reply persists as parse_fail, never silently drops.
-BOOK_MAX_TOKENS = 8000
-BOOK_CALL_TIMEOUT_S = 240
+# DeepSeek V4 Flash thinking is ON by default (high effort) and shares this
+# budget with visible content. 8000 was OUR clamp, not the provider's — it
+# truncated the nightly report mid-sentence from 07-31 (v4-flash switch) through
+# 08-14 (measured: finish_reason=length, bodies 261–1271 chars). V4 max output
+# is 384k; the 900s cycle wall-clock is the real spend backstop, not this number.
+BOOK_MAX_TOKENS = 384_000
+# Must cover one long think+report turn. 240s sat under the HTTP timeout once
+# that moved with the token uncap, and the repair path would lose the race.
+BOOK_CALL_TIMEOUT_S = 600
 # The research session: iterations of the tool loop (each may carry several
 # tool calls) and the hard wall-clock ceiling for the whole session.
 BOOK_MAX_TOOL_ITERATIONS = 12
