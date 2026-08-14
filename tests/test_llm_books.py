@@ -156,7 +156,10 @@ def test_pack_renders_on_empty_db_without_fabricating(tmp_path: Path) -> None:
     matt_pack = build_book_pack("matt", db_path=tmp_path / "t.db")
     panel_pack = build_book_pack("panel", db_path=tmp_path / "t.db")
     assert "Your ledger lanes" not in matt_pack and "Your mandate" not in matt_pack
+    assert "Your mechanism ledger" not in matt_pack
     assert "Your ledger lanes" in panel_pack and "Your mandate" in panel_pack
+    assert "Your mechanism ledger" in panel_pack
+    assert "Closed vocabulary" in panel_pack
 
 
 def test_pack_shows_the_stop_trigger_level(tmp_path: Path) -> None:

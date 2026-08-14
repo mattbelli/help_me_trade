@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from db.base import DEFAULT_DB_PATH
 from research.books import BOOKS, archive_book_pack, build_book_pack, register_book_candidates
@@ -69,6 +69,10 @@ class BookCandidate(BaseModel):
     advanced: bool = False
     notional_usd: float | None = None  # advanced only; the analyst sizes its own book
     seat: str | None = None  # panel books only: bull|bear|macro|risk
+    # Closed mechanism family (Keeper 2). Required on every candidate — considered
+    # rows are the sample; unknown values fail parse so the session can repair.
+    mechanism: str
+    failure_modes: list[str] = Field(default_factory=list)
     # Advanced-only execution choice (founder 07-24: order selection is part
     # of what the study judges):
     #   moo   — market at the next opening auction (default);
@@ -77,6 +81,25 @@ class BookCandidate(BaseModel):
     #           near the decision price; stop first actionable next open).
     entry_type: Literal["moo", "limit", "ext"] = "moo"
     limit_price: str | None = None  # required when entry_type is limit/ext
+
+    @field_validator("mechanism", mode="before")
+    @classmethod
+    def _closed_mechanism(cls, value: Any) -> str:
+        from research.book_mechanisms import normalize_mechanism
+
+        normalized = normalize_mechanism(value)
+        if normalized is None:
+            raise ValueError(
+                "mechanism must be one of the closed vocabulary in the pack"
+            )
+        return normalized
+
+    @field_validator("failure_modes", mode="before")
+    @classmethod
+    def _closed_failure_modes(cls, value: Any) -> list[str]:
+        from research.book_mechanisms import normalize_failure_modes
+
+        return normalize_failure_modes(value)
 
     def to_registration(self) -> dict[str, Any]:
         reg: dict[str, Any] = {
@@ -88,6 +111,8 @@ class BookCandidate(BaseModel):
             "plan_horizon": self.plan_horizon,
             "advanced": self.advanced,
             "seat": self.seat,
+            "mechanism": self.mechanism,
+            "failure_modes": self.failure_modes,
         }
         if self.entry_low and self.entry_high and self.stop:
             reg["entry_zone"] = {"low": self.entry_low, "high": self.entry_high}
@@ -122,7 +147,11 @@ _CHARTER = (
     "in the structure given under 'Report format' below.\n\n"
     "House rules:\n"
     "- Every thesis must name its falsifier — the level or date that kills it.\n"
-    "- Never state a numeric win probability. Confidence is low/medium/high only.\n"
+    "- Never state a numeric win probability or a numeric belief-confidence (no 0.7). "
+    "Confidence is low/medium/high only; the pack's mechanism ledger is scored by code "
+    "after ideas resolve.\n"
+    "- Every candidate (advanced AND considered) MUST name a mechanism from the closed "
+    "list in tonight's pack. Unknown mechanism = unfinished work, dropped at parse.\n"
     # Was: "end your report with a '## Desk journal' ... inside the json block" — a markdown
     # heading inside JSON, when `journal` is already a plain string field of the contract.
     "- The 'journal' field of the decision block is your handoff to tomorrow's you: open theses "
@@ -164,11 +193,17 @@ _DECISION_CONTRACT = (
     "\nAfter the report, end with EXACTLY ONE fenced ```json block:\n"
     '{"candidates": [{"symbol", "direction", "thesis", "bear_case", "entry_low", '
     '"entry_high", "stop", "targets", "entry_ref_price", "plan_horizon", '
-    '"confidence_label", "advanced", "notional_usd", "entry_type", "limit_price"}], '
+    '"confidence_label", "advanced", "notional_usd", "entry_type", "limit_price", '
+    '"mechanism", "failure_modes"}], '
     '"holds_review": "...", "journal": "..."}\n'
     "Rules for the block:\n"
     "- List EVERY candidate you seriously weighed, not just what you advance — considered "
     "candidates are tracked too. Advancing nothing is a perfectly good night.\n"
+    "- Every candidate MUST include mechanism from the pack's closed list (aliases like "
+    "gap-fill are accepted). failure_modes is an optional list of at most 3 ids from that "
+    "same section; unknown ids are dropped, the candidate still registers.\n"
+    "- Never write a numeric belief-confidence for a mechanism family. The pack table is "
+    "scored by code after the idea tracker resolves a row; n below 10 is insufficient.\n"
     "- advanced=true ONLY for what you actually propose for entry, and it REQUIRES "
     "notional_usd — you size your own book, and your sizing is part of what this study "
     "judges — AND a numeric stop price (e.g. \"314.90\"): once you're filled, that stop "

@@ -52,6 +52,7 @@ GOOD_DECISION = {
             "confidence_label": "medium",
             "advanced": True,
             "notional_usd": 400,
+            "mechanism": "trend_pullback",
         },
         {
             "symbol": "MSFT",
@@ -60,6 +61,7 @@ GOOD_DECISION = {
             "entry_ref_price": "500",
             "plan_horizon": "5d",
             "advanced": False,
+            "mechanism": "breakout_hold",
         },
         {
             "symbol": "IWM",
@@ -71,6 +73,7 @@ GOOD_DECISION = {
             "targets": ["280"],
             "plan_horizon": "10d",
             "advanced": True,  # must be short_blocked at the proposal step
+            "mechanism": "mean_revert",
         },
     ],
     "holds_review": "flat book, nothing to review",
@@ -327,6 +330,7 @@ def test_armed_cycle_self_sized_proposals_block_shorts_drop_unsized(
             "targets": ["175"],
             "plan_horizon": "10d",
             "advanced": True,  # no notional_usd → dropped as unfinished work
+            "mechanism": "breakout_hold",
         }
     )
     response = "## r\n\n```json\n" + json.dumps(decision) + "\n```"
@@ -389,6 +393,7 @@ PANEL_DECISION = {
             "plan_horizon": "15d",
             "confidence_label": "high",
             "advanced": True,
+            "mechanism": "earnings_drift",
         },
         {
             "symbol": "XLF",
@@ -398,6 +403,7 @@ PANEL_DECISION = {
             "entry_ref_price": "43",
             "plan_horizon": "10d",
             "advanced": False,
+            "mechanism": "macro_hedge",
         },
     ],
     "holds_review": "flat",

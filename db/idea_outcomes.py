@@ -250,6 +250,10 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
         _add_column_if_missing(conn, "idea_outcomes", "armed_at", "TEXT")
         _add_column_if_missing(conn, "idea_outcomes", "trigger_json", "TEXT")
         _add_column_if_missing(conn, "idea_outcomes", "trigger_expires_at", "TEXT")
+        # LLM paper books Keeper 2: closed mechanism family + stored pre-mortem
+        # labels. The tracker still grades PRICE; these columns only group.
+        _add_column_if_missing(conn, "idea_outcomes", "mechanism", "TEXT")
+        _add_column_if_missing(conn, "idea_outcomes", "failure_modes_json", "TEXT")
 
         # Calibration-cell index + the open-row dedup wall (partial unique over
         # the cooldown key). Created after the columns exist.
@@ -270,6 +274,9 @@ def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             CREATE INDEX IF NOT EXISTS idx_idea_armed
                 ON idea_outcomes(trigger_expires_at)
                 WHERE lifecycle_state = 'armed';
+            CREATE INDEX IF NOT EXISTS idx_idea_mechanism
+                ON idea_outcomes(origin, mechanism)
+                WHERE mechanism IS NOT NULL;
             """
         )
         conn.commit()
@@ -532,6 +539,8 @@ def register_idea(
     episode_id: str | None = None,
     dossier_ref: str | None = None,
     lifecycle_state: str | None = None,
+    mechanism: str | None = None,
+    failure_modes: list[str] | None = None,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> int | None:
     """The narrow write path for non-artifact idea sources (spec §2).
@@ -643,6 +652,10 @@ def register_idea(
         "episode_id": (str(episode_id).strip() or None) if episode_id else None,
         "dossier_ref": (str(dossier_ref).strip() or None) if dossier_ref else None,
         "lifecycle_state": lifecycle_state,
+        "mechanism": (str(mechanism).strip() or None) if mechanism else None,
+        "failure_modes_json": (
+            json.dumps(list(failure_modes)) if failure_modes else None
+        ),
         "dedup_key": dedup_key,
         "cluster_key": _cluster_key(as_of, direction),
         "grading_basis": grading_basis,
@@ -1095,7 +1108,7 @@ def list_ledger_rows(
             f"""
             SELECT id, as_of, updated_at, symbol, direction, origin, idea_index,
                    entry_low, entry_high, stop, targets_json, status, user_action,
-                   ret_pct, spy_ret_pct, alpha_pct, source_ref
+                   ret_pct, spy_ret_pct, alpha_pct, source_ref, mechanism
             FROM idea_outcomes{where_sql}
             ORDER BY as_of DESC, id DESC
             LIMIT ? OFFSET ?

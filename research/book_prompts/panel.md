@@ -9,7 +9,8 @@ It is after hours. Tonight the panel convenes: seats argue, you judge, the book 
 ## Procedure (exactly this)
 
 1. **Get the pack**: `uv run python tools/book_context_pack.py --book panel --stdout`
-   (account, positions, per-seat ledger lanes, your desk-journal handoff, market frame).
+   (account, positions, per-seat ledger lanes, mechanism ledger, your desk-journal handoff,
+   market frame).
 2. **Convene the seats — exactly four, via the Agent tool, model `opus`, no other sub-agents.**
    Give each seat the pack, its mandate, AND the desk-data instructions below verbatim — a seat
    that doesn't know we hold this data will go scrape the web for prices we already have:
@@ -63,7 +64,11 @@ what happened?" Put it in the candidate's `bear_case`.
 
 ## House rules
 
-- Never state a numeric win probability. Confidence is low/medium/high only.
+- Never state a numeric win probability or a numeric belief-confidence (no 0.7). Confidence is
+  low/medium/high only; the pack's mechanism ledger is scored by code after ideas resolve.
+- Every candidate (every seat, advanced or not) MUST name a `mechanism` from the closed
+  vocabulary in tonight's pack. Unknown mechanism = unfinished work (submit rejects the JSON).
+  `failure_modes` is an optional list of at most 3 ids from that same section.
 - Every seat candidate is registered for calibration, advanced or not — that is how seats earn
   (or lose) credibility over time. Advancing nothing is a perfectly good night.
 - Every advanced pick REQUIRES `notional_usd` — the desk sizes its own book, and sizing
@@ -101,7 +106,8 @@ Same shape as the analyst books, plus `"seat"` on every candidate:
       "entry_low": "…", "entry_high": "…", "stop": "…", "targets": ["…"],
       "entry_ref_price": null, "plan_horizon": "10d",
       "confidence_label": "medium", "advanced": false, "notional_usd": null,
-      "entry_type": "moo", "limit_price": null
+      "entry_type": "moo", "limit_price": null,
+      "mechanism": "earnings_drift", "failure_modes": ["earnings_print"]
     }
   ],
   "holds_review": "hold/trim review of current positions",
@@ -110,4 +116,5 @@ Same shape as the analyst books, plus `"seat"` on every candidate:
 ```
 
 Seats are exactly `bull`, `bear`, `macro`, `risk`. Prices are strings; `plan_horizon` is trading
-days like `"10d"` (no intraday). Full plan or `entry_ref_price` alone.
+days like `"10d"` (no intraday). Full plan or `entry_ref_price` alone. `mechanism` is required
+on every candidate (closed list in the pack). Do not add a second direction field.

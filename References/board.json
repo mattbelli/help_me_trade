@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 315,
+   "id": "book-mechanism-ledger",
+   "title": "Keeper 2: closed mechanism enum + n-gated pack scoreboard for LLM books",
+   "lane": "done",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-14",
+   "notes": "Locked design, not the AQuA write-up: closed ~10-id mechanism vocab on every book candidate (advanced AND considered); failure_modes stored (max 3, unknown dropped) and NOT scored by the tracker. Persist idea_outcomes.mechanism + failure_modes_json. Pack section 'Your mechanism ledger' is a derived read (n/won/lost/mean α + Wilson); n<10 = insufficient, never a 0.7. idea_tracker.py unchanged. Valve: do not fuse into the Decision Engine. expected_direction is existing direction — no second field. Card num is 315 because #314 was taken by filings-edgar-stale-job while this was in flight."
+  },
+  {
    "num": 314,
    "id": "filings-edgar-stale-job",
    "title": "filings_edgar job stale — EDGAR poll burst + 13D fail-closed",

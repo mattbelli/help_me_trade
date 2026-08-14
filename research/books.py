@@ -21,6 +21,7 @@ from typing import Any
 
 from db.base import DEFAULT_DB_PATH
 from db.idea_outcomes import register_idea
+from research.book_mechanisms import normalize_failure_modes, normalize_mechanism
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +94,12 @@ def register_book_candidates(
     """Register a book cycle's full candidate list into its ledger lanes.
 
     Each candidate dict: symbol, direction, thesis, bear_case, confidence_label,
-    plan_horizon, and either a full plan (entry_zone {low,high} + stop + targets)
-    or entry_ref_price (graded as horizon_return). Panel candidates carry
-    ``seat``; ``advanced: true`` marks what the book actually proposed — an
-    advanced panel idea lands in BOTH its seat lane and the headline lane.
+    plan_horizon, optional ``mechanism`` / ``failure_modes`` (closed vocab;
+    unknown mechanism stored as NULL so the idea still lands), and either a
+    full plan (entry_zone {low,high} + stop + targets) or entry_ref_price
+    (graded as horizon_return). Panel candidates carry ``seat``; ``advanced:
+    true`` marks what the book actually proposed — an advanced panel idea
+    lands in BOTH its seat lane and the headline lane.
 
     Per-candidate failures skip, never raise — driver output is LLM-authored
     and one malformed entry must not drop the batch. Returns counts + ids.
@@ -134,6 +137,8 @@ def register_book_candidates(
             origins.append(book.headline_origin)
 
         wrote_any = False
+        mechanism = normalize_mechanism(cand.get("mechanism"))
+        failure_modes = normalize_failure_modes(cand.get("failure_modes"))
         for origin in origins:
             idea_id = register_idea(
                 origin=origin,
@@ -153,6 +158,8 @@ def register_book_candidates(
                     or ("plan" if cand.get("entry_zone") else "horizon_return")
                 ),
                 entry_ref_price=cand.get("entry_ref_price"),
+                mechanism=mechanism,
+                failure_modes=failure_modes or None,
                 source_ref={
                     "book": book.book_id,
                     "seat": seat if seat in book.seats else None,
@@ -301,12 +308,18 @@ def _proposals_section(book: Book, db_path: Path) -> str:
     )
 
 
+def _book_lane_origins(book: Book) -> list[str]:
+    return sorted(
+        o
+        for o in ALL_BOOK_ORIGINS
+        if o == book.headline_origin or o.startswith(f"book:{book.book_id}/")
+    )
+
+
 def _lanes_section(book: Book, db_path: Path) -> str:
     from db.idea_outcomes import OPEN_STATUSES, list_ledger_rows
 
-    origins = sorted(
-        o for o in ALL_BOOK_ORIGINS if o == book.headline_origin or o.startswith(f"book:{book.book_id}/")
-    )
+    origins = _book_lane_origins(book)
     lines: list[str] = []
     for origin in origins:
         result = list_ledger_rows(origin=origin, limit=200, db_path=db_path)
@@ -326,6 +339,12 @@ def _lanes_section(book: Book, db_path: Path) -> str:
             + (f" — recent: {recent}" if recent else "")
         )
     return "\n".join(lines) if lines else "_no lanes for this book_"
+
+
+def _mechanism_section(book: Book, db_path: Path) -> str:
+    from research.book_mechanisms import render_mechanism_ledger
+
+    return render_mechanism_ledger(_book_lane_origins(book), db_path=db_path)
 
 
 def _index_bars(sym: str, db_path: Path) -> list[dict[str, Any]]:
@@ -616,6 +635,9 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
     if book.headline_origin:
         parts.append(_section("Your mandate", lambda: _mandate_section(book, db_path)))
         parts.append(_section("Your ledger lanes", lambda: _lanes_section(book, db_path)))
+        parts.append(
+            _section("Your mechanism ledger", lambda: _mechanism_section(book, db_path))
+        )
         parts.append(_section("Your desk journal", lambda: _journal_section(book, db_path)))
     parts.append(_section("Market frame", lambda: _market_frame_section(db_path)))
     parts.append(_section("Upcoming earnings (held names)", lambda: _earnings_section(book, db_path)))

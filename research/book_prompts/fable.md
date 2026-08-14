@@ -14,8 +14,8 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
 
 ## Procedure (exactly this)
 
-1. **Get your context pack** (account, positions, your ledger lanes, your desk-journal handoff
-   from last cycle, market frame):
+1. **Get your context pack** (account, positions, your ledger lanes, your mechanism ledger,
+   your desk-journal handoff from last cycle, market frame):
    `uv run python tools/book_context_pack.py --book fable --stdout`
 2. **Research — the firm's own data FIRST, the web only for what we don't hold.**
    - `uv run python tools/perception_query.py context <SYMBOL>` — everything we know about one
@@ -47,7 +47,12 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
 
 - Every thesis must name its falsifier — the level or date that kills it; for full plans that
   falsifier IS the stop.
-- Never state a numeric win probability. Confidence is low/medium/high only.
+- Never state a numeric win probability or a numeric belief-confidence (no 0.7). Confidence is
+  low/medium/high only; the pack's mechanism ledger is scored by code after ideas resolve.
+- Every candidate (advanced AND considered) MUST name a `mechanism` from the closed vocabulary
+  in tonight's pack. Unknown mechanism = unfinished work (submit rejects the JSON so you can
+  fix it). `failure_modes` is an optional list of at most 3 ids from that same section;
+  unknown ids are dropped, the candidate still registers.
 - List EVERY candidate you seriously weighed, not just what you advance — considered candidates
   are tracked for calibration. Advancing nothing is a perfectly good night.
 - `advanced: true` ONLY for what you actually propose for entry, and it REQUIRES `notional_usd`:
@@ -118,7 +123,9 @@ Style:
       "advanced": false,
       "notional_usd": null,
       "entry_type": "moo",
-      "limit_price": null
+      "limit_price": null,
+      "mechanism": "trend_pullback",
+      "failure_modes": ["breaks_level", "thesis_date"]
     }
   ],
   "holds_review": "your hold/trim review, brief",
@@ -127,4 +134,5 @@ Style:
 ```
 
 Prices are strings; `plan_horizon` is trading days like `"5d"` (no intraday). Give either a full
-plan (`entry_low`/`entry_high`/`stop`/`targets`) or `entry_ref_price` alone.
+plan (`entry_low`/`entry_high`/`stop`/`targets`) or `entry_ref_price` alone. `mechanism` is
+required on every candidate (closed list in the pack). Do not add a second direction field.

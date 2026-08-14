@@ -516,6 +516,10 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 
 ## ▶ LLM paper books — ARMED + LIVE; increments open
 
+- ✅ **2026-08-14 Keeper 2 shipped** — closed `mechanism` enum on every book candidate
+  (advanced + considered). `idea_tracker` unchanged (sealed price grader). Pack section
+  `Your mechanism ledger` is a derived n-gated Wilson scoreboard (`MIN_SAMPLES=10`, never a
+  0.7). Failure modes stored, not scored. **Do not fuse** into the Decision Engine (valve + n).
 - ⏸ **2026-07-30 Matt + LLM PAUSED** — account verified empty (0 positions). Founder wants this as a
   CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
   `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).
