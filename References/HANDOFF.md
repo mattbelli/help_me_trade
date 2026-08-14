@@ -15,14 +15,6 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-13 Fundamentals health pass (#312) — committed, awaiting deploy
-
-Code on `fundamentals-health` (BUILD_LOG 08-13 row). **Dossier stays paused.**
-- ⏳ **deploy** then first nightly: ticker map unfreezes (`--sync-tickers`); `--backfill-days 21`
-  fills the pre-07-31 exhibit hole (AMZN 16:06 that day). Do **not** run backfill from a
-  worktree against production `earnings.db`.
-- Fusion-audit Section 3 (name-day flow rarity) remains stashed on this tree — not this pass.
-
 ## ▶ 08-13 Abnormality scanner (#296) — brief written, awaiting founder OK
 
 `References/ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` (BUILD_LOG 08-13 row has the decisions).
