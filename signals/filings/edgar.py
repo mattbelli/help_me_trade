@@ -6,8 +6,10 @@ buys (transaction code P, acquired, >= the $ floor) — the tiny fraction of
 Form 4 volume worth a founder's glance. 13Ds are unstructured, so we emit the
 fact (new activist stake, company, link) without parsing the body.
 
-EDGAR etiquette: declared User-Agent, sequential fetches, bounded per pass
-(the 10 req/s published limit is never approached).
+EDGAR etiquette: declared User-Agent, sequential fetches, paced under the
+published 10 req/s cap. ``type=4`` is a PREFIX match on getcurrent — with
+``owner=include`` the 100-entry window fills with 424B2/425/485BXT and Form 4s
+get crowded out; ``owner=only`` keeps it on ownership forms (measured).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -23,19 +26,29 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _BASE = "https://www.sec.gov"
+# type= is a PREFIX match. Form 4 needs owner=only so 424B2/425 don't fill the
+# window; 13D is not an insider form, so it stays on owner=include.
 _ATOM_URL = (
     _BASE + "/cgi-bin/browse-edgar?action=getcurrent&type={form}"
-    "&company=&dateb=&owner=include&count={count}&output=atom"
+    "&company=&dateb=&owner={owner}&count={count}&output=atom"
 )
 _TICKERS_URL = _BASE + "/files/company_tickers.json"
 _UA = {"User-Agent": "help_me_trade founder feed matt.belliveau@gmail.com"}
 _TIMEOUT = 20.0
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
+# SEC fair access is 10 req/s. Same pacing as earnings_edgar / edgar_refresh.
+_REQUEST_INTERVAL_SEC = 0.13
+_RETRY_STATUSES = frozenset({429, 503})
+# Bound a pass so a slow/retrying EDGAR cannot look identical to a dead job
+# (watchdog threshold for this 600s job is 1800s).
+_PASS_BUDGET_SEC = 90.0
+
 # Max new accessions whose XML we fetch per pass; a burst catches up across
 # consecutive passes instead of hammering EDGAR in one.
 MAX_DOC_FETCHES_PER_PASS = 40
 INSIDER_MIN_USD = 100_000.0
+_last_request_at: float = 0.0
 
 _ACCESSION_RE = re.compile(r"accession-number=([\d-]+)")
 _TITLE_RE = re.compile(r"^(.+?)\s+\((\d{10})\)\s+\((Issuer|Subject|Reporting|Filed by)\)")
@@ -45,8 +58,27 @@ _ticker_map: dict[int, str] = {}
 _ticker_map_at: float = 0.0
 
 
+def _throttle() -> None:
+    global _last_request_at
+    wait = _REQUEST_INTERVAL_SEC - (time.monotonic() - _last_request_at)
+    if wait > 0:
+        time.sleep(wait)
+    _last_request_at = time.monotonic()
+
+
+def _client() -> httpx.Client:
+    return httpx.Client(timeout=_TIMEOUT, headers=_UA, follow_redirects=True)
+
+
 def _get(client: httpx.Client, url: str) -> httpx.Response:
-    resp = client.get(url, headers=_UA, timeout=_TIMEOUT)
+    """One EDGAR GET, paced, with a single retry on 429/503."""
+    _throttle()
+    resp = client.get(url)
+    if resp.status_code in _RETRY_STATUSES:
+        logger.warning("EDGAR %s on %s — retrying once", resp.status_code, url)
+        time.sleep(1.5)
+        _throttle()
+        resp = client.get(url)
     resp.raise_for_status()
     return resp
 
@@ -185,15 +217,22 @@ def format_usd(value: float) -> str:
 
 
 # Accessions parsed and judged not feed-worthy (sells/grants/tiny buys) —
-# remembered in-process so consecutive passes don't re-fetch their XML while
-# they linger in the atom window. Restart re-parses once; harmless.
+# in-process cache for consecutive passes; `remember` persists them so a
+# restart does not re-burst XML fetches.
 _not_feedworthy: set[str] = set()
 _NOT_FEEDWORTHY_CAP = 5_000
+
+
+def _mark_not_feedworthy(uid: str, remember: Callable[[str], None] | None) -> None:
+    _not_feedworthy.add(uid)
+    if remember is not None:
+        remember(uid)
 
 
 def poll_form4_once(
     *,
     seen: Any,  # callable uid -> bool (db.filings.has_uid)
+    remember: Callable[[str], None] | None = None,
     min_usd: float = INSIDER_MIN_USD,
     count: int = 100,
 ) -> list[dict[str, Any]]:
@@ -201,10 +240,17 @@ def poll_form4_once(
     events: list[dict[str, Any]] = []
     if len(_not_feedworthy) > _NOT_FEEDWORTHY_CAP:
         _not_feedworthy.clear()
-    with httpx.Client() as client:
-        atom = _get(client, _ATOM_URL.format(form="4", count=count)).text
+    deadline = time.monotonic() + _PASS_BUDGET_SEC
+    with _client() as client:
+        atom = _get(client, _ATOM_URL.format(form="4", owner="only", count=count)).text
+        try:
+            recs = parse_atom_entries(atom)
+        except ET.ParseError as exc:
+            raise RuntimeError(
+                f"EDGAR Form 4 atom was not XML ({len(atom)} bytes)"
+            ) from exc
         fetched = 0
-        for rec in parse_atom_entries(atom):
+        for rec in recs:
             uid = f"form4:{rec['accession']}"
             # Amendments (4/A) restate an already-reported trade — skip.
             if rec["form"] != "4" or uid in _not_feedworthy or not rec["url"]:
@@ -213,18 +259,25 @@ def poll_form4_once(
                 continue
             if fetched >= MAX_DOC_FETCHES_PER_PASS:
                 break
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Form 4 pass hit %.0fs budget after %d fetches — catching up next pass",
+                    _PASS_BUDGET_SEC,
+                    fetched,
+                )
+                break
             fetched += 1
             try:
                 xml_url = _form4_xml_url(client, rec["url"])
                 if not xml_url:
-                    _not_feedworthy.add(uid)
+                    _mark_not_feedworthy(uid, remember)
                     continue
                 parsed = parse_form4(_get(client, xml_url).text)
             except Exception as exc:
                 logger.warning("Form 4 fetch/parse failed %s: %s", rec["accession"], exc)
                 continue
             if not parsed["symbol"] or parsed["buy_value"] < min_usd:
-                _not_feedworthy.add(uid)
+                _mark_not_feedworthy(uid, remember)
                 continue
             events.append(
                 {
@@ -253,10 +306,16 @@ def poll_13d_once(*, seen: Any, count: int = 40) -> list[dict[str, Any]]:
     """One feed pass over new SC 13D filings (initial activist stakes only —
     amendments /A excluded; the initial filing is the event)."""
     events: list[dict[str, Any]] = []
-    with httpx.Client() as client:
-        atom = _get(client, _ATOM_URL.format(form="SC+13D", count=count)).text
+    with _client() as client:
+        atom = _get(client, _ATOM_URL.format(form="SC+13D", owner="include", count=count)).text
+        try:
+            recs = parse_atom_entries(atom)
+        except ET.ParseError as exc:
+            raise RuntimeError(
+                f"EDGAR 13D atom was not XML ({len(atom)} bytes)"
+            ) from exc
         tickers = _cik_ticker_map(client)
-        for rec in parse_atom_entries(atom):
+        for rec in recs:
             uid = f"13d:{rec['accession']}"
             # Amendments (SC 13D/A) restate an existing stake — initial only.
             if rec["form"] != "SC 13D" or seen(uid):

@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 314,
+   "id": "filings-edgar-stale-job",
+   "title": "filings_edgar job stale — EDGAR poll burst + 13D fail-closed",
+   "lane": "done",
+   "type": "bug",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-14",
+   "notes": "FOUND 2026-08-14 from the watchdog page 'Background job stale: filings_edgar'. Measured, not guessed: (1) getcurrent type=4 is PREFIX — owner=include filled the 100-entry window with 424B2/425/485BXT (live 08-14: 34 Form 4s of 52 accessions); owner=only is 46 Form 4 + 1 4/A. (2) sequential index.json+xml at 50ms/20ms = ~28 req/s vs SEC 10 req/s; after a restart _not_feedworthy is empty so the job bursts 80 requests, 13D atom then 429/403s, the whole pass raises, Form 4 events never insert, watchdog pages at 1800s. (3) _not_feedworthy was in-process only — every deploy re-fetched.\n2026-08-14: SHIPPED. Form 4 atom owner=only; requests paced at 0.13s with one 429/503 retry; 90s pass budget; not-feedworthy uids persist in filings_seen so a restart does not re-burst; Form 4 and 13D isolated so one down arm cannot discard the other or fail the job. Watchdog still pages if BOTH arms fail. 14 targeted tests. Not yet deployed."
+  },
+  {
    "num": 313,
    "id": "futures-bars-archive",
    "title": "Futures bars archive: /ES /NQ minute history accretes daily from Schwab",

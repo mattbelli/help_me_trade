@@ -2,9 +2,28 @@
 
 from __future__ import annotations
 
-from db.filings import has_uid, init_filings_tables, insert_events, list_recent
+import json
+from typing import Any
+
+import httpx
+import pytest
+
+from db.filings import (
+    has_uid,
+    init_filings_tables,
+    insert_events,
+    list_recent,
+    remember_uid,
+)
+from signals.filings import edgar as edgar_mod
 from signals.filings.congress import map_trade
-from signals.filings.edgar import format_usd, parse_atom_entries, parse_form4
+from signals.filings.edgar import (
+    _ATOM_URL,
+    format_usd,
+    parse_atom_entries,
+    parse_form4,
+    poll_form4_once,
+)
 
 ATOM = """<?xml version="1.0" encoding="ISO-8859-1" ?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -154,3 +173,212 @@ def test_store_dedup_and_kind_filter(tmp_path) -> None:
     only_congress = list_recent(kinds=["congress_trade"], db_path=db)
     assert len(only_congress) == 1
     assert only_congress[0]["detail"] == {}
+
+
+def test_remember_uid_is_seen_but_not_a_feed_row(tmp_path) -> None:
+    db = tmp_path / "filings.db"
+    remember_uid("form4:skip-me", db_path=db)
+    assert has_uid("form4:skip-me", db_path=db)
+    assert list_recent(db_path=db) == []
+
+
+def test_form4_atom_url_uses_owner_only() -> None:
+    url = _ATOM_URL.format(form="4", owner="only", count=100)
+    assert "owner=only" in url
+    assert "type=4" in url
+    d13 = _ATOM_URL.format(form="SC+13D", owner="include", count=40)
+    assert "owner=include" in d13
+    assert "SC+13D" in d13
+
+
+@pytest.fixture(autouse=True)
+def _fast_edgar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(edgar_mod, "_REQUEST_INTERVAL_SEC", 0.0)
+    monkeypatch.setattr(edgar_mod, "_PASS_BUDGET_SEC", 90.0)
+    edgar_mod._not_feedworthy.clear()
+    edgar_mod._last_request_at = 0.0
+
+
+class _FakeClient:
+    def __init__(self, routes: list[tuple[Any, Any]]) -> None:
+        self.routes = routes
+        self.urls: list[str] = []
+
+    def __enter__(self) -> _FakeClient:
+        return self
+
+    def __exit__(self, *_a: object) -> None:
+        return None
+
+    def get(self, url: str) -> httpx.Response:
+        self.urls.append(url)
+        for pred, payload in self.routes:
+            if pred(url):
+                if callable(payload):
+                    payload = payload(url)
+                if isinstance(payload, httpx.Response):
+                    return payload
+                status, body = payload
+                content = body if isinstance(body, bytes) else str(body).encode()
+                return httpx.Response(
+                    status, content=content, request=httpx.Request("GET", url)
+                )
+        raise AssertionError(f"unexpected EDGAR url: {url}")
+
+
+def _index_json(xml_name: str = "form4.xml") -> bytes:
+    return json.dumps({"directory": {"item": [{"name": xml_name}]}}).encode()
+
+
+def test_poll_form4_asks_owner_only_and_emits_a_buy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _FakeClient(
+        [
+            (lambda u: "type=4" in u and "owner=only" in u, (200, ATOM)),
+            (lambda u: u.endswith("/index.json"), (200, _index_json())),
+            (lambda u: u.endswith("/form4.xml"), (200, FORM4)),
+        ]
+    )
+    monkeypatch.setattr(edgar_mod, "_client", lambda: client)
+
+    events = poll_form4_once(seen=lambda _uid: False, min_usd=100_000)
+    assert len(events) == 1
+    assert events[0]["symbol"] == "ACME"
+    assert events[0]["value_usd"] == 10000 * 25.50
+    assert any("owner=only" in u for u in client.urls)
+    assert all("owner=include" not in u for u in client.urls)
+
+
+def test_poll_form4_remembers_a_sell_so_restart_does_not_refetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sell_only = FORM4.replace(
+        "<transactionCode>P</transactionCode>",
+        "<transactionCode>A</transactionCode>",
+    )
+    remembered: list[str] = []
+    client = _FakeClient(
+        [
+            (lambda u: "output=atom" in u, (200, ATOM)),
+            (lambda u: u.endswith("/index.json"), (200, _index_json())),
+            (lambda u: u.endswith("/form4.xml"), (200, sell_only)),
+        ]
+    )
+    monkeypatch.setattr(edgar_mod, "_client", lambda: client)
+
+    events = poll_form4_once(
+        seen=lambda _uid: False,
+        remember=remembered.append,
+        min_usd=100_000,
+    )
+    assert events == []
+    assert remembered == ["form4:0001111111-26-000001"]
+
+    client.urls.clear()
+    events = poll_form4_once(
+        seen=lambda _uid: False,
+        remember=remembered.append,
+        min_usd=100_000,
+    )
+    assert events == []
+    assert not any(u.endswith(".xml") or u.endswith("/index.json") for u in client.urls)
+
+
+def test_get_retries_once_on_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(edgar_mod.time, "sleep", lambda _s: None)
+    hits = {"n": 0}
+
+    class _Flaky:
+        def get(self, url: str) -> httpx.Response:
+            hits["n"] += 1
+            if hits["n"] == 1:
+                return httpx.Response(429, request=httpx.Request("GET", url))
+            return httpx.Response(
+                200, content=b"ok", request=httpx.Request("GET", url)
+            )
+
+    resp = edgar_mod._get(_Flaky(), "https://www.sec.gov/ping")
+    assert resp.status_code == 200
+    assert hits["n"] == 2
+
+
+def test_poll_form4_stops_when_pass_budget_expires(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(edgar_mod, "_PASS_BUDGET_SEC", 0.0)
+    xml_hits = {"n": 0}
+
+    def _xml(_url: str) -> tuple[int, str]:
+        xml_hits["n"] += 1
+        return (200, FORM4)
+
+    client = _FakeClient(
+        [
+            (lambda u: "output=atom" in u, (200, ATOM)),
+            (lambda u: u.endswith("/index.json") or u.endswith(".xml"), _xml),
+        ]
+    )
+    monkeypatch.setattr(edgar_mod, "_client", lambda: client)
+    events = poll_form4_once(seen=lambda _uid: False)
+    assert events == []
+    assert xml_hits["n"] == 0
+
+
+def test_poll_form4_raises_on_html_atom(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _FakeClient(
+        [(lambda u: "output=atom" in u, (200, "Due to high volume of requests"))]
+    )
+    monkeypatch.setattr(edgar_mod, "_client", lambda: client)
+    with pytest.raises(RuntimeError, match="not XML"):
+        poll_form4_once(seen=lambda _uid: False)
+
+
+@pytest.mark.asyncio
+async def test_filings_edgar_once_keeps_form4_when_13d_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    form4 = [
+        {
+            "uid": "form4:keep",
+            "kind": "insider_buy",
+            "symbol": "ACME",
+            "filed_at": "2026-08-14T12:00:00-04:00",
+            "value_label": "$255K",
+        }
+    ]
+    stored: list[dict] = []
+    monkeypatch.setattr(
+        "signals.filings.edgar.poll_form4_once", lambda **_kw: form4
+    )
+
+    def _boom(**_kw: object) -> list:
+        raise RuntimeError("13d down")
+
+    monkeypatch.setattr("signals.filings.edgar.poll_13d_once", _boom)
+    monkeypatch.setattr(
+        "db.filings.insert_events",
+        lambda events, **_kw: stored.extend(events) or len(events),
+    )
+
+    from api.main import _filings_edgar_once
+
+    await _filings_edgar_once()
+    assert stored == form4
+
+
+@pytest.mark.asyncio
+async def test_filings_edgar_once_raises_when_both_arms_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom(**_kw: object) -> list:
+        raise RuntimeError("edgar down")
+
+    monkeypatch.setattr("signals.filings.edgar.poll_form4_once", _boom)
+    monkeypatch.setattr("signals.filings.edgar.poll_13d_once", _boom)
+    monkeypatch.setattr("db.filings.insert_events", lambda events, **_kw: len(events))
+
+    from api.main import _filings_edgar_once
+
+    with pytest.raises(RuntimeError, match="both Form 4 and 13D"):
+        await _filings_edgar_once()
