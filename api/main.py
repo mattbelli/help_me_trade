@@ -1665,17 +1665,33 @@ async def _reports_scheduler_loop() -> None:
 # founder eyeballs — no scoring, no alerts, no outcome machinery.
 # ---------------------------------------------------------------------------
 async def _filings_edgar_once() -> None:
-    from db.filings import has_uid, insert_events
+    from db.filings import has_uid, insert_events, remember_uid
     from signals.filings.edgar import poll_13d_once, poll_form4_once
 
-    def _pass() -> int:
-        events = poll_form4_once(seen=has_uid, min_usd=FILINGS_INSIDER_MIN_USD)
-        events += poll_13d_once(seen=has_uid)
-        return insert_events(events)
+    def _arm(poller, label: str) -> tuple[list, bool]:
+        try:
+            return poller(), True
+        except Exception:
+            logger.exception("Filings EDGAR %s poll failed", label)
+            return [], False
 
-    inserted = await asyncio.to_thread(_pass)
-    if inserted:
-        logger.info("Filings feed: %d new EDGAR event(s)", inserted)
+    def _pass() -> None:
+        form4, form4_ok = _arm(
+            lambda: poll_form4_once(
+                seen=has_uid,
+                remember=remember_uid,
+                min_usd=FILINGS_INSIDER_MIN_USD,
+            ),
+            "Form 4",
+        )
+        d13, d13_ok = _arm(lambda: poll_13d_once(seen=has_uid), "13D")
+        inserted = insert_events(form4 + d13)
+        if inserted:
+            logger.info("Filings feed: %d new EDGAR event(s)", inserted)
+        if not form4_ok and not d13_ok:
+            raise RuntimeError("both Form 4 and 13D pollers failed")
+
+    await asyncio.to_thread(_pass)
 
 
 async def _filings_congress_once() -> None:
