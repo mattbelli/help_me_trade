@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-13",
+ "updated_at": "2026-08-14",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 313,
+   "id": "futures-bars-archive",
+   "title": "Futures bars archive: /ES /NQ minute history accretes daily from Schwab",
+   "lane": "done",
+   "type": "infra",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-14",
+   "notes": "Measured: Schwab keeps ~45d of 1-min futures bars (data at -40d, none at -50d), ~200d of 30-min, 15y daily. tools/futures_bars_archive.py + data/futures_bars.db (idempotent upserts); full backfill ran 08-14 (1-min to 2026-07-06, 30-min to 01-26, daily to 2011); daily 06:40 UTC cron with ntfy dead-man appends before retention drops bars. PC research branch may hold older /ES pulls in its gitignored data/ — merge into the db if recovered."
+  },
   {
    "num": 312,
    "id": "fundamentals-health",
