@@ -45,7 +45,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -53,6 +53,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 BARS_URL = "https://data.alpaca.markets/v2/stocks/bars"
 SYMBOL_BATCH = 100
 PAGE_LIMIT = 10_000
@@ -76,6 +78,14 @@ _last_request = 0.0
 
 class AuthError(RuntimeError):
     """401/403 — bad keys. Fatal: the alternative is a silently empty store."""
+
+
+def normalize_trading_base(raw: str | None) -> str:
+    """Strip a trailing /v2 — our .env stores APCA_API_BASE_URL with it."""
+    base = (raw or "https://paper-api.alpaca.markets").rstrip("/")
+    if base.endswith("/v2"):
+        base = base[:-3]
+    return base
 
 
 def _get(url: str, headers: dict[str, str]) -> dict:
@@ -126,15 +136,26 @@ def _rth_window(session: date) -> tuple[datetime, datetime]:
 
 
 def fetch_session(
-    session: date, symbols: list[str], headers: dict[str, str]
+    session: date,
+    symbols: list[str],
+    headers: dict[str, str],
+    *,
+    timeframe: str = "5Min",
 ) -> tuple[dict[str, list[tuple[np.ndarray, ...]]], int]:
-    """All RTH 5-min bars for `symbols` on `session`, batched + paginated.
+    """All RTH bars for `symbols` on `session`, batched + paginated.
 
-    The request window is already RTH, but bars are ALSO filtered client-side to
-    [09:30, 16:00) ET — `end` inclusivity would otherwise admit the 16:00 bar,
-    which covers after-hours.
+    The request window is already RTH for 5Min, but bars are ALSO filtered
+    client-side to [09:30, 16:00) ET — `end` inclusivity would otherwise admit
+    the 16:00 bar, which covers after-hours. 1Day bars keep the session's ET
+    date and skip that RTH filter.
     """
-    lo, hi = _rth_window(session)
+    if timeframe == "1Day":
+        lo = datetime.combine(session, dtime(0, 0), ET)
+        hi = datetime.combine(session + timedelta(days=1), dtime(0, 0), ET)
+        rth = False
+    else:
+        lo, hi = _rth_window(session)
+        rth = True
     lo_ns, hi_ns = int(lo.timestamp()) * 1_000_000_000, int(hi.timestamp()) * 1_000_000_000
     per_sym: dict[str, list[tuple[np.ndarray, ...]]] = {}
     n_req = 0
@@ -145,7 +166,7 @@ def fetch_session(
         while True:
             q = {
                 "symbols": batch,
-                "timeframe": "5Min",
+                "timeframe": timeframe,
                 "start": lo.isoformat(),
                 "end": hi.isoformat(),
                 "limit": PAGE_LIMIT,
@@ -163,7 +184,15 @@ def fetch_session(
                     [np.datetime64(b["t"].replace("Z", ""), "ns") for b in bars],
                     dtype="datetime64[ns]",
                 ).astype(np.int64)
-                keep = (t >= lo_ns) & (t < hi_ns)
+                if rth:
+                    keep = (t >= lo_ns) & (t < hi_ns)
+                else:
+                    keep = np.array(
+                        [
+                            datetime.fromtimestamp(int(x) / 1e9, ET).date() == session
+                            for x in t
+                        ]
+                    )
                 if not keep.any():
                     continue
                 per_sym.setdefault(sym, []).append(
@@ -180,6 +209,68 @@ def fetch_session(
             if not token:
                 break
     return per_sym, n_req
+
+
+def fetch_range(
+    start: date,
+    end: date,
+    symbols: list[str],
+    headers: dict[str, str],
+    *,
+    timeframe: str = "1Day",
+) -> tuple[dict[date, dict[str, list[tuple[np.ndarray, ...]]]], int]:
+    """Multi-session fetch; bars are bucketed by ET session date."""
+    start_dt = datetime.combine(start, dtime(0, 0), ET)
+    end_dt = datetime.combine(end + timedelta(days=1), dtime(0, 0), ET)
+    by_session: dict[date, dict[str, list[tuple[np.ndarray, ...]]]] = {}
+    n_req = 0
+    for i in range(0, len(symbols), SYMBOL_BATCH):
+        batch = ",".join(symbols[i : i + SYMBOL_BATCH])
+        token = None
+        while True:
+            q = {
+                "symbols": batch,
+                "timeframe": timeframe,
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+                "limit": PAGE_LIMIT,
+                "feed": "sip",
+                "adjustment": "split",
+            }
+            if token:
+                q["page_token"] = token
+            d = _get(f"{BARS_URL}?{urllib.parse.urlencode(q)}", headers)
+            n_req += 1
+            for sym, bars in (d.get("bars") or {}).items():
+                if not bars:
+                    continue
+                t = np.array(
+                    [np.datetime64(b["t"].replace("Z", ""), "ns") for b in bars],
+                    dtype="datetime64[ns]",
+                ).astype(np.int64)
+                o = np.array([b["o"] for b in bars], np.float64)
+                hi = np.array([b["h"] for b in bars], np.float64)
+                lo_px = np.array([b["l"] for b in bars], np.float64)
+                c = np.array([b["c"] for b in bars], np.float64)
+                v = np.array([b["v"] for b in bars], np.int64)
+                for j, ts in enumerate(t):
+                    sess = datetime.fromtimestamp(int(ts) / 1e9, ET).date()
+                    if sess < start or sess > end:
+                        continue
+                    by_session.setdefault(sess, {}).setdefault(sym, []).append(
+                        (
+                            t[j : j + 1],
+                            o[j : j + 1],
+                            hi[j : j + 1],
+                            lo_px[j : j + 1],
+                            c[j : j + 1],
+                            v[j : j + 1],
+                        )
+                    )
+            token = d.get("next_page_token")
+            if not token:
+                break
+    return by_session, n_req
 
 
 def write_session(
@@ -257,7 +348,7 @@ def backfill_session(
 
 def build_manifest(
     out_dir: Path, universe: list[str], requested: list[str], skipped: dict[str, str],
-    sessions: list[date],
+    sessions: list[date], *, universe_source: str = "flow_rollup",
 ) -> dict:
     """Rebuilt from the per-session stats on every run, so a resumed run still
     produces a complete, consistent manifest."""
@@ -289,7 +380,7 @@ def build_manifest(
             "end": sessions[-1].isoformat() if sessions else None,
         },
         "universe": {
-            "source": "SELECT DISTINCT underlying FROM flow_rollup (superset of the registered set)",
+            "source": universe_source,
             "total": len(universe),
             "requested": len(requested),
             "skipped": len(skipped),
@@ -306,6 +397,65 @@ def build_manifest(
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1))
     return manifest
+
+
+def load_alpaca_universe(headers: dict[str, str], trading_base: str) -> list[str]:
+    """Active tradable US equities — same filter as brokers/alpaca.py:883."""
+    url = f"{trading_base.rstrip('/')}/v2/assets?status=active&asset_class=us_equity"
+    raw = _get(url, headers)
+    if not isinstance(raw, list):
+        return []
+    symbols: list[str] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        sym = str(item.get("symbol", ""))
+        if not sym.isalpha():
+            continue
+        if item.get("tradable"):
+            symbols.append(sym)
+    return sorted(set(symbols))
+
+
+def load_calendar_sessions(start: str | None, end: str | None) -> list[date]:
+    from trading.market_calendar import last_closed_session, trading_days
+
+    lo = date.fromisoformat(start) if start else date(2025, 7, 28)
+    hi = date.fromisoformat(end) if end else last_closed_session()
+    return trading_days(lo, hi)
+
+
+def extend_manifest_sessions(out_dir: Path, new_sessions: list[date]) -> list[date]:
+    """Keep the existing manifest span when an incremental run adds days.
+
+    `--since-last` used to pass only the gap into `build_manifest`, which
+    rewrote span/expected down to those two days and dropped the rest.
+    """
+    dates = set(new_sessions)
+    man = out_dir / "manifest.json"
+    if man.exists():
+        try:
+            span = json.loads(man.read_text()).get("span") or {}
+            lo, hi = span.get("start"), span.get("end")
+            if lo and hi:
+                from trading.market_calendar import trading_days
+
+                dates.update(trading_days(date.fromisoformat(lo), date.fromisoformat(hi)))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return sorted(dates)
+
+
+def last_complete_session(out_dir: Path) -> date | None:
+    dates: list[date] = []
+    for p in out_dir.glob("*.json"):
+        if p.stem == "manifest":
+            continue
+        try:
+            dates.append(date.fromisoformat(p.stem))
+        except ValueError:
+            continue
+    return max(dates) if dates else None
 
 
 def load_universe(db: Path) -> list[str]:
@@ -332,6 +482,22 @@ def main() -> None:
     p.add_argument("--end", default=None, help="last corpus session (YYYY-MM-DD)")
     p.add_argument("--symbols", default=None, help="comma-separated override for the DB universe")
     p.add_argument("--limit", type=int, default=None, help="first N universe symbols (smoke)")
+    p.add_argument(
+        "--universe",
+        choices=("flow_rollup", "alpaca"),
+        default="flow_rollup",
+        help="flow_rollup (registered 1.14f store) or alpaca (all active US equities)",
+    )
+    p.add_argument(
+        "--since-last",
+        action="store_true",
+        help="start the day after the last complete session in --out-dir",
+    )
+    p.add_argument(
+        "--trading-base",
+        default=None,
+        help="Alpaca trading API base (assets). Default APCA_API_BASE_URL / paper.",
+    )
     p.add_argument("--out-dir", default=str(REPO_ROOT / "data" / "equity_bars_5min"))
     p.add_argument("--corpus-db", default=str(REPO_ROOT / "data" / "flow_corpus.db"))
     p.add_argument("--env-file", default=str(REPO_ROOT / ".env"))
@@ -351,20 +517,38 @@ def main() -> None:
 
     db = Path(a.corpus_db).expanduser()
     out_dir = Path(a.out_dir).expanduser()
-    universe = (
-        sorted({s.strip().upper() for s in a.symbols.split(",") if s.strip()})
-        if a.symbols
-        else load_universe(db)
+    trading_base = normalize_trading_base(
+        a.trading_base or os.environ.get("APCA_API_BASE_URL")
     )
+    if a.symbols:
+        universe = sorted({s.strip().upper() for s in a.symbols.split(",") if s.strip()})
+        universe_source = "cli"
+    elif a.universe == "alpaca":
+        universe = load_alpaca_universe(headers, trading_base)
+        universe_source = "alpaca_assets"
+    else:
+        universe = load_universe(db)
+        universe_source = "flow_rollup"
     if a.limit:
         universe = universe[: a.limit]
     requested, skipped = classify_universe(universe)
-    sessions = load_sessions(db, a.start, a.end)
+    start, end = a.start, a.end
+    if a.since_last:
+        last = last_complete_session(out_dir)
+        if last is not None:
+            start = start or (last + timedelta(days=1)).isoformat()
+    if a.universe == "alpaca" or a.since_last:
+        sessions = load_calendar_sessions(start, end)
+    else:
+        sessions = load_sessions(db, start, end)
     print(
-        f"{len(universe):,} universe roots -> {len(requested):,} requested, "
+        f"{len(universe):,} universe roots ({universe_source}) -> {len(requested):,} requested, "
         f"{len(skipped):,} skipped; {len(sessions)} sessions",
         flush=True,
     )
+    if a.since_last and not sessions:
+        print("already current through last closed session", flush=True)
+        return
 
     failed = 0
     for s in sessions:
@@ -376,7 +560,13 @@ def main() -> None:
             failed += 1
             print(f"{s}: FAILED — {e}", flush=True)
 
-    m = build_manifest(out_dir, universe, requested, skipped, sessions)
+    manifest_sessions = (
+        extend_manifest_sessions(out_dir, sessions) if a.since_last else sessions
+    )
+    m = build_manifest(
+        out_dir, universe, requested, skipped, manifest_sessions,
+        universe_source=universe_source,
+    )
     print(
         f"manifest: {m['sessions_complete']}/{m['sessions_expected']} sessions, "
         f"{m['never_resolved_count']:,} never-resolved symbols, {failed} failures",

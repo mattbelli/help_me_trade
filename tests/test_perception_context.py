@@ -111,6 +111,8 @@ def test_list_capabilities_manifest() -> None:
     caps = list_capabilities()
     assert "symbol" in caps["context_scopes"]
     assert "quote" in caps["context_scopes"]["symbol"]
+    assert "abnormality" in caps["context_scopes"]["symbol"]
+    assert "abnormality" in caps["resources"]
     assert "news" in caps["context_scopes"]["symbol"]
     assert "strategy_signals" in caps["context_scopes"]["symbol"]
     assert "active_alerts" in caps["context_scopes"]["symbol"]

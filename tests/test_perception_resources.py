@@ -75,6 +75,7 @@ def test_list_resources_catalog() -> None:
         "options_flow",
         "options_chain",
         "equity_tape",
+        "abnormality",
         "index_pressure",
         "flow_report",
         "flow_perception",
@@ -108,6 +109,8 @@ async def test_query_resource_aliases_resolve(resources_db: Path) -> None:
     # the market-regime family maps to the real "market" resource and reads cleanly
     for alias in ("market_regime", "regime"):
         assert (await query(alias, db_path=resources_db)).get("resource") == "market"
+    assert (await query("vol_scanner", db_path=resources_db)).get("resource") == "abnormality"
+    assert (await query("unusual_activity", db_path=resources_db)).get("resource") == "abnormality"
 
 
 @pytest.mark.asyncio

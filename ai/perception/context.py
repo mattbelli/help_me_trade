@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 _SYMBOL_FIELD_GROUPS = (
     "quote",
     "rvol",
+    "abnormality",
     "session_nodes",
     "technicals",
     "fundamentals",
@@ -70,7 +71,7 @@ def list_capabilities() -> dict[str, Any]:
         "notes": (
             "Use get_context for a single symbol snapshot; use query(resource, filters) "
             "for: " + ", ".join(sorted(resources)) + ". Prefer get_context over "
-            "web_search for prices, RVOL, session-node levels, technicals, earnings, "
+            "web_search for prices, RVOL, abnormality, session-node levels, technicals, earnings, "
             "news, strategy signals, decision scores, and active alerts."
         ),
     }
@@ -424,6 +425,28 @@ async def build_symbol_context(
                 ctx["rvol"] = rvol
         except Exception:
             logger.debug("RVOL block failed for %s", sym, exc_info=True)
+
+    try:
+        from db.abnormality import get_state
+
+        abn = get_state(sym, db_path=db_path)
+        if abn:
+            ctx["abnormality"] = {
+                "range_ratio": abn.get("range_ratio"),
+                "vol_ratio": abn.get("vol_ratio"),
+                "rvol_session": abn.get("rvol_session"),
+                "range_pctile": abn.get("range_pctile"),
+                "vol_pctile": abn.get("vol_pctile"),
+                "composite": abn.get("composite"),
+                "base_state": abn.get("base_state"),
+                "status": abn.get("status"),
+                "bucket": abn.get("bucket"),
+                "session": abn.get("session"),
+                "label": abn.get("label"),
+                "caveat": abn.get("caveat"),
+            }
+    except Exception:
+        logger.debug("Abnormality block failed for %s", sym, exc_info=True)
 
     try:
         session_payload = await compute_session_levels(sym, db_path=db_path)

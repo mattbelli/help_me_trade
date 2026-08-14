@@ -376,6 +376,7 @@ def test_market_frame_carries_the_macro_calendar_and_the_gamma_regime(
 
     frame = _market_frame_section(tmp_path / "t.db")
     assert "CPI in 1d (2026-08-12)" in frame
+    assert "- abnormality fires today:" in frame
     assert "not covered" in frame  # an absent FOMC must not read as "no meeting"
     assert "net gamma $+65.8B per 1%" in frame
     assert "flip 7,618" in frame

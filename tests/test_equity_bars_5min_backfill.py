@@ -274,6 +274,47 @@ def test_never_resolved_ignores_a_leftover_smoke_session(tmp_path: Path):
     datetime.fromisoformat(m["generated_at"])
 
 
+def test_extend_manifest_sessions_keeps_the_prior_span(tmp_path: Path):
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"span": {"start": "2026-07-28", "end": "2026-08-12"}})
+    )
+    out = bf.extend_manifest_sessions(tmp_path, [date(2026, 8, 13), date(2026, 8, 14)])
+    assert out[0] == date(2026, 7, 28)
+    assert out[-1] == date(2026, 8, 14)
+    assert date(2026, 8, 12) in out
+
+
+def test_normalize_trading_base_strips_trailing_v2():
+    assert bf.normalize_trading_base("https://paper-api.alpaca.markets/v2") == (
+        "https://paper-api.alpaca.markets"
+    )
+    assert bf.normalize_trading_base("https://paper-api.alpaca.markets/v2/") == (
+        "https://paper-api.alpaca.markets"
+    )
+    assert bf.normalize_trading_base(None) == "https://paper-api.alpaca.markets"
+
+
+def test_fetch_range_keeps_the_window_across_batches(api, monkeypatch):
+    """The high-array must not clobber the range end (daily backfill is multi-batch)."""
+    monkeypatch.setattr(bf, "SYMBOL_BATCH", 1)
+    api.responses.extend(
+        [
+            {"bars": {"AAA": [_bar("2026-01-05T21:00:00Z", 10.0)]}},
+            {"bars": {"BBB": [_bar("2026-01-06T21:00:00Z", 11.0)]}},
+        ]
+    )
+    by_sess, n_req = bf.fetch_range(
+        date(2026, 1, 5), date(2026, 1, 6), ["AAA", "BBB"], HEADERS, timeframe="1Day"
+    )
+    assert n_req == 2
+    assert [q["end"] for q in api.queries] == [
+        "2026-01-07T00:00:00-05:00",
+        "2026-01-07T00:00:00-05:00",
+    ]
+    assert date(2026, 1, 5) in by_sess
+    assert date(2026, 1, 6) in by_sess
+
+
 def test_importing_the_module_fires_no_network_and_no_writes(monkeypatch):
     """script-mains-deny-by-default: import must be inert."""
     import importlib

@@ -52,6 +52,13 @@ export type TickerFacts = {
     ext_change_pct?: number | null;
   };
   rvol?: { value: number | null; state?: string };
+  abnormality?: {
+    range_ratio?: number | null;
+    vol_ratio?: number | null;
+    base_state?: string | null;
+    status?: string;
+    caveat?: string;
+  };
   session_nodes?: {
     poc?: number | null;
     vah?: number | null;

@@ -504,6 +504,36 @@ def _market_frame_section(db_path: Path) -> str:
     else:
         lines.append("- today's 8-K earnings exhibits: _unavailable_")
 
+    try:
+        from db.abnormality import events_today
+
+        fires = events_today(db_path=db_path)
+        fires = sorted(
+            fires,
+            key=lambda e: (
+                e.get("composite") is None,
+                -(e.get("composite") or 0),
+            ),
+        )
+        paired_n = sum(1 for e in fires if e.get("kind") == "abnormality_paired")
+        if fires:
+            names = ", ".join(str(e["symbol"]) for e in fires[:8])
+            extra = f" +{len(fires) - 8}" if len(fires) > 8 else ""
+            lines.append(
+                f"- abnormality fires today: {len(fires)} ({paired_n} paired) "
+                f"{names}{extra}. Magnitude tell — in-sample fired names moved "
+                "32–43% more than their time-matched norm over 2h; direction was "
+                "a coin flip. Not an edge."
+            )
+        else:
+            lines.append(
+                "- abnormality fires today: none. Magnitude tell; direction is a "
+                "coin flip. query('abnormality') for live state."
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack abnormality read failed")
+        lines.append("- abnormality fires today: _unavailable_")
+
     hot = hot_lane_rows(db_path=db_path)
     if hot:
         # Mechanical-idea attention first — "position" rows are mostly other

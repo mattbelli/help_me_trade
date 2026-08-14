@@ -4,7 +4,12 @@ from datetime import date
 
 import pytest
 
-from trading.market_calendar import is_trading_day
+from trading.market_calendar import (
+    is_trading_day,
+    last_closed_session,
+    trading_days,
+    trading_days_between,
+)
 
 # Known NYSE full-day closures, spanning every holiday type + the asymmetric edge
 # cases (observed shifts, Saturday New Year not observed, Juneteenth from 2022,
@@ -62,3 +67,27 @@ def test_weekends_are_not_trading_days():
 
 def test_ordinary_weekday_is_a_trading_day():
     assert is_trading_day(date(2026, 7, 16)) is True  # a plain Thursday
+
+
+def test_trading_days_inclusive_skips_weekend():
+    days = trading_days(date(2026, 8, 7), date(2026, 8, 10))  # Fri–Mon
+    assert days == [date(2026, 8, 7), date(2026, 8, 10)]
+
+
+def test_trading_days_between_counts_open_interval():
+    # Mon→Thu = Tue, Wed, Thu
+    assert trading_days_between(date(2026, 8, 10), date(2026, 8, 13)) == 3
+    assert trading_days_between(date(2026, 8, 13), date(2026, 8, 13)) == 0
+
+
+def test_last_closed_session_before_open_is_prior_day():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    # Wednesday 10:00 ET 2026-08-12 — session in progress → Tuesday
+    now = datetime(2026, 8, 12, 10, 0, tzinfo=et)
+    assert last_closed_session(now) == date(2026, 8, 11)
+    # Wednesday 16:05 ET — today's session has closed
+    now = datetime(2026, 8, 12, 16, 5, tzinfo=et)
+    assert last_closed_session(now) == date(2026, 8, 12)

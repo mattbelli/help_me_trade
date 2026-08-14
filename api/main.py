@@ -3168,6 +3168,15 @@ async def api_watchlist_market(symbols: str = ""):
         except Exception:
             logger.debug("apply_extended failed for %s", sym, exc_info=True)
 
+    try:
+        from db.abnormality import get_state_many
+
+        states = get_state_many(list(quotes))
+        for sym, q in quotes.items():
+            q["abnorm"] = _abnorm_field(states.get(sym))
+    except Exception:
+        logger.debug("abnormality watchlist attach failed", exc_info=True)
+
     return {"quotes": quotes, "spy_change_pct": spy_change_pct}
 
 
@@ -3599,6 +3608,55 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
         "session": session,
         "count": len(results),
         "results": results,
+    }
+
+
+def _abnorm_field(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    status = str(row.get("status") or "")
+    return {
+        "range_ratio": row.get("range_ratio"),
+        "vol_ratio": row.get("vol_ratio"),
+        "rvol_session": row.get("rvol_session"),
+        "range_pctile": row.get("range_pctile"),
+        "vol_pctile": row.get("vol_pctile"),
+        "composite": row.get("composite"),
+        "base_state": row.get("base_state"),
+        "status": status,
+        "stale": status != "live",
+        "label": row.get("label"),
+        "caveat": row.get("caveat"),
+    }
+
+
+@app.get("/api/scanner/abnormality")
+async def api_scanner_abnormality(
+    fired: bool = False,
+    paired: bool = False,
+    base_low: bool = False,
+    base_high: bool = False,
+    limit: int = 50,
+):
+    """Live abnormality state ranked by composite. Surfaces-only — not alerts."""
+    from db.abnormality import events_today, list_state, recent_outcomes
+    from signals.abnormality.constants import CAVEAT, LABEL
+    from signals.abnormality.outcomes import aggregate
+
+    if limit < 1 or limit > 200:
+        return JSONResponse({"error": "limit must be 1–200"}, status_code=400)
+    rows = list_state(
+        fired=fired, paired=paired, base_low=base_low, base_high=base_high, limit=limit
+    )
+    as_of = datetime.now(_ET).isoformat(timespec="seconds")
+    return {
+        "as_of": as_of,
+        "count": len(rows),
+        "results": rows,
+        "fires_today": len(events_today()),
+        "stats": aggregate(recent_outcomes(500)),
+        "label": LABEL,
+        "caveat": CAVEAT,
     }
 
 

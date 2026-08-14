@@ -15,15 +15,14 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-13 Abnormality scanner (#296) — brief written, awaiting founder OK
+## ▶ 08-13 Abnormality scanner (#296) — live for Monday books; draft thresholds
 
-`References/ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` (BUILD_LOG 08-13 row has the decisions).
-- ▶ **Founder reviews the brief** → then Inc 1 (data: 5-min store gap backfill 07-28→today +
-  `--universe` flag; new market-wide daily store). Thresholds get replay-tuned (Inc 2) before
-  anything runs live; surfaces-only launch, no notifications.
-- Side finding parked here deliberately: the **idea ledger** is mechanically alive but drowned
-  (~8.4k of 17,481 rows are fusion_mech) and the founder called it "probably dead as it stands" —
-  a revival/triage is its own future thread, not part of #296.
+Inc 1–5 on main. Detector rides `hmt-equity-collector`; pack line + `query abnormality`.
+Draft fire-rule (p99/p95, floors 2.0/3.0, top-N 10) until founder eyeball of replay tables.
+- ▶ **Replay eyeball** (Inc 2/3): draft p99/p95 floors 2/3 top-N 10 ran **184 fires/day** on 08-13+08-14. `python tools/abnormality_replay.py`. Lock or keep draft.
+- Inc 6 (paired notifications, 1m firing, convergence membership, fusion scoring) stays founder-gated
+
+Idea-ledger revival is its own future thread, not part of #296.
 
 ## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
 

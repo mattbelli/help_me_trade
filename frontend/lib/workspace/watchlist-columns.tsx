@@ -123,6 +123,13 @@ function rvolColor(value: number): string {
   return "var(--fg-dim)";
 }
 
+function abnormColor(value: number): string {
+  if (value >= 6) return "var(--c-red)";
+  if (value >= 3) return "var(--c-amber)";
+  if (value >= 2) return "var(--c-yellow)";
+  return "var(--fg-dim)";
+}
+
 // Abbreviate a raw count: 1.3M / 12.4K / 2.1B / 980.
 function abbreviateNumber(value: number): string {
   const abs = Math.abs(value);
@@ -343,6 +350,42 @@ export const WATCHLIST_COLUMNS: WatchlistColumnDef[] = [
       ) : (
         DASH
       ),
+  },
+  {
+    key: "abnorm",
+    label: "Abn",
+    title: "Range/volume abnormality vs own time-of-day norm (magnitude tell)",
+    category: "volume",
+    defaultWidth: 56,
+    minWidth: 48,
+    align: "right",
+    sortable: true,
+    defaultVisible: true,
+    sortValue: (q) => q?.abnorm?.range_ratio ?? null,
+    cell: ({ quote }) => {
+      const a = quote?.abnorm;
+      if (a?.range_ratio == null) return DASH;
+      const title = [
+        `${a.range_ratio.toFixed(1)}× normal range`,
+        a.vol_ratio != null ? `${a.vol_ratio.toFixed(1)}× normal volume` : null,
+        a.range_pctile != null
+          ? `top ${(100 - a.range_pctile).toFixed(1)}% of peers`
+          : null,
+        a.base_state && a.base_state !== "none" ? a.base_state : null,
+        a.caveat,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return (
+        <span
+          className={cn("tabular-nums", a.stale && "opacity-50")}
+          style={{ color: abnormColor(a.range_ratio) }}
+          title={title}
+        >
+          {a.range_ratio.toFixed(1)}×
+        </span>
+      );
+    },
   },
   {
     key: "sparkline",
