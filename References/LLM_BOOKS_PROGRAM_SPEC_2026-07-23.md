@@ -39,6 +39,14 @@ waiting on the origins defined in §4.*
 >    pack's open-orders section; the analyst cancel/replace verb is the NEXT increment (interim:
 >    requests in `holds_review`, founder cancels manually). `book_entry` (né `moo_entry`) now
 >    gates the off-hours reference pricing + cap exemption for all three styles.
+> 6. **KEEPER 2 (2026-08-14).** Closed `mechanism` enum on every candidate (advanced AND
+>    considered — that's the n). Stored on `idea_outcomes.mechanism` / `failure_modes_json`.
+>    Pack section `Your mechanism ledger` is a **derived read**: n/won/lost/mean α + Wilson,
+>    status `insufficient|working|failing|mixed`, honesty bar n≥10. The LLM never writes a
+>    0.7. `research/idea_tracker.py` is unchanged (sealed price grader). Failure modes are
+>    labels for the pre-mortem / 5b grade, not scored by the sweeper. **Do not fuse** into
+>    the Decision Engine (valve §2 + sample size). `expected_direction` is the existing
+>    `direction` field — do not add a second one.
 
 ## 1. What this is (and is not)
 

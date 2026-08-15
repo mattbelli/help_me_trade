@@ -21,6 +21,7 @@ from typing import Any
 
 from db.base import DEFAULT_DB_PATH
 from db.idea_outcomes import register_idea
+from research.book_mechanisms import normalize_failure_modes, normalize_mechanism
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +94,12 @@ def register_book_candidates(
     """Register a book cycle's full candidate list into its ledger lanes.
 
     Each candidate dict: symbol, direction, thesis, bear_case, confidence_label,
-    plan_horizon, and either a full plan (entry_zone {low,high} + stop + targets)
-    or entry_ref_price (graded as horizon_return). Panel candidates carry
-    ``seat``; ``advanced: true`` marks what the book actually proposed — an
-    advanced panel idea lands in BOTH its seat lane and the headline lane.
+    plan_horizon, optional ``mechanism`` / ``failure_modes`` (closed vocab;
+    unknown mechanism stored as NULL so the idea still lands), and either a
+    full plan (entry_zone {low,high} + stop + targets) or entry_ref_price
+    (graded as horizon_return). Panel candidates carry ``seat``; ``advanced:
+    true`` marks what the book actually proposed — an advanced panel idea
+    lands in BOTH its seat lane and the headline lane.
 
     Per-candidate failures skip, never raise — driver output is LLM-authored
     and one malformed entry must not drop the batch. Returns counts + ids.
@@ -134,6 +137,8 @@ def register_book_candidates(
             origins.append(book.headline_origin)
 
         wrote_any = False
+        mechanism = normalize_mechanism(cand.get("mechanism"))
+        failure_modes = normalize_failure_modes(cand.get("failure_modes"))
         for origin in origins:
             idea_id = register_idea(
                 origin=origin,
@@ -153,6 +158,8 @@ def register_book_candidates(
                     or ("plan" if cand.get("entry_zone") else "horizon_return")
                 ),
                 entry_ref_price=cand.get("entry_ref_price"),
+                mechanism=mechanism,
+                failure_modes=failure_modes or None,
                 source_ref={
                     "book": book.book_id,
                     "seat": seat if seat in book.seats else None,
@@ -301,12 +308,18 @@ def _proposals_section(book: Book, db_path: Path) -> str:
     )
 
 
+def _book_lane_origins(book: Book) -> list[str]:
+    return sorted(
+        o
+        for o in ALL_BOOK_ORIGINS
+        if o == book.headline_origin or o.startswith(f"book:{book.book_id}/")
+    )
+
+
 def _lanes_section(book: Book, db_path: Path) -> str:
     from db.idea_outcomes import OPEN_STATUSES, list_ledger_rows
 
-    origins = sorted(
-        o for o in ALL_BOOK_ORIGINS if o == book.headline_origin or o.startswith(f"book:{book.book_id}/")
-    )
+    origins = _book_lane_origins(book)
     lines: list[str] = []
     for origin in origins:
         result = list_ledger_rows(origin=origin, limit=200, db_path=db_path)
@@ -326,6 +339,12 @@ def _lanes_section(book: Book, db_path: Path) -> str:
             + (f" — recent: {recent}" if recent else "")
         )
     return "\n".join(lines) if lines else "_no lanes for this book_"
+
+
+def _mechanism_section(book: Book, db_path: Path) -> str:
+    from research.book_mechanisms import render_mechanism_ledger
+
+    return render_mechanism_ledger(_book_lane_origins(book), db_path=db_path)
 
 
 def _index_bars(sym: str, db_path: Path) -> list[dict[str, Any]]:
@@ -446,6 +465,74 @@ def _market_frame_section(db_path: Path) -> str:
         )
     else:
         lines.append("- SPX dealer exposure: _no stored snapshot_")
+
+    # Same miss as the 08-11 macro calendar: `earnings_release` shipped to the
+    # perception resource and not onto this pack, which is what a book reads first.
+    try:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _ZoneInfo
+
+        from signals.earnings_exhibit import DEFAULT_RELEASES_DB_PATH, latest_releases
+
+        if not DEFAULT_RELEASES_DB_PATH.exists():
+            today_exhibits = None
+        else:
+            today_et = _dt.now(_ZoneInfo("America/New_York")).date().isoformat()
+            today_exhibits = [
+                r
+                for r in latest_releases(limit=40)
+                if (r.get("accepted_et") or "")[:10] == today_et
+            ]
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack earnings exhibits read failed")
+        today_exhibits = None
+    if today_exhibits:
+        shown = ", ".join(
+            f"{r.get('symbol') or r.get('company') or '?'}"
+            + (f" {r['session']}" if r.get("session") else "")
+            for r in today_exhibits[:8]
+        )
+        extra = (
+            f" +{len(today_exhibits) - 8} more" if len(today_exhibits) > 8 else ""
+        )
+        lines.append(
+            f"- today's 8-K earnings exhibits: {shown}{extra}"
+            " · `query earnings_release` for text; `query fundamentals` for XBRL"
+        )
+    elif today_exhibits == []:
+        lines.append("- today's 8-K earnings exhibits: none stored")
+    else:
+        lines.append("- today's 8-K earnings exhibits: _unavailable_")
+
+    try:
+        from db.abnormality import events_today
+
+        fires = events_today(db_path=db_path)
+        fires = sorted(
+            fires,
+            key=lambda e: (
+                e.get("composite") is None,
+                -(e.get("composite") or 0),
+            ),
+        )
+        paired_n = sum(1 for e in fires if e.get("kind") == "abnormality_paired")
+        if fires:
+            names = ", ".join(str(e["symbol"]) for e in fires[:8])
+            extra = f" +{len(fires) - 8}" if len(fires) > 8 else ""
+            lines.append(
+                f"- abnormality fires today: {len(fires)} ({paired_n} paired) "
+                f"{names}{extra}. Magnitude tell — in-sample fired names moved "
+                "32–43% more than their time-matched norm over 2h; direction was "
+                "a coin flip. Not an edge."
+            )
+        else:
+            lines.append(
+                "- abnormality fires today: none. Magnitude tell; direction is a "
+                "coin flip. query('abnormality') for live state."
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack abnormality read failed")
+        lines.append("- abnormality fires today: _unavailable_")
 
     hot = hot_lane_rows(db_path=db_path)
     if hot:
@@ -578,6 +665,9 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
     if book.headline_origin:
         parts.append(_section("Your mandate", lambda: _mandate_section(book, db_path)))
         parts.append(_section("Your ledger lanes", lambda: _lanes_section(book, db_path)))
+        parts.append(
+            _section("Your mechanism ledger", lambda: _mechanism_section(book, db_path))
+        )
         parts.append(_section("Your desk journal", lambda: _journal_section(book, db_path)))
     parts.append(_section("Market frame", lambda: _market_frame_section(db_path)))
     parts.append(_section("Upcoming earnings (held names)", lambda: _earnings_section(book, db_path)))

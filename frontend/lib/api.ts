@@ -474,6 +474,20 @@ export type RvolInfo = {
   state: "warming" | "live" | "settled" | "overnight";
 };
 
+export type AbnormInfo = {
+  range_ratio: number | null;
+  vol_ratio: number | null;
+  rvol_session?: number | null;
+  range_pctile?: number | null;
+  vol_pctile?: number | null;
+  composite?: number | null;
+  base_state?: string | null;
+  status?: string;
+  stale?: boolean;
+  label?: string;
+  caveat?: string;
+};
+
 export type WatchlistQuote = {
   price: number;
   change_pct: number;
@@ -485,6 +499,7 @@ export type WatchlistQuote = {
   day_high?: number;
   day_low?: number;
   rvol?: RvolInfo | null;
+  abnorm?: AbnormInfo | null;
   market_session?: "pre" | "regular" | "post" | "overnight" | "closed";
   ext_price?: number | null;
   ext_change_pct?: number | null;
@@ -686,6 +701,60 @@ export async function fetchRvolScanner(
     const body = await res.json().catch(() => ({}));
     throw new Error(
       (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type AbnormalityScannerRow = {
+  symbol: string;
+  range_ratio: number | null;
+  vol_ratio: number | null;
+  rvol_session?: number | null;
+  range_pctile?: number | null;
+  vol_pctile?: number | null;
+  composite?: number | null;
+  base_state?: string;
+  status?: string;
+  caveat?: string;
+};
+
+export type AbnormalityScannerResult = {
+  as_of: string;
+  count: number;
+  fires_today?: number;
+  results: AbnormalityScannerRow[];
+  stats?: {
+    n: number;
+    median_excess: number | null;
+    direction?: {
+      up: number;
+      down: number;
+      up_rate: number | null;
+      up_wilson_95: [number, number] | null;
+    } | null;
+  };
+  label?: string;
+  caveat?: string;
+};
+
+export async function fetchAbnormalityScanner(opts?: {
+  fired?: boolean;
+  paired?: boolean;
+  base_low?: boolean;
+  base_high?: boolean;
+  limit?: number;
+}): Promise<AbnormalityScannerResult> {
+  const params = new URLSearchParams({ limit: String(opts?.limit ?? 50) });
+  if (opts?.fired) params.set("fired", "true");
+  if (opts?.paired) params.set("paired", "true");
+  if (opts?.base_low) params.set("base_low", "true");
+  if (opts?.base_high) params.set("base_high", "true");
+  const res = await apiFetch(`${API_BASE}/api/scanner/abnormality?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Abnormality scanner error ${res.status}`,
     );
   }
   return res.json();

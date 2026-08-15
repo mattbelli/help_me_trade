@@ -16,10 +16,18 @@ from db.base import connect
 from db.idea_outcomes import list_ledger_rows
 from db.reports import recent_reports_by_kind
 from db.strategies import seed_default_strategies, update_strategy
-from research.book_driver import run_book_cycle
+from research.book_driver import BOOK_CALL_TIMEOUT_S, BOOK_MAX_TOKENS, run_book_cycle
 from research.books import build_book_pack
 
 _ET = ZoneInfo("America/New_York")
+NOW = datetime(2026, 7, 23, 17, 30, tzinfo=_ET)  # Thursday, post-window
+
+
+def test_book_token_budget_is_the_v4_output_ceiling() -> None:
+    # 8000 was OUR clamp; V4 thinking shares it with content and truncated
+    # the nightly report (07-31 onset, 08-12/13/14 measured). Do not drop this.
+    assert BOOK_MAX_TOKENS == 384_000
+    assert BOOK_CALL_TIMEOUT_S == 600
 NOW = datetime(2026, 7, 23, 17, 30, tzinfo=_ET)  # Thursday, post-window
 
 
@@ -52,6 +60,7 @@ GOOD_DECISION = {
             "confidence_label": "medium",
             "advanced": True,
             "notional_usd": 400,
+            "mechanism": "trend_pullback",
         },
         {
             "symbol": "MSFT",
@@ -60,6 +69,7 @@ GOOD_DECISION = {
             "entry_ref_price": "500",
             "plan_horizon": "5d",
             "advanced": False,
+            "mechanism": "breakout_hold",
         },
         {
             "symbol": "IWM",
@@ -71,6 +81,7 @@ GOOD_DECISION = {
             "targets": ["280"],
             "plan_horizon": "10d",
             "advanced": True,  # must be short_blocked at the proposal step
+            "mechanism": "mean_revert",
         },
     ],
     "holds_review": "flat book, nothing to review",
@@ -327,6 +338,7 @@ def test_armed_cycle_self_sized_proposals_block_shorts_drop_unsized(
             "targets": ["175"],
             "plan_horizon": "10d",
             "advanced": True,  # no notional_usd → dropped as unfinished work
+            "mechanism": "breakout_hold",
         }
     )
     response = "## r\n\n```json\n" + json.dumps(decision) + "\n```"
@@ -389,6 +401,7 @@ PANEL_DECISION = {
             "plan_horizon": "15d",
             "confidence_label": "high",
             "advanced": True,
+            "mechanism": "earnings_drift",
         },
         {
             "symbol": "XLF",
@@ -398,6 +411,7 @@ PANEL_DECISION = {
             "entry_ref_price": "43",
             "plan_horizon": "10d",
             "advanced": False,
+            "mechanism": "macro_hedge",
         },
     ],
     "holds_review": "flat",

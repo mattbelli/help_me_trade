@@ -24,6 +24,11 @@ from db.earnings_calendar import upsert_earnings
 def _reset_spy_bars_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """The SPY-bars TTL cache is module-global — never let it leak across tests."""
     monkeypatch.setattr("ai.perception.context._spy_bars_cache", None)
+    # statement_headline opens the 16GB facts store; tests must not.
+    monkeypatch.setattr(
+        "research.fundamentals.statement_headline",
+        lambda *_a, **_k: None,
+    )
 
 
 def _daily_bar(day: int, close: float) -> StockBar:
@@ -106,6 +111,8 @@ def test_list_capabilities_manifest() -> None:
     caps = list_capabilities()
     assert "symbol" in caps["context_scopes"]
     assert "quote" in caps["context_scopes"]["symbol"]
+    assert "abnormality" in caps["context_scopes"]["symbol"]
+    assert "abnormality" in caps["resources"]
     assert "news" in caps["context_scopes"]["symbol"]
     assert "strategy_signals" in caps["context_scopes"]["symbol"]
     assert "active_alerts" in caps["context_scopes"]["symbol"]
@@ -178,6 +185,16 @@ async def test_build_symbol_context_assembles_blocks(
         lambda _sym: None,
     )
     monkeypatch.setattr(
+        "research.fundamentals.statement_headline",
+        lambda _sym: {
+            "revenue": 94_036e6,
+            "eps_diluted": 1.57,
+            "filed": "2026-07-31",
+            "form": "10-Q",
+            "source": "SEC EDGAR XBRL companyfacts",
+        },
+    )
+    monkeypatch.setattr(
         "signals.decision_scorer.score_symbol",
         lambda *_a, **_k: {
             "win_prob": 0.62,
@@ -209,6 +226,8 @@ async def test_build_symbol_context_assembles_blocks(
     assert ctx["session_nodes"]["pwl"] == 840.0
     assert ctx["technicals"]["sma50"] is not None
     assert ctx["fundamentals"]["pe"] == 45.2
+    assert ctx["fundamentals"]["statements"]["eps_diluted"] == 1.57
+    assert ctx["fundamentals"]["statements"]["filed"] == "2026-07-31"
     assert ctx["earnings"]["next"] == "2026-05-28"
     assert ctx["decision_score"]["win_prob"] == 0.62
     assert ctx["decision_score"]["ev"] == 1.8

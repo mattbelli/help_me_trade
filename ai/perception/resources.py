@@ -808,8 +808,8 @@ def _read_fundamentals(filters: dict[str, Any], *, db_path: Path) -> list[dict[s
         reported = company_concepts(symbol, limit=1) or []
         out["note"] = (
             f"{symbol} resolves to CIK {out['cik']} but no XBRL facts are ingested for it "
-            "— run `python -m research.edgar_bulk --download --ingest`, or "
-            f"`python -m research.fundamentals --build-financials {symbol}` for just this one."
+            "— the nightly companyfacts CRC diff should pick the filer up; "
+            "do not per-symbol REST scrape SEC for this."
             if not reported
             else (
                 f"{symbol} files XBRL, but none of the twelve canonical metrics matched"
@@ -1452,6 +1452,46 @@ def _summarize_episodes(filters: dict[str, Any], *, db_path: Path) -> dict[str, 
     return {"open_total": count_open_episodes(db_path=db_path)}
 
 
+def _read_abnormality(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from db.abnormality import events_today, get_state, list_state
+    from signals.abnormality.constants import CAVEAT, LABEL
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    limit = min(max(int(filters.get("limit") or 30), 1), 100)
+    if symbol:
+        row = get_state(symbol, db_path=db_path)
+        rows: list[dict[str, Any]] = []
+        if row:
+            rows.append({**row, "row_kind": "state", "label": LABEL, "caveat": CAVEAT})
+        for ev in events_today(db_path=db_path):
+            if ev["symbol"] == symbol:
+                rows.append({**ev, "row_kind": "event"})
+        return rows[:limit]
+    rows = list_state(
+        fired=bool(filters.get("fired")),
+        paired=bool(filters.get("paired")),
+        base_low=bool(filters.get("base_low")),
+        base_high=bool(filters.get("base_high")),
+        limit=limit,
+        db_path=db_path,
+    )
+    return [{**r, "label": LABEL, "caveat": CAVEAT} for r in rows]
+
+
+def _summarize_abnormality(filters: dict[str, Any], *, db_path: Path) -> dict[str, Any]:
+    from db.abnormality import events_today, recent_outcomes
+    from signals.abnormality.constants import CAVEAT, LABEL
+    from signals.abnormality.outcomes import aggregate
+
+    del filters
+    return {
+        "label": LABEL,
+        "caveat": CAVEAT,
+        "fires_today": len(events_today(db_path=db_path)),
+        "outcomes": aggregate(recent_outcomes(500, db_path=db_path)),
+    }
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -1850,6 +1890,28 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_flow_perception,
     },
+    "abnormality": {
+        "description": (
+            "Vol/volume abnormality perception — a MAGNITUDE TELL, not a verdict. "
+            "Names whose trailing-60-min Parkinson range and volume are unusual vs "
+            "their own time-of-day norm AND their $-vol peer cell. Measured in-sample "
+            "(1.14f/g): fired names moved 32–43% more than their time-matched norm "
+            "over the next 2h; direction was a coin flip. No win%, no probability, "
+            "no direction implied. `base_state` pairing (accumulation/distribution) "
+            "is a labelled founder thesis, not a measurement. Surfaces-only: these "
+            "are not alerts."
+        ),
+        "filters": {
+            "symbol": "optional ticker — that name's live state + today's fires",
+            "fired": "optional bool — only names that fired today",
+            "paired": "optional bool — only base-state-paired fires",
+            "base_low": "optional bool — accumulation-candidate base",
+            "base_high": "optional bool — distribution-candidate base",
+            "limit": "optional row cap — default 30, max 100",
+        },
+        "read": _read_abnormality,
+        "summarize": _summarize_abnormality,
+    },
     "gex": {
         "description": (
             "Index dealer exposure — the SPX board's standing open interest priced "
@@ -2046,6 +2108,9 @@ _RESOURCE_ALIASES = {
     "unusual_flow": "flow_perception",
     "unusual_options_flow": "flow_perception",
     "flow_scan": "flow_perception",
+    "vol_scanner": "abnormality",
+    "unusual_activity": "abnormality",
+    "abnormality_scanner": "abnormality",
 }
 
 

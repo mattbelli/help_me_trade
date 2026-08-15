@@ -47,6 +47,14 @@ def init_filings_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON filings_events(filed_at DESC);
             CREATE INDEX IF NOT EXISTS idx_filings_events_kind
                 ON filings_events(kind);
+
+            -- Accessions we already fetched and judged not feed-worthy
+            -- (sells/grants/tiny buys). Survives a restart so the next boot
+            -- does not re-burst 40 XML fetches and trip EDGAR's 10 req/s cap.
+            CREATE TABLE IF NOT EXISTS filings_seen (
+                uid TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
             """
         )
         conn.commit()
@@ -101,9 +109,29 @@ def has_uid(uid: str, *, db_path: Path = DEFAULT_DB_PATH) -> bool:
     init_filings_tables(db_path)
     with _connect(db_path) as conn:
         row = conn.execute(
-            "SELECT 1 FROM filings_events WHERE uid = ? LIMIT 1", (uid,)
+            """
+            SELECT 1 FROM filings_events WHERE uid = ?
+            UNION ALL
+            SELECT 1 FROM filings_seen WHERE uid = ?
+            LIMIT 1
+            """,
+            (uid, uid),
         ).fetchone()
     return row is not None
+
+
+def remember_uid(uid: str, *, db_path: Path = DEFAULT_DB_PATH) -> None:
+    """Persist a skip so a restart does not re-fetch the same accession."""
+    uid = str(uid).strip()
+    if not uid:
+        return
+    init_filings_tables(db_path)
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO filings_seen (uid, created_at) VALUES (?, ?)",
+            (uid, _now()),
+        )
+        conn.commit()
 
 
 def list_recent(

@@ -156,7 +156,10 @@ def test_pack_renders_on_empty_db_without_fabricating(tmp_path: Path) -> None:
     matt_pack = build_book_pack("matt", db_path=tmp_path / "t.db")
     panel_pack = build_book_pack("panel", db_path=tmp_path / "t.db")
     assert "Your ledger lanes" not in matt_pack and "Your mandate" not in matt_pack
+    assert "Your mechanism ledger" not in matt_pack
     assert "Your ledger lanes" in panel_pack and "Your mandate" in panel_pack
+    assert "Your mechanism ledger" in panel_pack
+    assert "Closed vocabulary" in panel_pack
 
 
 def test_pack_shows_the_stop_trigger_level(tmp_path: Path) -> None:
@@ -338,10 +341,15 @@ def _stub_frame_db_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Silence the frame's other DB readers so the assertions are about the two
     lines under test, not about which table a tmp DB happens to be missing."""
     import db.reports as reports_mod
+    import signals.earnings_exhibit as exhibit_mod
     import signals.fusion.attention as attention_mod
 
     monkeypatch.setattr(attention_mod, "hot_lane_rows", lambda **_k: [])
     monkeypatch.setattr(reports_mod, "recent_reports_by_kind", lambda *_a, **_k: [])
+    # A real earnings.db on the box must not leak today's 8-Ks into these tests.
+    monkeypatch.setattr(
+        exhibit_mod, "DEFAULT_RELEASES_DB_PATH", Path("/nonexistent/earnings.db")
+    )
 
 
 def test_market_frame_carries_the_macro_calendar_and_the_gamma_regime(
@@ -368,6 +376,7 @@ def test_market_frame_carries_the_macro_calendar_and_the_gamma_regime(
 
     frame = _market_frame_section(tmp_path / "t.db")
     assert "CPI in 1d (2026-08-12)" in frame
+    assert "- abnormality fires today:" in frame
     assert "not covered" in frame  # an absent FOMC must not read as "no meeting"
     assert "net gamma $+65.8B per 1%" in frame
     assert "flip 7,618" in frame
@@ -411,3 +420,43 @@ def test_market_frame_stays_honest_when_those_two_stores_are_missing(
     frame = _market_frame_section(tmp_path / "t.db")
     assert "- macro calendar: _unavailable_" in frame
     assert "- SPX dealer exposure: _no stored snapshot_" in frame
+    assert "- today's 8-K earnings exhibits: _unavailable_" in frame
+
+
+def test_market_frame_names_todays_8k_exhibits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`earnings_release` shipped to the perception resource first; the pack is
+    what a book reads before it asks anything. Same miss as the 08-11 calendar."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import db.gamma_exposure as gex_mod
+    import signals.earnings_exhibit as exhibit_mod
+    import signals.macro_substrate as macro_mod
+    from research.books import _market_frame_section
+
+    _stub_frame_db_reads(monkeypatch)
+    today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    store = tmp_path / "earnings.db"
+    store.touch()
+    monkeypatch.setattr(exhibit_mod, "DEFAULT_RELEASES_DB_PATH", store)
+    monkeypatch.setattr(
+        exhibit_mod,
+        "latest_releases",
+        lambda **_k: [
+            {
+                "symbol": "AMZN",
+                "session": "amc",
+                "company": "Amazon.com, Inc.",
+                "accepted_et": f"{today}T16:06:23-04:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(macro_mod, "event_calendar", lambda *_a, **_k: None)
+    monkeypatch.setattr(gex_mod, "history", lambda **_k: [])
+
+    frame = _market_frame_section(tmp_path / "t.db")
+    assert "today's 8-K earnings exhibits: AMZN amc" in frame
+    assert "query earnings_release" in frame
+    assert "query fundamentals" in frame

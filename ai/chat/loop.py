@@ -247,13 +247,12 @@ async def run_chat_loop(
     execute: ToolExecutor,
     approval_tools: frozenset[str] = APPROVAL_TOOLS,
     max_iterations: int = MAX_ITERATIONS,
-    # 8000, raised 1200 -> 4000 -> 8000, each time on a MEASURED truncation: 4000 was
-    # still cutting a full analytical answer mid-sentence (live turn 2026-08-11, credit
-    # spreads with drill-down). Not a guess at the ceiling either — research/book_driver
-    # has run BOOK_MAX_TOKENS = 8000 against this same provider nightly. Applies per
-    # model turn; tool-call turns are tiny, so it only ever bites the final answer.
-    # Central on purpose: mobile INHERITS this default, so web and mobile stay in
-    # lockstep and there is one number to change.
+    # Chat stays at 8000 (raised 1200 -> 4000 -> 8000 on measured truncations).
+    # The Deep Seek *book* passes BOOK_MAX_TOKENS (384k, V4 output ceiling)
+    # explicitly — do not "sync" this default up to the book, and do not drop
+    # the book back to 8000; that clamp ate the nightly report (07-31..08-14).
+    # Applies per model turn; tool-call turns are tiny, so it only ever bites
+    # the final answer. Central on purpose: mobile INHERITS this default.
     max_tokens: int = 8000,
 ) -> AsyncIterator[LoopEvent]:
     """Drive one chat turn to a final text answer (or an approval pause).

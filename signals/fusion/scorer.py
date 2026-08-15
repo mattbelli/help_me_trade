@@ -19,7 +19,9 @@ GROUP_COMPONENTS: dict[str, frozenset[str]] = {
         {"option_sweep", "option_block", "unusual_option_volume", "directional_pressure"}
     ),
     "equity_actor": frozenset({"equity_block", "dark_pool"}),
-    "background_crowd": frozenset({"rvol_ex_prints"}),
+    "background_crowd": frozenset(
+        {"rvol_ex_prints", "abnormality_state", "abnormality_paired"}
+    ),
     "structure": frozenset({"session_level", "price_alert"}),
     "attention": frozenset({"reddit_buzz", "stocktwits_buzz"}),
     "catalyst": frozenset({"earnings_proximity", "news"}),

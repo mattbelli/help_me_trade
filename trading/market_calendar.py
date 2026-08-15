@@ -20,7 +20,7 @@ needs a session-relative exit window, not just this calendar — tracked separat
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 
 # Ad-hoc, non-computable NYSE full-day closures (national mourning, disasters).
@@ -151,3 +151,44 @@ def is_early_close(d: date) -> bool:
     if d == _nth_weekday(d.year, 11, 3, 4) + timedelta(days=1):
         return True
     return d.month == 12 and d.day == 24
+
+
+def trading_days(start: date, end: date) -> list[date]:
+    """Inclusive [start, end] NYSE sessions."""
+    out: list[date] = []
+    d = start
+    while d <= end:
+        if is_trading_day(d):
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def trading_days_between(start: date, end: date) -> int:
+    """Count of sessions in (start, end] — artifact age vs today.
+
+    ``trading_days_between(Mon, Thu) == 3`` (Tue, Wed, Thu). Equal dates → 0.
+    """
+    if end <= start:
+        return 0
+    return len(trading_days(start + timedelta(days=1), end))
+
+
+def last_closed_session(now_et: datetime | None = None) -> date:
+    """Most recent RTH session that has already closed.
+
+    A session is closed after 16:05 ET on a trading day (5 min past the last
+    15:55 bar). Before that, yesterday's session. Early-close days still close
+    well before 16:05.
+    """
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    now = now_et or datetime.now(et)
+    d = now.date()
+    closed = now.hour > 16 or (now.hour == 16 and now.minute >= 5)
+    if not (is_trading_day(d) and closed):
+        d -= timedelta(days=1)
+    while not is_trading_day(d):
+        d -= timedelta(days=1)
+    return d

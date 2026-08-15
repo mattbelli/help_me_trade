@@ -996,6 +996,124 @@ def _attach_rvol(episode: dict, ts: str, market_day: str, db_path: Path) -> None
     bump("fusion_intake", "rvol_dots", db_path=db_path)
 
 
+def _abn_dot_exists(episode_id: str, component: str, db_path: Path) -> bool:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM evidence_dots
+            WHERE episode_id = ? AND component = ?
+            """,
+            (episode_id, component),
+        ).fetchone()
+    return row is not None
+
+
+def _mint_abn_dot(
+    episode: dict,
+    ts: str,
+    component: str,
+    source_event_id: str,
+    raw_value: Decimal | None,
+    detail: dict[str, Any],
+    db_path: Path,
+    *,
+    refresh_state: bool,
+) -> None:
+    _insert_dot(
+        episode_id=episode["id"],
+        source_store="abnormality",
+        source_event_id=source_event_id,
+        source_ingest_seq=0,
+        symbol=str(episode["symbol"]),
+        ts=ts,
+        component=component,
+        actor_group="background_crowd",
+        dot_kind="state" if refresh_state else "event",
+        direction="none",
+        raw_value=raw_value,
+        points=0.0,
+        detail=detail,
+        price=None,
+        atr14=None,
+        refresh_state=refresh_state,
+        db_path=db_path,
+    )
+
+
+def _attach_abnormality(episode: dict, ts: str, market_day: str, db_path: Path) -> None:
+    """Annotate-only magnitude-tell dots. source_store 'abnormality' is not in STORES."""
+    from db.abnormality import events_today, get_state
+    from signals.abnormality.constants import CAVEAT, KIND_PAIRED, LABEL, PAIRED_CAVEAT
+
+    symbol = str(episode["symbol"])
+    row = get_state(symbol, db_path=db_path)
+    base_detail: dict[str, Any] = {"as_of": ts, "label": LABEL, "caveat": CAVEAT}
+
+    def unavailable(state: str) -> None:
+        if not _abn_dot_exists(str(episode["id"]), "abnormality_state", db_path):
+            bump("fusion_intake", f"abn_skipped_{state}", db_path=db_path)
+            return
+        _mint_abn_dot(
+            episode, ts, "abnormality_state",
+            f"{episode['id']}:abnormality_state",
+            None, {**base_detail, "state": state}, db_path, refresh_state=True,
+        )
+
+    if row is None:
+        unavailable("no_state")
+        return
+    if row.get("session") != market_day:
+        unavailable("stale_session")
+        return
+    status = str(row.get("status") or "")
+    if status in ("baselines_stale", "absent", "ca_suspect"):
+        unavailable(status)
+        return
+    raw = row.get("composite")
+    value = _decimal(raw) if raw is not None else None
+    _mint_abn_dot(
+        episode, ts, "abnormality_state",
+        f"{episode['id']}:abnormality_state",
+        value,
+        {
+            **base_detail,
+            "range_ratio": row.get("range_ratio"),
+            "vol_ratio": row.get("vol_ratio"),
+            "rvol_session": row.get("rvol_session"),
+            "range_pctile": row.get("range_pctile"),
+            "vol_pctile": row.get("vol_pctile"),
+            "base_state": row.get("base_state"),
+            "status": status,
+        },
+        db_path,
+        refresh_state=True,
+    )
+    bump("fusion_intake", "abn_state_dots", db_path=db_path)
+
+    for ev in events_today(market_day, db_path=db_path):
+        if ev["symbol"] != symbol or ev["kind"] != KIND_PAIRED:
+            continue
+        if _abn_dot_exists(str(episode["id"]), "abnormality_paired", db_path):
+            break
+        _mint_abn_dot(
+            episode, str(ev["ts"]), "abnormality_paired",
+            str(ev["id"]),
+            _decimal(ev.get("composite")),
+            {
+                **base_detail,
+                "caveat": f"{CAVEAT} {PAIRED_CAVEAT}",
+                "range_ratio": ev.get("range_ratio"),
+                "vol_ratio": ev.get("vol_ratio"),
+                "base_state": ev.get("base_state"),
+                "kind": KIND_PAIRED,
+            },
+            db_path,
+            refresh_state=False,
+        )
+        bump("fusion_intake", "abn_paired_dots", db_path=db_path)
+        break
+
+
 # Market-wide context reads are identical for every episode on a market day —
 # memoized so a busy intake pass costs one query burst per TTL, not per event.
 _CONTEXT_MEMO: dict[tuple[str, str, str], tuple[float, Any]] = {}
@@ -1857,6 +1975,7 @@ def intake_once(
                 _attach_regime(episode, str(event["ts"]), context_key[1], db_path)
                 _attach_index_pressure(episode, str(event["ts"]), context_key[1], db_path)
                 _attach_rvol(episode, str(event["ts"]), context_key[1], db_path)
+                _attach_abnormality(episode, str(event["ts"]), context_key[1], db_path)
             state = _rescore(episode["id"], db_path)
             if disposition == "scored":
                 _maybe_call_registrar(episode["id"], dot_id, state, db_path)

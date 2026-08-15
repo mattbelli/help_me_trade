@@ -10,7 +10,7 @@ import {
 } from "@/components/workspace/widget-states";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import { TerminalSelect } from "@/components/ui/terminal/terminal-select";
-import { fetchRvolScanner, type RvolScannerResult } from "@/lib/api";
+import { fetchRvolScanner, fetchAbnormalityScanner, type RvolScannerResult, type AbnormalityScannerResult } from "@/lib/api";
 import {
   fetchScanPresets,
   runScan,
@@ -35,6 +35,7 @@ const VOLUME_ONLY_PRESET = "unusual_volume";
 // 2026-08-09 consolidation). Its universe is the ~986-name liquid core, so the
 // Watchlist/S&P toggle doesn't apply while it is selected.
 const RVOL_PRESET = "__rvol__";
+const ABNORM_PRESET = "__abnorm__";
 
 const RVOL_SESSION_LABELS: Record<string, string> = {
   pre: "pre-market",
@@ -105,6 +106,8 @@ export function ScansWidget({ config }: WidgetProps) {
   const [universe, setUniverse] = useState<ScanUniverse>("sp500");
   const [data, setData] = useState<ScanRunResult | null>(null);
   const [rvolData, setRvolData] = useState<RvolScannerResult | null>(null);
+  const [abnormData, setAbnormData] = useState<AbnormalityScannerResult | null>(null);
+  const [abnormFilter, setAbnormFilter] = useState<"all" | "fired" | "paired" | "base_low" | "base_high">("fired");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
@@ -152,11 +155,41 @@ export function ScansWidget({ config }: WidgetProps) {
     }
   }, []);
 
+  const runAbnorm = useCallback(async () => {
+    setRunning(true);
+    try {
+      const result = await fetchAbnormalityScanner({
+        fired: abnormFilter === "fired" || abnormFilter === "paired",
+        paired: abnormFilter === "paired",
+        base_low: abnormFilter === "base_low",
+        base_high: abnormFilter === "base_high",
+        limit: 50,
+      });
+      if (cancelledRef.current) return;
+      setAbnormData(result);
+      setError(null);
+    } catch (err) {
+      if (cancelledRef.current) return;
+      setError(err instanceof Error ? err.message : "Scanner failed");
+    } finally {
+      if (!cancelledRef.current) setRunning(false);
+    }
+  }, [abnormFilter]);
+
+  useEffect(() => {
+    if (selected !== ABNORM_PRESET) return;
+    void runAbnorm();
+  }, [abnormFilter, selected, runAbnorm]);
+
   const run = useCallback(
     async (presetId: string) => {
       if (!presetId) return;
       if (presetId === RVOL_PRESET) {
         await runRvol();
+        return;
+      }
+      if (presetId === ABNORM_PRESET) {
+        await runAbnorm();
         return;
       }
       setRunning(true);
@@ -172,7 +205,7 @@ export function ScansWidget({ config }: WidgetProps) {
         if (!cancelledRef.current) setRunning(false);
       }
     },
-    [universe, runRvol],
+    [universe, runRvol, runAbnorm],
   );
 
   // Keep an already-run scan fresh (only while it matches the selected preset).
@@ -184,11 +217,13 @@ export function ScansWidget({ config }: WidgetProps) {
     const fresh =
       selected === RVOL_PRESET
         ? rvolData !== null
-        : data !== null && data.preset_id === selected;
+        : selected === ABNORM_PRESET
+          ? abnormData !== null
+          : data !== null && data.preset_id === selected;
     if (!fresh) return;
     const timer = setInterval(() => void run(selected), POLL_MS);
     return () => clearInterval(timer);
-  }, [pageActive, data, rvolData, selected, run]);
+  }, [pageActive, data, rvolData, abnormData, selected, run]);
 
   const handlePresetChange = (id: string) => {
     setSelected(id);
@@ -197,6 +232,7 @@ export function ScansWidget({ config }: WidgetProps) {
     // The RVOL endpoint is a cheap precomputed read — run it on select rather
     // than making the founder press Run for a ranking that's already there.
     if (id === RVOL_PRESET) void runRvol();
+    if (id === ABNORM_PRESET) void runAbnorm();
   };
 
   const handleUniverseChange = (next: ScanUniverse) => {
@@ -220,6 +256,8 @@ export function ScansWidget({ config }: WidgetProps) {
   }
 
   const isRvol = selected === RVOL_PRESET;
+  const isAbnorm = selected === ABNORM_PRESET;
+  const isMarketScan = isRvol || isAbnorm;
   const showResults = !isRvol && data && data.preset_id === selected;
   const metricLabel =
     presets.find((p) => p.id === selected)?.metric_label ?? "Value";
@@ -235,12 +273,12 @@ export function ScansWidget({ config }: WidgetProps) {
               key={u.id}
               type="button"
               onClick={() => handleUniverseChange(u.id)}
-              title={isRvol ? "RVOL scans its own market-wide universe" : u.title}
-              disabled={isRvol}
-              aria-pressed={!isRvol && universe === u.id}
+              title={isMarketScan ? "This scan uses its own market-wide universe" : u.title}
+              disabled={isMarketScan}
+              aria-pressed={!isMarketScan && universe === u.id}
               className={cn(
                 "px-1.5 py-0.5 font-mono text-[length:var(--fs-table)] transition-colors",
-                isRvol
+                isMarketScan
                   ? "text-[var(--fg-faint)] opacity-40"
                   : universe === u.id
                     ? "bg-[var(--c-accent-soft)] text-[var(--c-accent)]"
@@ -280,6 +318,12 @@ export function ScansWidget({ config }: WidgetProps) {
           >
             RVOL — market-wide
           </option>
+          <option
+            value={ABNORM_PRESET}
+            title="Range × volume abnormality vs own time-of-day norm. Magnitude tell, not a direction."
+          >
+            Abnormality — market-wide
+          </option>
         </TerminalSelect>
         <TerminalButton
           variant="primary"
@@ -299,6 +343,11 @@ export function ScansWidget({ config }: WidgetProps) {
             {formatAsOf(rvolData.as_of)}
           </span>
         ) : null}
+        {isAbnorm && abnormData ? (
+          <span className="tabular-nums text-[length:var(--fs-table)] text-[var(--fg-faint)]">
+            {abnormData.fires_today ?? 0} fires · {formatAsOf(abnormData.as_of)}
+          </span>
+        ) : null}
       </div>
 
       {showResults && data.note ? (
@@ -314,7 +363,119 @@ export function ScansWidget({ config }: WidgetProps) {
       ) : null}
 
       {/* Body */}
-      {isRvol ? (
+      {isAbnorm ? (
+        error && !abnormData ? (
+          <WidgetError message={error} />
+        ) : !abnormData ? (
+          <WidgetLoading cols={[2, 1, 1, 1]} />
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center gap-1 border-b border-[var(--line-divider)] px-2 py-1">
+              {(
+                [
+                  ["fired", "fires"],
+                  ["paired", "paired"],
+                  ["base_low", "base low"],
+                  ["base_high", "base high"],
+                  ["all", "all"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setAbnormFilter(id);
+                    setAbnormData(null);
+                  }}
+                  aria-pressed={abnormFilter === id}
+                  className={cn(
+                    "px-1 py-0.5 font-mono text-[length:var(--fs-table)]",
+                    abnormFilter === id
+                      ? "text-[var(--c-accent)]"
+                      : "text-[var(--fg-faint)] hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {abnormData.caveat ? (
+              <p
+                className="px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]"
+                title={abnormData.caveat}
+              >
+                magnitude tell · direction coin flip
+                {abnormData.stats?.median_excess != null
+                  ? ` · median excess ${abnormData.stats.median_excess.toFixed(2)}×`
+                  : ""}
+                {abnormData.stats?.direction?.up_wilson_95
+                  ? ` · up ${(abnormData.stats.direction.up_wilson_95[0] * 100).toFixed(0)}–${(abnormData.stats.direction.up_wilson_95[1] * 100).toFixed(0)}% Wilson`
+                  : ""}
+              </p>
+            ) : null}
+            {abnormData.count === 0 ? (
+              <WidgetEmpty message="No names match this filter right now." />
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
+                <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem_3.25rem_4rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
+                  <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+                    #
+                  </span>
+                  {(["Sym", "Range", "Vol", "Base"] as const).map((h, idx) => (
+                    <span
+                      key={h}
+                      className={cn(
+                        "text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]",
+                        idx === 0 ? "text-left" : "text-right",
+                      )}
+                    >
+                      {h}
+                    </span>
+                  ))}
+                </div>
+                {abnormData.results.map((row, idx) => (
+                  <div
+                    key={row.symbol}
+                    className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem_3.25rem_4rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
+                  >
+                    <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
+                      {idx + 1}
+                    </span>
+                    <span className="truncate font-medium">
+                      <ClickableSymbol
+                        symbol={row.symbol}
+                        linked={linked}
+                        onActivate={() => publish(row.symbol)}
+                      />
+                    </span>
+                    <span
+                      className="text-right tabular-nums"
+                      style={{
+                        color: rvolColor(row.range_ratio ?? 0),
+                      }}
+                      title={
+                        row.range_pctile != null
+                          ? `${(row.range_ratio ?? 0).toFixed(2)}× range · top ${(100 - row.range_pctile).toFixed(1)}% of peers`
+                          : undefined
+                      }
+                    >
+                      {row.range_ratio != null ? `${row.range_ratio.toFixed(1)}×` : "—"}
+                    </span>
+                    <span className="text-right tabular-nums text-[var(--fg-dim)]">
+                      {row.vol_ratio != null ? `${row.vol_ratio.toFixed(1)}×` : "—"}
+                    </span>
+                    <span className="text-right text-[length:var(--fs-table)] text-[var(--fg-dim)]">
+                      {row.base_state && row.base_state !== "none"
+                        ? row.base_state.replace("base_", "")
+                        : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      ) : isRvol ? (
         error && !rvolData ? (
           <WidgetError message={error} />
         ) : !rvolData ? (

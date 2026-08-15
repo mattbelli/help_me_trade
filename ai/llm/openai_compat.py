@@ -140,6 +140,14 @@ class OpenAICompatibleLLM:
             return self._base_url
         return urljoin(f"{self._base_url}/", "chat/completions")
 
+    def _http_timeout(self) -> float:
+        # DeepSeek V4 thinking can run minutes on a book turn. 120s became the
+        # silent successor to the 8k token clamp (08-14: uncap the book, keep
+        # other OpenAI-compat providers on the original budget).
+        if self.provider == "deepseek":
+            return 600.0
+        return 120.0
+
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", **self._extra_headers}
         if self._api_key:
@@ -191,7 +199,7 @@ class OpenAICompatibleLLM:
             temperature=temperature,
             json_mode=json_mode,
         )
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self._http_timeout()) as client:
             resp = client.post(self._endpoint(), headers=self._headers(), json=payload)
             if resp.is_error:
                 detail = _http_error_detail(resp)
@@ -275,7 +283,7 @@ class OpenAICompatibleLLM:
         if temperature is not None:
             payload["temperature"] = temperature
 
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self._http_timeout()) as client:
             resp = client.post(self._endpoint(), headers=self._headers(), json=payload)
             if resp.is_error:
                 detail = _http_error_detail(resp)
@@ -370,7 +378,7 @@ class OpenAICompatibleLLM:
         frags: dict[int, dict[str, str]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self._http_timeout()) as client:
             with client.stream(
                 "POST", self._endpoint(), headers=self._headers(), json=payload
             ) as resp:
@@ -479,7 +487,7 @@ class OpenAICompatibleLLM:
         self, messages: list[LLMMessage], *, max_tokens: int = 1024
     ) -> Iterator[str]:
         payload = self._build_payload(messages, max_tokens=max_tokens, stream=True)
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=self._http_timeout()) as client:
             with client.stream(
                 "POST",
                 self._endpoint(),

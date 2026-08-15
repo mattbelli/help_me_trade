@@ -115,8 +115,38 @@ async def test_prewarm_broadcasts_hot_spec_across_the_watchlist(monkeypatch) -> 
 
     await api_main._bars_prewarm_once()
     warmed = {(s, tf) for s, tf, _d in provider.calls}
-    # 4Hour reaches EVERY watchlist symbol now, not just the one that viewed it
+    # 4Hour reaches every symbol here because the watchlist fits inside the
+    # _BARS_HOT_SPECS_SYMBOLS bound — the bound itself is pinned separately below.
     assert warmed == {("SPY", "4Hour"), ("QQQ", "4Hour"), ("NVDA", "4Hour")}
+
+
+@pytest.mark.asyncio
+async def test_prewarm_hot_spec_broadcast_bounded_to_recent_symbols(monkeypatch) -> None:
+    """The #308 fix: hot specs go to the top-N most-recently-viewed symbols only.
+    The full watchlist × specs cross-product saturated the 160-entry queue on every
+    cycle from 07-22 on, hammering 180-260 upstream calls/min all day and queueing
+    interactive chart loads behind it for 10-40s."""
+    import time as _time
+
+    provider = _SpecProvider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    watch = [f"W{i}" for i in range(6)]
+    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: list(watch))
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_SYMBOLS", 4)
+    # W5 is the symbol the user is actually on; the rest have no recorded recency.
+    monkeypatch.setattr(
+        api_main, "_BARS_SEEN_SPECS", {("W5", "4Hour", 365): _time.monotonic()}
+    )
+    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {"W5": _time.monotonic()})
+    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+
+    await api_main._bars_prewarm_once()
+    warmed = {s for s, tf, _d in provider.calls if tf == "4Hour"}
+    # Top-4 by recency: W5 (viewed), then stable watchlist order for the untied rest.
+    assert warmed == {"W5", "W0", "W1", "W2"}
 
 
 @pytest.mark.asyncio
@@ -367,3 +397,74 @@ async def test_futures_aggregated_timeframe_skips_incremental(monkeypatch) -> No
     _expire(eq_key)
     await api_main._get_bars_cached("SPY", "1Week", 1825)
     assert provider.calls[-1] == 30  # 1Week incremental window, not a full walk
+
+
+# --- serve-stale-while-revalidate (#308) -----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stale_hit_paints_now_and_refreshes_in_background(monkeypatch) -> None:
+    """An interactive request finding a recently-expired entry returns it
+    IMMEDIATELY (no queueing behind a slow upstream) while the refresh task lands
+    fresh data in cache — the #308 fix for 10-40s chart loads."""
+    import time as _time
+
+    gate = asyncio.Event()
+
+    class _Gated:
+        calls = 0
+
+        async def aget_stock_bars(self, sym, *, timeframe, days, extended_hours=None):
+            type(self).calls += 1
+            await gate.wait()
+            return [_Bar(close=200.0)]
+
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: _Gated())
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    ext = api_main._bars_extended_default("1Hour")
+    key = ("SPY", "1Hour", 180, ext)
+    stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
+    _warm(key, stale, ttl=-30.0)  # expired 30s ago — inside the serve-stale window
+
+    out = await api_main._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
+    assert out is stale  # painted instantly; never waited on the gated fetch
+    task = api_main._BARS_INFLIGHT[key]  # ...but the background refresh IS scheduled
+    await asyncio.sleep(0)  # let the task start and reach the gated provider call
+    assert _Gated.calls == 1
+    gate.set()
+    fresh = await task
+    assert fresh is not None and fresh["bars"][0]["close"] == 200.0
+    exp, cached_now = api_main._BARS_CACHE[key]
+    assert cached_now is fresh and exp > _time.monotonic()  # next poll gets fresh
+
+
+@pytest.mark.asyncio
+async def test_stale_beyond_window_blocks_for_fresh(monkeypatch) -> None:
+    """Staleness is bounded: an entry expired for longer than the serve-stale window
+    must NOT silently paint an old session — the request waits for real data."""
+    provider = _Provider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    ext = api_main._bars_extended_default("1Hour")
+    key = ("SPY", "1Hour", 180, ext)
+    stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
+    _warm(key, stale, ttl=-(api_main._BARS_SERVE_STALE_MAX + 60.0))
+
+    out = await api_main._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
+    assert out is not stale and provider.calls == ["SPY"]  # blocked and fetched
+
+
+@pytest.mark.asyncio
+async def test_prewarm_path_never_serves_stale(monkeypatch) -> None:
+    """The prewarm loop keeps blocking semantics (stale_ok defaults False): it must
+    await each fetch so its pacing bounds upstream concurrency."""
+    provider = _Provider()
+    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    ext = api_main._bars_extended_default("1Hour")
+    key = ("SPY", "1Hour", 180, ext)
+    stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
+    _warm(key, stale, ttl=-30.0)  # would qualify for serve-stale interactively
+
+    out = await api_main._get_bars_cached("SPY", "1Hour", 180)
+    assert out is not stale and provider.calls == ["SPY"]  # awaited the refresh

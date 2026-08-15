@@ -15,15 +15,14 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-13 Abnormality scanner (#296) — brief written, awaiting founder OK
+## ▶ 08-13 Abnormality scanner (#296) — live for Monday books; draft thresholds
 
-`References/ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` (BUILD_LOG 08-13 row has the decisions).
-- ▶ **Founder reviews the brief** → then Inc 1 (data: 5-min store gap backfill 07-28→today +
-  `--universe` flag; new market-wide daily store). Thresholds get replay-tuned (Inc 2) before
-  anything runs live; surfaces-only launch, no notifications.
-- Side finding parked here deliberately: the **idea ledger** is mechanically alive but drowned
-  (~8.4k of 17,481 rows are fusion_mech) and the founder called it "probably dead as it stands" —
-  a revival/triage is its own future thread, not part of #296.
+Inc 1–5 on main. Detector rides `hmt-equity-collector`; pack line + `query abnormality`.
+Draft fire-rule (p99/p95, floors 2.0/3.0, top-N 10) until founder eyeball of replay tables.
+- ▶ **Replay eyeball** (Inc 2/3): draft p99/p95 floors 2/3 top-N 10 ran **184 fires/day** on 08-13+08-14. `python tools/abnormality_replay.py`. Lock or keep draft.
+- Inc 6 (paired notifications, 1m firing, convergence membership, fusion scoring) stays founder-gated
+
+Idea-ledger revival is its own future thread, not part of #296.
 
 ## ▶ 08-11 Fusion rebuild — Section 1 Round A shipped, Round B open
 
@@ -71,18 +70,24 @@ Round A widened the macro substrate and wired it to both agent surfaces (BUILD_L
 - ▶ Sections 2–6 unstarted; Section 2 (equity price+volume) owns cronning `equity_bars_5min`
   (frozen 07-27, NOT decaying — Alpaca serves it retroactively, verified 08-11).
 
-## ▶ 08-11 Alpaca OPRA sidecar degraded upstream — watch for recovery
+## ▶ 08-13 #308 chart-hang round — follow-ups (fix shipped, see BUILD_LOG 08-13)
 
-Since Fri 08-07 ~10:00 ET the v1beta1/opra trades WS lags 8-12s (p50, RTH) and silently drops
-~30% of prints under load (measured vs the Databento spine; BUILD_LOG 08-11 row has the numbers,
-scratch analysis method: pairing-shadow `wire_lag_ms`/`dbn=`/`alp=` counters). Founder posted the
-stats to the Alpaca forum. Spine unaffected; live impact = pairing enrichment (matched 98%→~57%)
-and the GTH/overnight tape (Alpaca-only, no fallback).
-- ⏳ **check by 08-14**: has alp/dbn recovered to ~99%+ and matched% to ~98? (one journal grep of
-  `pairing shadow`). If recovered, delete this entry; if not, consider a degraded-lane flag on
-  GTH-fed consumers.
-- ⏳ unexplained: flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then stabilized — if
-  that wasn't founder/deploy activity, worth one journal look before deleting this line.
+The Alpaca OPRA sidecar degradation (08-07→08-12, tracked here since 08-11) RECOVERED 08-13:
+pairing matched 99.1%, wire lag a-lane p50 11-15ms all session — entry closed per its own
+checkpoint. The #308 chart-hang verdict landed on OUR side (prewarm self-saturation since
+PR #102); serve-stale + hot-spec scope cut shipped + deployed 08-13 ~19:24 UTC.
+- ⏳ **founder in-browser feel-check**: timeframe switching should paint instantly (stale ok)
+  and never sit 10-40s; first view of a never-cached combo still cold-loads once.
+- ⏳ **WS keepalive blame probe**: the chronic stocks-stream ping timeouts (61-124/weekday
+  since ≥07-28, market-hours clustered) are ambiguous — our loop starvation vs Alpaca edge.
+  With prewarm calmed, watch the daily count; if it collapses, it was us (case closed, no
+  probe needed). If not, run a standalone minimal WS client beside the backend for a day
+  BEFORE any Alpaca ticket.
+- ⏳ **reboot-persistent bars cache** (uncarded): the 08-13 power-off cold-started every
+  cache into a vendor slow patch — worst-case UX. A periodic disk snapshot of _BARS_CACHE
+  would make reboots paint instantly. Small, wants its own round.
+- ⏳ unexplained (carried): flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then
+  stabilized — if that wasn't founder/deploy activity, worth one journal look.
 
 ## ▶ 08-10 board restore — 1 revived thread still needs action, 2 founder calls back in queue
 
@@ -510,6 +515,10 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 
 ## ▶ LLM paper books — ARMED + LIVE; increments open
 
+- ✅ **2026-08-14 Keeper 2 shipped** — closed `mechanism` enum on every book candidate
+  (advanced + considered). `idea_tracker` unchanged (sealed price grader). Pack section
+  `Your mechanism ledger` is a derived n-gated Wilson scoreboard (`MIN_SAMPLES=10`, never a
+  0.7). Failure modes stored, not scored. **Do not fuse** into the Decision Engine (valve + n).
 - ⏸ **2026-07-30 Matt + LLM PAUSED** — account verified empty (0 positions). Founder wants this as a
   CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
   `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).

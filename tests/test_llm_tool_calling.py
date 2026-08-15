@@ -196,6 +196,23 @@ def test_complete_tools_http_error_raises_status_error(monkeypatch):
         llm.complete_tools([LLMMessage("user", "?")], [WEATHER_TOOL])
 
 
+def test_deepseek_http_timeout_outlives_a_long_think() -> None:
+    ds = OpenAICompatibleLLM(
+        provider="deepseek",
+        api_key="sk-test",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-flash",
+    )
+    oai = OpenAICompatibleLLM(
+        provider="openai",
+        api_key="sk-test",
+        base_url="https://api.openai.com/v1",
+        model="gpt-4o",
+    )
+    assert ds._http_timeout() == 600.0
+    assert oai._http_timeout() == 120.0
+
+
 # --- loop driver ------------------------------------------------------------
 
 

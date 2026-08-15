@@ -75,6 +75,7 @@ async def main() -> int:
         asyncio.create_task(runner.flush_loop(), name="equity-flush"),
         asyncio.create_task(runner.spot_flush_loop(), name="equity-spots"),
         asyncio.create_task(runner.stats_loop(), name="equity-stats"),
+        asyncio.create_task(runner.abnormality_loop(), name="equity-abnormality"),
     ]
     stopper = asyncio.create_task(stop.wait(), name="equity-stop")
 

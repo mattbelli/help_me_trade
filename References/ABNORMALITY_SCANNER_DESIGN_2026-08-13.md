@@ -1,6 +1,6 @@
 # Vol/Volume Abnormality Scanner — Design Brief
 
-*2026-08-13 · card #296 (`vol-abnormality-scanner`) · status: founder review, then build.
+*2026-08-13 · card #296 (`vol-abnormality-scanner`) · status: Inc 1–5 live on main (draft thresholds); Inc 6 founder-gated.
 Founder direction 07-30 (replaces the parked flow-perception surface); four design decisions
 locked with the founder 08-13 (§1). Machinery provenance: 1.14f/g studies
 (`References/FLOW_ROADMAP.md`, `tools/mover_intraday_114g.py`).*

@@ -570,6 +570,53 @@ def latest_financials(
     }
 
 
+def statement_headline(
+    symbol: str,
+    *,
+    cache_db: Path = DEFAULT_FUNDAMENTALS_DB_PATH,
+    facts_db: Path = DEFAULT_FACTS_DB_PATH,
+) -> dict | None:
+    """One-line EDGAR snapshot for get_context — not the 18k-char statement dump.
+
+    AAPL's full `latest_financials` payload is ~18k chars and would blow the
+    20k agent-result cap if stuffed into every symbol context. This is revenue +
+    diluted EPS from the newest quarter, the filing date, and when we last
+    checked SEC. None when the ticker is unmapped or has no canonical metrics.
+    """
+    row = latest_financials(symbol, periods=1, cache_db=cache_db, facts_db=facts_db)
+    if not row or not row.get("metrics"):
+        return None
+    from research.edgar_bulk import edgar_ingest_watermark
+
+    def _latest(metric: str) -> dict | None:
+        entry = row["metrics"].get(metric) or {}
+        for bucket in ("quarterly", "annual"):
+            series = entry.get(bucket) or []
+            if series:
+                return {**series[0], "bucket": bucket}
+        return None
+
+    revenue = _latest("revenue")
+    eps = _latest("eps_diluted")
+    wm = edgar_ingest_watermark(int(row["cik"]), db_path=facts_db)
+    out: dict = {
+        "cik": row["cik"],
+        "sector": row.get("sector"),
+        "source": "SEC EDGAR XBRL companyfacts",
+    }
+    if revenue:
+        out["revenue"] = revenue["val"]
+        out["revenue_period_end"] = revenue["period_end"]
+        out["revenue_fp"] = revenue.get("fp")
+        out["filed"] = revenue.get("filed")
+        out["form"] = revenue.get("form")
+    if eps:
+        out["eps_diluted"] = eps["val"]
+    if wm and wm.get("checked_at"):
+        out["sec_checked_at"] = wm["checked_at"][:10]
+    return out
+
+
 # A concept the filer abandoned still has a newest row, and served without this
 # it reads as current: JPM stopped tagging quarterly `Revenues` in 2014 (banks
 # report NoninterestIncome + InterestIncomeExpenseNet instead), so "JPM latest

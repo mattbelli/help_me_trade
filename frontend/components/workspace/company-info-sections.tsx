@@ -391,6 +391,13 @@ export function FactsSection({ facts }: { facts: TickerFacts }) {
       value: facts.rvol?.value != null ? `${facts.rvol.value.toFixed(1)}×` : DASH,
     },
     {
+      label: "Abnorm",
+      value:
+        facts.abnormality?.range_ratio != null
+          ? `${facts.abnormality.range_ratio.toFixed(1)}×`
+          : DASH,
+    },
+    {
       label: "vs 200-DMA",
       value: fmtPct(t.vs_sma200_pct),
       color:

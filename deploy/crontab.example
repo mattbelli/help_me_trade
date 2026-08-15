@@ -16,3 +16,9 @@
 # weekday range only avoids pointless wakeups. Drifts an hour in EST like the other
 # ET-afternoon entries. Re-running a session replaces its rows rather than duplicating.
 50 20 * * 1-5 cd /home/mbelli/dev/help_me_trade && [ -f tools/options_chain_sampler.py ] && /home/mbelli/dev/help_me_trade/.venv/bin/python tools/options_chain_sampler.py >> /home/mbelli/dev/help_me_trade/data/research/options_sampler.log 2>&1
+
+# Abnormality scanner nightly: 5-min + daily bar stores, baselines, outcome grades.
+# 21:30 UTC = 17:30 EDT (after the cash close AND after the 17:05/17:20 book packs —
+# those packs read live fires from the collector, not this job). Script is calendar-gated
+# via --since-last. Dead-man on failure.
+30 21 * * 1-5 NTFY_TOPIC=hmt-deadman-0033ce1c5edb753f9932 /home/mbelli/dev/help_me_trade/tools/abnormality_nightly.sh >> /home/mbelli/dev/help_me_trade/data/abnormality_nightly.log 2>&1

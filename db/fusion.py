@@ -473,6 +473,8 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             ("dark_pool", "equity_actor", "event", "directional_aggregate", 1),
             ("equity_sweep", "equity_actor", "event", "excluded", 0),
             ("rvol_ex_prints", "background_crowd", "state", "annotate_only", 1),
+            ("abnormality_state", "background_crowd", "state", "annotate_only", 1),
+            ("abnormality_paired", "background_crowd", "event", "annotate_only", 1),
             ("session_level", "structure", "state", "latest_best", 1),
             ("price_alert", "structure", "state", "latest_best", 1),
             ("reddit_buzz", "attention", "state", "latest_best", 1),

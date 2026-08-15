@@ -1665,17 +1665,33 @@ async def _reports_scheduler_loop() -> None:
 # founder eyeballs — no scoring, no alerts, no outcome machinery.
 # ---------------------------------------------------------------------------
 async def _filings_edgar_once() -> None:
-    from db.filings import has_uid, insert_events
+    from db.filings import has_uid, insert_events, remember_uid
     from signals.filings.edgar import poll_13d_once, poll_form4_once
 
-    def _pass() -> int:
-        events = poll_form4_once(seen=has_uid, min_usd=FILINGS_INSIDER_MIN_USD)
-        events += poll_13d_once(seen=has_uid)
-        return insert_events(events)
+    def _arm(poller, label: str) -> tuple[list, bool]:
+        try:
+            return poller(), True
+        except Exception:
+            logger.exception("Filings EDGAR %s poll failed", label)
+            return [], False
 
-    inserted = await asyncio.to_thread(_pass)
-    if inserted:
-        logger.info("Filings feed: %d new EDGAR event(s)", inserted)
+    def _pass() -> None:
+        form4, form4_ok = _arm(
+            lambda: poll_form4_once(
+                seen=has_uid,
+                remember=remember_uid,
+                min_usd=FILINGS_INSIDER_MIN_USD,
+            ),
+            "Form 4",
+        )
+        d13, d13_ok = _arm(lambda: poll_13d_once(seen=has_uid), "13D")
+        inserted = insert_events(form4 + d13)
+        if inserted:
+            logger.info("Filings feed: %d new EDGAR event(s)", inserted)
+        if not form4_ok and not d13_ok:
+            raise RuntimeError("both Form 4 and 13D pollers failed")
+
+    await asyncio.to_thread(_pass)
 
 
 async def _filings_congress_once() -> None:
@@ -3152,6 +3168,15 @@ async def api_watchlist_market(symbols: str = ""):
         except Exception:
             logger.debug("apply_extended failed for %s", sym, exc_info=True)
 
+    try:
+        from db.abnormality import get_state_many
+
+        states = get_state_many(list(quotes))
+        for sym, q in quotes.items():
+            q["abnorm"] = _abnorm_field(states.get(sym))
+    except Exception:
+        logger.debug("abnormality watchlist attach failed", exc_info=True)
+
     return {"quotes": quotes, "spy_change_pct": spy_change_pct}
 
 
@@ -3583,6 +3608,55 @@ async def api_scanner_rvol(min_rvol: float = 1.5, limit: int = 50):
         "session": session,
         "count": len(results),
         "results": results,
+    }
+
+
+def _abnorm_field(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    status = str(row.get("status") or "")
+    return {
+        "range_ratio": row.get("range_ratio"),
+        "vol_ratio": row.get("vol_ratio"),
+        "rvol_session": row.get("rvol_session"),
+        "range_pctile": row.get("range_pctile"),
+        "vol_pctile": row.get("vol_pctile"),
+        "composite": row.get("composite"),
+        "base_state": row.get("base_state"),
+        "status": status,
+        "stale": status != "live",
+        "label": row.get("label"),
+        "caveat": row.get("caveat"),
+    }
+
+
+@app.get("/api/scanner/abnormality")
+async def api_scanner_abnormality(
+    fired: bool = False,
+    paired: bool = False,
+    base_low: bool = False,
+    base_high: bool = False,
+    limit: int = 50,
+):
+    """Live abnormality state ranked by composite. Surfaces-only — not alerts."""
+    from db.abnormality import events_today, list_state, recent_outcomes
+    from signals.abnormality.constants import CAVEAT, LABEL
+    from signals.abnormality.outcomes import aggregate
+
+    if limit < 1 or limit > 200:
+        return JSONResponse({"error": "limit must be 1–200"}, status_code=400)
+    rows = list_state(
+        fired=fired, paired=paired, base_low=base_low, base_high=base_high, limit=limit
+    )
+    as_of = datetime.now(_ET).isoformat(timespec="seconds")
+    return {
+        "as_of": as_of,
+        "count": len(rows),
+        "results": rows,
+        "fires_today": len(events_today()),
+        "stats": aggregate(recent_outcomes(500)),
+        "label": LABEL,
+        "caveat": CAVEAT,
     }
 
 
@@ -4270,6 +4344,14 @@ _BARS_CACHE_TTL = {
     "1Week": 300.0,
     "1Month": 300.0,
 }
+# Serve-stale-while-revalidate window for INTERACTIVE requests: an expired entry no
+# older than this past its TTL is returned immediately while the refresh task runs in
+# the background and lands in cache for the frontend's next poll (the chart walks
+# forward on live WS ticks meanwhile). Bounded so a series untouched for hours still
+# blocks for fresh data instead of silently painting a stale session. The prewarm
+# loop never serves stale — it must await fetches to pace itself (#308: the 10-40s
+# chart loads were interactive requests queued behind a saturated refresh path).
+_BARS_SERVE_STALE_MAX = 600.0
 
 # Incremental refresh: when a warm cached series is refreshed (by the prewarm loop
 # or an expired interactive miss), re-fetch only this small trailing window and merge
@@ -4341,13 +4423,18 @@ _BARS_PREWARM_PACE = 0.25  # sleep between actual fetches (s)
 _BARS_PREWARM_DEFAULT_SPECS: set[tuple[str, int]] = {
     ("1Day", 1825)
 }  # the default chart view, warm from boot
-# Broadcast the K most-recently-used distinct specs across the whole watchlist (the
-# timeframes the user is actively working in) so switching symbols — or switching to a
-# timeframe on a symbol not yet viewed there — is served warm, not cold. Kept small and
-# entry-capped because it multiplies the watchlist by (1 + K); safe now ONLY because
-# incremental refresh (fix #1) makes each warm refresh a tiny trailing-window fetch
-# rather than a full range walk (the cross-product the 07-22 storm forbade).
+# Broadcast the K most-recently-used distinct specs (the timeframes the user is
+# actively working in) so switching symbols — or switching to a timeframe on a symbol
+# not yet viewed there — is served warm, not cold.
 _BARS_HOT_SPECS_MAX = 2
+# ...but only to the N most-recently-viewed symbols, NOT the whole watchlist. The full
+# cross-product (40 symbols × K specs + defaults) exceeded the 160-entry cap on EVERY
+# cycle from PR #102 (07-22) onward — a permanently saturated queue hammering 180-260
+# upstream calls/min all day, behind which interactive chart loads queued for 10-40s
+# (#308, the real "chart won't load" mechanism; measured 270% backend CPU). A symbol
+# outside the top-N cold-loads its first view of a hot timeframe (sub-second to a few
+# seconds) and is warm from then on; serve-stale covers every repeat view.
+_BARS_HOT_SPECS_SYMBOLS = 12
 # Hard backstop on (symbol, spec) entries warmed per cycle — bounds the cross-product
 # for large/dynamic watchlists (future users: 200-300 names). Trimmed from the tail with
 # default-1Day pushed first, so the baseline view is never sacrificed to a hot-spec
@@ -4376,14 +4463,19 @@ async def api_bars(
     _BARS_SEEN_SYMBOLS[sym] = now
     _BARS_SEEN_SPECS[(sym, timeframe, int(days))] = now
 
-    response = await _get_bars_cached(sym, timeframe, int(days), ext)
+    response = await _get_bars_cached(sym, timeframe, int(days), ext, stale_ok=True)
     if response is None:
         return JSONResponse({"error": "failed to load bars"}, status_code=502)
     return response
 
 
 async def _get_bars_cached(
-    sym: str, timeframe: str, days: int, extended: bool | None = None
+    sym: str,
+    timeframe: str,
+    days: int,
+    extended: bool | None = None,
+    *,
+    stale_ok: bool = False,
 ) -> dict | None:
     """Cache-read → coalesced fetch → cache-write for chart bars.
 
@@ -4411,6 +4503,16 @@ async def _get_bars_cached(
         task = asyncio.create_task(_fetch_bars(sym, timeframe, int(days), ext, cache_key))
         _BARS_INFLIGHT[cache_key] = task
         task.add_done_callback(lambda _t, k=cache_key: _BARS_INFLIGHT.pop(k, None))
+    # Serve-stale-while-revalidate: a recently-expired payload paints the chart NOW;
+    # the fetch task just created (or already running) lands fresh data for the next
+    # poll. Only interactive callers opt in — the prewarm loop awaits so its pacing
+    # holds and fetch concurrency stays bounded.
+    if (
+        stale_ok
+        and cached is not None
+        and cached[0] > time.monotonic() - _BARS_SERVE_STALE_MAX
+    ):
+        return cached[1]
     return await task
 
 
@@ -4604,9 +4706,10 @@ async def _bars_prewarm_once() -> None:
 
     # Warm queue, priority order: (1) the default 1Day view for every symbol — the
     # baseline everyone needs and the cheapest; (2) the hot specs broadcast across the
-    # watchlist (the fix-#2 cross-product, affordable now via incremental refresh);
-    # (3) any other exact combo actually viewed on an allowed symbol (one-off long-range
-    # views). The entry cap trims from the tail, so 1Day coverage is never dropped.
+    # top-N most-recently-viewed symbols (the full-watchlist cross-product saturated
+    # the queue permanently — see _BARS_HOT_SPECS_SYMBOLS); (3) any other exact combo
+    # actually viewed on an allowed symbol (one-off long-range views). The entry cap
+    # trims from the tail, so 1Day coverage is never dropped.
     queue: list[tuple[str, str, int]] = []
     seen_q: set[tuple[str, str, int]] = set()
 
@@ -4620,7 +4723,7 @@ async def _bars_prewarm_once() -> None:
         for sym in symbols:
             _push(sym, timeframe, days)
     for timeframe, days in hot_specs:
-        for sym in symbols_by_recency:
+        for sym in symbols_by_recency[:_BARS_HOT_SPECS_SYMBOLS]:
             _push(sym, timeframe, days)
     for (sym, timeframe, days), ts in _BARS_SEEN_SPECS.items():
         if now - ts < _BARS_SEEN_TTL and sym in allowed:
