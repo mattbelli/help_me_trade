@@ -67,31 +67,33 @@ def _seed_paper_position(
     *,
     symbol: str = "AAPL",
     mark: float | None = 105.5,
+    link_fill: bool = True,
 ) -> None:
     init_strategy_tables(db_path)
     seed_default_strategies(db_path=db_path)
-    create_execution_record(
-        execution_id=f"exec_{symbol}",
-        proposal_id=None,
-        session_id=None,
-        symbol=symbol,
-        side="buy",
-        qty=Decimal("7"),
-        order_type="market",
-        limit_price=None,
-        execution_mode="paper",
-        status="filled",
-        broker="alpaca",
-        account_id="acct_paper",
-        db_path=db_path,
-    )
-    update_execution_status(
-        f"exec_{symbol}",
-        "filled",
-        avg_fill_price="100.00",
-        filled_qty="7",
-        db_path=db_path,
-    )
+    if link_fill:
+        create_execution_record(
+            execution_id=f"exec_{symbol}",
+            proposal_id=None,
+            session_id=None,
+            symbol=symbol,
+            side="buy",
+            qty=Decimal("7"),
+            order_type="market",
+            limit_price=None,
+            execution_mode="paper",
+            status="filled",
+            broker="alpaca",
+            account_id="acct_paper",
+            db_path=db_path,
+        )
+        update_execution_status(
+            f"exec_{symbol}",
+            "filled",
+            avg_fill_price="100.00",
+            filled_qty="7",
+            db_path=db_path,
+        )
     position_id = record_open_position(
         account_id="acct_paper",
         symbol=symbol,
@@ -99,7 +101,7 @@ def _seed_paper_position(
         qty="7",
         exit_mode="propose",
         params={"exit_lead_td": 1, "max_holding_days": 15},
-        entry_execution_id=f"exec_{symbol}",
+        entry_execution_id=f"exec_{symbol}" if link_fill else None,
         db_path=db_path,
     )
     with connect(db_path) as conn:
@@ -248,6 +250,7 @@ def test_paper_book_shape_and_unrealized_math(
         "qty": "7",
         "entry_date": "2026-07-15T14:00:00+00:00",
         "entry_price": "100.00",
+        "entry_source": "fill",
         "mark": 105.5,
         "unrealized_pct": pytest.approx(5.5),
         # Computed from the fixed 2026-07-15 entry against the REAL today — a
@@ -255,6 +258,21 @@ def test_paper_book_shape_and_unrealized_math(
         # red in CI from 07-19 on for exactly that reason).
         "days_held": (datetime.now(timezone.utc).date() - date(2026, 7, 15)).days,
     }
+
+
+def test_paper_book_unlinked_fill_falls_back_to_broker_avg(
+    strategy_lab_client: TestClient,
+    tmp_path: Path,
+) -> None:
+    _seed_paper_position(tmp_path / "strategy_lab.db", link_fill=False)
+
+    response = strategy_lab_client.get("/api/strategy-lab/paper")
+
+    assert response.status_code == 200
+    position = response.json()["books"][0]["positions"][0]
+    assert position["entry_price"] == 100
+    assert position["entry_source"] == "broker_avg"
+    assert position["unrealized_pct"] == pytest.approx(5.5)
 
 
 def test_paper_book_missing_mark_is_fail_soft(

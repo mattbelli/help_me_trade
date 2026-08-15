@@ -2218,6 +2218,7 @@ export type StrategyLabPaperPosition = {
   qty: string | null;
   entry_date: string;
   entry_price: string | null;
+  entry_source: "fill" | "broker_avg" | null;
   mark: number | null;
   unrealized_pct: number | null;
   days_held: number | null;

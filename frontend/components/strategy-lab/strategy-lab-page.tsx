@@ -16,6 +16,7 @@ import {
   type StrategyLabCohortCatalog,
   type StrategyLabPaperBook,
   type StrategyLabPaperCatalog,
+  type StrategyLabPaperPosition,
   type StrategyLabPoint,
   type StrategyLabSleeve,
 } from "@/lib/api";
@@ -64,6 +65,34 @@ function filterRange(points: StrategyLabPoint[], range: RangeMode): StrategyLabP
   const years = range === "10y" ? 10 : 5;
   const cutoff = last - years * 365.25 * 86_400_000;
   return points.filter(([date]) => dateMs(date) >= cutoff);
+}
+
+function axisTicks(minValue: number, maxValue: number, logScale: boolean): number[] {
+  if (!(maxValue > minValue)) return [minValue];
+  if (logScale) {
+    const ticks: number[] = [];
+    const low = Math.floor(Math.log10(Math.max(minValue, 1)));
+    const high = Math.ceil(Math.log10(maxValue));
+    for (let exp = low; exp <= high; exp += 1) {
+      for (const mantissa of [1, 2, 5]) {
+        const value = mantissa * 10 ** exp;
+        if (value >= minValue && value <= maxValue) ticks.push(value);
+      }
+    }
+    let thinned = ticks;
+    while (thinned.length > 7) thinned = thinned.filter((_, index) => index % 2 === 0);
+    if (thinned.length >= 2) return thinned;
+  }
+  const span = maxValue - minValue;
+  const rawStep = span / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const step =
+    [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((s) => span / s <= 5.5) ?? 10 * magnitude;
+  const ticks: number[] = [];
+  for (let value = Math.ceil(minValue / step) * step; value <= maxValue + step / 1e6; value += step) {
+    ticks.push(value);
+  }
+  return ticks.length >= 2 ? ticks : [minValue, maxValue];
 }
 
 function sampleLabel(item: LabSeries): string {
@@ -457,19 +486,30 @@ export function BacktestEquityChart({
         }}
         onPointerLeave={() => setHoverTime(null)}
       >
-        {[0, 1, 2, 3, 4].map((tick) => {
-          const yy = 24 + tick * 99.5;
-          const transformed = maxY - (tick / 4) * (maxY - minY);
-          const value = logScale ? Math.exp(transformed) : transformed;
-          return (
-            <g key={tick}>
-              <line x1="74" x2="1176" y1={yy} y2={yy} stroke="currentColor" opacity=".12" />
-              <text x="64" y={yy + 5} textAnchor="end" className="fill-muted-foreground text-[14px]">
-                {money(value)}
-              </text>
-            </g>
-          );
-        })}
+        {axisTicks(
+          logScale ? Math.exp(minY) : minY,
+          logScale ? Math.exp(maxY) : maxY,
+          logScale,
+        ).map((value) => (
+          <g key={value}>
+            <line
+              x1="74"
+              x2="1176"
+              y1={y(value)}
+              y2={y(value)}
+              stroke="currentColor"
+              opacity=".1"
+            />
+            <text
+              x="64"
+              y={y(value) + 5}
+              textAnchor="end"
+              className="fill-muted-foreground text-[13px] tabular-nums"
+            >
+              {money(value)}
+            </text>
+          </g>
+        ))}
         {plotted.map((item) => {
           const path = item.points
             .map(([date, value], index) => `${index === 0 ? "M" : "L"}${x(date).toFixed(2)},${y(value).toFixed(2)}`)
@@ -509,17 +549,29 @@ export function BacktestEquityChart({
             opacity=".35"
           />
         )}
-        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
-          <text
-            key={ratio}
-            x={74 + ratio * 1102}
-            y="456"
-            textAnchor={ratio === 0 ? "start" : ratio === 1 ? "end" : "middle"}
-            className="fill-muted-foreground text-[13px]"
-          >
-            {new Date(minX + ratio * (maxX - minX)).toISOString().slice(0, 7)}
-          </text>
-        ))}
+        {(() => {
+          const firstYear = new Date(minX).getUTCFullYear() + 1;
+          const lastYear = new Date(maxX).getUTCFullYear();
+          const step = Math.max(1, Math.ceil((lastYear - firstYear + 1) / 8));
+          const years: number[] = [];
+          for (let year = firstYear; year <= lastYear; year += step) years.push(year);
+          return years.map((year) => {
+            const xx = 74 + ((Date.UTC(year, 0, 1) - minX) / Math.max(maxX - minX, 1)) * 1102;
+            return (
+              <g key={year}>
+                <line x1={xx} x2={xx} y1="24" y2="422" stroke="currentColor" opacity=".06" />
+                <text
+                  x={xx}
+                  y="456"
+                  textAnchor="middle"
+                  className="fill-muted-foreground text-[13px] tabular-nums"
+                >
+                  {year}
+                </text>
+              </g>
+            );
+          });
+        })()}
       </svg>
       {hovered.length > 0 && (
         <div className="flex min-h-8 flex-wrap gap-x-5 gap-y-1 border-t border-border/50 pt-2 font-mono text-[11px]">
@@ -733,13 +785,15 @@ export function BacktestMetricsStrip({ series }: { series: LabSeries[] }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-[9px] uppercase leading-tight tracking-[0.1em] text-[var(--fg-faint)]">
         {label}
       </dt>
-      <dd className="mt-1.5 text-[18px] leading-none tabular-nums text-foreground">{value}</dd>
+      <dd className={cn("mt-1.5 text-[18px] leading-none tabular-nums", tone ?? "text-foreground")}>
+        {value}
+      </dd>
     </div>
   );
 }
@@ -754,83 +808,178 @@ function paperPct(value: number | null): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+function paperQty(value: string | null): string {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+function paperUsd(value: number | null, signed = false): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const abs = Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  return signed ? `${value < 0 ? "−" : "+"}$${abs}` : `$${abs}`;
+}
+
+function paperTone(value: number | null): string | undefined {
+  if (value == null) return undefined;
+  return value >= 0 ? "text-[var(--c-green)]" : "text-[var(--c-red)]";
+}
+
+type EnrichedPaperPosition = StrategyLabPaperPosition & {
+  value: number | null;
+  unrealizedUsd: number | null;
+};
+
+function enrichPaperPosition(position: StrategyLabPaperPosition): EnrichedPaperPosition {
+  const qty = position.qty != null ? Number(position.qty) : Number.NaN;
+  const entry = position.entry_price != null ? Number(position.entry_price) : Number.NaN;
+  const value =
+    Number.isFinite(qty) && position.mark != null ? qty * position.mark : null;
+  const unrealizedUsd =
+    Number.isFinite(qty) && position.mark != null && Number.isFinite(entry)
+      ? qty * (position.mark - entry)
+      : null;
+  return { ...position, value, unrealizedUsd };
+}
+
+function PaperPositionsTable({
+  bookId,
+  positions,
+}: {
+  bookId: string;
+  positions: EnrichedPaperPosition[];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] border-collapse font-mono text-[11px] tabular-nums">
+        <thead className="text-[9px] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
+          <tr className="h-5 border-b border-border/50">
+            <th className="px-2 text-left font-normal">symbol</th>
+            <th className="px-2 text-right font-normal">qty</th>
+            <th className="px-2 text-right font-normal">entered</th>
+            <th className="px-2 text-right font-normal">entry</th>
+            <th className="px-2 text-right font-normal">mark</th>
+            <th className="px-2 text-right font-normal">value</th>
+            <th className="px-2 text-right font-normal">unrl $</th>
+            <th className="px-2 text-right font-normal">unrl %</th>
+            <th className="px-2 text-right font-normal">days</th>
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map((position) => (
+            <tr
+              key={`${bookId}:${position.symbol}`}
+              className="h-5 border-b border-border/35 leading-[20px] last:border-b-0"
+            >
+              <td className="px-2 text-left text-foreground">{position.symbol}</td>
+              <td className="px-2 text-right text-[var(--fg-dim)]">{paperQty(position.qty)}</td>
+              <td className="px-2 text-right text-[var(--fg-dim)]">
+                {position.entry_date.slice(0, 10)}
+              </td>
+              <td className="px-2 text-right">{paperPrice(position.entry_price)}</td>
+              <td className="px-2 text-right">{paperPrice(position.mark)}</td>
+              <td className="px-2 text-right">{paperUsd(position.value)}</td>
+              <td className={cn("px-2 text-right", paperTone(position.unrealizedUsd))}>
+                {paperUsd(position.unrealizedUsd, true)}
+              </td>
+              <td className={cn("px-2 text-right", paperTone(position.unrealized_pct))}>
+                {paperPct(position.unrealized_pct)}
+              </td>
+              <td className="px-2 text-right text-[var(--fg-dim)]">
+                {position.days_held ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function PaperBookBlock({ book }: { book: StrategyLabPaperBook }) {
-  const marked = book.positions.filter((position) => position.unrealized_pct != null);
-  const winner = marked.reduce(
-    (best, position) =>
-      best == null || position.unrealized_pct! > best.unrealized_pct! ? position : best,
-    marked[0],
+  const positions = book.positions.map(enrichPaperPosition);
+  const marked = positions.filter((position) => position.unrealizedUsd != null);
+  const totalValue = positions.reduce((sum, position) => sum + (position.value ?? 0), 0);
+  const totalUnrealized = marked.reduce(
+    (sum, position) => sum + (position.unrealizedUsd ?? 0),
+    0,
   );
-  const loser = marked.reduce(
-    (worst, position) =>
-      worst == null || position.unrealized_pct! < worst.unrealized_pct! ? position : worst,
-    marked[0],
+  const totalCost = marked.reduce(
+    (sum, position) => sum + (position.value ?? 0) - (position.unrealizedUsd ?? 0),
+    0,
   );
-  const age = Math.max(...book.positions.map((position) => position.days_held ?? 0), 0);
+  const totalPct = marked.length > 0 && totalCost > 0 ? (totalUnrealized / totalCost) * 100 : null;
+  const age = Math.max(...positions.map((position) => position.days_held ?? 0), 0);
+
+  const collapsed = positions.length > 12;
+  const movers = [...marked].sort(
+    (a, b) => Math.abs(b.unrealizedUsd ?? 0) - Math.abs(a.unrealizedUsd ?? 0),
+  );
+  const preview = collapsed
+    ? movers.length > 0
+      ? movers.slice(0, 8)
+      : [...positions].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, 8)
+    : positions;
 
   return (
     <div className="border-y border-border/60">
       <div className="flex min-h-9 flex-wrap items-baseline gap-x-2 border-b border-border/60 py-2">
         <h3 className="text-[13px] font-medium text-foreground">{book.label}</h3>
-        <span className="font-mono text-[10px] lowercase text-cyan-500">paper</span>
-        <span className="font-mono text-[10px] text-muted-foreground">
-          unrealized · {age}d old · n={book.n_positions}
+        <span className="font-mono text-[10px] lowercase text-[var(--c-cyan)]">paper</span>
+        <span className="font-mono text-[10px] text-[var(--fg-dim)]">
+          {age}d old · n={book.n_positions}
+          {book.planned_exit_note ? ` · ${book.planned_exit_note}` : ""}
         </span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[650px] border-collapse font-mono text-[10px] tabular-nums">
-          <thead className="text-[9px] uppercase tracking-[0.08em] text-[var(--fg-faint)]">
-            <tr className="h-5 border-b border-border/50">
-              <th className="px-2 text-left font-normal">symbol</th>
-              <th className="px-2 text-right font-normal">qty</th>
-              <th className="px-2 text-right font-normal">entry date</th>
-              <th className="px-2 text-right font-normal">entry</th>
-              <th className="px-2 text-right font-normal">mark</th>
-              <th className="px-2 text-right font-normal">unrealized%</th>
-              <th className="px-2 text-right font-normal">days</th>
-            </tr>
-          </thead>
-          <tbody>
-            {book.positions.map((position) => (
-              <tr
-                key={`${book.strategy_id}:${position.symbol}`}
-                className="h-5 border-b border-border/35 last:border-b-0"
-              >
-                <td className="px-2 text-left text-foreground">{position.symbol}</td>
-                <td className="px-2 text-right">{position.qty ?? "—"}</td>
-                <td className="px-2 text-right">{position.entry_date.slice(0, 10)}</td>
-                <td className="px-2 text-right">{paperPrice(position.entry_price)}</td>
-                <td className="px-2 text-right">{paperPrice(position.mark)}</td>
-                <td
-                  className={cn(
-                    "px-2 text-right",
-                    position.unrealized_pct != null &&
-                      (position.unrealized_pct >= 0 ? "text-emerald-500" : "text-red-500"),
-                  )}
-                >
-                  {paperPct(position.unrealized_pct)}
-                </td>
-                <td className="px-2 text-right">{position.days_held ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="border-t border-border/50 py-2 font-mono text-[10px] text-muted-foreground">
-        equal-weight mean{" "}
-        <span
-          className={cn(
-            book.mean_unrealized_pct != null &&
-              (book.mean_unrealized_pct >= 0 ? "text-emerald-500" : "text-red-500"),
-          )}
-        >
-          {paperPct(book.mean_unrealized_pct)}
-        </span>
-        {" · "}biggest winner{" "}
-        {winner ? `${winner.symbol} ${paperPct(winner.unrealized_pct)}` : "—"}
-        {" · "}biggest loser {loser ? `${loser.symbol} ${paperPct(loser.unrealized_pct)}` : "—"}
-        {book.planned_exit_note ? ` · ${book.planned_exit_note}` : ""}
-      </p>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-b border-border/50 py-4 font-mono sm:grid-cols-4">
+        <Metric label="market value" value={paperUsd(totalValue)} />
+        <Metric
+          label="unrealized $"
+          value={marked.length > 0 ? paperUsd(totalUnrealized, true) : "—"}
+          tone={marked.length > 0 ? paperTone(totalUnrealized) : undefined}
+        />
+        <Metric
+          label="unrealized %"
+          value={paperPct(totalPct)}
+          tone={paperTone(totalPct)}
+        />
+        <Metric
+          label="mean / position"
+          value={paperPct(book.mean_unrealized_pct)}
+          tone={paperTone(book.mean_unrealized_pct)}
+        />
+      </dl>
+      {(() => {
+        const brokerAvg = positions.filter((p) => p.entry_source === "broker_avg").length;
+        const unmarked = positions.length - marked.length;
+        if (brokerAvg === 0 && unmarked === 0) return null;
+        return (
+          <p className="border-b border-border/35 py-2 font-mono text-[10px] text-[var(--fg-dim)]">
+            {brokerAvg > 0
+              ? `${brokerAvg}/${positions.length} entries use broker avg cost (no strategy fill linked — blended if another strategy holds the same symbol)`
+              : null}
+            {brokerAvg > 0 && unmarked > 0 ? " · " : null}
+            {unmarked > 0 ? `${unmarked} positions have no mark — excluded from totals` : null}
+          </p>
+        );
+      })()}
+      {collapsed ? (
+        <>
+          <p className="py-2 font-mono text-[10px] text-[var(--fg-dim)]">
+            top {preview.length} of {positions.length} by{" "}
+            {movers.length > 0 ? "unrealized $" : "market value"}
+          </p>
+          <PaperPositionsTable bookId={book.strategy_id} positions={preview} />
+          <details className="group border-t border-border/35">
+            <summary className="flex h-8 cursor-pointer list-none items-center font-mono text-[10px] text-[var(--fg-dim)] hover:text-foreground">
+              <span className="group-open:hidden">show all {positions.length} positions</span>
+              <span className="hidden group-open:inline">collapse</span>
+            </summary>
+            <PaperPositionsTable bookId={`${book.strategy_id}:all`} positions={positions} />
+          </details>
+        </>
+      ) : (
+        <PaperPositionsTable bookId={book.strategy_id} positions={positions} />
+      )}
     </div>
   );
 }
@@ -862,9 +1011,16 @@ export function PaperBookSection({
         </StrategyLabEmptyState>
       ) : (
         <div className="space-y-6">
-          {catalog.books.map((book) => (
-            <PaperBookBlock key={book.strategy_id} book={book} />
-          ))}
+          {[...catalog.books]
+            .sort((a, b) => {
+              const coverage = (book: StrategyLabPaperBook) =>
+                book.positions.filter((position) => position.unrealized_pct != null).length /
+                Math.max(book.positions.length, 1);
+              return coverage(b) - coverage(a);
+            })
+            .map((book) => (
+              <PaperBookBlock key={book.strategy_id} book={book} />
+            ))}
         </div>
       )}
     </section>

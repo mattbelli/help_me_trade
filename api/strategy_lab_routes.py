@@ -91,18 +91,22 @@ def strategy_lab_paper() -> dict[str, Any]:
         return {"books": []}
 
     snapshots = get_all_latest_snapshots(db_path=STRATEGY_LAB_DB_PATH)
-    account_marks: dict[tuple[str, str], Any] = {}
-    legacy_marks: dict[str, Any] = {}
+    account_marks: dict[tuple[str, str], dict[str, Any]] = {}
+    legacy_marks: dict[str, dict[str, Any]] = {}
     for snapshot in snapshots:
         account_id = snapshot.get("account_id")
         for position in snapshot.get("positions") or []:
             symbol = str(position.get("symbol") or "").upper()
             if not symbol:
                 continue
+            snap = {
+                "mark": position.get("current_price"),
+                "avg_entry": position.get("avg_entry_price"),
+            }
             if account_id:
-                account_marks[(str(account_id), symbol)] = position.get("current_price")
+                account_marks[(str(account_id), symbol)] = snap
             else:
-                legacy_marks[symbol] = position.get("current_price")
+                legacy_marks[symbol] = snap
 
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in open_positions:
@@ -121,10 +125,18 @@ def strategy_lab_paper() -> dict[str, Any]:
                 if execution_id
                 else None
             )
+            snap = account_marks.get((str(row.get("account_id") or ""), symbol))
+            if snap is None:
+                snap = legacy_marks.get(symbol, {})
+            mark = snap.get("mark")
             entry_price = (execution or {}).get("avg_fill_price")
-            mark = account_marks.get((str(row.get("account_id") or ""), symbol))
-            if mark is None:
-                mark = legacy_marks.get(symbol)
+            entry_source = "fill" if entry_price is not None else None
+            if entry_price is None and snap.get("avg_entry") is not None:
+                # No linked fill (bulk-rebalance rows): fall back to the broker's
+                # account-level average cost — blended if several strategies hold
+                # the same symbol in this account.
+                entry_price = snap.get("avg_entry")
+                entry_source = "broker_avg"
             entry_day = _entry_day(row.get("entry_date"))
             positions.append(
                 {
@@ -132,6 +144,7 @@ def strategy_lab_paper() -> dict[str, Any]:
                     "qty": row.get("qty"),
                     "entry_date": row.get("entry_date"),
                     "entry_price": entry_price,
+                    "entry_source": entry_source,
                     "mark": mark,
                     "unrealized_pct": _unrealized_pct(entry_price, mark),
                     "days_held": max((today - entry_day).days, 0) if entry_day else None,
