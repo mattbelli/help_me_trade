@@ -105,3 +105,10 @@ fi
 if ! .venv/bin/python -m signals.earnings_exhibit --backfill-days 21; then
   echo "edgar_nightly_refresh: 8-K backfill failed (non-fatal)" >&2
 fi
+
+# Per-filing XBRL segment ingest — the fresh lane into segment_facts. DERA's
+# quarterly zips publish a quarter+ in arrears; this parses the dimensions
+# straight out of each new listed 10-Q/10-K the night after it lands.
+if ! .venv/bin/python -m research.edgar_filing_segments --sync; then
+  echo "edgar_nightly_refresh: filing-segment sync failed (non-fatal)" >&2
+fi

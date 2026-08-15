@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-14",
+ "updated_at": "2026-08-15",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,28 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 318,
+   "id": "chat-brain-model-choice",
+   "title": "Mobile chat brain runs on DeepSeek — good enough for the front door?",
+   "lane": "founder",
+   "type": "decision",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-15",
+   "notes": "The 08-15 LEAPS chat's shallow first answer (watchlist-only screen, thin conviction) ran entirely on DeepSeek. Tooling gaps are being fixed separately (#317), but the model choice is a cost/quality call only you can make: keep DeepSeek (cheap, weaker reasoning), route mobile/web chat to a stronger model (Opus-class via API keys), or hybrid (cheap first pass, strong model on demand / for trade theses). Chat surfaces = ai/chat/loop.py via get_llm(model=...)."
+  },
+  {
+   "num": 317,
+   "id": "filing-segment-ingest",
+   "title": "Per-filing XBRL segment ingest — whole-universe segment financials, fresh in 1-2 days",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-15",
+   "notes": "Root cause chain from the 08-15 mobile LEAPS chat: (1) segments answer blanked to rows:[] by the result cap (single giant row), (2) earnings_release blind to Alphabet (July-22 feed burst missed + GOOG/GOOGL share-class mismatch), (3) DERA quarterly lag meant even a good query maxed at FY2025. Build: research/edgar_filing_segments.py parses every listed 10-Q/10-K's extracted XBRL nightly into segment_facts (DERA-parity serialization, accn-keyed dedupe); segments reader emits one row per series; 8-K store CIK-aware. Verified vs DERA ground truth on 2026q1 sample.\n2026-08-15: 08-15: shipped + verified vs DERA ground truth (99.91% row match on 2026q1 sample; Alphabet 10-K 179/179). Cap fix + CIK-aware 8-K store live; July-22 hole filled (GOOG Q2 release stored). 2026q2→now backfill launched; 3 verifies in HANDOFF."
+  },
   {
    "num": 316,
    "id": "deepseek-book-token-uncap",

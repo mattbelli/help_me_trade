@@ -125,3 +125,36 @@ async def test_query_hoists_on_the_real_envelope(monkeypatch: pytest.MonkeyPatch
     assert result["shared"] == {"note": "x" * 400}
     assert result["count"] == 4
     assert "note" not in result["rows"][0]
+
+
+def test_segments_reader_emits_one_row_per_series(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The 2026-08-15 GOOGL chat bug: segments returned ONE giant row, the cap
+    dropped it whole, and the model read `rows: []` as "we have no data". One
+    row per series lets the trimmer cost the tail axes, never the answer."""
+    from pathlib import Path
+
+    import research.fundamentals as rf
+    from ai.perception.resources import _read_segments
+
+    canned = {
+        "symbol": "TEST", "cik": "1", "concept": "revenue", "as_of": None,
+        "axes": ["BusinessSegments", "Geographical"],
+        "series": [
+            {"axis": "Geographical", "member": "US", "unit": "USD",
+             "annual": [{"period_end": "2025-12-31"}], "quarterly": []},
+            {"axis": "BusinessSegments", "member": "Old", "unit": "USD",
+             "annual": [{"period_end": "2020-12-31"}], "quarterly": []},
+            {"axis": "BusinessSegments", "member": "Cloud", "unit": "USD",
+             "annual": [{"period_end": "2025-12-31"}],
+             "quarterly": [{"period_end": "2026-06-30"}]},
+        ],
+        "source": "src",
+    }
+    monkeypatch.setattr(rf, "segment_series", lambda *a, **k: canned)
+    rows = _read_segments({"symbol": "TEST"}, db_path=Path("unused"))
+    assert [(r["axis"], r["member"]) for r in rows] == [
+        ("BusinessSegments", "Cloud"),  # current business segments lead
+        ("BusinessSegments", "Old"),    # stale members sort behind fresh ones
+        ("Geographical", "US"),         # other axes are the droppable tail
+    ]
+    assert all(r["symbol"] == "TEST" and r["note"] for r in rows)

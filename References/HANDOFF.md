@@ -15,7 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-13 Abnormality scanner (#296) — live for Monday books; draft thresholds
+## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
+
+1. ⏳ **Backfill completion** (launched 08-15 evening, ~1-2h): check `filing_segment_ingest`
+   status counts + errors in `data/research/edgar_facts.db`, then the acceptance question that
+   started the round — `query segments GOOGL` must show GoogleCloud Q2 2026 **$24.768B** quarterly.
+2. ⏳ **First nightly** 08-16 07:10 UTC: `edgar_refresh.log` should show the new
+   `research.edgar_filing_segments --sync` step after the 8-K backfill (non-fatal wiring).
+3. ⏳ **When SEC publishes DERA 2026q2** (Sunday ingest will pick it up): run
+   `--verify-quarter 2026q2` — the accession-keyed dedupe of the two lanes gets its live test.
+
+Founder queue: **#318** — mobile chat brain runs on DeepSeek; keep/upgrade/hybrid is his call.
 
 Inc 1–5 on main. Detector rides `hmt-equity-collector`; pack line + `query abnormality`.
 Draft fire-rule (p99/p95, floors 2.0/3.0, top-N 10) until founder eyeball of replay tables.

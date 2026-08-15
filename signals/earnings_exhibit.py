@@ -368,11 +368,38 @@ def _cik_for_symbol(symbol: str, *, companies_db: Path | None = None) -> int | N
         return None
 
 
+def _ciks_for_symbols(
+    symbols: set[str], *, companies_db: Path | None = None
+) -> dict[str, int]:
+    """Batch symbol -> CIK, tolerant of a missing companies table."""
+    from research.fundamentals import DEFAULT_FUNDAMENTALS_DB_PATH
+
+    if not symbols:
+        return {}
+    conn = connect(companies_db or DEFAULT_FUNDAMENTALS_DB_PATH)
+    try:
+        placeholders = ",".join("?" * len(symbols))
+        return {
+            row["symbol"]: int(row["cik"])
+            for row in conn.execute(
+                f"SELECT symbol, CAST(cik AS INTEGER) AS cik FROM companies "
+                f"WHERE symbol IN ({placeholders})",
+                sorted(symbols),
+            )
+            if row["cik"]
+        }
+    except Exception:  # noqa: BLE001 - degrade to symbol-string matching
+        return {}
+    finally:
+        conn.close()
+
+
 def _symbols_missing_releases(
     *,
     days: int,
     calendar_db: Path,
     releases_db: Path,
+    companies_db: Path | None = None,
     as_of: _date | None = None,
 ) -> list[str]:
     """Calendar names in the last `days` whose print is not in earnings_releases.
@@ -407,17 +434,29 @@ def _symbols_missing_releases(
     try:
         ensure_release_schema(rel)
         by_sym: dict[str, set[str]] = {}
+        by_cik: dict[int, set[str]] = {}
         for row in rel.execute(
             """
-            SELECT symbol, accepted_et FROM earnings_releases
-            WHERE symbol IS NOT NULL AND accepted_et >= ?
+            SELECT cik, symbol, accepted_et FROM earnings_releases
+            WHERE accepted_et >= ?
             """,
             (since,),
         ):
-            by_sym.setdefault(row["symbol"], set()).add((row["accepted_et"] or "")[:10])
+            day = (row["accepted_et"] or "")[:10]
+            if row["symbol"]:
+                by_sym.setdefault(row["symbol"], set()).add(day)
+            if row["cik"] is not None:
+                by_cik.setdefault(int(row["cik"]), set()).add(day)
     finally:
         rel.close()
 
+    # Coverage is per COMPANY, not per symbol string: the store labels a filer
+    # with its shortest share class (Alphabet = GOOG), while the calendar lists
+    # every class (GOOG and GOOGL). Matching on symbol alone made such names
+    # eternal candidates — refetched nightly, never satisfied.
+    cik_of = _ciks_for_symbols(
+        {row["symbol"] for row in cal_rows}, companies_db=companies_db
+    )
     missing: set[str] = set()
     for row in cal_rows:
         symbol = row["symbol"]
@@ -426,9 +465,23 @@ def _symbols_missing_releases(
         except (TypeError, ValueError):
             continue
         window = {(day + timedelta(days=off)).isoformat() for off in range(-2, 3)}
-        if not (by_sym.get(symbol, set()) & window):
+        covered = set(by_sym.get(symbol, set()))
+        cik = cik_of.get(symbol)
+        if cik is not None:
+            covered |= by_cik.get(cik, set())
+        if not (covered & window):
             missing.add(symbol)
-    return sorted(missing)
+
+    # One candidate per company — share classes resolve to the same 8-K feed.
+    out, seen_ciks = [], set()
+    for symbol in sorted(missing):
+        cik = cik_of.get(symbol)
+        if cik is not None:
+            if cik in seen_ciks:
+                continue
+            seen_ciks.add(cik)
+        out.append(symbol)
+    return out
 
 
 def backfill_missing(
@@ -455,6 +508,7 @@ def backfill_missing(
         days=days,
         calendar_db=calendar_db or DEFAULT_DB_PATH,
         releases_db=db_path,
+        companies_db=companies_db,
         as_of=as_of,
     )
     stored = skipped_known = skipped_unlisted = failures = 0
@@ -519,6 +573,7 @@ def latest_releases(
     limit: int = 10,
     with_body: bool = False,
     db_path: Path = DEFAULT_RELEASES_DB_PATH,
+    companies_db: Path | None = None,
 ) -> list[dict]:
     """Most recent stored releases, newest first."""
     columns = (
@@ -531,8 +586,17 @@ def latest_releases(
         ensure_release_schema(conn)
         where, params = "", []
         if symbol:
-            where = "WHERE symbol = ?"
-            params.append(symbol.strip().upper())
+            # Match by CIK too: the store labels a filer with its shortest share
+            # class (Alphabet stores as GOOG), so a GOOGL lookup by symbol string
+            # alone reads back empty for a company we hold.
+            sym = symbol.strip().upper()
+            cik = _cik_for_symbol(sym, companies_db=companies_db)
+            if cik is not None:
+                where = "WHERE (symbol = ? OR cik = ?)"
+                params += [sym, cik]
+            else:
+                where = "WHERE symbol = ?"
+                params.append(sym)
         rows = conn.execute(
             f"SELECT {columns} FROM earnings_releases {where} "
             "ORDER BY accepted_et DESC LIMIT ?",

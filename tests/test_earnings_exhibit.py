@@ -232,3 +232,108 @@ def test_backfill_candidates_skip_names_we_already_have(tmp_path: Path) -> None:
         as_of=date(2026, 8, 13),
     )
     assert missing == ["AMZN"]
+
+
+def test_release_lookup_matches_any_share_class(tmp_path: Path) -> None:
+    """Alphabet stores under GOOG (shortest class); a GOOGL ask must still hit.
+
+    Measured 2026-08-15: the mobile chat asked for GOOGL's release and read back
+    "no stored release" for a company the store could legitimately hold."""
+    from db.base import connect
+    from research.fundamentals import _ensure_schema, _upsert_company
+    from signals.earnings_exhibit import ensure_release_schema, latest_releases
+
+    companies_db = tmp_path / "companies.db"
+    conn = connect(companies_db)
+    try:
+        _ensure_schema(conn)
+        for symbol in ("GOOG", "GOOGL"):
+            _upsert_company(conn, symbol=symbol, cik="1652044", sic=7372, sic_desc="Services")
+        conn.commit()
+    finally:
+        conn.close()
+
+    releases_db = tmp_path / "earnings.db"
+    conn = connect(releases_db)
+    try:
+        ensure_release_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO earnings_releases
+                (accession, cik, symbol, company, filed_date, accepted_et,
+                 session, items, exhibit, body, chars, fetched_at)
+            VALUES ('0001652044-26-000066', 1652044, 'GOOG', 'Alphabet',
+                    '2026-07-22', '2026-07-22T16:11:00-04:00', 'amc',
+                    '2.02', 'ex.htm', 'body', 4, '2026-08-15T00:00:00Z')
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    hit = latest_releases("GOOGL", db_path=releases_db, companies_db=companies_db)
+    assert len(hit) == 1 and hit[0]["symbol"] == "GOOG"
+    assert latest_releases("MSFT", db_path=releases_db, companies_db=companies_db) == []
+
+
+def test_missing_check_is_per_company_not_per_class(tmp_path: Path) -> None:
+    """A release stored under one share class covers the whole company, and an
+    uncovered company yields ONE candidate, not one per class."""
+    from datetime import date
+
+    from db.base import connect
+    from db.earnings_calendar import init_earnings_calendar_tables, upsert_earnings
+    from research.fundamentals import _ensure_schema, _upsert_company
+    from signals.earnings_exhibit import (
+        _symbols_missing_releases,
+        ensure_release_schema,
+    )
+
+    companies_db = tmp_path / "companies.db"
+    conn = connect(companies_db)
+    try:
+        _ensure_schema(conn)
+        for symbol in ("GOOG", "GOOGL"):
+            _upsert_company(conn, symbol=symbol, cik="1652044", sic=7372, sic_desc="Services")
+        for symbol in ("ZZA", "ZZB"):
+            _upsert_company(conn, symbol=symbol, cik="42", sic=7372, sic_desc="Services")
+        conn.commit()
+    finally:
+        conn.close()
+
+    calendar_db = tmp_path / "app.db"
+    init_earnings_calendar_tables(calendar_db)
+    upsert_earnings(
+        [
+            {"symbol": s, "date": "2026-07-22", "source": "edgar"}
+            for s in ("GOOG", "GOOGL", "ZZA", "ZZB")
+        ],
+        db_path=calendar_db,
+    )
+
+    releases_db = tmp_path / "earnings.db"
+    conn = connect(releases_db)
+    try:
+        ensure_release_schema(conn)
+        conn.execute(
+            """
+            INSERT INTO earnings_releases
+                (accession, cik, symbol, company, filed_date, accepted_et,
+                 session, items, exhibit, body, chars, fetched_at)
+            VALUES ('0001652044-26-000066', 1652044, 'GOOG', 'Alphabet',
+                    '2026-07-22', '2026-07-22T16:11:00-04:00', 'amc',
+                    '2.02', 'ex.htm', 'body', 4, '2026-08-15T00:00:00Z')
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    missing = _symbols_missing_releases(
+        days=30,
+        calendar_db=calendar_db,
+        releases_db=releases_db,
+        companies_db=companies_db,
+        as_of=date(2026, 8, 1),
+    )
+    assert missing == ["ZZA"]

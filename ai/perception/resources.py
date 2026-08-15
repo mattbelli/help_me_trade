@@ -852,12 +852,42 @@ def _read_segments(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, 
         return [_unresolved_symbol(symbol)]
     if not out["series"]:
         return [_no_segments(symbol, concept=concept, axis=axis)]
-    out["note"] = (
-        "as-reported segment values. ⚠️ DERA publishes ~a quarter in arrears, so "
-        "the most recent quarter's segments are NOT here yet — for those, read the "
-        "`earnings_release` exhibit text."
+    # One row per series, not one giant row: the result cap trims by dropping
+    # tail ROWS, and a single-row payload over the cap trimmed to rows:[] —
+    # exactly how a GOOGL segments query (23.8k chars) read back "empty" to the
+    # chat agent on 2026-08-15. Business segments sort first so a trim costs the
+    # least-loaded axes, and the envelope repeats per row for _hoist_shared to
+    # collapse.
+    axis_rank = {"BusinessSegments": 0, "Geographical": 1, "ProductOrService": 2}
+
+    def newest(entry: dict[str, Any]) -> int:
+        dates = [p["period_end"] for p in (entry["annual"][:1] + entry["quarterly"][:1])]
+        return int(max(dates).replace("-", "")) if dates else 0
+
+    series = sorted(
+        out["series"],
+        key=lambda e: (
+            axis_rank.get(e["axis"], 9),
+            -newest(e),
+            -(len(e["annual"]) + len(e["quarterly"])),
+            e["member"],
+        ),
     )
-    return [out]
+    envelope = {
+        "symbol": out["symbol"],
+        "cik": out["cik"],
+        "concept": out["concept"],
+        "as_of": out["as_of"],
+        "axes": out["axes"],
+        "source": out["source"],
+        "note": (
+            "as-reported segment values. Fresh 10-Q/10-K filings land here "
+            "nightly (~1-2 days after filing) via per-filing XBRL; SEC DERA "
+            "quarterly sets backfill history. Same-day numbers on the print "
+            "evening itself are in `earnings_release` (as prose)."
+        ),
+    }
+    return [{**envelope, **entry} for entry in series]
 
 
 def _no_segments(symbol: str, *, concept: str | None = None, axis: str | None = None) -> dict[str, Any]:
@@ -1674,13 +1704,14 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "Segment-level financials — revenue and operating income broken out "
             "by business segment, geography and product line, which the main "
             "`fundamentals` corpus cannot hold (companyfacts strips XBRL "
-            "dimensions). Source is the SEC's DERA quarterly data sets. This is "
-            "how you answer 'how fast is AWS growing' or 'which segment carries "
-            "the margin': AMZN FY2025 reads AWS revenue $128.72B / operating "
-            "income $45.61B vs North America $426.31B / $29.62B. `concept` takes "
-            "a canonical metric (revenue, operating_income) or a raw XBRL tag. "
-            "⚠️ DERA publishes ~a quarter in arrears — the newest quarter's "
-            "segments are in `earnings_release` (as prose), not here."
+            "dimensions). Sourced from each filing's own XBRL nightly — fresh "
+            "~1-2 days after a 10-Q/10-K lands — with SEC DERA quarterly sets "
+            "as deep history. This is how you answer 'how fast is AWS growing' "
+            "or 'which segment carries the margin': AMZN FY2025 reads AWS "
+            "revenue $128.72B / operating income $45.61B vs North America "
+            "$426.31B / $29.62B. `concept` takes a canonical metric (revenue, "
+            "operating_income) or a raw XBRL tag. Same-day numbers on the print "
+            "evening itself: `earnings_release` (as prose)."
         ),
         "filters": {
             "symbol": "REQUIRED — ticker",
