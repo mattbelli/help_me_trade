@@ -9,12 +9,13 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from api.poll_jobs import POLL_INTERVAL_SECONDS
+
 router = APIRouter(tags=["status-page"])
 
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard() -> str:
-    from api.main import POLL_INTERVAL_SECONDS  # lazy: avoid circular import
 
     return """<!DOCTYPE html>
 <html lang="en">

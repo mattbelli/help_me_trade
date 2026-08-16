@@ -214,3 +214,5 @@ def _isolate_poll_health(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("api.poll_health.poll_health", fresh)
     if "api.main" in sys.modules:
         monkeypatch.setattr("api.main.poll_health", fresh)
+    if "api.poll_jobs" in sys.modules:
+        monkeypatch.setattr("api.poll_jobs.poll_health", fresh)

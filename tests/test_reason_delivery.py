@@ -193,7 +193,7 @@ def _notifications(db: Path, *, kind: str | None = None) -> list[dict[str, Any]]
 async def test_dark_job_body_builds_no_client_and_never_calls_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import api.main as main_mod
+    import api.fusion_jobs as fusion_jobs
 
     hits = {"reason": 0, "llm": 0}
 
@@ -209,7 +209,7 @@ async def test_dark_job_body_builds_no_client_and_never_calls_pass(
     monkeypatch.setattr("research.reason.run_reason_pass", fake_pass)
     monkeypatch.setattr("ai.llm.factory.get_llm", fake_get_llm)
 
-    await main_mod._fusion_reason_once()
+    await fusion_jobs._fusion_reason_once()
 
     assert hits == {"reason": 0, "llm": 0}  # dark: no client built, pass never entered
 

@@ -1,4 +1,4 @@
-"""Earnings milestone push alerts — api/main._earnings_alert_once + db dedup."""
+"""Earnings milestone push alerts — api/earnings_jobs._earnings_alert_once + db dedup."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def _freeze_at(monkeypatch: pytest.MonkeyPatch, hour: int, minute: int = 0) -> N
                 return fixed.astimezone(tz)
             return fixed.replace(tzinfo=None)
 
-    monkeypatch.setattr("api.main.datetime", _FixedDatetime)
+    monkeypatch.setattr("api.earnings_jobs.datetime", _FixedDatetime)
 
 
 def _freeze_today(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,11 +56,11 @@ def _mock_calendar(
     last_date: str | None = None,
 ) -> None:
     monkeypatch.setattr(
-        "api.main.last_earnings_date",
+        "api.earnings_jobs.last_earnings_date",
         lambda sym, on_date, **kw: last_date,
     )
     monkeypatch.setattr(
-        "api.main.next_earnings_date",
+        "api.earnings_jobs.next_earnings_date",
         lambda sym, on_date, **kw: next_date,
     )
 
@@ -72,7 +72,7 @@ async def test_t14_fires_once_and_dedups_same_day(
     db = _init_db(tmp_path)
     _freeze_today(monkeypatch)
     _mock_calendar(monkeypatch, next_date="2026-07-08")
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["MU"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["MU"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
@@ -81,7 +81,7 @@ async def test_t14_fires_once_and_dedups_same_day(
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -104,17 +104,17 @@ async def test_t1_fires_one_day_before(
     db = _init_db(tmp_path)
     _freeze_today(monkeypatch)
     _mock_calendar(monkeypatch, next_date="2026-06-25")
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["AAPL"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["AAPL"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
-    monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "amc")
+    monkeypatch.setattr("api.earnings_jobs.earnings_hour", lambda sym, d, **kw: "amc")
 
     # "earnings" is inbox-only in the routing matrix — assert at notify(),
     # not send_alert_push (which is intentionally skipped for this kind).
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -133,17 +133,17 @@ async def test_t0_fires_day_of_with_hour(
         next_date="2026-07-31",
         last_date=_TODAY.isoformat(),
     )
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["NVDA"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["NVDA"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
-    monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "bmo")
+    monkeypatch.setattr("api.earnings_jobs.earnings_hour", lambda sym, d, **kw: "bmo")
 
     # "earnings" is inbox-only in the routing matrix — assert at notify(),
     # not send_alert_push (which is intentionally skipped for this kind).
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -163,15 +163,15 @@ async def test_t0_amc_fires_during_session(
         next_date="2026-07-31",
         last_date=_TODAY.isoformat(),
     )
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["AMZN"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["AMZN"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
-    monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "amc")
+    monkeypatch.setattr("api.earnings_jobs.earnings_hour", lambda sym, d, **kw: "amc")
 
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -191,15 +191,15 @@ async def test_t0_suppressed_after_amc_window(
         next_date="2026-07-31",
         last_date=_TODAY.isoformat(),
     )
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["AMZN"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["AMZN"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
-    monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "amc")
+    monkeypatch.setattr("api.earnings_jobs.earnings_hour", lambda sym, d, **kw: "amc")
 
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_not_awaited()
@@ -216,15 +216,15 @@ async def test_t0_suppressed_after_bmo_open(
         next_date="2026-07-31",
         last_date=_TODAY.isoformat(),
     )
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["PWR"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["PWR"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
-    monkeypatch.setattr("api.main.earnings_hour", lambda sym, d, **kw: "bmo")
+    monkeypatch.setattr("api.earnings_jobs.earnings_hour", lambda sym, d, **kw: "bmo")
 
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_not_awaited()
@@ -236,7 +236,7 @@ async def test_no_alert_when_more_than_14_days_or_past(
 ) -> None:
     db = _init_db(tmp_path)
     _freeze_today(monkeypatch)
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["MSFT"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["MSFT"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
@@ -245,7 +245,7 @@ async def test_no_alert_when_more_than_14_days_or_past(
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     _mock_calendar(monkeypatch, next_date="2026-07-15")
     await _earnings_alert_once()
@@ -263,7 +263,7 @@ async def test_new_earnings_date_rearms_milestones(
     db = _init_db(tmp_path)
     _freeze_today(monkeypatch)
     _mock_calendar(monkeypatch, next_date="2026-07-08")
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["MU"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["MU"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
@@ -272,7 +272,7 @@ async def test_new_earnings_date_rearms_milestones(
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -304,9 +304,9 @@ async def test_t14_catches_up_when_loop_lands_on_day_13(
                 return day13.astimezone(tz)
             return day13.replace(tzinfo=None)
 
-    monkeypatch.setattr("api.main.datetime", _Day13Datetime)
+    monkeypatch.setattr("api.earnings_jobs.datetime", _Day13Datetime)
     _mock_calendar(monkeypatch, next_date="2026-07-08")
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["MU"])
+    monkeypatch.setattr("api.earnings_jobs._all_watchlist_symbols", lambda: ["MU"])
     monkeypatch.setattr("db.earnings_alerts.DEFAULT_DB_PATH", db)
     monkeypatch.setattr("db.base.DEFAULT_DB_PATH", db)
 
@@ -315,7 +315,7 @@ async def test_t14_catches_up_when_loop_lands_on_day_13(
     push_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", push_mock)
 
-    from api.main import _earnings_alert_once
+    from api.earnings_jobs import _earnings_alert_once
 
     await _earnings_alert_once()
     push_mock.assert_awaited_once()
@@ -329,7 +329,7 @@ def test_catchup_kick_without_a_running_loop_is_a_noop():
     it must degrade quietly when there is no loop to schedule on (the periodic
     job still picks the symbol up).
     """
-    from api.main import _kick_earnings_alert_catchup
+    from api.earnings_jobs import _kick_earnings_alert_catchup
 
     _kick_earnings_alert_catchup()
 
@@ -345,9 +345,9 @@ async def test_catchup_kick_schedules_a_pass(monkeypatch):
     async def _fake_once():
         ran.append(True)
 
-    monkeypatch.setattr("api.main._earnings_alert_once", _fake_once)
+    monkeypatch.setattr("api.earnings_jobs._earnings_alert_once", _fake_once)
 
-    from api.main import _kick_earnings_alert_catchup
+    from api.earnings_jobs import _kick_earnings_alert_catchup
 
     _kick_earnings_alert_catchup()
     await asyncio.sleep(0)  # let the fire-and-forget task run

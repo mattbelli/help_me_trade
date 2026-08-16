@@ -6,7 +6,7 @@ edges. They ship force-created DISABLED, entry_mode=propose, paper account only,
 never appear in strategy_stats.json, and every proposal carries the committed Tier-B
 `regime_stats` block (signals.strategy_stats.REGIME_LOCAL_CONVICTION) with win_prob=None.
 
-Runs on its own POST-CLOSE loop (api.main._regime_sleeves_loop): signals are evaluated
+Runs on its own POST-CLOSE loop (api.scan_jobs._regime_sleeves_loop): signals are evaluated
 on completed daily bars after the 16:00 ET close; proposals target next-open entry
 (phone approval overnight → market order fills at the open). Every proposal, suppressed
 trigger, and kill-line check is journaled (db.decision_journal). Mechanical kill lines

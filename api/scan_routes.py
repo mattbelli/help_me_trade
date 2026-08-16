@@ -49,10 +49,8 @@ def _screen_universe() -> list[str]:
     Futures (``/`` prefix) are dropped: the screener's technicals are equity
     daily-bar screens.
     """
-    # Lazy imports keep the router decoupled from api.main (avoids a circular
-    # import at module load — api.main registers this router).
-    from api.main import _all_watchlist_symbols
     from db.sqlite import get_latest_snapshot
+    from signals.universe import all_watchlist_symbols as _all_watchlist_symbols
 
     symbols: set[str] = set(_all_watchlist_symbols())
     snapshot = get_latest_snapshot()

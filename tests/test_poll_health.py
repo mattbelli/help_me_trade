@@ -45,9 +45,9 @@ def test_health_endpoint_includes_poll_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_poll_once_continues_after_broker_failure() -> None:
-    from api import main
+    from api import poll_jobs
 
-    main.poll_health.record_success()
+    poll_jobs.poll_health.record_success()
 
     default_account = {
         "id": "acct_default",
@@ -68,23 +68,23 @@ async def test_poll_once_continues_after_broker_failure() -> None:
         return good_broker
 
     with (
-        patch.object(main, "list_accounts", return_value=[default_account]),
-        patch.object(main, "connection_is_configured", return_value=True),
-        patch.object(main, "get_broker_for_account", side_effect=RuntimeError("broker down")),
-        patch.object(main, "get_enabled_broker_names", return_value=["alpaca", "schwab"]),
-        patch.object(main, "broker_is_configured", return_value=True),
-        patch.object(main, "get_broker", side_effect=mock_get_broker),
-        patch.object(main, "save_snapshot", return_value="2026-01-01T00:00:00+00:00"),
-        patch.object(main, "get_latest_snapshot", return_value=None),
+        patch.object(poll_jobs, "list_accounts", return_value=[default_account]),
+        patch.object(poll_jobs, "connection_is_configured", return_value=True),
+        patch.object(poll_jobs, "get_broker_for_account", side_effect=RuntimeError("broker down")),
+        patch.object(poll_jobs, "get_enabled_broker_names", return_value=["alpaca", "schwab"]),
+        patch.object(poll_jobs, "broker_is_configured", return_value=True),
+        patch.object(poll_jobs, "get_broker", side_effect=mock_get_broker),
+        patch.object(poll_jobs, "save_snapshot", return_value="2026-01-01T00:00:00+00:00"),
+        patch.object(poll_jobs, "get_latest_snapshot", return_value=None),
     ):
-        await main._poll_once()
+        await poll_jobs._poll_once()
 
-    assert main.poll_health.last_successful_poll_at is not None
+    assert poll_jobs.poll_health.last_successful_poll_at is not None
 
 
 @pytest.mark.asyncio
 async def test_poll_loop_survives_iteration_exception() -> None:
-    from api import main
+    from api import poll_jobs
 
     iterations = 0
 
@@ -103,18 +103,18 @@ async def test_poll_loop_survives_iteration_exception() -> None:
             raise asyncio.CancelledError()
 
     with (
-        patch.object(main, "_poll_once", side_effect=flaky_poll),
-        patch.object(main.asyncio, "sleep", side_effect=stop_after_second_sleep),
+        patch.object(poll_jobs, "_poll_once", side_effect=flaky_poll),
+        patch.object(poll_jobs.asyncio, "sleep", side_effect=stop_after_second_sleep),
     ):
         with pytest.raises(asyncio.CancelledError):
-            await main._poll_loop()
+            await poll_jobs._poll_loop()
 
     assert iterations >= 2
 
 
 @pytest.mark.asyncio
 async def test_alert_symbol_loop_survives_exception() -> None:
-    from api import main
+    from api import trade_jobs
 
     iterations = 0
 
@@ -133,11 +133,11 @@ async def test_alert_symbol_loop_survives_exception() -> None:
             raise asyncio.CancelledError()
 
     with (
-        patch.object(main, "list_price_alerts", return_value=[]),
-        patch.object(main.market_hub, "ensure_symbols", side_effect=flaky_ensure),
-        patch.object(main.asyncio, "sleep", side_effect=stop_after_second_sleep),
+        patch.object(trade_jobs, "list_price_alerts", return_value=[]),
+        patch.object(trade_jobs.market_hub, "ensure_symbols", side_effect=flaky_ensure),
+        patch.object(trade_jobs.asyncio, "sleep", side_effect=stop_after_second_sleep),
     ):
         with pytest.raises(asyncio.CancelledError):
-            await main._alert_symbol_loop()
+            await trade_jobs._alert_symbol_loop()
 
     assert iterations >= 2

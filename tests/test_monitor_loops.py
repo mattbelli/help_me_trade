@@ -114,7 +114,7 @@ async def test_rvol_alert_once_calls_notify_with_kind(
     provider = object.__new__(SchwabMarketData)
     provider.aget_quotes = _FakeProvider().aget_quotes  # type: ignore[method-assign]
 
-    monkeypatch.setattr("api.main._RVOL_ALERTS_ENABLED", True)
+    monkeypatch.setattr("api.scanner_routes._RVOL_ALERTS_ENABLED", True)
     monkeypatch.setattr("api.scanner_routes._market_session", lambda: "regular")
     monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: 38)
     monkeypatch.setattr("api.scanner_routes._all_watchlist_symbols", lambda: ["AAPL"])
@@ -171,7 +171,7 @@ def test_rvol_alert_interval_default():
     import os
 
     if "RVOL_ALERT_INTERVAL_SECONDS" not in os.environ:
-        from api.main import RVOL_ALERT_INTERVAL_SECONDS
+        from api.scanner_routes import RVOL_ALERT_INTERVAL_SECONDS
 
         assert RVOL_ALERT_INTERVAL_SECONDS == 300
 
@@ -181,6 +181,6 @@ def test_schwab_health_interval_default():
     import os
 
     if "SCHWAB_HEALTH_INTERVAL_SECONDS" not in os.environ:
-        from api.main import SCHWAB_HEALTH_INTERVAL_SECONDS
+        from api.schwab_jobs import SCHWAB_HEALTH_INTERVAL_SECONDS
 
         assert SCHWAB_HEALTH_INTERVAL_SECONDS == 6 * 3600

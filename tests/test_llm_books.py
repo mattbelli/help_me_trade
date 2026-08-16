@@ -280,7 +280,7 @@ async def test_dead_man_ignores_a_paused_book(monkeypatch) -> None:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    import api.main as api_main
+    import api.ops_jobs as ops_jobs
 
     sent: list[dict] = []
 
@@ -290,11 +290,11 @@ async def test_dead_man_ignores_a_paused_book(monkeypatch) -> None:
     monkeypatch.setattr("signals.notify.notify", _notify)
     monkeypatch.setattr("db.reports.report_exists_for_day", lambda *a, **k: False)
     monkeypatch.setattr(
-        api_main, "datetime", _FrozenDatetime(datetime(2026, 7, 30, 21, 0, tzinfo=ZoneInfo("America/New_York")))
+        ops_jobs, "datetime", _FrozenDatetime(datetime(2026, 7, 30, 21, 0, tzinfo=ZoneInfo("America/New_York")))
     )
-    api_main._book_deadman_last_date.clear()
+    ops_jobs._book_deadman_last_date.clear()
 
-    await api_main._book_deadman_once()
+    await ops_jobs._book_deadman_once()
 
     assert len(sent) == 1
     assert "Claude Panel" not in sent[0]["body"]

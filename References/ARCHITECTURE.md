@@ -123,10 +123,20 @@ The fail-closed chokepoint. **One un-bypassable path; deny by default; paper bef
 
 ## 5. API + config + imports (`api/`, `config/`, `imports/`, `portfolio/`)
 
-- **`api/main.py`** — the FastAPI app. `lifespan` inits all tables, starts `market_hub`, and launches the
-  background loops: broker poll (snapshots + rule eval + paper reconciliation), signal scan, alert-symbol
-  subscription, reflection journal, hourly trade sync. Mounts the ai/trade/performance routers + inline
-  dashboard/settings/watchlist/chart routes.
+- **`api/main.py`** — the FastAPI app HOST (~960 lines after the 2026-08-16 strangler rounds). `lifespan`
+  inits all tables, reconciles pending executions, runs the first poll, calls
+  `api/background_jobs._register_background_jobs()` and launches the loops; mounts every router; keeps only
+  the app-level routes (health, WS, broker/snapshot, settings, kill-switch, entries-halt, a few reads).
+  `tests/test_main_ratchet.py` fails if it grows.
+- **`api/hub.py`** — the ONE live `market_hub` (WS quotes), built at import and bound into
+  `brokers.market_stream` so the trading path broadcasts on it.
+- **`api/*_jobs.py`** — the background work by family: `poll_jobs` (account poll = snapshots + rule eval +
+  reconciliation), `scan_jobs` (signal/session-node/regime), `earnings_jobs`, `trade_jobs` (trade sync,
+  proposal sweeper, idea tracker, alert-symbol), `tape_jobs`, `flow_jobs` (in-process options-flow runner),
+  `schwab_jobs` (auth watchdog + snapshot), `ops_jobs` (LLM books, retention, filings), `fusion_jobs`,
+  `research_jobs`; `background_jobs.py` is the registry — the manifest of what runs, its cadence and flags.
+- **`api/*_routes.py`** — every endpoint family (`bars`, `scanner`, `flow`, `watchlist`, `fusion`,
+  `workspace`, `reports`, `alert_drawing`, `status_page`, plus the older ai/trade/performance/strategy/…).
 - **`api/auth.py` + `middleware.py`** — token auth (header/bearer/query), CORS origins, allowed-hosts
   (DNS-rebind defense). `SecurityMiddleware` gates every request globally; only `/health` is exempt.
 - **`api/ai_routes.py`, `trade_routes.py`, `performance_routes.py`** — the AI features, trade ledger + Schwab

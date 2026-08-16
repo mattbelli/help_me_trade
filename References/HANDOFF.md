@@ -15,15 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-16 main.py strangler rounds 1+2 (#320, #321) — one live verify owed
+## ▶ 08-16 main.py strangler rounds 1–3 (#320, #321, #76) — one live verify owed
 
-1. ⏳ **After the next serv deploy/restart:** `journalctl -u hmt-backend` boots clean and `/health`
-   `jobs` shows `reports_scheduler`, `fusion_*`, `rvol_alert` and `bars_prewarm` heartbeats alive
-   (those runners now import from `api/reports_routes.py` / `api/fusion_jobs.py` /
-   `api/scanner_routes.py` / `api/bars_routes.py`); then a chart loads (`/api/bars`) and the
-   watchlist rows fill (`/api/watchlist/market`). OpenAPI paths+methods were proven identical
-   locally, lifespan ran under TestClient — the live process is the last unchecked surface.
-   Round 3 = #76 (lifecycle/jobs); #77 is now only its part (b).
+1. ⏳ **After the next serv deploy/restart:** `journalctl -u hmt-backend` boots clean (the import
+   graph changed a lot: `api/hub.py` builds `market_hub` at import; every job now imports from an
+   `api/*_jobs.py`), `/health` `jobs` shows ALL heartbeats alive (poll, signal_scan, session_node,
+   alert_symbol, trade_sync, proposal_sweeper, idea_tracker, earnings_*, regime_*, reports_scheduler,
+   bars_prewarm, equity_tape_flush, rvol_alert, schwab_*, fusion_*, filings_*, book_*), the WS
+   quotes stream in the cockpit (the hub bind moved), a chart loads (`/api/bars`) and watchlist rows
+   fill (`/api/watchlist/market`). OpenAPI paths+methods were proven identical locally and the
+   full suite passed; the live process is the last unchecked surface. `#77` is now only its part
+   (b) — quotes/streaming into the provider protocol.
 
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 

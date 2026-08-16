@@ -361,7 +361,7 @@ async def test_filings_edgar_once_keeps_form4_when_13d_fails(
         lambda events, **_kw: stored.extend(events) or len(events),
     )
 
-    from api.main import _filings_edgar_once
+    from api.ops_jobs import _filings_edgar_once
 
     await _filings_edgar_once()
     assert stored == form4
@@ -378,7 +378,7 @@ async def test_filings_edgar_once_raises_when_both_arms_fail(
     monkeypatch.setattr("signals.filings.edgar.poll_13d_once", _boom)
     monkeypatch.setattr("db.filings.insert_events", lambda events, **_kw: len(events))
 
-    from api.main import _filings_edgar_once
+    from api.ops_jobs import _filings_edgar_once
 
     with pytest.raises(RuntimeError, match="both Form 4 and 13D"):
         await _filings_edgar_once()

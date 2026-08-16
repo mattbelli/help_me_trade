@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+RVOL_ALERT_INTERVAL_SECONDS = max(60, int(os.environ.get("RVOL_ALERT_INTERVAL_SECONDS", "300")))
+_RVOL_ALERTS_ENABLED = os.environ.get("RVOL_ALERTS_ENABLED", "1").strip() not in (
+    "0",
+    "false",
+    "no",
+)
 RVOL_ALERT_THRESHOLD = float(os.environ.get("RVOL_ALERT_THRESHOLD", "3.0"))
 
 

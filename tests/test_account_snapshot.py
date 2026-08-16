@@ -111,7 +111,7 @@ def test_get_latest_snapshot_does_not_fall_back_to_an_unkeyed_run(
 ) -> None:
     """An unkeyed run is somebody's portfolio with the label missing — not a fallback.
 
-    ``api/main.py:_poll_broker`` writes ``account_id=None`` whenever a broker has
+    ``api/poll_jobs.py:_poll_broker`` writes ``account_id=None`` whenever a broker has
     no default trade account, so ``account_id IS NULL`` does NOT mean "legacy
     single-account database". Handing that run to an account-scoped ask would put
     one account's portfolio behind another account's id.
@@ -189,7 +189,7 @@ def test_get_latest_snapshot_never_falls_back_to_another_account(
 
 @pytest.mark.asyncio
 async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
-    from api import main
+    from api import poll_jobs
     from db import accounts as accounts_mod
     from db import base as db_base
 
@@ -211,21 +211,21 @@ async def test_poll_stamps_default_account(monkeypatch, tmp_path: Path) -> None:
         return sqlite_mod.save_snapshot(*args, **kwargs)
 
     with (
-        patch.object(main, "connection_is_configured", return_value=True),
+        patch.object(poll_jobs, "connection_is_configured", return_value=True),
         patch.object(
-            main,
+            poll_jobs,
             "get_connection",
             side_effect=lambda cid: accounts_mod.get_connection(cid, db_path=db),
         ),
-        patch.object(main, "get_broker_for_account", return_value=mock_broker),
-        patch.object(main, "save_snapshot", side_effect=save_with_test_db),
-        patch.object(main, "compute_and_save_snapshot_analytics"),
-        patch.object(main, "count_pending_executions", return_value=0),
-        patch.object(main, "count_submitted_executions", return_value=0),
-        patch.object(main, "get_latest_snapshot", return_value=None),
-        patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),
+        patch.object(poll_jobs, "get_broker_for_account", return_value=mock_broker),
+        patch.object(poll_jobs, "save_snapshot", side_effect=save_with_test_db),
+        patch.object(poll_jobs, "compute_and_save_snapshot_analytics"),
+        patch.object(poll_jobs, "count_pending_executions", return_value=0),
+        patch.object(poll_jobs, "count_submitted_executions", return_value=0),
+        patch.object(poll_jobs, "get_latest_snapshot", return_value=None),
+        patch.object(poll_jobs, "get_enabled_broker_names", return_value=["alpaca"]),
     ):
-        await main._poll_account(default)
+        await poll_jobs._poll_account(default)
 
     assert _poll_run_account_id(db) == default["id"]
 

@@ -1,11 +1,11 @@
 """Watchlist routes: list CRUD, the 20-s ``/api/watchlist/market`` poll (quotes +
 RVOL + baselines + abnormality per row), and ``/api/watchlist/aggregate``.
 
-Extracted from ``api/main`` (strangler round 2). Two lazy back-references into
-``api.main`` remain, read at call time to avoid a circular import: the live
-``market_hub`` (extended-hours quote enrichment) and
-``_kick_earnings_alert_catchup`` (a symbol added mid-day gets its earnings alert
-now, not at the next tick). Registered by ``api/main`` via ``app.include_router``.
+Extracted from ``api/main`` (strangler round 2). Uses the live ``market_hub``
+(``api/hub``) for extended-hours quote enrichment and
+``api/earnings_jobs._kick_earnings_alert_catchup`` so a symbol added mid-day gets
+its earnings alert now, not at the next tick. Registered by ``api/main`` via
+``app.include_router``.
 """
 
 from __future__ import annotations
@@ -19,6 +19,8 @@ from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
 from api import watchlist_bars_cache
+from api.earnings_jobs import _kick_earnings_alert_catchup
+from api.hub import market_hub
 from api.scanner_routes import _abnorm_field
 from brokers.alpaca import StockBar
 from brokers.errors import BrokerError
@@ -43,18 +45,6 @@ from trading.market_hours import _ET, _SESSION_CLOSE, _SESSION_OPEN
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _kick_earnings_alert_catchup() -> None:
-    from api.main import _kick_earnings_alert_catchup as _kick  # lazy: avoid circular import
-
-    _kick()
-
-
-def _market_hub():
-    from api.main import market_hub  # lazy: avoid circular import
-
-    return market_hub
 
 
 @router.get("/api/watchlist")
@@ -520,7 +510,7 @@ async def api_watchlist_market(symbols: str = ""):
         # stream doesn't emit ext fields; without this they'd only refresh on the
         # 6-s REST poll).
         try:
-            await _market_hub().apply_extended(
+            await market_hub.apply_extended(
                 sym,
                 ext_price=ext_price_val,
                 ext_change_pct=ext_change_val,

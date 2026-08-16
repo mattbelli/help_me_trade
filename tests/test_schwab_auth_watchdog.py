@@ -158,17 +158,17 @@ def test_auth_status_reports_true_refresh_age(
 
 @pytest.fixture
 def reset_schwab_health_state() -> None:
-    import api.main as main_mod
+    import api.schwab_jobs as schwab_jobs
 
-    main_mod._schwab_health_last_date.clear()
-    main_mod._schwab_probe_failures = 0
+    schwab_jobs._schwab_health_last_date.clear()
+    schwab_jobs._schwab_probe_failures = 0
 
 
 @pytest.mark.asyncio
 async def test_schwab_health_probe_alerts_after_three_failures(
     monkeypatch: pytest.MonkeyPatch, reset_schwab_health_state
 ) -> None:
-    from api.main import _schwab_health_once
+    from api.schwab_jobs import _schwab_health_once
 
     notify_calls: list[dict] = []
 
@@ -180,8 +180,8 @@ async def test_schwab_health_probe_alerts_after_three_failures(
         aget_quotes=AsyncMock(side_effect=RuntimeError("probe boom"))
     )
 
-    monkeypatch.setattr("api.main.broker_is_configured", lambda name: name == "schwab")
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda name=None: provider)
+    monkeypatch.setattr("api.schwab_jobs.broker_is_configured", lambda name: name == "schwab")
+    monkeypatch.setattr("api.schwab_jobs.get_market_data_provider", lambda name=None: provider)
     monkeypatch.setattr(
         "brokers.schwab_auth.auth_status",
         lambda: {
@@ -190,7 +190,7 @@ async def test_schwab_health_probe_alerts_after_three_failures(
         },
     )
     monkeypatch.setattr(
-        "api.main.datetime",
+        "api.schwab_jobs.datetime",
         type(
             "FixedDatetime",
             (),
@@ -218,8 +218,8 @@ async def test_schwab_health_probe_alerts_after_three_failures(
 async def test_schwab_health_probe_success_resets_failure_streak(
     monkeypatch: pytest.MonkeyPatch, reset_schwab_health_state
 ) -> None:
-    import api.main as main_mod
-    from api.main import _schwab_health_once
+    import api.schwab_jobs as schwab_jobs
+    from api.schwab_jobs import _schwab_health_once
 
     notify_calls: list[dict] = []
 
@@ -236,14 +236,14 @@ async def test_schwab_health_probe_success_resets_failure_streak(
 
     provider = SimpleNamespace(aget_quotes=_quotes)
 
-    monkeypatch.setattr("api.main.broker_is_configured", lambda name: name == "schwab")
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda name=None: provider)
+    monkeypatch.setattr("api.schwab_jobs.broker_is_configured", lambda name: name == "schwab")
+    monkeypatch.setattr("api.schwab_jobs.get_market_data_provider", lambda name=None: provider)
     monkeypatch.setattr(
         "brokers.schwab_auth.auth_status",
         lambda: {"authenticated": True, "estimated_days_until_reauth": 5.0},
     )
     monkeypatch.setattr(
-        "api.main.datetime",
+        "api.schwab_jobs.datetime",
         type(
             "FixedDatetime",
             (),
@@ -258,11 +258,11 @@ async def test_schwab_health_probe_success_resets_failure_streak(
 
     for _ in range(2):
         await _schwab_health_once()
-    assert main_mod._schwab_probe_failures == 2
+    assert schwab_jobs._schwab_probe_failures == 2
 
     fail = False
     await _schwab_health_once()
-    assert main_mod._schwab_probe_failures == 0
+    assert schwab_jobs._schwab_probe_failures == 0
     assert not notify_calls
 
 

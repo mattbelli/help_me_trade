@@ -66,7 +66,7 @@ AUDIT_LOOP_NAMES = [
 def _reset_jobs_registry(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    import api.main as main_mod
+    import api.background_jobs as bg_jobs
 
     jobs.JOBS.clear()
     jobs._name_index.clear()
@@ -74,7 +74,7 @@ def _reset_jobs_registry(
     jobs._watchdog_backup_last_date = None
     jobs._watchdog_off_box_last_date = None
     jobs._watchdog_last_closed_mono = None
-    main_mod._background_jobs_registered = False
+    bg_jobs._background_jobs_registered = False
     # The watchdog reads BACKUP_DIR off the real filesystem. Without this, every
     # test here passes or fails on whatever /home/mbelli/backups happens to hold
     # on the machine running it — green on serv, red on CI. Default everything
@@ -530,7 +530,7 @@ def test_health_v2_includes_jobs_and_db_size(
 
 
 def test_registry_includes_all_audit_loop_names() -> None:
-    from api.main import _register_background_jobs
+    from api.background_jobs import _register_background_jobs
 
     _register_background_jobs()
     registered = {job.name for job in jobs.JOBS if job.name != "watchdog"}
@@ -550,10 +550,10 @@ RESEARCH_JOB_NAMES = {
 def test_registry_skips_research_jobs_when_worker_external(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import api.main as main_mod
+    import api.background_jobs as bg_jobs
 
-    monkeypatch.setattr(main_mod, "_RESEARCH_WORKER_EXTERNAL", True)
-    main_mod._register_background_jobs()
+    monkeypatch.setattr(bg_jobs, "_RESEARCH_WORKER_EXTERNAL", True)
+    bg_jobs._register_background_jobs()
     registered = {job.name for job in jobs.JOBS}
     assert registered & RESEARCH_JOB_NAMES == set()
     assert "poll" in registered  # the rest of the registry is intact
@@ -561,7 +561,7 @@ def test_registry_skips_research_jobs_when_worker_external(
 
 
 def test_registry_has_no_duplicate_job_names() -> None:
-    from api.main import _register_background_jobs
+    from api.background_jobs import _register_background_jobs
 
     _register_background_jobs()
     names = [job.name for job in jobs.JOBS]

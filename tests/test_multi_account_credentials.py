@@ -201,7 +201,7 @@ def _poll_run_rows(db: Path) -> list[str | None]:
 async def test_poll_per_account_reconciles_and_guards(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from api import main
+    from api import poll_jobs
     from db import accounts as accounts_mod
     from db import base as db_base
     from db import sqlite as sqlite_mod
@@ -222,17 +222,17 @@ async def test_poll_per_account_reconciles_and_guards(
     monkeypatch.setattr(accounts_mod, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr(sqlite_mod, "DEFAULT_DB_PATH", db)
     monkeypatch.setattr(
-        main,
+        poll_jobs,
         "list_accounts",
         lambda enabled_only=False: list_accounts(enabled_only=enabled_only, db_path=db),
     )
     monkeypatch.setattr(
-        main,
+        poll_jobs,
         "get_connection",
         lambda connection_id: get_connection(connection_id, db_path=db),
     )
     monkeypatch.setattr(
-        main,
+        poll_jobs,
         "reconcile_account_external_id",
         lambda account_id, external_id: reconcile_account_external_id(
             account_id, external_id, db_path=db
@@ -263,18 +263,18 @@ async def test_poll_per_account_reconciles_and_guards(
     reconcile_pending = AsyncMock()
 
     with (
-        patch.object(main, "get_broker_for_account", side_effect=fake_get_broker_for_account),
-        patch.object(main, "connection_is_configured", return_value=True),
-        patch.object(main, "save_snapshot", side_effect=save_with_test_db),
-        patch.object(main, "compute_and_save_snapshot_analytics") as analytics_mock,
-        patch.object(main, "count_pending_executions", return_value=1),
-        patch.object(main, "count_submitted_executions", return_value=1),
-        patch.object(main, "reconcile_open_executions", reconcile_open),
-        patch.object(main, "reconcile_pending_executions", reconcile_pending),
-        patch.object(main, "get_latest_snapshot", return_value=None),
-        patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),
+        patch.object(poll_jobs, "get_broker_for_account", side_effect=fake_get_broker_for_account),
+        patch.object(poll_jobs, "connection_is_configured", return_value=True),
+        patch.object(poll_jobs, "save_snapshot", side_effect=save_with_test_db),
+        patch.object(poll_jobs, "compute_and_save_snapshot_analytics") as analytics_mock,
+        patch.object(poll_jobs, "count_pending_executions", return_value=1),
+        patch.object(poll_jobs, "count_submitted_executions", return_value=1),
+        patch.object(poll_jobs, "reconcile_open_executions", reconcile_open),
+        patch.object(poll_jobs, "reconcile_pending_executions", reconcile_pending),
+        patch.object(poll_jobs, "get_latest_snapshot", return_value=None),
+        patch.object(poll_jobs, "get_enabled_broker_names", return_value=["alpaca"]),
     ):
-        await main._poll_once()
+        await poll_jobs._poll_once()
 
     assert {call.kwargs["account_id"] for call in reconcile_pending.await_args_list} == {
         default["id"],
@@ -313,16 +313,16 @@ async def test_poll_per_account_reconciles_and_guards(
 
     caplog.clear()
     with (
-        patch.object(main, "get_broker_for_account", side_effect=fake_get_broker_for_account),
-        patch.object(main, "connection_is_configured", return_value=True),
-        patch.object(main, "save_snapshot", side_effect=save_with_test_db) as save_mock,
-        patch.object(main, "compute_and_save_snapshot_analytics"),
-        patch.object(main, "count_pending_executions", return_value=0),
-        patch.object(main, "count_submitted_executions", return_value=0),
-        patch.object(main, "get_latest_snapshot", return_value=None),
-        patch.object(main, "get_enabled_broker_names", return_value=["alpaca"]),
+        patch.object(poll_jobs, "get_broker_for_account", side_effect=fake_get_broker_for_account),
+        patch.object(poll_jobs, "connection_is_configured", return_value=True),
+        patch.object(poll_jobs, "save_snapshot", side_effect=save_with_test_db) as save_mock,
+        patch.object(poll_jobs, "compute_and_save_snapshot_analytics"),
+        patch.object(poll_jobs, "count_pending_executions", return_value=0),
+        patch.object(poll_jobs, "count_submitted_executions", return_value=0),
+        patch.object(poll_jobs, "get_latest_snapshot", return_value=None),
+        patch.object(poll_jobs, "get_enabled_broker_names", return_value=["alpaca"]),
     ):
-        await main._poll_once()
+        await poll_jobs._poll_once()
 
     assert "Snapshot account id mismatch" in caplog.text
     # STRAT1's id-guard mismatch skips its 2nd save → 2 default rows + 1 strat1,
