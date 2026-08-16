@@ -533,10 +533,17 @@ Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:
 - ⏸ **2026-07-30 Matt + LLM PAUSED** — account verified empty (0 positions). Founder wants this as a
   CHAT interaction, not a nightly pass; deliverable is on card `matt-llm-belongs-in-chat` (pull
   `build_book_pack` into a chat turn, then decide whether the book/journal/report-kind retire).
-- ⏸ **2026-07-30 Claude Panel PAUSED** (cron line commented + `BOOKS['panel'].paused=True`). Solo books still run.
-  - ⚠ `acct_alpaca_open` positions now get NO nightly hold/trim review. Resting GTC stops still cap
-    downside; nothing trims winners or reacts to a broken thesis. Decide: review manually, let the exit
-    engine own it, or resume the panel.
+- ▶ **2026-08-16 panel account RESUMED as the LOCAL-MODEL solo book** — `BOOKS['panel']` = "Local Panel",
+  solo (no seats), LLM = LM Studio/qwen3.8-27b on the founder's PC via the new `lmstudio` provider;
+  `tools/book_local_run.py` on cron 21:40 UTC Mon–Fri right after Fable (log row 08-16; card #323).
+  Same Deep Seek in-process path → `acct_alpaca_open` gets its nightly hold/trim review again.
+  - ⚠ **Availability is the founder's**: the model must be LOADED on the PC at 21:40 UTC; preflight fails
+    loudly and the books dead-man flags the missing report. First real cycle = Mon 2026-08-17.
+  - ⚠ `book_panel` is ARMED (entry_mode=propose): advanced picks reach the phone from night one.
+  - ⏳ Review the first week's reports by spot-checking numbers against the perception layer (the
+    08-16 bench found one misquote in ~15 numbers); watch cycle wall-clock vs `BOOK_CYCLE_TIMEOUT_LOCAL_S`.
+  - The four-seat Claude version stays parked (`tools/book_session.sh panel`, cron commented,
+    `book_prompts/panel.md`); its seat lanes stay registered for history.
 
 Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). Open:
 - ⚠ **2026-08-07 prompt amendment is live and UNVERIFIED against a real cycle.** Both prompts grew a

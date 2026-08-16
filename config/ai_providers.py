@@ -50,6 +50,16 @@ AI_PROVIDERS: dict[str, dict[str, Any]] = {
         "default_model": "openai/gpt-4o",
         "key_placeholder": "sk-or-…",
     },
+    "lmstudio": {
+        # The founder's PC over the tailnet (LM Studio's OpenAI-compatible server; no
+        # real auth). 2026-08-16: runs the panel paper book (research/books.py).
+        "label": "LM Studio (local, PC)",
+        "requires_key": False,
+        "base_url_field": "lmstudio_base_url",
+        "model_field": "lmstudio_model",
+        "default_base_url": "http://100.97.131.58:1234/v1",
+        "default_model": "qwen3.8-27b",
+    },
     "ollama": {
         "label": "Ollama (local)",
         "requires_key": False,
@@ -87,6 +97,8 @@ DEFAULT_AI_SETTINGS: dict[str, Any] = {
     "openrouter_model": AI_PROVIDERS["openrouter"]["default_model"],
     "ollama_base_url": AI_PROVIDERS["ollama"]["default_base_url"],
     "ollama_model": AI_PROVIDERS["ollama"]["default_model"],
+    "lmstudio_base_url": AI_PROVIDERS["lmstudio"]["default_base_url"],
+    "lmstudio_model": AI_PROVIDERS["lmstudio"]["default_model"],
     # Provider id -> model ids shown in chat picker; omit or null = show all discovered.
     "chat_enabled_models": {},
     "default_llm": {"provider": "deepseek", "model": ""},

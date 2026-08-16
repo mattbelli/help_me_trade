@@ -64,6 +64,7 @@ JOURNAL_ORIGINS = frozenset(
         "fusion_mech",
         "book:deepseek/considered",
         "book:fable/considered",
+        "book:panel/considered",
         "book:panel/bull",
         "book:panel/bear",
         "book:panel/macro",

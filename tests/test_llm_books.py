@@ -50,7 +50,19 @@ def test_solo_book_advanced_vs_considered_lanes(tmp_path: Path) -> None:
     assert _origins(db, "book:deepseek/considered") == ["MSFT"]
 
 
-def test_panel_advanced_lands_in_seat_and_headline(tmp_path: Path) -> None:
+@pytest.fixture
+def seated_panel(monkeypatch: pytest.MonkeyPatch):
+    """The panel runs SOLO since 2026-08-16 (local model). Seat routing is still real
+    code (the Claude four-seat version in tools/book_session.sh) — pin a seated panel
+    so these tests keep proving it."""
+    from dataclasses import replace
+
+    from research.books import BOOKS, PANEL_SEATS
+
+    monkeypatch.setitem(BOOKS, "panel", replace(BOOKS["panel"], seats=PANEL_SEATS))
+
+
+def test_panel_advanced_lands_in_seat_and_headline(tmp_path: Path, seated_panel) -> None:
     db = tmp_path / "t.db"
     out = register_book_candidates(
         "panel",
@@ -64,7 +76,7 @@ def test_panel_advanced_lands_in_seat_and_headline(tmp_path: Path) -> None:
     assert _origins(db, "book:panel/bear") == ["TSLA"]
 
 
-def test_panel_invalid_seat_skips_unless_advanced(tmp_path: Path) -> None:
+def test_panel_invalid_seat_skips_unless_advanced(tmp_path: Path, seated_panel) -> None:
     db = tmp_path / "t.db"
     out = register_book_candidates(
         "panel",
@@ -265,11 +277,14 @@ def test_paused_book_stays_fully_registered() -> None:
     from research.books import ALL_BOOK_ORIGINS, BOOKS
 
     panel = BOOKS["panel"]
-    assert panel.paused is True
-    assert panel.seats and panel.headline_origin == "book:panel"
-    assert all(f"book:panel/{seat}" in ALL_BOOK_ORIGINS for seat in panel.seats)
+    # 2026-08-16: the panel is RUNNING again as a SOLO local-model book
+    # (tools/book_local_run.py); matt is the paused example now.
+    assert panel.paused is False and not panel.seats
+    assert panel.headline_origin == "book:panel"
+    assert "book:panel/considered" in ALL_BOOK_ORIGINS
+    assert BOOKS["matt"].paused is True
     # the books still running must not have been paused by accident
-    assert sorted(b.book_id for b in BOOKS.values() if b.paused) == ["matt", "panel"]
+    assert sorted(b.book_id for b in BOOKS.values() if b.paused) == ["matt"]
     assert not BOOKS["deepseek"].paused and not BOOKS["fable"].paused
 
 
@@ -292,12 +307,18 @@ async def test_dead_man_ignores_a_paused_book(monkeypatch) -> None:
     monkeypatch.setattr(
         ops_jobs, "datetime", _FrozenDatetime(datetime(2026, 7, 30, 21, 0, tzinfo=ZoneInfo("America/New_York")))
     )
+    # Pin the panel paused for this test — it is running again since 2026-08-16.
+    from dataclasses import replace
+
+    from research.books import BOOKS
+
+    monkeypatch.setitem(BOOKS, "panel", replace(BOOKS["panel"], paused=True))
     ops_jobs._book_deadman_last_date.clear()
 
     await ops_jobs._book_deadman_once()
 
     assert len(sent) == 1
-    assert "Claude Panel" not in sent[0]["body"]
+    assert "Local Panel" not in sent[0]["body"]
     assert "Deep Seek" in sent[0]["body"]  # the running books are still guarded
 
 
@@ -317,12 +338,19 @@ class _FrozenDatetime:
 
 
 @pytest.mark.asyncio
-async def test_paused_book_refuses_to_run_on_every_path(tmp_path: Path) -> None:
+async def test_paused_book_refuses_to_run_on_every_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The pause lives at the _gate chokepoint, so it holds for the in-process
     job, a session submit, and a manual run alike — not just for whichever
     scheduler happens to launch that book."""
-    from research.book_driver import run_book_cycle, submit_session_cycle
+    from dataclasses import replace
 
+    from research.book_driver import run_book_cycle, submit_session_cycle
+    from research.books import BOOKS
+
+    # The panel runs again since 2026-08-16 — pin it paused to prove the session path.
+    monkeypatch.setitem(BOOKS, "panel", replace(BOOKS["panel"], paused=True))
     db = tmp_path / "paused.db"
 
     # advisory book, in-process cycle

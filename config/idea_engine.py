@@ -29,6 +29,7 @@ for _book_origin in (
     "book:fable",
     "book:fable/considered",
     "book:panel",
+    "book:panel/considered",
     "book:panel/bull",
     "book:panel/bear",
     "book:panel/macro",

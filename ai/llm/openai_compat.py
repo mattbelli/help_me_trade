@@ -144,7 +144,8 @@ class OpenAICompatibleLLM:
         # DeepSeek V4 thinking can run minutes on a book turn. 120s became the
         # silent successor to the 8k token clamp (08-14: uncap the book, keep
         # other OpenAI-compat providers on the original budget).
-        if self.provider == "deepseek":
+        if self.provider in ("deepseek", "lmstudio"):
+            # lmstudio: a 27B model at ~55 tok/s needs minutes for a think+report turn.
             return 600.0
         return 120.0
 

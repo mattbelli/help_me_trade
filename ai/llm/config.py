@@ -13,6 +13,10 @@ _CONFIGURED_PROVIDER_ORDER = (
     "anthropic",
     "openrouter",
     "ollama",
+    # lmstudio deliberately NOT here: it is reachable by default (founder's PC), so
+    # auto-picking it would silently switch the app default — and JIT-load whatever
+    # model lists first on his GPU (it loaded gemma-4 during a test run on 08-16).
+    # Explicit only: get_llm_for_provider("lmstudio") / the user choosing it in settings.
 )
 
 

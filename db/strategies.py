@@ -113,7 +113,7 @@ _EARNINGS_DRIFT_DEFAULT_PARAMS: dict[str, Any] = {
 _BOOK_STRATEGIES = (
     ("book_deepseek", "Deep Seek (LLM book)", "acct_alpaca_deepseek"),
     ("book_fable", "Fable (LLM book)", "acct_alpaca_fable"),
-    ("book_panel", "Claude Panel (LLM book)", "acct_alpaca_open"),
+    ("book_panel", "Local Panel (LLM book)", "acct_alpaca_open"),  # renamed 08-16: local model
 )
 
 _VALID_EXIT_MODES = frozenset({"auto", "propose"})

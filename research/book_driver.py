@@ -50,6 +50,10 @@ BOOK_CALL_TIMEOUT_S = 600
 # tool calls) and the hard wall-clock ceiling for the whole session.
 BOOK_MAX_TOOL_ITERATIONS = 12
 BOOK_CYCLE_TIMEOUT_S = 900
+# The local model (LM Studio on the founder's PC, ~55 tok/s) measured 746s for a full
+# cycle on 2026-08-16 — inside 900s but with no margin; a busier night must not
+# become a timeout, so it gets double the wall-clock. Cost is free either way.
+BOOK_CYCLE_TIMEOUT_LOCAL_S = 1800
 # A crashed session retries on later job ticks, but only this many times before
 # the day is stamped with an error report — never an all-night retry storm.
 # In-memory on purpose: a backend restart resetting the count is acceptable.
@@ -313,7 +317,12 @@ async def _run_analysis(llm: Any, system: str, pack: str) -> str:
                 raise RuntimeError(f"analysis loop failed: {event.message}")
         return "".join(parts)
 
-    return await asyncio.wait_for(_consume(), timeout=BOOK_CYCLE_TIMEOUT_S)
+    timeout = (
+        BOOK_CYCLE_TIMEOUT_LOCAL_S
+        if getattr(llm, "provider", "") == "lmstudio"
+        else BOOK_CYCLE_TIMEOUT_S
+    )
+    return await asyncio.wait_for(_consume(), timeout=timeout)
 
 
 async def _complete_once(llm: Any, messages: list[Any]) -> str:

@@ -13,7 +13,7 @@ from config.ai_providers import AI_PROVIDERS, VALID_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_COMPAT_PROVIDERS = frozenset({"openai", "deepseek", "openrouter"})
+_OPENAI_COMPAT_PROVIDERS = frozenset({"openai", "deepseek", "openrouter", "lmstudio"})
 
 _OPENAI_EXCLUDE_PREFIXES = (
     "text-embedding",
@@ -108,10 +108,10 @@ def _fetch_openai_compatible_models(
     base_url: str,
     api_key: str,
 ) -> list[dict[str, str]]:
-    if not api_key:
+    if not api_key and provider != "lmstudio":  # LM Studio has no auth
         return []
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     if provider == "openrouter":
         headers["HTTP-Referer"] = "https://github.com/BeerBelly69/help_me_trade"
         headers["X-Title"] = "Help Me Trade"

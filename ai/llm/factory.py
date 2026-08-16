@@ -72,6 +72,14 @@ def _build_llm_client(
             base_url=creds["base_url"],
             model=resolved_model,
         )
+    if provider == "lmstudio":
+        return OpenAICompatibleLLM(
+            provider="lmstudio",
+            api_key=creds.get("api_key") or "lm-studio",  # server has no auth; header is cosmetic
+            base_url=creds["base_url"],
+            model=resolved_model,
+            require_api_key=False,
+        )
     if provider == "ollama":
         return OllamaLLM(
             base_url=creds["base_url"],

@@ -58,12 +58,14 @@ class Book:
 BOOKS: dict[str, Book] = {
     "deepseek": Book("deepseek", "Deep Seek", "acct_alpaca_deepseek", "book_deepseek"),
     "fable": Book("fable", "Fable", "acct_alpaca_fable", "book_fable"),
-    # PAUSED 2026-07-30 (founder): the panel's four Opus seats cost 8-10x the solo
-    # books (07-29: 84 min, 35M tokens) and it is being held while the solo books
-    # forward-test. Its crontab line is commented out to match.
-    "panel": Book(
-        "panel", "Claude Panel", "acct_alpaca_open", "book_panel", PANEL_SEATS, paused=True
-    ),
+    # 2026-08-16 (founder): RESUMED as a SOLO book on the LOCAL model — same in-process
+    # driver + charter as Deep Seek, LLM = LM Studio/qwen3.8-27b on the founder's PC
+    # (tools/book_local_run.py, cron 21:40 UTC right after Fable). No seats any more:
+    # candidates journal to book:panel/considered like the other solo books. The
+    # four-seat Claude version (07-30 paused: 8-10x the solo books) stays in
+    # tools/book_session.sh + book_prompts/panel.md; its historic seat lanes stay
+    # registered in config/idea_engine + db/idea_outcomes so old ledger rows still read.
+    "panel": Book("panel", "Local Panel", "acct_alpaca_open", "book_panel"),
     # PAUSED 2026-07-30 (founder): the account holds nothing, so a nightly
     # advisory pass reviews an empty book — and the co-managed idea belongs in
     # CHAT, where the founder can actually go back and forth, not in an
@@ -78,9 +80,11 @@ BOOK_HEADLINE_ORIGINS = frozenset(
     b.headline_origin for b in BOOKS.values() if b.headline_origin
 )
 BOOK_JOURNAL_ORIGINS = frozenset(
-    {f"book:panel/{seat}" for seat in PANEL_SEATS}
-    | {"book:deepseek/considered", "book:fable/considered"}
-)
+    # Derived from the books as configured (solo -> /considered, seated -> /<seat>) plus
+    # the panel's historic seat lanes, which stay registered so old ledger rows still read.
+    {b.journal_origin(seat) for b in BOOKS.values() for seat in (b.seats or (None,))}
+    | {f"book:panel/{seat}" for seat in PANEL_SEATS}
+) - {None}
 ALL_BOOK_ORIGINS = BOOK_HEADLINE_ORIGINS | BOOK_JOURNAL_ORIGINS
 
 

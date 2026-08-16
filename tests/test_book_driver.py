@@ -41,7 +41,15 @@ def unpaused(monkeypatch: Any):
     from research.books import BOOKS
 
     def _unpause(book_id: str) -> None:
-        monkeypatch.setitem(BOOKS, book_id, dataclasses.replace(BOOKS[book_id], paused=False))
+        book = dataclasses.replace(BOOKS[book_id], paused=False)
+        if book_id == "panel":
+            # 2026-08-16: the live panel is a SOLO local-model book; the four-seat
+            # session path (tools/book_session.sh) is still code — pin seats so
+            # the seat-registration submit test keeps proving it.
+            from research.books import PANEL_SEATS
+
+            book = dataclasses.replace(book, seats=PANEL_SEATS)
+        monkeypatch.setitem(BOOKS, book_id, book)
 
     return _unpause
 
