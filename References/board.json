@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-15",
+ "updated_at": "2026-08-16",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 320,
+   "id": "main-strangler-round-1",
+   "title": "main.py strangler round 1: 6 families out (5,347 → 4,065 lines) + a real ratchet test",
+   "lane": "done",
+   "type": "ops",
+   "priority": "medium",
+   "owner": "serv",
+   "updated_at": "2026-08-16",
+   "notes": "2026-08-16 (Sunday, markets closed). Audited api/main.py by AST: mapped every top-level def to a family, measured each family's cross-refs into main and each test's monkeypatch targets, then extracted cleanest-first, verbatim by line range (never retyped): api/alert_drawing_routes.py (price-alerts+drawings, 126), api/fusion_routes.py (204), api/status_page.py (the / HTML, 85), api/workspace_routes.py (workspace/pages/themes/board, 281 — carries BOARD_JSON_PATH/BOARD_ARCHIVE_PATH), api/reports_routes.py (scheduler loop + generate + 3 routes, 250 — carries MORNING_REPORT_* constants), api/fusion_jobs.py (6 runners, 294 — ONE lazy back-ref api.main._BARS_CACHE until bars moves). OpenAPI path set diffed before/after: IDENTICAL (146 paths). 7 test files repointed to the new modules (the honest cost). tests/test_main_ratchet.py now FAILS if inline routes >41 or lines >4,100 — the #77 'ratchet rule' was a note and the file grew 2,500 lines under it. NEXT (session 2, = #77): the watchlist-market/scanner/rvol-alerts/bars tangle (~1,650 lines) shares _rvol_bucket_now/_compute_rvol_from_total_volume/_wl_* and is hot-wired into ~60 test patches — move as a block, carrying _wl_bars_cache/_WL_BARS_TTL_S aliases with it. Then #76 (lifecycle/jobs). Leftover in main after both: poll loops + lifespan + health + settings/kill-switch (~1,200 lines) — that IS the app host."
+  },
   {
    "num": 318,
    "id": "chat-brain-model-choice",
@@ -1215,8 +1226,8 @@
    "type": "ops",
    "priority": "normal",
    "owner": "serv",
-   "updated_at": "2026-07-05",
-   "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py."
+   "updated_at": "2026-08-16",
+   "notes": "One combined round, founder-discussed 2026-07-05. (a) main.py (3,244 lines, 52 endpoints) strangler step 1: move the watchlist/quotes/session/ext cluster (touched 3x this week, cross-agent conflict magnet) into api/watchlist_routes.py + a quote-service module, carrying its tests' monkeypatch targets. (b) Same code region: add quotes+streaming to the MarketDataProvider protocol and kill the 8 isinstance(Schwab/Alpaca) vendor pins (safety rules keyed to account capability flags like money_type/execution_capable, not adapter class) — makes a future full-Alpaca switch or multi-broker routing a config change. Ratchet rule already in force: nothing NEW lands in main.py.\n2026-08-16: 2026-08-16: round 1 (#main-strangler-round-1) took the 6 free families out first; this card is now round 2 = the watchlist/scanner/rvol/bars block. Ratchet is now a TEST (tests/test_main_ratchet.py), not a note."
   },
   {
    "num": 76,

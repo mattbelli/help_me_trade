@@ -15,6 +15,13 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-16 main.py strangler round 1 (#320) — one live verify owed
+
+1. ⏳ **After the next serv deploy/restart:** `journalctl -u hmt-backend` boots clean and `/health`
+   `jobs` shows `reports_scheduler` + `fusion_*` heartbeats alive (those runners now import from
+   `api/reports_routes.py` / `api/fusion_jobs.py`; OpenAPI path set was proven identical locally,
+   lifespan ran under TestClient — the live process is the last unchecked surface). Round 2 = #77.
+
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 
 1. ⏳ **Backfill completion** (launched 08-15 evening, ~1-2h): check `filing_segment_ingest`

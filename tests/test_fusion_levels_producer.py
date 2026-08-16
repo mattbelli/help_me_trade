@@ -1,4 +1,4 @@
-"""Phase C1c — the once-daily session-levels PRODUCER (api.main).
+"""Phase C1c — the once-daily session-levels PRODUCER (api.fusion_jobs).
 
 The structure sibling of the fusion ATR producer: it stamps each pending symbol's
 latest completed session nodes into ``fusion_session_levels`` so the hot intake path
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-import api.main as main
+import api.fusion_jobs as fusion_jobs
 import db.base as db_base
 import db.fusion as fusion_mod
 import db.lane_stats as lane_stats_mod
@@ -113,7 +113,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         lambda lane, counter, n=1, **_kw: real_bump(lane, counter, n, db_path=db),
     )
     # Deterministic universe; individual tests override as needed.
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: [])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: [])
     return db
 
 
@@ -121,11 +121,11 @@ def test_pending_selects_unstamped_and_prior_day_not_stamped_today(
     env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA", "BBB", "CCC"])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["AAA", "BBB", "CCC"])
     put_session_levels("BBB", _today(), [{"name": "PDH", "price": 1.0}], db_path=db)
     put_session_levels("CCC", _yesterday(), [{"name": "PDH", "price": 1.0}], db_path=db)
 
-    pending = main._fusion_levels_pending_symbols_sync(_today())
+    pending = fusion_jobs._fusion_levels_pending_symbols_sync(_today())
 
     assert "AAA" in pending  # never stamped → pending
     assert "CCC" in pending  # stamped a prior day (as_of_date < today) → pending
@@ -137,10 +137,10 @@ def test_pending_includes_event_store_symbols(
 ) -> None:
     # Universe is the flow/tape event stores UNION the watchlist — same as ATR.
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: [])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: [])
     insert_flow(_flow_event("evt-1", "EVT"), db)
 
-    pending = main._fusion_levels_pending_symbols_sync(_today())
+    pending = fusion_jobs._fusion_levels_pending_symbols_sync(_today())
 
     assert "EVT" in pending
 
@@ -150,16 +150,16 @@ async def test_happy_path_stores_and_counts(
     env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA", "BBB"])
-    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch())
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["AAA", "BBB"])
+    monkeypatch.setattr(fusion_jobs, "compute_session_levels_batch", _fake_batch())
 
-    await main._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
 
     stored = get_session_levels("AAA", db_path=db)
     assert [lvl["name"] for lvl in stored] == ["POC", "PDH", "PDL"]
     assert get_session_levels("BBB", db_path=db)  # both symbols stamped
     # Stamped under today's as_of -> nothing left pending for the day.
-    assert main._fusion_levels_pending_symbols_sync(_today()) == []
+    assert fusion_jobs._fusion_levels_pending_symbols_sync(_today()) == []
 
     meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_stamped") == 2.0
@@ -173,10 +173,10 @@ async def test_symbol_with_no_levels_is_skipped_and_others_continue(
     # The batch omits symbols it could not compute; they must not be stamped, and must
     # not cost their slice-mates a stamp.
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["GOOD", "EMPTY"])
-    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(only={"GOOD"}))
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["GOOD", "EMPTY"])
+    monkeypatch.setattr(fusion_jobs, "compute_session_levels_batch", _fake_batch(only={"GOOD"}))
 
-    await main._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
 
     assert get_session_levels("GOOD", db_path=db)
     assert get_session_levels("EMPTY", db_path=db) == []
@@ -194,17 +194,17 @@ async def test_sweep_failure_is_counted_and_never_raises(
     # the whole sweep broke. It must be counted and swallowed, never raised into the
     # job runner, and must leave everyone pending for the next pass.
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA"])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["AAA"])
 
     async def boom(_symbols: list[str]) -> dict:
         raise RuntimeError("provider blew up")
 
-    monkeypatch.setattr(main, "compute_session_levels_batch", boom)
+    monkeypatch.setattr(fusion_jobs, "compute_session_levels_batch", boom)
 
-    await main._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
 
     assert get_session_levels("AAA", db_path=db) == []
-    assert "AAA" in main._fusion_levels_pending_symbols_sync(_today())
+    assert "AAA" in fusion_jobs._fusion_levels_pending_symbols_sync(_today())
     meters = lane_day("fusion_intake", et_today(), db_path=db)
     assert meters.get("levels_refresh_failed") == 1.0
 
@@ -214,12 +214,12 @@ async def test_second_run_same_day_no_ops(
     env: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["AAA"])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["AAA"])
     seen: list[list[str]] = []
-    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(seen=seen))
+    monkeypatch.setattr(fusion_jobs, "compute_session_levels_batch", _fake_batch(seen=seen))
 
-    await main._fusion_levels_refresh_once()
-    await main._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
 
     # Second pass found nothing pending -> the batch is never even called again.
     assert seen == [["AAA"]]
@@ -236,23 +236,23 @@ async def test_uncomputable_symbol_is_reattempted_every_cycle(
     # recovers the moment its data appears — no interval to tune, no state to lose
     # across a restart.
     db = env
-    monkeypatch.setattr(main, "_all_watchlist_symbols", lambda: ["LATE"])
+    monkeypatch.setattr(fusion_jobs, "_all_watchlist_symbols", lambda: ["LATE"])
     seen: list[list[str]] = []
     monkeypatch.setattr(
-        main, "compute_session_levels_batch", _fake_batch(only=set(), seen=seen)
+        fusion_jobs, "compute_session_levels_batch", _fake_batch(only=set(), seen=seen)
     )
 
-    await main._fusion_levels_refresh_once()
-    await main._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
+    await fusion_jobs._fusion_levels_refresh_once()
     assert seen == [["LATE"], ["LATE"]]  # re-asked, not silenced
     assert get_session_levels("LATE", db_path=db) == []
 
     # Its data shows up mid-day; the very next cycle stamps it.
-    monkeypatch.setattr(main, "compute_session_levels_batch", _fake_batch(seen=seen))
-    await main._fusion_levels_refresh_once()
+    monkeypatch.setattr(fusion_jobs, "compute_session_levels_batch", _fake_batch(seen=seen))
+    await fusion_jobs._fusion_levels_refresh_once()
 
     assert get_session_levels("LATE", db_path=db)
-    assert main._fusion_levels_pending_symbols_sync(_today()) == []
+    assert fusion_jobs._fusion_levels_pending_symbols_sync(_today()) == []
 
 
 def test_reader_refuses_a_stale_row_but_serves_yesterdays(tmp_path: Path) -> None:

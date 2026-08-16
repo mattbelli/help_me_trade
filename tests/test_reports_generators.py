@@ -264,11 +264,11 @@ async def test_run_scheduled_report_generates_and_dedups(
     reports_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _mock_llm(monkeypatch, _BRIEF_JSON)
-    monkeypatch.setattr("api.main._morning_report_window", lambda *_a, **_k: True)
+    monkeypatch.setattr("api.reports_routes._morning_report_window", lambda *_a, **_k: True)
     notify_mock = AsyncMock(return_value=1)
     monkeypatch.setattr("signals.notify.notify", notify_mock)
 
-    from api.main import _run_scheduled_report
+    from api.reports_routes import _run_scheduled_report
 
     job = {"kind": "morning_brief", "hour_et": 8, "symbols": ["SPY"], "enabled": True}
     await _run_scheduled_report(job)
@@ -283,11 +283,11 @@ async def test_run_scheduled_report_generates_and_dedups(
 async def test_run_scheduled_report_skips_disabled(
     reports_db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("api.main._morning_report_window", lambda *_a, **_k: True)
+    monkeypatch.setattr("api.reports_routes._morning_report_window", lambda *_a, **_k: True)
     notify_mock = AsyncMock(return_value=1)
     monkeypatch.setattr("signals.notify.notify", notify_mock)
 
-    from api.main import _run_scheduled_report
+    from api.reports_routes import _run_scheduled_report
 
     await _run_scheduled_report(
         {"kind": "morning_brief", "hour_et": 8, "symbols": [], "enabled": False}

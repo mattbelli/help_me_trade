@@ -3,32 +3,38 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
-import tempfile
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from ai.llm.factory import clear_llm_cache
 from ai.rules.engine import evaluate_on_snapshot
 from api import watchlist_bars_cache
 from api.ai_routes import router as ai_router
+from api.alert_drawing_routes import router as alert_drawing_router
 from api.auth import (
     auth_enabled,
     frontend_origins,
     verify_admin_token,
-    verify_mutation_token,
     verify_websocket_auth,
 )
 from api.device_routes import router as device_router
 from api.fill_orphan_routes import router as fill_orphan_router
+from api.fusion_jobs import (
+    _fusion_atr_refresh_once,
+    _fusion_intake_once,
+    _fusion_levels_refresh_once,
+    _fusion_lifecycle_eod_once,
+    _fusion_lifecycle_once,
+    _fusion_reason_once,
+)
+from api.fusion_routes import router as fusion_router
 from api.jobs import (
     jobs_health,
     mark_alive,
@@ -45,16 +51,24 @@ from api.notification_routes import router as notification_router
 from api.orders_routes import router as orders_router
 from api.performance_routes import router as performance_router
 from api.poll_health import poll_health
+from api.reports_routes import (
+    _MORNING_REPORT_ENV_ENABLED,
+    MORNING_REPORT_INTERVAL_SECONDS,
+    _reports_scheduler_loop,
+)
+from api.reports_routes import router as reports_router
 from api.research_jobs import OPTIONS_FLOW_ENABLED as _OPTIONS_FLOW_ENABLED
 from api.research_jobs import RESEARCH_WORKER_EXTERNAL as _RESEARCH_WORKER_EXTERNAL
 from api.research_jobs import register_research_jobs
 from api.scan_routes import router as scan_router
 from api.schwab_routes import router as schwab_router
 from api.social_routes import router as social_router
+from api.status_page import router as status_page_router
 from api.strategy_lab_routes import router as strategy_lab_router
 from api.strategy_routes import router as strategy_router
 from api.ticker_routes import router as ticker_router
 from api.trade_routes import router as trade_router
+from api.workspace_routes import router as workspace_router
 from brokers.alpaca import AlpacaAdapter, StockBar
 from brokers.alpaca_tier import clear_alpaca_tier_cache, data_tier, effective_alpaca_feed
 from brokers.errors import BrokerError
@@ -73,7 +87,6 @@ from brokers.market_stream import AlpacaMarketStreamHub, BaseMarketHub
 from brokers.schwab_market_stream import SchwabMarketStreamHub
 from config.log_redaction import install_log_redaction
 from config.settings import (
-    SCHEDULABLE_REPORT_KINDS,
     add_watchlist_symbol,
     alpaca_config,
     apply_settings_patch,
@@ -89,7 +102,6 @@ from config.settings import (
     mask_settings,
     primary_broker,
     remove_watchlist_symbol,
-    reports_config,
     save_chart_layout,
     save_watchlist,
     set_active_watchlist,
@@ -103,19 +115,8 @@ from db.accounts import (
     reconcile_account_external_id,
 )
 from db.ai_tables import delete_rule, init_ai_tables
-from db.base import DEFAULT_DB_PATH, connect
-from db.chart_features import (
-    create_chart_drawing,
-    create_price_alert,
-    delete_chart_drawing,
-    delete_price_alert,
-    init_chart_features,
-    list_chart_drawings,
-    list_price_alerts,
-    mark_alert_triggered,
-    update_chart_drawing,
-    update_price_alert,
-)
+from db.base import DEFAULT_DB_PATH
+from db.chart_features import init_chart_features, list_price_alerts
 from db.chat_sessions import init_chat_tables
 from db.device_tokens import init_device_token_tables
 from db.earnings_alerts import init_earnings_alert_tables
@@ -145,16 +146,7 @@ from db.sqlite import (
 )
 from db.strategies import init_strategy_tables, list_strategies, seed_default_strategies
 from db.trades import init_trade_tables
-from db.workspace import (
-    init_workspace_tables,
-    is_valid_custom_themes,
-    load_custom_themes,
-    load_workspace_layout,
-    load_workspace_pages,
-    save_custom_themes,
-    save_workspace_layout,
-    save_workspace_pages,
-)
+from db.workspace import init_workspace_tables
 from signals import indicators
 from signals.earnings_refresh import arefresh_earnings_calendar
 from signals.options_flow.runner import OptionsFlowRunner
@@ -163,7 +155,6 @@ from signals.regime_sleeves import run_regime_sleeves_scan
 from signals.scan import run_signal_scan
 from signals.session_node_strategy import (
     compute_session_levels,
-    compute_session_levels_batch,
     run_session_node_scan,
 )
 from signals.social_buzz import _LOOP_INTERVAL_SECONDS as _SOCIAL_BUZZ_INTERVAL_SECONDS
@@ -182,10 +173,6 @@ from trading.proposal_intake import propose_from_scan_fire
 from trading.stop_guard import place_protective_stops
 from trading.sync import async_sync_all_enabled_brokers
 
-ROOT = Path(__file__).resolve().parent.parent
-BOARD_JSON_PATH = ROOT / "References" / "board.json"
-BOARD_ARCHIVE_PATH = ROOT / "References" / "board_archive.json"
-_EMPTY_BOARD: dict = {"updated_at": None, "lanes": [], "cards": []}
 POLL_INTERVAL_SECONDS = max(5, int(os.environ.get("POLL_INTERVAL_SECONDS", "20")))
 SIGNAL_SCAN_INTERVAL_SECONDS = max(30, int(os.environ.get("SIGNAL_SCAN_INTERVAL_SECONDS", "300")))
 # Session-node reacts to SPY touching a level on the 1-min chart, so it runs on its
@@ -263,15 +250,6 @@ _EARNINGS_ALERTS_ENABLED = os.environ.get("EARNINGS_ALERTS_ENABLED", "1").strip(
     "false",
     "no",
 )
-MORNING_REPORT_INTERVAL_SECONDS = max(
-    60, int(os.environ.get("MORNING_REPORT_INTERVAL_SECONDS", "900"))
-)
-_MORNING_REPORT_ENV_ENABLED = os.environ.get("MORNING_REPORT_ENABLED", "1").strip() not in (
-    "0",
-    "false",
-    "no",
-)
-MORNING_REPORT_SYMBOL = "SPY"
 _BARS_PREWARM_INTERVAL = 15.0
 _TRADE_SYNC_INTERVAL_SECONDS = 3600.0
 _ALERT_SYMBOL_INTERVAL_SECONDS = 30.0
@@ -1475,188 +1453,6 @@ async def _schwab_snapshot_once() -> None:
         logger.info("Schwab EOD equity snapshot captured for %s", today)
 
 
-def _morning_report_window(now_et: datetime, hour_et: int) -> bool:
-    """True across a ~2-hour morning window from the scheduled hour (ET). Wide enough
-    that the 15-min poll always lands inside it regardless of boot timing (a 14-min
-    slot could be missed entirely); the per-ET-day dedup still ensures one send."""
-    return hour_et <= now_et.hour < hour_et + 2
-
-
-def _morning_report_enabled() -> bool:
-    cfg = reports_config()
-    return _MORNING_REPORT_ENV_ENABLED and bool(cfg.get("morning_levels_enabled", True))
-
-
-async def _morning_levels_report_once() -> None:
-    """Generate and push the SPY morning levels report once per ET day."""
-    from db.reports import morning_levels_exists_for_day
-    from signals.notify import notify
-    from signals.reports import generate_morning_levels_report
-
-    now_et = datetime.now(_ET)
-    hour_et = int(reports_config().get("hour_et", 8))
-    if not _morning_report_window(now_et, hour_et):
-        return
-
-    today = now_et.date()
-    symbol = MORNING_REPORT_SYMBOL
-    if morning_levels_exists_for_day(symbol, today):
-        return
-
-    try:
-        report = await generate_morning_levels_report(symbol, et_date=today)
-    except Exception:
-        logger.exception("Morning levels report: compute/save failed")
-        return
-    if report is None:
-        logger.info("Morning levels report: no session data for %s", symbol)
-        return
-
-    try:
-        await notify(
-            kind="report_ready",
-            title=report["title"],
-            body=report["body"],
-            severity="info",
-            ref_type="report",
-            ref_id=report["id"],
-            action_url=f"/reports/{report['id']}",
-            data={"report_id": report["id"], "kind": "morning_levels"},
-        )
-    except Exception:
-        logger.exception("Morning levels report: push failed for %s", report["id"])
-    else:
-        logger.info(
-            "Morning levels report sent: id=%s symbol=%s et_date=%s",
-            report["id"],
-            symbol,
-            today.isoformat(),
-        )
-
-
-def _report_push_body(report: dict) -> str:
-    """Plaintext push body: HTML briefs push their summary, not the raw markup."""
-    if report.get("format") == "html":
-        rj = report.get("payload", {}).get("report") or {}
-        summary = str(rj.get("summary") or "").strip()
-        return summary[:280] or str(report.get("title", "Report ready"))
-    return str(report.get("body", ""))
-
-
-async def _notify_report_ready(report: dict, *, push: bool | None = None) -> None:
-    from signals.notify import notify
-
-    kwargs: dict[str, bool] = {}
-    if push is not None:
-        kwargs["push"] = push
-    await notify(
-        kind="report_ready",
-        title=report["title"],
-        body=_report_push_body(report),
-        severity="info",
-        ref_type="report",
-        ref_id=report["id"],
-        action_url=f"/reports/{report['id']}",
-        data={"report_id": report["id"], "kind": report["kind"]},
-        **kwargs,
-    )
-
-
-async def _generate_report_by_kind(
-    kind: str,
-    *,
-    symbols: list[str] | None = None,
-    topic: str | None = None,
-    et_date: date | None = None,
-) -> dict | None:
-    """Dispatch a report kind to its generator (shared by scheduler + API)."""
-    from signals import reports as reports_mod
-
-    syms = symbols or None
-    if kind == "morning_levels":
-        sym = syms[0] if syms else MORNING_REPORT_SYMBOL
-        return await reports_mod.generate_morning_levels_report(sym, et_date=et_date)
-    if kind == "levels":
-        return await reports_mod.generate_levels_report(
-            syms or [MORNING_REPORT_SYMBOL], et_date=et_date
-        )
-    if kind == "morning_brief":
-        return await reports_mod.generate_morning_brief_report(syms, et_date=et_date)
-    if kind == "evening_brief":
-        return await reports_mod.generate_evening_brief_report(syms, et_date=et_date)
-    if kind == "on_request":
-        return await reports_mod.generate_on_request_report(topic or "", syms, et_date=et_date)
-    if kind == "flow_decomp":
-        return await reports_mod.generate_flow_decomp_report(et_date=et_date)
-    if kind == "overnight_flow":
-        return await reports_mod.generate_overnight_flow_report(et_date=et_date)
-    return None
-
-
-async def _run_scheduled_report(job: dict) -> None:
-    """Generate + push one configured report job, once per (kind, params, ET-day)."""
-    from db.reports import report_exists_for_day
-
-    kind = str(job.get("kind", "")).strip()
-    if not job.get("enabled") or kind not in SCHEDULABLE_REPORT_KINDS:
-        return
-
-    now_et = datetime.now(_ET)
-    if not _morning_report_window(now_et, int(job.get("hour_et", 8))):
-        return
-
-    today = now_et.date()
-    symbols = [str(s).strip().upper() for s in (job.get("symbols") or []) if str(s).strip()]
-    dedup_key = ",".join(symbols) if kind == "levels" else kind
-    if report_exists_for_day(kind, today, dedup_key=dedup_key):
-        return
-
-    try:
-        report = await _generate_report_by_kind(kind, symbols=symbols, et_date=today)
-    except Exception:
-        logger.exception("Scheduled report generation failed: kind=%s", kind)
-        return
-    if report is None:
-        logger.info("Scheduled report produced nothing: kind=%s", kind)
-        return
-
-    try:
-        await _notify_report_ready(report)
-    except Exception:
-        logger.exception("Scheduled report push failed: id=%s", report["id"])
-    else:
-        logger.info("Scheduled report sent: kind=%s id=%s", kind, report["id"])
-
-
-async def _reports_scheduler_loop() -> None:
-    """Poll every ~15 min; run the legacy morning-levels job plus any configured
-    report jobs (morning/evening briefs, extra levels) during their ET windows.
-
-    Env gates:
-      MORNING_REPORT_ENABLED              default "1"  (set to "0" to disable all)
-      MORNING_REPORT_INTERVAL_SECONDS     default 900
-      MORNING_REPORT_HOUR_ET              default 8 (settings hour_et also applies)
-    """
-    while True:
-        await asyncio.sleep(MORNING_REPORT_INTERVAL_SECONDS)
-        if not _MORNING_REPORT_ENV_ENABLED:
-            continue
-        try:
-            if _morning_report_enabled():
-                try:
-                    await _morning_levels_report_once()
-                except Exception:
-                    logger.exception("Morning levels report loop iteration failed")
-            for job in reports_config().get("jobs", []):
-                try:
-                    await _run_scheduled_report(job)
-                except Exception:
-                    logger.exception("Scheduled report job failed: %s", job.get("kind"))
-        except Exception:
-            # Guards the config reads too — this loop must never die (audit LOW-7).
-            logger.exception("Reports scheduler loop iteration failed")
-        else:
-            mark_alive("reports_scheduler")
 
 
 # ---------------------------------------------------------------------------
@@ -1722,304 +1518,8 @@ async def _filings_initial_fill() -> None:
 # The nightly setup scan lives in api/research_jobs.py (R1a) so the research
 # worker can own it after the R1b split.
 _background_jobs_registered = False
-_fusion_shock_until_mono = 0.0
-_fusion_lifecycle_eod_last_date: dict = {}
 
 
-def _fusion_price_from_cache(symbol: str):
-    """Read the backend's existing bars caches only; never fetch."""
-    from decimal import Decimal
-
-    sym = symbol.strip().upper()
-    now_wall = time.time()
-    candidates: list[tuple[float, object]] = []
-    for (cached_sym, timeframe), (stored_at, bars) in _wl_bars_cache.items():
-        if cached_sym == sym and bars:
-            ttl = _WL_BARS_TTL_S.get(timeframe, 90.0)
-            if now_wall - stored_at <= ttl:
-                candidates.append((stored_at, bars[-1]))
-    for key, (expires, response) in _BARS_CACHE.items():
-        if key and key[0] == sym and expires > time.monotonic():
-            bars = response.get("bars") if isinstance(response, dict) else None
-            if bars:
-                candidates.append((expires, bars[-1]))
-    if not candidates:
-        return None
-    latest = max(candidates, key=lambda item: item[0])[1]
-    close = latest.get("close") if isinstance(latest, dict) else getattr(latest, "close", None)
-    return Decimal(str(close)) if close is not None else None
-
-
-def _fusion_cached_daily_move(symbol: str) -> float | None:
-    sym = symbol.strip().upper()
-    newest: tuple[float, list] | None = None
-    hit = _wl_bars_cache.get((sym, "1Day"))
-    if hit is not None and hit[1]:
-        newest = hit
-    for key, (expires, response) in _BARS_CACHE.items():
-        if key and key[0] == sym and key[1] == "1Day":
-            bars = response.get("bars") if isinstance(response, dict) else None
-            if bars and (newest is None or expires > newest[0]):
-                newest = (expires, bars)
-    if newest is None or len(newest[1]) < 2:
-        return None
-    bars = newest[1]
-    previous = bars[-2]
-    current = bars[-1]
-    prev_close = previous.get("close") if isinstance(previous, dict) else previous.close
-    last_close = current.get("close") if isinstance(current, dict) else current.close
-    if not prev_close:
-        return None
-    return (float(last_close) / float(prev_close) - 1.0) * 100.0
-
-
-def _fusion_shock_active() -> bool:
-    global _fusion_shock_until_mono
-    from config.idea_engine import (
-        FUSION_SHOCK_WINDOW_MINUTES,
-        FUSION_SPY_SHOCK_MOVE_PCT,
-        FUSION_VIX_SHOCK_MOVE_PCT,
-    )
-
-    now = time.monotonic()
-    spy_move = _fusion_cached_daily_move("SPY")
-    vix_move = _fusion_cached_daily_move("VIX")
-    if (
-        spy_move is not None
-        and abs(spy_move) >= FUSION_SPY_SHOCK_MOVE_PCT
-        or vix_move is not None
-        and vix_move >= FUSION_VIX_SHOCK_MOVE_PCT
-    ):
-        _fusion_shock_until_mono = max(
-            _fusion_shock_until_mono, now + FUSION_SHOCK_WINDOW_MINUTES * 60
-        )
-    return now <= _fusion_shock_until_mono
-
-
-async def _fusion_intake_once() -> None:
-    from signals.fusion.intake import intake_once
-
-    await asyncio.to_thread(
-        intake_once,
-        price_lookup=_fusion_price_from_cache,
-        shock_lookup=_fusion_shock_active,
-    )
-
-
-def _fusion_atr_pending_symbols_sync(as_of: str) -> list[str]:
-    """Event-store ∪ watchlist symbols still missing today's cached ATR.
-
-    The UNION walks both event tables end to end — sync SQLite, thread-only."""
-    from db.base import DEFAULT_DB_PATH, connect
-    from db.equity_tape import init_db as init_equity_tape
-    from db.options_flow import init_db as init_options_flow
-
-    init_options_flow(DEFAULT_DB_PATH)
-    init_equity_tape(DEFAULT_DB_PATH)
-    with connect(DEFAULT_DB_PATH) as conn:
-        rows = conn.execute(
-            """
-            SELECT underlying AS symbol FROM options_flow_events
-            UNION
-            SELECT symbol FROM equity_tape_events
-            """
-        ).fetchall()
-        cached_today = {
-            str(row["symbol"])
-            for row in conn.execute(
-                "SELECT symbol FROM fusion_atr_cache WHERE as_of_date = ?", (as_of,)
-            ).fetchall()
-        }
-    return sorted(
-        ({str(row["symbol"]).upper() for row in rows} | set(_all_watchlist_symbols()))
-        - cached_today
-    )
-
-
-def _fusion_atr_store_sync(bars_by_symbol, as_of: str) -> None:
-    """Compute ATR-14 per symbol and cache it — sync SQLite writes, thread-only."""
-    from decimal import Decimal
-
-    from db.fusion import put_atr
-
-    today_et = datetime.now(_ET).date()
-    for symbol, bars in bars_by_symbol.items():
-        completed = []
-        for bar in bars:
-            raw_time = getattr(bar, "time", None)
-            try:
-                bar_time = datetime.fromisoformat(str(raw_time).replace("Z", "+00:00"))
-                bar_day = (
-                    bar_time.astimezone(_ET).date()
-                    if bar_time.tzinfo is not None
-                    else bar_time.date()
-                )
-            except (TypeError, ValueError):
-                bar_day = None
-            if bar_day == today_et:
-                continue
-            completed.append(bar)
-        highs = [float(bar.high) for bar in completed]
-        lows = [float(bar.low) for bar in completed]
-        closes = [float(bar.close) for bar in completed]
-        atr14 = indicators.atr(highs, lows, closes, 14)
-        if atr14 is not None:
-            put_atr(symbol, as_of, Decimal(str(round(atr14, 6))))
-
-
-async def _fusion_atr_refresh_once() -> None:
-    """Once-daily external work, deliberately separate from trigger intake."""
-    as_of = datetime.now(_ET).date().isoformat()
-    symbols = await asyncio.to_thread(_fusion_atr_pending_symbols_sync, as_of)
-    if not symbols:
-        return
-    provider = get_market_data_provider()
-    bars_by_symbol = await provider.aget_stock_bars_batch(
-        symbols, timeframe="1Day", days=40
-    )
-    await asyncio.to_thread(_fusion_atr_store_sync, bars_by_symbol, as_of)
-
-
-def _fusion_levels_pending_symbols_sync(as_of: str) -> list[str]:
-    """Event-store ∪ watchlist symbols still missing today's cached session levels.
-
-    The UNION walks both event tables end to end — sync SQLite, thread-only. Same
-    universe as the ATR pending set (fusion_atr_cache's sibling), so a symbol that
-    earns an ATR stamp earns session levels: pending == universe minus stamped-today
-    (a symbol whose as_of_date is still < today stays pending)."""
-    from db.base import DEFAULT_DB_PATH, connect
-    from db.equity_tape import init_db as init_equity_tape
-    from db.options_flow import init_db as init_options_flow
-
-    init_options_flow(DEFAULT_DB_PATH)
-    init_equity_tape(DEFAULT_DB_PATH)
-    with connect(DEFAULT_DB_PATH) as conn:
-        rows = conn.execute(
-            """
-            SELECT underlying AS symbol FROM options_flow_events
-            UNION
-            SELECT symbol FROM equity_tape_events
-            """
-        ).fetchall()
-        cached_today = {
-            str(row["symbol"])
-            for row in conn.execute(
-                "SELECT symbol FROM fusion_session_levels WHERE as_of_date = ?",
-                (as_of,),
-            ).fetchall()
-        }
-    return sorted(
-        ({str(row["symbol"]).upper() for row in rows} | set(_all_watchlist_symbols()))
-        - cached_today
-    )
-
-
-def _fusion_levels_store_sync(
-    payloads: dict[str, dict], as_of: str
-) -> int:
-    """Stamp a batch of computed levels — sync SQLite writes, thread-only. One hop for
-    the whole sweep, not one per symbol (the midnight pass stamps ~9.8K of them)."""
-    from db.fusion import put_session_levels
-
-    stamped = 0
-    for symbol, payload in payloads.items():
-        levels = list(payload.get("levels") or [])
-        if not levels:
-            continue
-        put_session_levels(symbol, as_of, levels)
-        stamped += 1
-    return stamped
-
-
-async def _fusion_levels_refresh_once() -> None:
-    """Once-daily external work, deliberately separate from trigger intake.
-
-    Structure sibling of _fusion_atr_refresh_once: stamps each pending symbol's latest
-    completed session nodes into fusion_session_levels so the hot intake path only ever
-    READS them (never a live compute during a burst). Fetches through
-    get_market_data_provider() — the Alpaca-backed source, same lane as the ATR
-    producer — so this never bursts Schwab.
-
-    BATCHED, and that is what keeps it affordable: compute_session_levels_batch asks the
-    provider once per 100-symbol slice instead of twice per symbol, so the midnight pass
-    (~9.8K symbols, every one pending at the as_of rollover) costs ~120 requests instead
-    of ~19,750 — measured 2026-08-12 at 7,349/min peak against a 200/min ceiling. It also
-    removes the need for any back-off: a symbol that yields nothing rides along in a
-    slice for free, so it can be re-attempted every cycle and recovers the moment its
-    data appears, with no interval to tune and no state to lose across a restart.
-    """
-    from db.lane_stats import bump
-
-    as_of = datetime.now(_ET).date().isoformat()
-    symbols = await asyncio.to_thread(_fusion_levels_pending_symbols_sync, as_of)
-    if not symbols:
-        return
-    try:
-        payloads = await compute_session_levels_batch(symbols)
-    except Exception:
-        # Per-slice failures are already absorbed inside the batch; reaching here means
-        # the sweep itself broke. Count it and leave everyone pending for the next pass.
-        logger.exception("fusion levels refresh failed (%d symbols)", len(symbols))
-        await asyncio.to_thread(bump, "fusion_intake", "levels_refresh_failed")
-        return
-    stamped = await asyncio.to_thread(_fusion_levels_store_sync, payloads, as_of)
-    if stamped:
-        await asyncio.to_thread(bump, "fusion_intake", "levels_stamped", stamped)
-
-
-async def _fusion_reason_once() -> None:
-    """Fusion C5 reason lane (research/reason.run_reason_pass), wired but DARK.
-
-    REASON_EMIT_ENABLED gates the whole lane; while it is False this is a cheap
-    no-op that never even builds an LLM client (the poll fires every 120s in market
-    hours). The ARM commit flips the flag — see the ARMING CHECKLIST in
-    config/idea_engine.py. run_reason_pass re-checks the flag as a belt-and-braces
-    guard, but the check here is what keeps the dark poll free of client construction."""
-    import config.idea_engine as _idea_cfg
-
-    if not _idea_cfg.REASON_EMIT_ENABLED:
-        return
-    from ai.llm.factory import get_llm
-    from config.research_engine import resolve_role_model
-    from research.reason import run_reason_pass
-
-    llm_triage = get_llm(model=resolve_role_model("triage"))
-    llm_reason = get_llm(model=resolve_role_model("reason"))
-    await run_reason_pass(
-        db_path=DEFAULT_DB_PATH,
-        now=datetime.now(_ET),
-        llm_triage=llm_triage,
-        llm_reason=llm_reason,
-    )
-
-
-async def _fusion_lifecycle_once() -> None:
-    """Consolidated episode + armed-idea lifecycle sweep (signals/fusion/lifecycle).
-
-    Mirrors _fusion_intake_once: offloaded to a thread, passing the same intake
-    price cache the dots are stamped from. Runs every 60s in market hours."""
-    from signals.fusion.lifecycle import sweep_lifecycle
-
-    await asyncio.to_thread(
-        sweep_lifecycle, datetime.now(_ET), price_lookup=_fusion_price_from_cache
-    )
-
-
-async def _fusion_lifecycle_eod_once() -> None:
-    """One unconditional post-close lifecycle sweep so hard-TTL / decay-to-noise
-    stamp at EOD — the 60s market-hours job stops at 16:00 ET. Self-gates to
-    after-close, once per trading day (the _schwab_snapshot_once idiom)."""
-    now_et = datetime.now(_ET)
-    if now_et.weekday() >= 5:
-        return
-    after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
-    if not after_close:
-        return
-    today = now_et.date()
-    if _fusion_lifecycle_eod_last_date.get("date") == today:
-        return
-    await _fusion_lifecycle_once()
-    _fusion_lifecycle_eod_last_date["date"] = today
 
 
 def _register_background_jobs() -> None:
@@ -2370,6 +1870,11 @@ app.include_router(fill_orphan_router)
 app.include_router(ticker_router)
 app.include_router(social_router)
 app.include_router(orders_router)
+app.include_router(alert_drawing_router)
+app.include_router(fusion_router)
+app.include_router(status_page_router)
+app.include_router(workspace_router)
+app.include_router(reports_router)
 
 app.add_middleware(SecurityMiddleware)
 app.add_middleware(
@@ -4028,303 +3533,8 @@ def api_idea_ledger(
     )
 
 
-@app.get("/api/fusion/episodes")
-def api_fusion_episodes(
-    day: str | None = None,
-    limit: int = Query(50, ge=1, le=100),
-):
-    from db.fusion import list_recent_episodes
-
-    rows = list_recent_episodes(
-        market_day=day,
-        limit=limit,
-        db_path=DEFAULT_DB_PATH,
-    )
-    return {
-        "episodes": rows,
-        "day": day if day is not None else (rows[0]["market_day"] if rows else None),
-    }
 
 
-@app.get("/api/fusion/episodes/{episode_id}")
-def api_fusion_episode(episode_id: str):
-    from db.fusion import episode_dots
-
-    with connect(DEFAULT_DB_PATH) as conn:
-        row = conn.execute(
-            """
-            SELECT id, symbol, market_day, opened_at, updated_at, anchor_dot_id,
-                   anchor_price, anchor_atr14, anchor_direction,
-                   registration_called, score, direction_state, contested,
-                   signature, market_shock
-            FROM fusion_episodes
-            WHERE id = ?
-            """,
-            (episode_id,),
-        ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Fusion episode not found")
-    return {
-        "episode": dict(row),
-        "dots": episode_dots(episode_id, db_path=DEFAULT_DB_PATH),
-    }
-
-
-@app.get("/api/fusion/episodes/{episode_id}/dossier")
-def api_fusion_episode_dossier(episode_id: str):
-    """The episode's deterministic claim matrix, built on demand (~150ms store
-    reads, zero LLM/network). Ephemeral — put_dossier stays REASON-lane-only."""
-    from signals.dossier import build_dossier
-
-    with connect(DEFAULT_DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT * FROM fusion_episodes WHERE id = ?",
-            (episode_id,),
-        ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Fusion episode not found")
-    return {"dossier": build_dossier(dict(row), db_path=DEFAULT_DB_PATH)}
-
-
-def _fusion_radar_sync(sessions: int, now_iso_str: str) -> list[dict]:
-    """Compute-on-read fusion radar: per symbol with evidence in the last
-    ``sessions`` market-days, the v2 decayed thesis/trigger masses at ``now``.
-
-    Read-only, no writes/caching (dot volumes are small). DTE is recovered from
-    options_flow_events for option dots exactly like tools/fusion_rescore_replay
-    so pre-stamp historical dots route thesis-vs-trigger correctly (newer dots
-    also carry dte in their detail). Rows sort by thesis z desc (the ranking
-    statistic — FUSION_SCORING_NORMALIZATION_2026-07-22), capped at 30."""
-    from signals.fusion.scorer import score_decayed
-
-    with connect(DEFAULT_DB_PATH) as conn:
-        day_rows = conn.execute(
-            "SELECT DISTINCT market_day FROM fusion_episodes "
-            "ORDER BY market_day DESC LIMIT ?",
-            (int(sessions),),
-        ).fetchall()
-        days = [row["market_day"] for row in day_rows]
-        if not days:
-            return []
-        placeholders = ",".join("?" * len(days))
-        dot_rows = conn.execute(
-            f"""
-            SELECT d.* FROM evidence_dots d
-            JOIN fusion_episodes e ON e.id = d.episode_id
-            WHERE e.market_day IN ({placeholders})
-            ORDER BY d.symbol, d.ts, d.id
-            """,
-            days,
-        ).fetchall()
-        option_ids = [
-            str(row["source_event_id"])
-            for row in dot_rows
-            if row["source_store"] == "options_flow"
-        ]
-        dte_by_id: dict[str, int] = {}
-        for start in range(0, len(option_ids), 400):
-            chunk = option_ids[start : start + 400]
-            ph = ",".join("?" * len(chunk))
-            for row in conn.execute(
-                f"SELECT id, dte FROM options_flow_events WHERE id IN ({ph})", chunk
-            ).fetchall():
-                if row["dte"] is not None:
-                    dte_by_id[str(row["id"])] = int(row["dte"])
-
-    by_symbol: dict[str, list[dict]] = {}
-    for row in dot_rows:
-        dot = dict(row)
-        try:
-            dot["detail"] = json.loads(dot.pop("detail_json"))
-        except (TypeError, json.JSONDecodeError):
-            dot["detail"] = {}
-        event_id = str(dot.get("source_event_id"))
-        if event_id in dte_by_id:
-            dot["dte"] = dte_by_id[event_id]
-        by_symbol.setdefault(str(dot["symbol"]), []).append(dot)
-
-    from signals.fusion.attention import attention_tier
-    from signals.fusion.scorer import NOISE_FLOOR
-
-    try:
-        from signals.fusion.attention import hot_lane_rows
-
-        hot_by_symbol = {
-            row["symbol"]: row["reason"] for row in hot_lane_rows(DEFAULT_DB_PATH)
-        }
-    except Exception:
-        # A broken lane read degrades tier to poll/scan — never a radar 500.
-        logger.warning("radar: hot-lane read failed", exc_info=True)
-        hot_by_symbol = {}
-    rows: list[dict] = []
-    for symbol, dots in by_symbol.items():
-        state = score_decayed(dots, now_iso_str)
-        last_evidence_at = max((str(dot["ts"]) for dot in dots), default=None)
-        rows.append(
-            {
-                "symbol": symbol,
-                "tier": attention_tier(
-                    hot_reason=hot_by_symbol.get(symbol),
-                    thesis_gross=state["thesis"]["gross"],
-                    noise_floor=NOISE_FLOOR,
-                ),
-                "maturity": state["maturity"],
-                "thesis": {
-                    "bull_mass": state["thesis"]["bull_mass"],
-                    "bear_mass": state["thesis"]["bear_mass"],
-                    "net": state["thesis"]["net"],
-                    "conviction": state["thesis"]["conviction"],
-                    "z": state["thesis"]["z"],
-                    "contested": state["thesis"]["contested"],
-                },
-                "trigger": {
-                    "bull_mass": state["trigger"]["bull_mass"],
-                    "bear_mass": state["trigger"]["bear_mass"],
-                },
-                "last_evidence_at": last_evidence_at,
-                "dot_count": len(dots),
-            }
-        )
-    rows.sort(key=lambda row: row["thesis"]["z"], reverse=True)
-    return rows[:30]
-
-
-@app.get("/api/fusion/radar")
-async def api_fusion_radar(sessions: int = Query(5, ge=1, le=30)):
-    """Live warming radar: v2 decayed masses per recently-active symbol,
-    ranked by thesis z. Read-only compute-on-read (offloaded off the loop)."""
-    now_iso_str = datetime.now(timezone.utc).isoformat()
-    rows = await asyncio.to_thread(_fusion_radar_sync, sessions, now_iso_str)
-    return {"rows": rows, "now": now_iso_str, "sessions": sessions}
-
-
-@app.post("/api/fusion/ideas/{idea_id}/action")
-def api_fusion_idea_action(idea_id: int, request: Request, body: dict = Body(...)):
-    """Record the founder's take/skip decision on a fusion idea (forward-only).
-
-    Body: ``{"action": "taken"|"skipped", "skip_reason"?: <one of the frozen set>}``.
-    Grading is UNAFFECTED — an idea is outcome-tracked whether taken or not
-    (calibration counts everything); this only records what the founder chose."""
-    verify_mutation_token(request)
-    from db.idea_outcomes import set_user_action
-
-    action = str(body.get("action") or "").strip().lower()
-    skip_reason = body.get("skip_reason")
-    result = set_user_action(idea_id, action, skip_reason=skip_reason)
-    if result == "not_found":
-        return JSONResponse({"error": "Idea not found"}, status_code=404)
-    if result == "bad_action":
-        return JSONResponse(
-            {"error": "action must be 'taken' or 'skipped'"}, status_code=400
-        )
-    if result == "bad_reason":
-        return JSONResponse(
-            {
-                "error": (
-                    "skip_reason must be one of already_exposed/wrong_horizon/"
-                    "disliked_thesis/no_capital/timing and only with action=skipped"
-                )
-            },
-            status_code=400,
-        )
-    return {
-        "ok": True,
-        "action": action,
-        "skip_reason": skip_reason if action == "skipped" else None,
-    }
-
-
-@app.post("/api/ideas/outcomes/{outcome_id}/grade")
-def api_grade_idea_outcome(outcome_id: int, request: Request, body: dict = Body(...)):
-    """Founder-only 5b judging: grade a RESOLVED idea against the rubric.
-    Re-grading overwrites (the founder can revise)."""
-    verify_mutation_token(request)
-    from db.idea_outcomes import grade_outcome, normalize_verdict
-
-    try:
-        verdict = normalize_verdict(body)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
-    result = grade_outcome(outcome_id, verdict)
-    if result == "not_found":
-        return JSONResponse({"error": "Idea outcome not found"}, status_code=404)
-    if result == "not_gradeable":
-        return JSONResponse(
-            {"error": "Only resolved ideas (won/lost/expired) can be graded"},
-            status_code=400,
-        )
-    return {"ok": True, "verdict": verdict}
-
-
-@app.get("/api/reports")
-def api_list_reports(limit: int = 30, kind: str | None = None):
-    from db.reports import list_reports, recent_reports_by_kind
-
-    cap = max(1, min(int(limit), 100))
-    if kind:
-        return {"reports": recent_reports_by_kind(kind.strip(), limit=cap)}
-    return {"reports": list_reports(limit=cap)}
-
-
-@app.get("/api/reports/{report_id}")
-def api_get_report(report_id: str):
-    from db.reports import get_report
-
-    report = get_report(report_id.strip())
-    if report is None:
-        return JSONResponse({"error": "Report not found"}, status_code=404)
-    return report
-
-
-_GENERATABLE_REPORT_KINDS = (
-    "morning_levels",
-    "levels",
-    "morning_brief",
-    "evening_brief",
-    "on_request",
-    "flow_decomp",
-)
-
-
-@app.post("/api/reports/generate")
-async def api_generate_report(body: dict = Body(...), push: bool = False):
-    kind = str(body.get("kind", "")).strip() or "morning_levels"
-    if kind not in _GENERATABLE_REPORT_KINDS:
-        return JSONResponse(
-            {
-                "error": f"Unsupported kind '{kind}'",
-                "supported": list(_GENERATABLE_REPORT_KINDS),
-            },
-            status_code=400,
-        )
-
-    # symbols: accept `symbols` (list) or legacy single `symbol`.
-    raw_symbols = body.get("symbols")
-    if isinstance(raw_symbols, list):
-        symbols = [str(s).strip().upper() for s in raw_symbols if str(s).strip()]
-    else:
-        one = str(body.get("symbol", "")).strip().upper()
-        symbols = [one] if one else []
-    if kind in ("morning_levels", "levels") and not symbols:
-        symbols = [MORNING_REPORT_SYMBOL]
-    topic = str(body.get("topic", "")).strip()
-    if kind == "on_request" and not topic:
-        return JSONResponse({"error": "kind 'on_request' requires a 'topic'"}, status_code=400)
-
-    try:
-        report = await _generate_report_by_kind(kind, symbols=symbols or None, topic=topic or None)
-    except Exception as exc:
-        logger.exception("Manual report generate failed")
-        return JSONResponse({"error": str(exc)}, status_code=500)
-    if report is None:
-        return JSONResponse({"error": "No data available for this report"}, status_code=404)
-
-    try:
-        await _notify_report_ready(report, push=push)
-    except Exception:
-        logger.exception("Manual report notify failed for %s", report["id"])
-    return report
 
 
 # Short-TTL cache for chart bars so flipping back to a symbol/timeframe is instant
@@ -4849,499 +4059,7 @@ async def api_earnings_history(symbol: str = "", n: int = 6):
     return {"symbol": sym, "events": events}
 
 
-@app.get("/api/workspace/layout")
-def api_get_workspace_layout():
-    return {"layout": load_workspace_layout()}
 
 
-def _is_valid_layout_item(item: object) -> bool:
-    if not isinstance(item, dict):
-        return False
-    return (
-        isinstance(item.get("i"), str)
-        and isinstance(item.get("type"), str)
-        and isinstance(item.get("x"), (int, float))
-        and isinstance(item.get("y"), (int, float))
-        and isinstance(item.get("w"), (int, float))
-        and isinstance(item.get("h"), (int, float))
-    )
 
 
-@app.put("/api/workspace/layout")
-def api_put_workspace_layout(body: dict = Body(...)):
-    layout = body.get("layout")
-    if not isinstance(layout, list):
-        return JSONResponse({"error": "layout must be an array"}, status_code=400)
-    for item in layout:
-        if not _is_valid_layout_item(item):
-            return JSONResponse(
-                {"error": ("each layout item must have string i, type and numeric x, y, w, h")},
-                status_code=400,
-            )
-    save_workspace_layout(layout)
-    return {"ok": True}
-
-
-def _is_valid_workspace_page(page: object) -> bool:
-    if not isinstance(page, dict):
-        return False
-    layout = page.get("layout")
-    if not isinstance(page.get("id"), str) or not isinstance(page.get("name"), str):
-        return False
-    if not isinstance(layout, list):
-        return False
-    return all(_is_valid_layout_item(item) for item in layout)
-
-
-def _is_valid_pages_state(state: object) -> bool:
-    if not isinstance(state, dict):
-        return False
-    pages = state.get("pages")
-    active_page_id = state.get("activePageId")
-    if not isinstance(pages, dict) or not isinstance(active_page_id, str):
-        return False
-    if not pages:
-        return False
-    if active_page_id not in pages:
-        return False
-    return all(_is_valid_workspace_page(page) for page in pages.values())
-
-
-def _is_valid_workspaces_state(state: object) -> bool:
-    from db.workspace import _is_valid_workspaces_state as _valid
-
-    return _valid(state)
-
-
-@app.get("/api/workspace/workspaces")
-def api_get_workspaces():
-    from db.workspace import load_workspaces
-
-    return {"workspaces_state": load_workspaces()}
-
-
-@app.put("/api/workspace/workspaces")
-def api_put_workspaces(body: dict = Body(...)):
-    from db.workspace import save_workspaces
-
-    workspaces_state = body.get("workspaces_state")
-    if not _is_valid_workspaces_state(workspaces_state):
-        return JSONResponse(
-            {
-                "error": (
-                    "workspaces_state must be v2: version=2, a pages library "
-                    "(1-24 valid pages), a workspaces map (≤8, each with string "
-                    "id, name, 1-5 unique pageIds that exist in the library and "
-                    "an activePageId among them) and a defaultWorkspaceId that "
-                    "exists in the map"
-                )
-            },
-            status_code=400,
-        )
-    save_workspaces(workspaces_state)
-    return {"ok": True}
-
-
-@app.get("/api/workspace/pages")
-def api_get_workspace_pages():
-    return {"pages_state": load_workspace_pages()}
-
-
-@app.put("/api/workspace/pages")
-def api_put_workspace_pages(body: dict = Body(...)):
-    pages_state = body.get("pages_state")
-    if not _is_valid_pages_state(pages_state):
-        return JSONResponse(
-            {
-                "error": (
-                    "pages_state must have pages map, activePageId, and each page "
-                    "must have string id, name and a layout array of valid items"
-                )
-            },
-            status_code=400,
-        )
-    save_workspace_pages(pages_state)
-    return {"ok": True}
-
-
-def load_board() -> dict:
-    """Read project kanban board from References/board.json (fresh each call).
-
-    Settled `done` cards live in board_archive.json (swept there by tools/board.py
-    archive, so the live file stays small and merges cleanly); they are appended here
-    so the API response — and therefore the Archive column — is unchanged by the split.
-    """
-    logger = logging.getLogger(__name__)
-    try:
-        if not BOARD_JSON_PATH.is_file():
-            logger.warning("board.json missing at %s", BOARD_JSON_PATH)
-            return dict(_EMPTY_BOARD)
-        parsed = json.loads(BOARD_JSON_PATH.read_text(encoding="utf-8"))
-        if not isinstance(parsed, dict):
-            logger.warning("board.json invalid: root is not an object")
-            return dict(_EMPTY_BOARD)
-        parsed["cards"] = list(parsed.get("cards") or []) + _load_archived_cards()
-        return parsed
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("failed to load board.json: %s", exc)
-        return dict(_EMPTY_BOARD)
-
-
-def _load_archived_cards() -> list:
-    """Archived `done` cards, or [] if the archive is missing/unreadable (read-only path)."""
-    logger = logging.getLogger(__name__)
-    try:
-        if not BOARD_ARCHIVE_PATH.is_file():
-            return []
-        parsed = json.loads(BOARD_ARCHIVE_PATH.read_text(encoding="utf-8"))
-        cards = parsed.get("cards") if isinstance(parsed, dict) else None
-        return cards if isinstance(cards, list) else []
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("failed to load board_archive.json: %s", exc)
-        return []
-
-
-def _load_board_for_mutation() -> dict:
-    """Load board.json for writes; 409 if missing or corrupt.
-
-    Deliberately NOT load_board(): the write path must see the live file alone, or
-    saving would fold every archived card back into board.json.
-    """
-    logger = logging.getLogger(__name__)
-    if not BOARD_JSON_PATH.is_file():
-        raise HTTPException(
-            status_code=409,
-            detail="board.json is missing; an agent must restore it before adding inbox cards",
-        )
-    try:
-        parsed = json.loads(BOARD_JSON_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("failed to load board.json for mutation: %s", exc)
-        raise HTTPException(
-            status_code=409,
-            detail=f"board.json is corrupt or unreadable: {exc}",
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise HTTPException(
-            status_code=409,
-            detail="board.json is corrupt: root is not an object",
-        )
-    return parsed
-
-
-def _save_board_atomic(board: dict) -> None:
-    """Atomically replace board.json (safe under concurrent agent edits).
-
-    indent=1 + ensure_ascii=False is the board's canonical on-disk format, shared with
-    tools/board.py. Any other dump re-writes all ~2,700 lines, and a whole-file reformat
-    conflicts with every open branch — this endpoint used to do exactly that.
-    """
-    content = json.dumps(board, indent=1, ensure_ascii=False) + "\n"
-    fd, tmp_path = tempfile.mkstemp(
-        dir=BOARD_JSON_PATH.parent,
-        prefix=".board-",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(content)
-        os.replace(tmp_path, BOARD_JSON_PATH)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-@app.get("/api/board")
-def api_get_board():
-    return {"board": load_board()}
-
-
-@app.post("/api/board/inbox")
-def api_post_board_inbox(body: dict = Body(...)):
-    title_raw = body.get("title")
-    if not isinstance(title_raw, str):
-        raise HTTPException(status_code=400, detail="title is required")
-    title = title_raw.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="title is required")
-    if len(title) > 200:
-        raise HTTPException(status_code=400, detail="title must be at most 200 characters")
-
-    notes_raw = body.get("notes", "")
-    if notes_raw is None:
-        notes_raw = ""
-    if not isinstance(notes_raw, str):
-        raise HTTPException(status_code=400, detail="notes must be a string")
-    notes = notes_raw.strip()
-    if len(notes) > 500:
-        raise HTTPException(status_code=400, detail="notes must be at most 500 characters")
-
-    board = _load_board_for_mutation()
-
-    lanes = board.get("lanes")
-    if not isinstance(lanes, list):
-        lanes = []
-        board["lanes"] = lanes
-    if "inbox" not in lanes:
-        lanes.insert(0, "inbox")
-
-    cards = board.get("cards")
-    if not isinstance(cards, list):
-        cards = []
-        board["cards"] = cards
-
-    card = {
-        "id": f"fr-{int(time.time())}",
-        "title": title,
-        "lane": "inbox",
-        "type": "idea",
-        "priority": "normal",
-        "notes": notes,
-        "owner": "founder",
-        "updated_at": date.today().isoformat(),
-    }
-    cards.append(card)
-    board["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    _save_board_atomic(board)
-    return {"ok": True, "card": card}
-
-
-@app.get("/api/workspace/custom-themes")
-def api_get_custom_themes():
-    return {"custom_themes": load_custom_themes()}
-
-
-@app.put("/api/workspace/custom-themes")
-def api_put_custom_themes(body: dict = Body(...)):
-    themes = body.get("custom_themes")
-    if not is_valid_custom_themes(themes):
-        return JSONResponse(
-            {
-                "error": (
-                    "custom_themes must be a list (≤24) of objects with string "
-                    "id, name and a vars map of string→string"
-                )
-            },
-            status_code=400,
-        )
-    save_custom_themes(themes)
-    return {"ok": True}
-
-
-@app.get("/api/price-alerts")
-def api_list_alerts(symbol: str | None = None):
-    return {"alerts": list_price_alerts(symbol=symbol, active_only=True)}
-
-
-@app.post("/api/price-alerts")
-def api_create_alert(body: dict = Body(...)):
-    symbol = str(body.get("symbol", "")).strip()
-    price = body.get("price")
-    direction = str(body.get("direction", "cross")).strip().lower()
-    note = str(body.get("note", ""))
-    repeat = bool(body.get("repeat", False))
-    if not symbol or price is None:
-        return JSONResponse({"error": "symbol and price are required"}, status_code=400)
-    if direction not in ("above", "below", "cross"):
-        return JSONResponse(
-            {"error": "direction must be one of: above, below, cross"},
-            status_code=400,
-        )
-    try:
-        price_f = float(price)
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "price must be a number"}, status_code=400)
-    alert = create_price_alert(
-        symbol=symbol, price=price_f, direction=direction, note=note, repeat=repeat
-    )
-    return alert
-
-
-@app.put("/api/price-alerts/{alert_id}")
-def api_update_alert(alert_id: int, body: dict = Body(...)):
-    price_f: float | None = None
-    if body.get("price") is not None:
-        try:
-            price_f = float(body["price"])
-        except (TypeError, ValueError):
-            return JSONResponse({"error": "price must be a number"}, status_code=400)
-    dir_norm: str | None = None
-    if body.get("direction") is not None:
-        dir_norm = str(body["direction"]).strip().lower()
-        if dir_norm not in ("above", "below", "cross"):
-            return JSONResponse(
-                {"error": "direction must be one of: above, below, cross"},
-                status_code=400,
-            )
-    updated = update_price_alert(
-        alert_id,
-        price=price_f,
-        direction=dir_norm,
-        note=None if body.get("note") is None else str(body["note"]),
-        repeat=None if body.get("repeat") is None else bool(body["repeat"]),
-    )
-    if updated is None:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return updated
-
-
-@app.delete("/api/price-alerts/{alert_id}")
-def api_delete_alert(alert_id: int):
-    if not delete_price_alert(alert_id):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return {"ok": True}
-
-
-@app.post("/api/price-alerts/{alert_id}/trigger")
-def api_trigger_alert(alert_id: int):
-    active = [a for a in list_price_alerts(active_only=True) if int(a["id"]) == alert_id]
-    if not active:
-        return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
-    mark_alert_triggered(alert_id, repeat=bool(active[0].get("repeat")))
-    return {"ok": True, "alert": active[0]}
-
-
-@app.get("/api/drawings")
-def api_list_drawings(symbol: str | None = None):
-    return {"drawings": list_chart_drawings(symbol=symbol)}
-
-
-@app.post("/api/drawings")
-def api_create_drawing(body: dict = Body(...)):
-    symbol = str(body.get("symbol", "")).strip()
-    kind = str(body.get("kind", "")).strip().lower()
-    data = body.get("data", {})
-    if not symbol or not kind:
-        return JSONResponse({"error": "symbol and kind are required"}, status_code=400)
-    if kind not in ("level", "trendline", "channel"):
-        return JSONResponse(
-            {"error": "kind must be one of: level, trendline, channel"},
-            status_code=400,
-        )
-    if not isinstance(data, dict):
-        return JSONResponse({"error": "data must be an object"}, status_code=400)
-    drawing = create_chart_drawing(symbol=symbol, kind=kind, data=data)
-    return drawing
-
-
-@app.put("/api/drawings/{drawing_id}")
-def api_update_drawing(drawing_id: int, body: dict = Body(...)):
-    kind_norm: str | None = None
-    if body.get("kind") is not None:
-        kind_norm = str(body["kind"]).strip().lower()
-        if kind_norm not in ("level", "trendline", "channel"):
-            return JSONResponse(
-                {"error": "kind must be one of: level, trendline, channel"},
-                status_code=400,
-            )
-    data_val: dict | None = None
-    if body.get("data") is not None:
-        if not isinstance(body["data"], dict):
-            return JSONResponse({"error": "data must be an object"}, status_code=400)
-        data_val = body["data"]
-    updated = update_chart_drawing(
-        drawing_id,
-        data=data_val,
-        kind=kind_norm,
-    )
-    if updated is None:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return updated
-
-
-@app.delete("/api/drawings/{drawing_id}")
-def api_delete_drawing(drawing_id: int):
-    if not delete_chart_drawing(drawing_id):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return {"ok": True}
-
-
-@app.get("/", response_class=HTMLResponse)
-def dashboard() -> str:
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Help Me Trade</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f1115; color: #e8eaed; }
-    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-    .meta { color: #9aa0a6; font-size: 0.9rem; margin-bottom: 1.5rem; }
-    .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-    .card { background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 8px; padding: 1rem 1.25rem; min-width: 140px; }
-    .card label { display: block; color: #9aa0a6; font-size: 0.75rem; text-transform: uppercase; }
-    .card span { font-size: 1.25rem; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
-    th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid #2a2f3a; }
-    th { color: #9aa0a6; font-size: 0.8rem; text-transform: uppercase; }
-  </style>
-</head>
-<body>
-  <h1>Trading Diary</h1>
-  <p class="meta" id="updated">Loading...</p>
-  <div class="cards" id="account-cards"></div>
-  <h2>Open positions</h2>
-  <table>
-    <thead><tr>
-      <th>Symbol</th><th>Qty</th><th>Side</th><th>Price</th><th>Value</th><th>Unrealized P/L</th>
-    </tr></thead>
-    <tbody id="positions-body"></tbody>
-  </table>
-  <h2>Open orders</h2>
-  <table>
-    <thead><tr>
-      <th>Symbol</th><th>Qty</th><th>Side</th><th>Type</th><th>Status</th><th>Filled</th>
-    </tr></thead>
-    <tbody id="orders-body"></tbody>
-  </table>
-  <script>
-    function money(n) { return "$" + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
-    function plClass(n) { return Number(n) >= 0 ? "color:#3dd68c" : "color:#f07178"; }
-
-    async function refresh() {
-      const res = await fetch("/api/snapshot");
-      if (!res.ok) { document.getElementById("updated").textContent = "Waiting for first snapshot..."; return; }
-      const data = await res.json();
-      document.getElementById("updated").textContent =
-        "Last updated: " + new Date(data.captured_at).toLocaleString() + " (polls every __POLL_SECONDS__s)";
-
-      const a = data.account;
-      document.getElementById("account-cards").innerHTML = [
-        ["Cash", money(a.cash)],
-        ["Buying power", money(a.buying_power)],
-        ["Portfolio", money(a.portfolio_value)],
-        ["Status", a.status],
-      ].map(([label, val]) =>
-        `<div class="card"><label>${label}</label><span>${val}</span></div>`
-      ).join("");
-
-      const posBody = document.getElementById("positions-body");
-      if (!data.positions.length) {
-        posBody.innerHTML = '<tr><td colspan="6" style="color:#9aa0a6">No open positions</td></tr>';
-      } else {
-        posBody.innerHTML = data.positions.map(p => `<tr>
-          <td>${p.symbol}</td><td>${p.qty}</td><td>${p.side}</td>
-          <td>${money(p.current_price)}</td><td>${money(p.market_value)}</td>
-          <td style="${plClass(p.unrealized_pl)}">${money(p.unrealized_pl)}</td>
-        </tr>`).join("");
-      }
-
-      const ordBody = document.getElementById("orders-body");
-      if (!data.open_orders.length) {
-        ordBody.innerHTML = '<tr><td colspan="6" style="color:#9aa0a6">No open orders</td></tr>';
-      } else {
-        ordBody.innerHTML = data.open_orders.map(o => `<tr>
-          <td>${o.symbol}</td><td>${o.qty}</td><td>${o.side}</td>
-          <td>${o.order_type}</td><td>${o.status}</td><td>${o.filled_qty}</td>
-        </tr>`).join("");
-      }
-    }
-    refresh();
-    setInterval(refresh, 15000);
-  </script>
-</body>
-</html>""".replace("__POLL_SECONDS__", str(POLL_INTERVAL_SECONDS))

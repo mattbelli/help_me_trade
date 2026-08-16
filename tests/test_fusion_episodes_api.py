@@ -139,7 +139,7 @@ def test_fusion_episode_routes_return_list_and_detail_shapes(
         updated_at="2026-07-18T14:30:00+00:00",
     )
     _insert_dot(db_path, "episode-1")
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     from api.main import app
 
     client = TestClient(app, base_url="http://127.0.0.1")
@@ -157,7 +157,7 @@ def test_fusion_episode_routes_return_list_and_detail_shapes(
 def test_fusion_episode_detail_returns_404(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "fusion.db"
     init_fusion_tables(db_path)
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get(
@@ -193,7 +193,7 @@ def test_fusion_episode_dossier_route_builds_on_demand(
         updated_at="2026-07-18T14:30:00+00:00",
     )
     _insert_dot(db_path, "episode-1")
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     _hermetic_dossier_defaults(monkeypatch, tmp_path)
     from api.main import app
 
@@ -218,7 +218,7 @@ def test_fusion_episode_dossier_route_builds_on_demand(
 def test_fusion_episode_dossier_route_404(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "fusion.db"
     init_fusion_tables(db_path)
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get(

@@ -248,7 +248,7 @@ def test_api_generate_list_get(
 
 
 def test_morning_report_window_predicate() -> None:
-    from api.main import _morning_report_window
+    from api.reports_routes import _morning_report_window
 
     # ~2-hour window from the scheduled hour (boot-timing robust); dedup ensures one send.
     assert _morning_report_window(datetime(2026, 6, 25, 8, 0, tzinfo=_ET), 8) is True
@@ -272,7 +272,7 @@ async def test_morning_levels_once_dedups_same_day(
                 return fixed.astimezone(tz)
             return fixed.replace(tzinfo=None)
 
-    monkeypatch.setattr("api.main.datetime", _FixedDatetime)
+    monkeypatch.setattr("api.reports_routes.datetime", _FixedDatetime)
     monkeypatch.setattr(
         "signals.reports.compute_session_levels",
         AsyncMock(return_value=_SAMPLE_LEVELS),
@@ -285,9 +285,9 @@ async def test_morning_levels_once_dedups_same_day(
         "signals.reports.short_selling_allowed",
         lambda: False,
     )
-    monkeypatch.setattr("api.main._MORNING_REPORT_ENV_ENABLED", True)
+    monkeypatch.setattr("api.reports_routes._MORNING_REPORT_ENV_ENABLED", True)
     monkeypatch.setattr(
-        "api.main.reports_config",
+        "api.reports_routes.reports_config",
         lambda: {"morning_levels_enabled": True, "hour_et": 8},
     )
 
@@ -296,7 +296,7 @@ async def test_morning_levels_once_dedups_same_day(
     notify_mock = AsyncMock(return_value={})
     monkeypatch.setattr("signals.notify.notify", notify_mock)
 
-    from api.main import _morning_levels_report_once
+    from api.reports_routes import _morning_levels_report_once
 
     await _morning_levels_report_once()
     notify_mock.assert_awaited_once()

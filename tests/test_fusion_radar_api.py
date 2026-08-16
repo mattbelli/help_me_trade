@@ -69,7 +69,7 @@ def test_radar_sorts_by_thesis_z_and_flags_contested(tmp_path: Path, monkeypatch
     _insert_dot(db_path, "bbb1", "ep-bbb", "BBB", direction="bull", raw_value="500000", ts=now_ts)
     _insert_dot(db_path, "bbb2", "ep-bbb", "BBB", direction="bear", raw_value="500000", ts=now_ts)
 
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get("/api/fusion/radar")
@@ -129,7 +129,7 @@ def test_radar_empty_db_returns_no_rows(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "fusion.db"
     init_fusion_tables(db_path)
     init_options(db_path)
-    monkeypatch.setattr("api.main.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get("/api/fusion/radar?sessions=3")

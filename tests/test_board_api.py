@@ -32,8 +32,8 @@ def test_board_api_returns_parsed_file(tmp_path: Path, monkeypatch) -> None:
     board = _sample_board()
     board_path = tmp_path / "board.json"
     board_path.write_text(json.dumps(board), encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
-    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", tmp_path / "no-archive.json")
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_ARCHIVE_PATH", tmp_path / "no-archive.json")
 
     from api.main import app
 
@@ -52,8 +52,8 @@ def test_board_api_appends_archived_cards(tmp_path: Path, monkeypatch) -> None:
     archived = {"id": "old", "title": "Ancient", "lane": "done", "notes": ""}
     archive_path = tmp_path / "board_archive.json"
     archive_path.write_text(json.dumps({"cards": [archived]}), encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
-    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", archive_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_ARCHIVE_PATH", archive_path)
 
     from api.main import app
 
@@ -70,8 +70,8 @@ def test_board_api_survives_corrupt_archive(tmp_path: Path, monkeypatch) -> None
     board_path.write_text(json.dumps(board), encoding="utf-8")
     archive_path = tmp_path / "board_archive.json"
     archive_path.write_text("{not json", encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
-    monkeypatch.setattr("api.main.BOARD_ARCHIVE_PATH", archive_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_ARCHIVE_PATH", archive_path)
 
     from api.main import app
 
@@ -84,7 +84,7 @@ def test_board_api_survives_corrupt_archive(tmp_path: Path, monkeypatch) -> None
 
 def test_board_api_missing_file_returns_empty_shape(tmp_path: Path, monkeypatch) -> None:
     missing = tmp_path / "does-not-exist.json"
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", missing)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", missing)
 
     from api.main import app
 
@@ -103,8 +103,8 @@ def test_board_inbox_post_adds_card(
     board = _sample_board()
     board_path = tmp_path / "board.json"
     board_path.write_text(json.dumps(board), encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
-    monkeypatch.setattr("api.main.time.time", lambda: 1_719_964_800.0)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.time.time", lambda: 1_719_964_800.0)
 
     resp = mutation_client.post(
         "/api/board/inbox",
@@ -151,7 +151,7 @@ def test_board_inbox_post_preserves_canonical_format(
     board_path.write_text(
         json.dumps(board, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
 
     resp = mutation_client.post("/api/board/inbox", json={"title": "Quick idea"})
     assert resp.status_code == 200
@@ -167,7 +167,7 @@ def test_board_inbox_post_requires_title(
 ) -> None:
     board_path = tmp_path / "board.json"
     board_path.write_text(json.dumps(_sample_board()), encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
 
     for payload in ({}, {"title": ""}, {"title": "   "}):
         resp = mutation_client.post("/api/board/inbox", json=payload)
@@ -180,7 +180,7 @@ def test_board_inbox_post_corrupt_file_returns_409(
 ) -> None:
     board_path = tmp_path / "board.json"
     board_path.write_text("{not json", encoding="utf-8")
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", board_path)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", board_path)
 
     resp = mutation_client.post("/api/board/inbox", json={"title": "hello"})
 
@@ -192,7 +192,7 @@ def test_board_inbox_post_missing_file_returns_409(
     tmp_path: Path, monkeypatch, mutation_client: TestClient
 ) -> None:
     missing = tmp_path / "missing-board.json"
-    monkeypatch.setattr("api.main.BOARD_JSON_PATH", missing)
+    monkeypatch.setattr("api.workspace_routes.BOARD_JSON_PATH", missing)
 
     resp = mutation_client.post("/api/board/inbox", json={"title": "hello"})
 
