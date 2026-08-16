@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 322,
+   "id": "single-writer-fence-eslint-ratchet",
+   "title": "Single-writer fence + eslint ratchet gate (local-model audit items 2+3)",
+   "lane": "done",
+   "type": "infra",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-16",
+   "notes": "2026-08-16: shipped. (a) trading/single_writer.py — kernel flock on <ledger>.writer.lock taken in the full lifespan; a second backend on the same ledger refuses to boot (uvicorn exits 3). Cross-process test tests/test_single_writer.py. Fences the backend only; tools/fire_test_entry.py stays an unfenced deliberate second submitter. Bites from the next backend restart. (b) frontend eslint now gates CI (frontend-ci.yml lint step): 6 React-Compiler-family rules → warn (354 warnings = the burn-down list), rules-of-hooks/exhaustive-deps + everything else stay error at 0. Flip a rule back to error when its count hits zero. Tailwind no-unknown-classes allowlist (~155 classes) still open."
+  },
+  {
    "num": 321,
    "id": "main-strangler-round-2",
    "title": "main.py strangler round 2: bars + scanner/rvol job + options-flow + watchlist out (4,065 → 2,418 lines)",

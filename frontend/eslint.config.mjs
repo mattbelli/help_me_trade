@@ -28,6 +28,25 @@ const eslintConfig = defineConfig([
     rules: { "better-tailwindcss/no-unknown-classes": "warn" },
   },
   {
+    // RATCHET (2026-08-16): eslint gates CI, but the React-Compiler-family
+    // rules (set-state-in-effect, refs, use-memo, immutability, ...) fire ~90
+    // times on patterns we wrote on purpose (sync-from-props effects,
+    // accumulators inside useMemo, `.join(",")` dep keys). Those are WARN so
+    // they can be burned down deliberately; everything else — including the
+    // classic rules-of-hooks / exhaustive-deps (stale closures) — stays at its
+    // shipped severity and can never regress. Flip a rule back to "error" the
+    // moment its count hits zero.
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/use-memo": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/static-components": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+    },
+  },
+  {
     files: ["components/workspace/widgets/**/*.tsx"],
     rules: {
       "no-restricted-syntax": [

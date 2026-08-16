@@ -227,6 +227,10 @@ async def lifespan(app: FastAPI):
         _register_background_jobs()
         yield
         return
+    from trading.single_writer import acquire as acquire_writer_fence
+
+    # One backend per ledger — the submit lock is per-process (see module doc).
+    acquire_writer_fence()
     await market_hub.start()
     for account in list_accounts(enabled_only=True):
         if str(account["broker"]).strip().lower() != "alpaca":

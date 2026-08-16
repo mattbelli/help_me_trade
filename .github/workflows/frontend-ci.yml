@@ -1,4 +1,4 @@
-# Frontend typecheck (~1 min). Runs only when frontend files (or this
+# Frontend typecheck + eslint (~1-2 min). Runs only when frontend files (or this
 # workflow) change; python-only PRs skip it.
 name: CI frontend
 
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend-typecheck:
+  frontend-check:
     runs-on: [self-hosted, linux, x64]
     steps:
       - uses: actions/checkout@v4
@@ -37,3 +37,9 @@ jobs:
       - name: Typecheck (tsc --noEmit)
         working-directory: frontend
         run: npm run typecheck
+
+      # Errors gate; warnings are the deliberate burn-down list (see the
+      # RATCHET note in frontend/eslint.config.mjs).
+      - name: Lint (eslint)
+        working-directory: frontend
+        run: npm run lint

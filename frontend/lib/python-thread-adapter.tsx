@@ -40,6 +40,7 @@ class PythonThreadHistoryAdapter implements ThreadHistoryAdapter {
   withFormat<TMessage, TStorageFormat extends Record<string, unknown>>(
     formatAdapter: MessageFormatAdapter<TMessage, TStorageFormat>,
   ) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- captured for the nested object literal's methods
     const adapter = this;
     return {
       async load(): Promise<MessageFormatRepository<TMessage>> {

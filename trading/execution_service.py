@@ -45,10 +45,11 @@ _submit_locks: weakref.WeakKeyDictionary[
 
 def _submit_lock() -> asyncio.Lock:
     # SINGLE-PROCESS ASSUMPTION: prod runs one uvicorn worker (SERVER_SETUP.md),
-    # so one loop covers every in-app submit caller. A second process (e.g.
-    # tools/fire_test_entry.py, or a future --workers>1) gets its own lock and
-    # reintroduces the cross-process race — don't add workers without a
-    # DB-level reservation.
+    # so one loop covers every in-app submit caller. A second process gets its
+    # own lock and reintroduces the cross-process race — the backend enforces
+    # this at boot via trading/single_writer.py (kernel flock on the ledger;
+    # --workers>1 fails loudly). Ad-hoc tools (tools/fire_test_entry.py) are
+    # NOT fenced — don't add a second submitter without a DB-level reservation.
     loop = asyncio.get_running_loop()
     lock = _submit_locks.get(loop)
     if lock is None:

@@ -166,7 +166,8 @@ merge-hazard noted here earlier is gone. Open:
 - Gallery-caught layout defects awaiting their turn: idea-outcomes rows wrap/double at default
   width; options-chain sticky header scrolls away on ATM auto-scroll; index-pressure footer
   collides with its tabs at default width; performance-stats period selector dead space.
-- **80 pre-existing `react-hooks/*` eslint errors** block eslint ever gating; tailwind
+- **eslint gates CI since 08-16 (ratchet, card #322):** 6 React-Compiler-family rules sit at
+  warn (354 warnings = burn-down list; flip each back to error at zero); tailwind
   `no-unknown-classes` at warn needs an allowlist of our ~155 hand-written classes before it
   could go to error. index-pressure still carries 16 off-ladder px sizes (2 below the 10px
   floor) + knob-family token dialect — sweep candidate.
