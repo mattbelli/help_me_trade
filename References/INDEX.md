@@ -28,6 +28,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 
 | Doc | Status |
 |---|---|
+| `OPTIONS_IMPLIED_PROBABILITY_SPEC_2026-08-16.md` | BUILD spec for the options-implied probability perception source (Bloch-assessed lineage): per-expiry mixture smile fit on the existing chain-history corpus → digitals + level/tilt/curvature dials + baselined repricing fires; Inc 0 (offline validation) FOUNDER-GATED, nothing built yet |
 | `ABNORMALITY_SCANNER_DESIGN_2026-08-13.md` | GOVERNING design for the vol/volume abnormality scanner (#296, the flow-perception replacement): range×volume abnormality on the 1.14d peer cells + nightly base-state detector, both sides; 4 founder decisions locked 08-13; Inc 1–5 live on main for Monday books (draft thresholds); founder replay eyeball still open; Inc 6 founder-gated |
 | `POSTGRES_MIGRATION_2026-07-27.md` | ★ GOVERNING design for the SQLite→Postgres migration (founder-decided 07-27): scope (trading.db only), dialect danger register, atomic rehearsed cutover, frozen-SQLite rollback |
 | `IDEA_ENGINE_UNIFIED_DESIGN_2026-07-16.md` | ★ GOVERNING design for the idea engine (Paths A+B unified). Supersedes both idea-ledger specs |

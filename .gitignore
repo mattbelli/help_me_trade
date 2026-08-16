@@ -42,3 +42,6 @@ package-lock.json
 next-env.d.ts
 secrets/
 
+
+# Third-party papers assessed in References/ stay local (SSRN/arXiv links in the docs).
+References/*.pdf

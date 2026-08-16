@@ -43,6 +43,17 @@
    "notes": "2026-08-16 (Sunday, markets closed). Audited api/main.py by AST: mapped every top-level def to a family, measured each family's cross-refs into main and each test's monkeypatch targets, then extracted cleanest-first, verbatim by line range (never retyped): api/alert_drawing_routes.py (price-alerts+drawings, 126), api/fusion_routes.py (204), api/status_page.py (the / HTML, 85), api/workspace_routes.py (workspace/pages/themes/board, 281 — carries BOARD_JSON_PATH/BOARD_ARCHIVE_PATH), api/reports_routes.py (scheduler loop + generate + 3 routes, 250 — carries MORNING_REPORT_* constants), api/fusion_jobs.py (6 runners, 294 — ONE lazy back-ref api.main._BARS_CACHE until bars moves). OpenAPI path set diffed before/after: IDENTICAL (146 paths). 7 test files repointed to the new modules (the honest cost). tests/test_main_ratchet.py now FAILS if inline routes >41 or lines >4,100 — the #77 'ratchet rule' was a note and the file grew 2,500 lines under it. NEXT (session 2, = #77): the watchlist-market/scanner/rvol-alerts/bars tangle (~1,650 lines) shares _rvol_bucket_now/_compute_rvol_from_total_volume/_wl_* and is hot-wired into ~60 test patches — move as a block, carrying _wl_bars_cache/_WL_BARS_TTL_S aliases with it. Then #76 (lifecycle/jobs). Leftover in main after both: poll loops + lifespan + health + settings/kill-switch (~1,200 lines) — that IS the app host.\n2026-08-16: 2026-08-16: round 2 landed (#main-strangler-round-2): bars/scanner+rvol job/flow/watchlist/alpaca-guard out, 4,065 → 2,418 lines. Next = #76 (lifecycle/jobs).\n2026-08-16: 2026-08-16: round 3 landed too (#76 done): hub + every job family + the registry out, main.py 960 lines. Strangler complete for the app host; #77(b) is the only main.py-adjacent thread left."
   },
   {
+   "num": 319,
+   "id": "options-implied-probability",
+   "title": "Options-implied probability perception (spec)",
+   "lane": "founder",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-16",
+   "notes": "Spec landed: References/OPTIONS_IMPLIED_PROBABILITY_SPEC_2026-08-16.md (from the Bloch SSRN 2715517 assessment). Fits smiles on the EXISTING options_chain_history corpus -> market-priced digitals + level/tilt/curvature dials + repricing fires; risk-neutral labels fixed; annotate-only in fusion. Waiting on you: greenlight Inc 0 (offline validation on-disk, no product code), then Inc 1-6 after reading its findings doc.\n2026-08-16: 2026-08-16 founder feedback folded into the spec: no label/caveat machinery (the number alone is honest); universe = runtime-resolved (dedicated flow list is gone; sampler append-only universe daily, all-watchlists+hot-lane intraday); 15-min cadence downgraded to a default — Inc 0 now measures dial decorrelation from tcbbo to set it.\n2026-08-16: Founder 08-16: keep as a card for now — no Inc 0 greenlight yet; spec sits in References/ awaiting his read."
+  },
+  {
    "num": 318,
    "id": "chat-brain-model-choice",
    "title": "Mobile chat brain runs on DeepSeek — good enough for the front door?",
