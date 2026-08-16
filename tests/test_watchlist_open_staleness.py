@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-import api.main as api_main
+import api.watchlist_routes as wl_routes
 from api import watchlist_bars_cache
 from trading.market_hours import _ET
 
@@ -43,9 +43,9 @@ class _Provider:
 
 @pytest.fixture(autouse=True)
 def _clean_cache():
-    api_main._wl_bars_cache.clear()
+    wl_routes._wl_bars_cache.clear()
     yield
-    api_main._wl_bars_cache.clear()
+    wl_routes._wl_bars_cache.clear()
 
 
 @pytest.mark.asyncio
@@ -53,11 +53,11 @@ async def test_stale_daily_series_refetched_at_the_open(monkeypatch) -> None:
     monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "regular")
     provider = _Provider()
     # Cached 2 minutes ago (inside the 300s TTL), but the series ends YESTERDAY.
-    api_main._wl_bars_cache[("SPY", "1Day")] = (
+    wl_routes._wl_bars_cache[("SPY", "1Day")] = (
         time.time() - 120.0,
         [_bar_days_ago(2), _bar_days_ago(1)],
     )
-    out = await api_main._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
+    out = await wl_routes._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
     assert provider.calls == [["SPY"]]  # forced refetch despite valid TTL
     assert str(out["SPY"][-1].time)[:10] == _bar_days_ago(0).time[:10]
 
@@ -69,11 +69,11 @@ async def test_fresh_entry_not_rechecked_before_min_age(monkeypatch) -> None:
     symbol per minute."""
     monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "regular")
     provider = _Provider()
-    api_main._wl_bars_cache[("SPY", "1Day")] = (
+    wl_routes._wl_bars_cache[("SPY", "1Day")] = (
         time.time() - 10.0,
         [_bar_days_ago(2), _bar_days_ago(1)],
     )
-    out = await api_main._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
+    out = await wl_routes._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
     assert provider.calls == []
     assert str(out["SPY"][-1].time)[:10] == _bar_days_ago(1).time[:10]
 
@@ -84,9 +84,9 @@ async def test_yesterday_tail_is_fine_outside_regular_session(monkeypatch) -> No
     no forced refetch."""
     monkeypatch.setattr(watchlist_bars_cache, "market_session", lambda: "closed")
     provider = _Provider()
-    api_main._wl_bars_cache[("SPY", "1Day")] = (
+    wl_routes._wl_bars_cache[("SPY", "1Day")] = (
         time.time() - 120.0,
         [_bar_days_ago(2), _bar_days_ago(1)],
     )
-    await api_main._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
+    await wl_routes._wl_cached_bars_batch(provider, ["SPY"], timeframe="1Day")
     assert provider.calls == []

@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from api.main import _compute_wl_baseline
+from api.watchlist_routes import _compute_wl_baseline
 
 
 def _bars(n: int, start: float = 100.0):

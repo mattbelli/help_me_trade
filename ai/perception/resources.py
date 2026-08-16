@@ -448,7 +448,7 @@ async def _read_screener(
     if use_rvol:
         from fastapi.responses import JSONResponse
 
-        from api.main import api_scanner_rvol
+        from api.scanner_routes import api_scanner_rvol
 
         min_rvol = float(filters.get("min_rvol", 1.5))
         payload = await api_scanner_rvol(min_rvol=min_rvol, limit=limit)

@@ -32,7 +32,7 @@ def _rvol_alert_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def test_should_rvol_alert_new_symbol(_rvol_alert_db: Path):
     """A symbol never seen before should always trigger an alert."""
-    from api.main import _should_rvol_alert
+    from api.scanner_routes import _should_rvol_alert
 
     today = date(2026, 6, 24)
     assert _should_rvol_alert("NEWTEST", today) is True
@@ -40,7 +40,7 @@ def test_should_rvol_alert_new_symbol(_rvol_alert_db: Path):
 
 def test_should_rvol_alert_same_day_blocks(_rvol_alert_db: Path):
     """After marking alerted, the same symbol should NOT alert again the same day."""
-    from api.main import _mark_rvol_alerted, _should_rvol_alert
+    from api.scanner_routes import _mark_rvol_alerted, _should_rvol_alert
 
     today = date(2026, 6, 24)
     sym = "DEDUP_SAME_DAY"
@@ -51,7 +51,7 @@ def test_should_rvol_alert_same_day_blocks(_rvol_alert_db: Path):
 
 def test_should_rvol_alert_next_day_allows(_rvol_alert_db: Path):
     """The next ET day the symbol should be allowed to alert again."""
-    from api.main import _mark_rvol_alerted, _should_rvol_alert
+    from api.scanner_routes import _mark_rvol_alerted, _should_rvol_alert
 
     yesterday = date(2026, 6, 23)
     today = date(2026, 6, 24)
@@ -64,7 +64,7 @@ def test_should_rvol_alert_next_day_allows(_rvol_alert_db: Path):
 
 def test_mark_rvol_alerted_persists(_rvol_alert_db: Path):
     """_mark_rvol_alerted should persist so a later read suppresses the re-alert."""
-    from api.main import _mark_rvol_alerted, _should_rvol_alert
+    from api.scanner_routes import _mark_rvol_alerted, _should_rvol_alert
 
     today = date(2026, 6, 24)
     sym = "MARK_TEST"
@@ -75,7 +75,7 @@ def test_mark_rvol_alerted_persists(_rvol_alert_db: Path):
 
 def test_multiple_symbols_dedup_independently(_rvol_alert_db: Path):
     """Marking one symbol does not affect another symbol's dedup state."""
-    from api.main import _mark_rvol_alerted, _should_rvol_alert
+    from api.scanner_routes import _mark_rvol_alerted, _should_rvol_alert
 
     today = date(2026, 6, 24)
 
@@ -92,7 +92,7 @@ async def test_rvol_alert_once_calls_notify_with_kind(
     monkeypatch: pytest.MonkeyPatch, _rvol_alert_db: Path
 ) -> None:
     """RVOL spike path emits through notify() with kind=rvol and push enabled."""
-    from api.main import _rvol_alert_once
+    from api.scanner_routes import _rvol_alert_once
 
     notify_calls: list[dict] = []
 
@@ -115,22 +115,22 @@ async def test_rvol_alert_once_calls_notify_with_kind(
     provider.aget_quotes = _FakeProvider().aget_quotes  # type: ignore[method-assign]
 
     monkeypatch.setattr("api.main._RVOL_ALERTS_ENABLED", True)
-    monkeypatch.setattr("api.main._market_session", lambda: "regular")
-    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: 38)
-    monkeypatch.setattr("api.main._all_watchlist_symbols", lambda: ["AAPL"])
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes._market_session", lambda: "regular")
+    monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: 38)
+    monkeypatch.setattr("api.scanner_routes._all_watchlist_symbols", lambda: ["AAPL"])
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
     monkeypatch.setattr(
-        "api.main.load_profile",
+        "api.scanner_routes.load_profile",
         lambda sym: {
             "avg_volume_by_bucket": [10_000.0] * 78,
         },
     )
     monkeypatch.setattr(
-        "api.main._compute_rvol_from_total_volume",
+        "api.scanner_routes._compute_rvol_from_total_volume",
         lambda profile, total_volume, bucket: 4.0,
     )
     monkeypatch.setattr(
-        "api.main.datetime",
+        "api.scanner_routes.datetime",
         type(
             "FixedDatetime",
             (),
@@ -161,7 +161,7 @@ async def test_rvol_alert_once_calls_notify_with_kind(
 
 def test_rvol_alert_threshold_default():
     """RVOL_ALERT_THRESHOLD must default to 3.0 (high enough to suppress noise)."""
-    from api.main import RVOL_ALERT_THRESHOLD
+    from api.scanner_routes import RVOL_ALERT_THRESHOLD
 
     assert RVOL_ALERT_THRESHOLD == 3.0
 

@@ -2,9 +2,9 @@
 lifecycle (+ EOD). Read-only over the backend's bars caches — never fetches bars.
 
 Extracted verbatim from ``api/main.py`` (2026-08-16 god-module split). ``api/main``
-imports the ``_fusion_*_once`` runners into ``_register_background_jobs``. The one
-back-reference is ``api.main._BARS_CACHE`` (the /api/bars cache still lives there),
-read lazily at call time so test monkeypatches on ``api.main`` keep working.
+imports the ``_fusion_*_once`` runners into ``_register_background_jobs``. Reads
+the /api/bars cache (``api.bars_routes._BARS_CACHE``) — the same dict object the
+chart endpoint fills.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 
 from api import watchlist_bars_cache
+from api.bars_routes import _BARS_CACHE
 from brokers.factory import get_market_data_provider
 from db.base import DEFAULT_DB_PATH
 from signals import indicators
@@ -30,14 +31,6 @@ _fusion_shock_until_mono = 0.0
 _fusion_lifecycle_eod_last_date: dict = {}
 
 
-def _bars_cache():
-    # /api/bars cache still lives in api.main — read lazily so monkeypatches on
-    # api.main._BARS_CACHE (and the eventual bars-family move) keep working.
-    from api.main import _BARS_CACHE
-
-    return _BARS_CACHE
-
-
 def _fusion_price_from_cache(symbol: str):
     """Read the backend's existing bars caches only; never fetch."""
     from decimal import Decimal
@@ -50,7 +43,7 @@ def _fusion_price_from_cache(symbol: str):
             ttl = _WL_BARS_TTL_S.get(timeframe, 90.0)
             if now_wall - stored_at <= ttl:
                 candidates.append((stored_at, bars[-1]))
-    for key, (expires, response) in _bars_cache().items():
+    for key, (expires, response) in _BARS_CACHE.items():
         if key and key[0] == sym and expires > time.monotonic():
             bars = response.get("bars") if isinstance(response, dict) else None
             if bars:
@@ -68,7 +61,7 @@ def _fusion_cached_daily_move(symbol: str) -> float | None:
     hit = _wl_bars_cache.get((sym, "1Day"))
     if hit is not None and hit[1]:
         newest = hit
-    for key, (expires, response) in _bars_cache().items():
+    for key, (expires, response) in _BARS_CACHE.items():
         if key and key[0] == sym and key[1] == "1Day":
             bars = response.get("bars") if isinstance(response, dict) else None
             if bars and (newest is None or expires > newest[0]):

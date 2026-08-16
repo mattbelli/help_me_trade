@@ -22,11 +22,11 @@ from brokers.alpaca import StockBar
 def _clear_wl_bars_cache():
     """The watchlist endpoint's TTL bars cache is module-level; without clearing
     it, bars cached by one test's mock provider leak into the next test."""
-    from api import main as api_main
+    from api import watchlist_routes as wl_routes
 
-    api_main._wl_bars_cache.clear()
+    wl_routes._wl_bars_cache.clear()
     yield
-    api_main._wl_bars_cache.clear()
+    wl_routes._wl_bars_cache.clear()
 
 
 def _bar(t: str, close: float, volume: float = 1_000_000.0) -> StockBar:
@@ -91,9 +91,9 @@ def test_futures_symbol_price_populated_equity_fields_none(
 ) -> None:
     """GET /api/watchlist/market?symbols=/ES,AAPL — futures get price, equities untouched."""
     provider = _make_provider()
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.watchlist_routes.get_market_data_provider", lambda: provider)
     # Fix session so ext logic is deterministic.
-    monkeypatch.setattr("api.main._market_session", lambda: "regular")
+    monkeypatch.setattr("api.watchlist_routes._market_session", lambda: "regular")
     # Stub out apply_extended so it doesn't hit the real hub.
     monkeypatch.setattr(
         "api.main.market_hub.apply_extended",
@@ -139,7 +139,7 @@ def test_session_intraday_closes_futures_uses_latest_globex_session() -> None:
 
     RTH filtering returned [] off-hours, which the sparkline rendered as no-data.
     """
-    from api.main import _session_intraday_closes
+    from api.watchlist_routes import _session_intraday_closes
 
     bars = [
         _bar("2026-06-29T14:00:00Z", 100.0),  # 10:00 ET 06-29 -> PRIOR Globex session
@@ -152,7 +152,7 @@ def test_session_intraday_closes_futures_uses_latest_globex_session() -> None:
 
 def test_session_intraday_closes_equity_rth_unchanged() -> None:
     """Equity path (default) still RTH-filters 09:30-16:00 ET."""
-    from api.main import _session_intraday_closes
+    from api.watchlist_routes import _session_intraday_closes
 
     bars = [
         _bar("2026-06-29T13:30:00Z", 100.0),  # 09:30 ET -> RTH, kept
@@ -172,7 +172,7 @@ def test_empty_bar_batch_returns_502(
         return {}
 
     provider.aget_stock_bars_batch = _empty_batch
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.watchlist_routes.get_market_data_provider", lambda: provider)
     monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
 
     resp = test_client.get("/api/watchlist/market?symbols=AAPL,/ES")
@@ -184,7 +184,7 @@ def test_futures_price_roll_uses_newer_intraday_session() -> None:
     """Schwab's futures DAILY series can lag a whole session (e.g. the 2026-07-03
     holiday half-session had 5-min bars but no daily bar) — price must roll
     forward from the newer intraday session, not freeze at the prior settle."""
-    from api.main import _futures_price_roll
+    from api.watchlist_routes import _futures_price_roll
 
     daily = [
         _bar("2026-07-01T05:00:00Z", 7_532.75),
@@ -209,7 +209,7 @@ def test_futures_price_roll_uses_newer_intraday_session() -> None:
 
 def test_futures_price_roll_none_when_daily_current() -> None:
     """Same-session intraday bars must NOT roll — daily close stays authoritative."""
-    from api.main import _futures_price_roll
+    from api.watchlist_routes import _futures_price_roll
 
     daily = [_bar("2026-07-02T05:00:00Z", 7_523.0)]
     intraday = [_bar("2026-07-02T14:00:00Z", 7_530.0)]  # 10:00 ET 07-02, same session
@@ -240,8 +240,8 @@ def test_futures_stale_daily_rolls_price_in_endpoint(
 
     provider.aget_stock_bars_batch = _batch
     provider.aget_quotes = AsyncMock(return_value={})
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
-    monkeypatch.setattr("api.main._market_session", lambda: "closed")
+    monkeypatch.setattr("api.watchlist_routes.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.watchlist_routes._market_session", lambda: "closed")
     monkeypatch.setattr("api.main.market_hub.apply_extended", AsyncMock())
     monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
 

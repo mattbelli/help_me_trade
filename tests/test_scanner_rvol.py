@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.main import _compute_rvol_from_total_volume, _rvol_bucket_now
+from api.scanner_routes import _compute_rvol_from_total_volume, _rvol_bucket_now
 from signals.volume_profile import N_BUCKETS, Profile
 from trading.market_hours import _ET
 
@@ -28,28 +28,28 @@ def _mock_now(h: int, m: int) -> datetime:
 
 def test_rvol_bucket_now_pre_open(monkeypatch: pytest.MonkeyPatch) -> None:
     """Before 09:30 ET → None (pre-market, don't scan)."""
-    monkeypatch.setattr("api.main.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(9, 0))})())
+    monkeypatch.setattr("api.scanner_routes.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(9, 0))})())
     result = _rvol_bucket_now()
     assert result is None
 
 
 def test_rvol_bucket_now_open_first_bar(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exactly 09:30 ET → bucket 0."""
-    monkeypatch.setattr("api.main.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(9, 30))})())
+    monkeypatch.setattr("api.scanner_routes.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(9, 30))})())
     result = _rvol_bucket_now()
     assert result == 0
 
 
 def test_rvol_bucket_now_midday(monkeypatch: pytest.MonkeyPatch) -> None:
     """12:30 ET = 180 minutes after open → bucket 36."""
-    monkeypatch.setattr("api.main.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(12, 30))})())
+    monkeypatch.setattr("api.scanner_routes.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(12, 30))})())
     result = _rvol_bucket_now()
     assert result == 36  # (12*60+30 - (9*60+30)) // 5 = 180 // 5
 
 
 def test_rvol_bucket_now_after_close(monkeypatch: pytest.MonkeyPatch) -> None:
     """After 16:00 ET → clamped to 77."""
-    monkeypatch.setattr("api.main.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(17, 0))})())
+    monkeypatch.setattr("api.scanner_routes.datetime", type("_DT", (), {"now": staticmethod(lambda tz=None: _mock_now(17, 0))})())
     result = _rvol_bucket_now()
     assert result == 77
 
@@ -143,7 +143,7 @@ def test_scanner_rvol_non_schwab_provider_returns_400(
     from brokers.alpaca import AlpacaAdapter
 
     alpaca = MagicMock(spec=AlpacaAdapter)
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: alpaca)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: alpaca)
 
     resp = test_client.get("/api/scanner/rvol")
     assert resp.status_code == 400
@@ -155,12 +155,12 @@ def test_scanner_rvol_off_hours_returns_empty(
 ) -> None:
     """Outside RTH (pre-market session) → empty results with a note, not an error."""
     provider = _make_schwab_provider()
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
 
     # Force session to 'pre'
-    monkeypatch.setattr("api.main._market_session", lambda: "pre")
+    monkeypatch.setattr("api.scanner_routes._market_session", lambda: "pre")
     # Force bucket to None (pre-open)
-    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: None)
+    monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: None)
 
     resp = test_client.get("/api/scanner/rvol")
     assert resp.status_code == 200
@@ -199,9 +199,9 @@ def test_scanner_rvol_happy_path(
 
     provider = _make_schwab_provider()
     provider.aget_quotes = AsyncMock(return_value=fake_quotes)
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
-    monkeypatch.setattr("api.main._market_session", lambda: "regular")
-    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: bucket)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes._market_session", lambda: "regular")
+    monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: bucket)
 
     resp = test_client.get("/api/scanner/rvol?min_rvol=1.5&limit=50")
     assert resp.status_code == 200
@@ -243,9 +243,9 @@ def test_scanner_rvol_limit_param(
     }
     provider = _make_schwab_provider()
     provider.aget_quotes = AsyncMock(return_value=fake_quotes)
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
-    monkeypatch.setattr("api.main._market_session", lambda: "regular")
-    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: 38)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes._market_session", lambda: "regular")
+    monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: 38)
 
     resp = test_client.get("/api/scanner/rvol?min_rvol=1.5&limit=1")
     assert resp.status_code == 200
@@ -257,7 +257,7 @@ def test_scanner_rvol_limit_param(
 def test_scanner_rvol_bad_limit(test_client, monkeypatch: pytest.MonkeyPatch) -> None:
     """limit > 200 → 400."""
     provider = _make_schwab_provider()
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
     resp = test_client.get("/api/scanner/rvol?limit=999")
     assert resp.status_code == 400
 
@@ -280,9 +280,9 @@ def test_scanner_rvol_provider_error_returns_502(
 
     provider = _make_schwab_provider()
     provider.aget_quotes = AsyncMock(side_effect=BrokerError("timeout"))
-    monkeypatch.setattr("api.main.get_market_data_provider", lambda: provider)
-    monkeypatch.setattr("api.main._market_session", lambda: "regular")
-    monkeypatch.setattr("api.main._rvol_bucket_now", lambda: 38)
+    monkeypatch.setattr("api.scanner_routes.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.scanner_routes._market_session", lambda: "regular")
+    monkeypatch.setattr("api.scanner_routes._rvol_bucket_now", lambda: 38)
 
     resp = test_client.get("/api/scanner/rvol")
     assert resp.status_code == 502

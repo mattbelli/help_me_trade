@@ -431,7 +431,7 @@ async def test_scanner_and_perception_carry_honesty(tmp_path: Path, monkeypatch:
         }],
         db_path=db,
     )
-    from api.main import api_scanner_abnormality
+    from api.scanner_routes import api_scanner_abnormality
 
     payload = await api_scanner_abnormality()
     assert payload["count"] == 1

@@ -15,7 +15,7 @@ import asyncio
 
 import pytest
 
-import api.main as api_main
+import api.bars_routes as bars_routes
 
 
 class _Bar:
@@ -54,36 +54,36 @@ class _SpecProvider:
 
 @pytest.fixture(autouse=True)
 def _clean_cache():
-    api_main._BARS_CACHE.clear()
-    api_main._BARS_INFLIGHT.clear()
-    api_main._BARS_FULL_AT.clear()
+    bars_routes._BARS_CACHE.clear()
+    bars_routes._BARS_INFLIGHT.clear()
+    bars_routes._BARS_FULL_AT.clear()
     yield
-    api_main._BARS_CACHE.clear()
-    api_main._BARS_INFLIGHT.clear()
-    api_main._BARS_FULL_AT.clear()
+    bars_routes._BARS_CACHE.clear()
+    bars_routes._BARS_INFLIGHT.clear()
+    bars_routes._BARS_FULL_AT.clear()
 
 
 def _warm(key: tuple, payload: dict, ttl: float = 600.0) -> None:
     import time
 
-    api_main._BARS_CACHE[key] = (time.monotonic() + ttl, payload)
+    bars_routes._BARS_CACHE[key] = (time.monotonic() + ttl, payload)
 
 
 @pytest.mark.asyncio
 async def test_prewarm_skip_check_matches_the_real_cache_key(monkeypatch) -> None:
     """The storm bug: a warm entry must make the prewarm skip the fetch."""
     provider = _Provider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: ["SPY"])
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", {("1Day", 1825)})
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SPECS", {})
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {})
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_all_watchlist_symbols", lambda: ["SPY"])
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_DEFAULT_SPECS", {("1Day", 1825)})
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SPECS", {})
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SYMBOLS", {})
     # Warm entry under the REAL key shape (incl. the ext default for 1Day).
-    _warm(("SPY", "1Day", 1825, api_main._bars_extended_default("1Day")), {"bars": []})
+    _warm(("SPY", "1Day", 1825, bars_routes._bars_extended_default("1Day")), {"bars": []})
 
     marks: list[str] = []
-    monkeypatch.setattr(api_main, "mark_alive", lambda name: marks.append(name))
-    await api_main._bars_prewarm_once()
+    monkeypatch.setattr(bars_routes, "mark_alive", lambda name: marks.append(name))
+    await bars_routes._bars_prewarm_once()
     assert provider.calls == []  # warm → no refetch; 3-tuple lookup would refetch
     # Heartbeat is per-symbol progress, not per completed cycle — a multi-minute
     # cold warm must not false-stale the watchdog.
@@ -99,21 +99,21 @@ async def test_prewarm_broadcasts_hot_spec_across_the_watchlist(monkeypatch) -> 
     import time as _time
 
     provider = _SpecProvider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
     monkeypatch.setattr(
-        api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ", "NVDA"]
+        bars_routes, "_all_watchlist_symbols", lambda: ["SPY", "QQQ", "NVDA"]
     )
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
-    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 2)
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(bars_routes, "_BARS_HOT_SPECS_MAX", 2)
     monkeypatch.setattr(
-        api_main, "_BARS_SEEN_SPECS", {("SPY", "4Hour", 365): _time.monotonic()}
+        bars_routes, "_BARS_SEEN_SPECS", {("SPY", "4Hour", 365): _time.monotonic()}
     )
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {})
-    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SYMBOLS", {})
+    monkeypatch.setattr(bars_routes, "mark_alive", lambda name: None)
 
-    await api_main._bars_prewarm_once()
+    await bars_routes._bars_prewarm_once()
     warmed = {(s, tf) for s, tf, _d in provider.calls}
     # 4Hour reaches every symbol here because the watchlist fits inside the
     # _BARS_HOT_SPECS_SYMBOLS bound — the bound itself is pinned separately below.
@@ -129,21 +129,21 @@ async def test_prewarm_hot_spec_broadcast_bounded_to_recent_symbols(monkeypatch)
     import time as _time
 
     provider = _SpecProvider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
     watch = [f"W{i}" for i in range(6)]
-    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: list(watch))
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
-    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_SYMBOLS", 4)
+    monkeypatch.setattr(bars_routes, "_all_watchlist_symbols", lambda: list(watch))
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(bars_routes, "_BARS_HOT_SPECS_SYMBOLS", 4)
     # W5 is the symbol the user is actually on; the rest have no recorded recency.
     monkeypatch.setattr(
-        api_main, "_BARS_SEEN_SPECS", {("W5", "4Hour", 365): _time.monotonic()}
+        bars_routes, "_BARS_SEEN_SPECS", {("W5", "4Hour", 365): _time.monotonic()}
     )
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {"W5": _time.monotonic()})
-    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SYMBOLS", {"W5": _time.monotonic()})
+    monkeypatch.setattr(bars_routes, "mark_alive", lambda name: None)
 
-    await api_main._bars_prewarm_once()
+    await bars_routes._bars_prewarm_once()
     warmed = {s for s, tf, _d in provider.calls if tf == "4Hour"}
     # Top-4 by recency: W5 (viewed), then stable watchlist order for the untied rest.
     assert warmed == {"W5", "W0", "W1", "W2"}
@@ -158,21 +158,21 @@ async def test_prewarm_hot_specs_are_bounded_older_spec_not_broadcast(monkeypatc
 
     t = _time.monotonic()
     provider = _SpecProvider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
-    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: ["SPY", "QQQ"])
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", set())
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
-    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 1)  # only the newest spec broadcasts
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(bars_routes, "_all_watchlist_symbols", lambda: ["SPY", "QQQ"])
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_DEFAULT_SPECS", set())
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(bars_routes, "_BARS_HOT_SPECS_MAX", 1)  # only the newest spec broadcasts
     monkeypatch.setattr(
-        api_main,
+        bars_routes,
         "_BARS_SEEN_SPECS",
         {("SPY", "1Hour", 180): t, ("SPY", "15Min", 60): t - 100},
     )
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {})
-    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SYMBOLS", {})
+    monkeypatch.setattr(bars_routes, "mark_alive", lambda name: None)
 
-    await api_main._bars_prewarm_once()
+    await bars_routes._bars_prewarm_once()
     warmed = {(s, tf) for s, tf, _d in provider.calls}
     assert ("SPY", "1Hour") in warmed and ("QQQ", "1Hour") in warmed  # newest → broadcast
     assert ("SPY", "15Min") in warmed  # older spec still warmed on the symbol that viewed it
@@ -190,21 +190,21 @@ async def test_prewarm_entry_cap_preserves_1day_and_trims_hot_by_recency(
 
     t = _time.monotonic()
     provider = _SpecProvider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
     watch = [f"S{i:02d}" for i in range(6)]
-    monkeypatch.setattr(api_main, "_all_watchlist_symbols", lambda: watch)
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_DEFAULT_SPECS", {("1Day", 1825)})
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_PACE", 0.0)
-    monkeypatch.setattr(api_main, "_BARS_HOT_SPECS_MAX", 1)
-    monkeypatch.setattr(api_main, "_BARS_PREWARM_MAX_ENTRIES", 8)  # 6×1Day + only 2 hot fit
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SPECS", {("S00", "1Hour", 180): t})
+    monkeypatch.setattr(bars_routes, "_all_watchlist_symbols", lambda: watch)
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_DEFAULT_SPECS", {("1Day", 1825)})
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_PACE", 0.0)
+    monkeypatch.setattr(bars_routes, "_BARS_HOT_SPECS_MAX", 1)
+    monkeypatch.setattr(bars_routes, "_BARS_PREWARM_MAX_ENTRIES", 8)  # 6×1Day + only 2 hot fit
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SPECS", {("S00", "1Hour", 180): t})
     # S05 most-recently viewed, S04 next — they should keep the scarce hot slots
-    monkeypatch.setattr(api_main, "_BARS_SEEN_SYMBOLS", {"S05": t, "S04": t - 1})
-    monkeypatch.setattr(api_main, "mark_alive", lambda name: None)
+    monkeypatch.setattr(bars_routes, "_BARS_SEEN_SYMBOLS", {"S05": t, "S04": t - 1})
+    monkeypatch.setattr(bars_routes, "mark_alive", lambda name: None)
 
     with caplog.at_level("INFO"):
-        await api_main._bars_prewarm_once()
+        await bars_routes._bars_prewarm_once()
 
     warmed = {(s, tf) for s, tf, _d in provider.calls}
     for s in watch:
@@ -217,11 +217,11 @@ async def test_prewarm_entry_cap_preserves_1day_and_trims_hot_by_recency(
 @pytest.mark.asyncio
 async def test_concurrent_identical_requests_share_one_fetch(monkeypatch) -> None:
     provider = _Provider(delay=0.05)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
 
     a, b = await asyncio.gather(
-        api_main._get_bars_cached("SPY", "4Hour", 365),
-        api_main._get_bars_cached("SPY", "4Hour", 365),
+        bars_routes._get_bars_cached("SPY", "4Hour", 365),
+        bars_routes._get_bars_cached("SPY", "4Hour", 365),
     )
     assert len(provider.calls) == 1
     assert a is b and a is not None and a["symbol"] == "SPY"
@@ -230,16 +230,16 @@ async def test_concurrent_identical_requests_share_one_fetch(monkeypatch) -> Non
 @pytest.mark.asyncio
 async def test_futures_failure_serves_stale_and_never_hops_to_alpaca(monkeypatch) -> None:
     provider = _Provider(fail=True)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
     alpaca_calls: list[str] = []
     monkeypatch.setattr(
-        api_main, "_require_alpaca", lambda: alpaca_calls.append("hop") or None
+        bars_routes, "_require_alpaca", lambda: alpaca_calls.append("hop") or None
     )
-    ext = api_main._bars_extended_default("4Hour")
+    ext = bars_routes._bars_extended_default("4Hour")
     stale = {"symbol": "/ES", "bars": [{"close": 7500.0}]}
     _warm(("/ES", "4Hour", 90, ext), stale, ttl=-5.0)  # expired — stale on purpose
 
-    out = await api_main._get_bars_cached("/ES", "4Hour", 90)
+    out = await bars_routes._get_bars_cached("/ES", "4Hour", 90)
     assert out == stale  # last-good series through the WAF cooldown
     assert alpaca_calls == []  # Alpaca has no futures — the hop must not happen
 
@@ -248,10 +248,10 @@ async def test_futures_failure_serves_stale_and_never_hops_to_alpaca(monkeypatch
 async def test_equity_failure_still_falls_back_to_alpaca(monkeypatch) -> None:
     provider = _Provider(fail=True)
     fallback = _Provider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_require_alpaca", lambda: fallback)
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_require_alpaca", lambda: fallback)
 
-    out = await api_main._get_bars_cached("SPY", "1Day", 365)
+    out = await bars_routes._get_bars_cached("SPY", "1Day", 365)
     assert fallback.calls == ["SPY"]
     assert out is not None and out["symbol"] == "SPY"
 
@@ -286,8 +286,8 @@ class _SeriesProvider:
 def _expire(key: tuple) -> None:
     """Force the cache entry expired (monotonic 0) without dropping it, so the next
     read refetches while the retained payload still seeds the incremental merge."""
-    _, payload = api_main._BARS_CACHE[key]
-    api_main._BARS_CACHE[key] = (0.0, payload)
+    _, payload = bars_routes._BARS_CACHE[key]
+    bars_routes._BARS_CACHE[key] = (0.0, payload)
 
 
 @pytest.mark.asyncio
@@ -305,18 +305,18 @@ async def test_warm_refresh_is_incremental_and_merges_over_cached(monkeypatch) -
         _TBar("2026-07-23T04:00:00Z", 13.0),  # a new bar
     ]
     provider = _SeriesProvider(full, tail)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    ext = api_main._bars_extended_default("1Day")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    ext = bars_routes._bars_extended_default("1Day")
     key = ("SPY", "1Day", 1825, ext)
 
-    first = await api_main._get_bars_cached("SPY", "1Day", 1825)
+    first = await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825]  # cold → one full walk
-    assert key in api_main._BARS_FULL_AT
-    baseline_ts = api_main._BARS_FULL_AT[key]
+    assert key in bars_routes._BARS_FULL_AT
+    baseline_ts = bars_routes._BARS_FULL_AT[key]
     assert [b["close"] for b in first["bars"]] == [10.0, 11.0, 12.0]
 
     _expire(key)
-    second = await api_main._get_bars_cached("SPY", "1Day", 1825)
+    second = await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825, 7]  # incremental window, NOT a second full walk
     assert [b["time"] for b in second["bars"]] == [
         "2026-07-20T04:00:00Z",
@@ -327,7 +327,7 @@ async def test_warm_refresh_is_incremental_and_merges_over_cached(monkeypatch) -
     # boundary bar overwritten by its fresh copy (12.0 → 12.5), new bar appended
     assert [b["close"] for b in second["bars"]] == [10.0, 11.0, 12.5, 13.0]
     # incremental did not re-baseline — the full-fetch timestamp is unchanged
-    assert api_main._BARS_FULL_AT[key] == baseline_ts
+    assert bars_routes._BARS_FULL_AT[key] == baseline_ts
 
 
 @pytest.mark.asyncio
@@ -339,17 +339,17 @@ async def test_rebaseline_forces_full_refetch_after_interval(monkeypatch) -> Non
     full = [_TBar("2026-07-22T04:00:00Z", 12.0)]
     tail = [_TBar("2026-07-23T04:00:00Z", 13.0)]
     provider = _SeriesProvider(full, tail)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    ext = api_main._bars_extended_default("1Day")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    ext = bars_routes._bars_extended_default("1Day")
     key = ("SPY", "1Day", 1825, ext)
 
-    await api_main._get_bars_cached("SPY", "1Day", 1825)
+    await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825]
     # age the baseline past the rebaseline window
-    api_main._BARS_FULL_AT[key] = _time.monotonic() - (api_main._BARS_FULL_REBASELINE + 100)
+    bars_routes._BARS_FULL_AT[key] = _time.monotonic() - (bars_routes._BARS_FULL_REBASELINE + 100)
     _expire(key)
 
-    await api_main._get_bars_cached("SPY", "1Day", 1825)
+    await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825, 1825]  # full again, not the 7d incremental window
 
 
@@ -359,13 +359,13 @@ async def test_incremental_empty_window_falls_back_to_full(monkeypatch) -> None:
     the series — it falls through to a full re-fetch."""
     full = [_TBar("2026-07-22T04:00:00Z", 12.0)]
     provider = _SeriesProvider(full, [], empty_tail=True)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    ext = api_main._bars_extended_default("1Day")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    ext = bars_routes._bars_extended_default("1Day")
     key = ("SPY", "1Day", 1825, ext)
 
-    await api_main._get_bars_cached("SPY", "1Day", 1825)
+    await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     _expire(key)
-    out = await api_main._get_bars_cached("SPY", "1Day", 1825)
+    out = await bars_routes._get_bars_cached("SPY", "1Day", 1825)
     assert provider.calls == [1825, 7, 1825]  # tried window (7), empty → full walk
     assert out is not None and [b["close"] for b in out["bars"]] == [12.0]
 
@@ -379,23 +379,23 @@ async def test_futures_aggregated_timeframe_skips_incremental(monkeypatch) -> No
     full = [_TBar("2026-06-22T04:00:00Z", 10.0), _TBar("2026-06-29T04:00:00Z", 11.0)]
     tail = [_TBar("2026-06-30T04:00:00Z", 11.5)]
     provider = _SeriesProvider(full, tail)
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    ext = api_main._bars_extended_default("1Week")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    ext = bars_routes._bars_extended_default("1Week")
     key = ("/ES", "1Week", 1825, ext)
 
-    await api_main._get_bars_cached("/ES", "1Week", 1825)
+    await bars_routes._get_bars_cached("/ES", "1Week", 1825)
     assert provider.calls == [1825]
     _expire(key)
-    await api_main._get_bars_cached("/ES", "1Week", 1825)
+    await bars_routes._get_bars_cached("/ES", "1Week", 1825)
     # fresh baseline exists, but the futures+aggregated guard forces full anyway
     assert provider.calls == [1825, 1825]
 
     # same timeframe on an equity DOES use the incremental window (guard is
     # futures-scoped, not timeframe-wide)
     eq_key = ("SPY", "1Week", 1825, ext)
-    await api_main._get_bars_cached("SPY", "1Week", 1825)
+    await bars_routes._get_bars_cached("SPY", "1Week", 1825)
     _expire(eq_key)
-    await api_main._get_bars_cached("SPY", "1Week", 1825)
+    await bars_routes._get_bars_cached("SPY", "1Week", 1825)
     assert provider.calls[-1] == 30  # 1Week incremental window, not a full walk
 
 
@@ -419,22 +419,22 @@ async def test_stale_hit_paints_now_and_refreshes_in_background(monkeypatch) -> 
             await gate.wait()
             return [_Bar(close=200.0)]
 
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: _Gated())
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
-    ext = api_main._bars_extended_default("1Hour")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: _Gated())
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
+    ext = bars_routes._bars_extended_default("1Hour")
     key = ("SPY", "1Hour", 180, ext)
     stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
     _warm(key, stale, ttl=-30.0)  # expired 30s ago — inside the serve-stale window
 
-    out = await api_main._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
+    out = await bars_routes._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
     assert out is stale  # painted instantly; never waited on the gated fetch
-    task = api_main._BARS_INFLIGHT[key]  # ...but the background refresh IS scheduled
+    task = bars_routes._BARS_INFLIGHT[key]  # ...but the background refresh IS scheduled
     await asyncio.sleep(0)  # let the task start and reach the gated provider call
     assert _Gated.calls == 1
     gate.set()
     fresh = await task
     assert fresh is not None and fresh["bars"][0]["close"] == 200.0
-    exp, cached_now = api_main._BARS_CACHE[key]
+    exp, cached_now = bars_routes._BARS_CACHE[key]
     assert cached_now is fresh and exp > _time.monotonic()  # next poll gets fresh
 
 
@@ -443,14 +443,14 @@ async def test_stale_beyond_window_blocks_for_fresh(monkeypatch) -> None:
     """Staleness is bounded: an entry expired for longer than the serve-stale window
     must NOT silently paint an old session — the request waits for real data."""
     provider = _Provider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
-    ext = api_main._bars_extended_default("1Hour")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
+    ext = bars_routes._bars_extended_default("1Hour")
     key = ("SPY", "1Hour", 180, ext)
     stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
-    _warm(key, stale, ttl=-(api_main._BARS_SERVE_STALE_MAX + 60.0))
+    _warm(key, stale, ttl=-(bars_routes._BARS_SERVE_STALE_MAX + 60.0))
 
-    out = await api_main._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
+    out = await bars_routes._get_bars_cached("SPY", "1Hour", 180, stale_ok=True)
     assert out is not stale and provider.calls == ["SPY"]  # blocked and fetched
 
 
@@ -459,12 +459,12 @@ async def test_prewarm_path_never_serves_stale(monkeypatch) -> None:
     """The prewarm loop keeps blocking semantics (stale_ok defaults False): it must
     await each fetch so its pacing bounds upstream concurrency."""
     provider = _Provider()
-    monkeypatch.setattr(api_main, "get_market_data_provider", lambda: provider)
-    monkeypatch.setattr(api_main, "_overnight_delayed_flag", lambda: False)
-    ext = api_main._bars_extended_default("1Hour")
+    monkeypatch.setattr(bars_routes, "get_market_data_provider", lambda: provider)
+    monkeypatch.setattr(bars_routes, "_overnight_delayed_flag", lambda: False)
+    ext = bars_routes._bars_extended_default("1Hour")
     key = ("SPY", "1Hour", 180, ext)
     stale = {"symbol": "SPY", "timeframe": "1Hour", "bars": [{"close": 100.0}]}
     _warm(key, stale, ttl=-30.0)  # would qualify for serve-stale interactively
 
-    out = await api_main._get_bars_cached("SPY", "1Hour", 180)
+    out = await bars_routes._get_bars_cached("SPY", "1Hour", 180)
     assert out is not stale and provider.calls == ["SPY"]  # awaited the refresh

@@ -61,7 +61,7 @@ def _mock_sp500_store(monkeypatch, store: dict) -> list[str]:
         broker_calls.append(args)
         return None
 
-    monkeypatch.setattr("api.main._get_bars_cached", _fail_broker)
+    monkeypatch.setattr("api.bars_routes._get_bars_cached", _fail_broker)
     monkeypatch.setattr(scan_routes, "_sp500_universe", lambda: list(store))
     monkeypatch.setattr(
         "db.momentum_bars.load_daily_bars",

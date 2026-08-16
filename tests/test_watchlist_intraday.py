@@ -10,7 +10,7 @@ def _bar(time: str, close: float) -> StockBar:
 
 
 def test_session_intraday_closes_filters_to_latest_rth_session() -> None:
-    from api.main import _session_intraday_closes
+    from api.watchlist_routes import _session_intraday_closes
 
     bars = [
         # Prior ET date (2026-06-22) — dropped.
@@ -29,6 +29,6 @@ def test_session_intraday_closes_filters_to_latest_rth_session() -> None:
 
 
 def test_session_intraday_closes_empty() -> None:
-    from api.main import _session_intraday_closes
+    from api.watchlist_routes import _session_intraday_closes
 
     assert _session_intraday_closes([]) == []

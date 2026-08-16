@@ -68,13 +68,13 @@ def _screen_universe() -> list[str]:
 def _make_bars_getter():
     """Return an async ``get_bars`` bound to the app's cached daily-bars path.
 
-    Reuses ``api.main._get_bars_cached`` — cache-read first, fetching only on a
+    Reuses ``api.bars_routes._get_bars_cached`` — cache-read first, fetching only on a
     miss — the very function the chart endpoint and prewarm loop use. Watchlist
     symbols are already kept warm by the prewarm loop, so scans are served from
     cache; at most a handful of cold open-position symbols trigger a paced,
     per-symbol fetch (never a concurrent burst).
     """
-    from api.main import _get_bars_cached  # lazy: avoid circular import
+    from api.bars_routes import _get_bars_cached
 
     async def _get(symbol: str) -> list[Bar] | None:
         # RTH-only, pinned explicitly: the scan's daily inputs (200-DMA, 52-week

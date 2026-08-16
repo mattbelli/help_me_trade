@@ -15,9 +15,11 @@ from pathlib import Path
 
 MAIN = Path(__file__).resolve().parent.parent / "api" / "main.py"
 
-# 2026-08-16 after the first strangler round (6 families out): 41 routes / 4,065 lines.
-MAX_INLINE_ROUTES = 41
-MAX_LINES = 4_100
+# 2026-08-16 round 1 (6 families out): 41 routes / 4,065 lines.
+# 2026-08-16 round 2 (bars, scanner+rvol job, flow, watchlist, alpaca guard out):
+# 22 routes / 2,418 lines.
+MAX_INLINE_ROUTES = 22
+MAX_LINES = 2_440
 
 _ROUTE_RE = re.compile(r"^@app\.(get|post|put|delete|patch|websocket)\(", re.M)
 
@@ -34,5 +36,5 @@ def test_main_py_line_count_only_shrinks() -> None:
     n = sum(1 for _ in MAIN.open())
     assert n <= MAX_LINES, (
         f"api/main.py is {n} lines (cap {MAX_LINES}). Extract, don't append — see "
-        "board #77 for the next family to pull out."
+        "board #76 for the next family to pull out."
     )

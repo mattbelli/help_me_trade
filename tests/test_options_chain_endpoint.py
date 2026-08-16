@@ -13,7 +13,7 @@ from brokers.alpaca import AlpacaAdapter
 
 @pytest.fixture(autouse=True)
 def _clear_chain_cache() -> None:
-    from api.main import _OPTIONS_CHAIN_CACHE
+    from api.flow_routes import _OPTIONS_CHAIN_CACHE
 
     _OPTIONS_CHAIN_CACHE.clear()
     yield
@@ -115,8 +115,8 @@ def _mock_alpaca(
     )
     broker.get_option_contracts = MagicMock(return_value=contracts)
 
-    monkeypatch.setattr("api.main.broker_is_configured", lambda name: name == "alpaca")
-    monkeypatch.setattr("api.main.get_broker", lambda _name: broker)
+    monkeypatch.setattr("api.alpaca_guard.broker_is_configured", lambda name: name == "alpaca")
+    monkeypatch.setattr("api.alpaca_guard.get_broker", lambda _name: broker)
     return broker
 
 
@@ -515,7 +515,7 @@ def test_options_chain_requires_symbol(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_options_chain_alpaca_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     from api.main import app
 
-    monkeypatch.setattr("api.main.broker_is_configured", lambda _name: False)
+    monkeypatch.setattr("api.alpaca_guard.broker_is_configured", lambda _name: False)
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         resp = client.get("/api/options-chain?symbol=NVDA")

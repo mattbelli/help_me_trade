@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from api.main import _mark_rvol_alerted, _rvol_alert_key, _should_rvol_alert
+from api.scanner_routes import _mark_rvol_alerted, _rvol_alert_key, _should_rvol_alert
 
 
 @pytest.fixture()
