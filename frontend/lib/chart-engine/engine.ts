@@ -8,7 +8,7 @@
  */
 
 import { CanvasLayers } from "./canvas2d";
-import { applyLive, rolledOverBar } from "./merge";
+import { applyBarFrame, type ApplyResult, type BarFrame, type VolumeMemoryRef } from "./merge";
 import {
   autoPriceRange,
   clampViewport,
@@ -216,23 +216,25 @@ export class ChartEngine {
     this.invalidate("scene");
   }
 
-  /** Merge a live price into the forming bar (mutates only the last bar). */
-  applyLive(price: number): void {
-    if (applyLive(this.bars, price)) this.invalidate("scene");
-  }
-
   /**
-   * Bar rollover: open the forming bar for the bucket `steps` ahead at `price`.
-   * A right-edge view follows the new bar; skipped buckets are the wrapper's
-   * refetch problem — this appends exactly one bar, never fabricating the ones
-   * in between.
+   * Fold a live `bar` frame into the series (see merge.ts → applyBarFrame).
+   * An append keeps a right-edge view following the new bar; a replace or an
+   * in-place widen only repaints. Returns the merge result so the wrapper can
+   * kick a refetch when buckets were skipped.
    */
-  rollover(intervalMs: number, price: number, steps = 1): void {
-    const last = this.bars[this.bars.length - 1];
-    if (!last || !Number.isFinite(price) || price <= 0) return;
+  applyBarFrame(
+    frame: BarFrame,
+    opts: {
+      intraday: boolean;
+      intervalMs: number;
+      showExt: boolean;
+      memory: VolumeMemoryRef;
+    },
+  ): ApplyResult {
     const atRightEdge = this.vp.rightEdgeIndex >= this.bars.length - 1;
-    this.bars.push(rolledOverBar(last, intervalMs, price, steps));
-    if (atRightEdge) {
+    const result = applyBarFrame(this.bars, frame, opts);
+    if (result.kind === "ignored") return result;
+    if (result.kind === "appended" && atRightEdge) {
       this.vp = clampViewport(
         { barSpacing: this.vp.barSpacing, rightEdgeIndex: this.vp.rightEdgeIndex + 1 },
         this.paneWidth(),
@@ -240,6 +242,7 @@ export class ChartEngine {
       );
     }
     this.invalidate("scene");
+    return result;
   }
 
   setColors(colors: EngineColors): void {

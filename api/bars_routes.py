@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from api.alpaca_guard import _require_alpaca
 from api.jobs import mark_alive
 from brokers.alpaca_tier import data_tier
+from brokers.bar_builder import bar_session, splice_vendor_tail
 from brokers.errors import BrokerError
 from brokers.factory import get_broker, get_market_data_provider
 from brokers.market_clock import market_session as _market_session
@@ -169,7 +170,47 @@ async def api_bars(
     response = await _get_bars_cached(sym, timeframe, int(days), ext, stale_ok=True)
     if response is None:
         return JSONResponse({"error": "failed to load bars"}, status_code=502)
-    return response
+    return _splice_live_tail(sym, timeframe, ext, response)
+
+
+_TIMEFRAME_MS = {
+    "1Min": 60_000,
+    "5Min": 300_000,
+    "15Min": 900_000,
+    "1Hour": 3_600_000,
+    "4Hour": 14_400_000,
+}
+
+
+def _splice_live_tail(sym: str, timeframe: str, ext: bool, response: dict) -> dict:
+    """Extend the (cached, possibly minutes-stale) vendor series with the live
+    hub's minute-built buckets past its tail (card #325). The vendor publishes
+    a minute bar 60-80s after the minute closes and the cache adds up to a TTL,
+    so without this a fresh chart load is 2-3 candles behind and the browser
+    used to invent them. Interactive path only — the cache entry is never
+    mutated (a new dict/list is returned), so the prewarm loop and the
+    incremental merge keep seeing pure vendor bars."""
+    interval_ms = _TIMEFRAME_MS.get(timeframe)
+    if interval_ms is None:
+        return response
+    from api.hub import market_hub
+
+    ours = market_hub.bars.recent(sym)
+    if not ours:
+        return response
+    if not ext:
+        # RTH-only view: hide pre/post/overnight minutes, as the vendor does
+        # for extended_hours=False (equities; futures carry no session).
+        from brokers.symbol_class import classify_symbol
+
+        if classify_symbol(sym) != "future":
+            ours = [b for b in ours if bar_session(b.time) == "regular"]
+            if not ours:
+                return response
+    bars = splice_vendor_tail(response.get("bars") or [], ours, interval_ms)
+    if bars is response.get("bars"):
+        return response
+    return {**response, "bars": bars}
 
 
 async def _get_bars_cached(

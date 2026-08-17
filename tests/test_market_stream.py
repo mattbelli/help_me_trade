@@ -7,6 +7,7 @@ state.price, broadcasts, or phone alerts.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from unittest.mock import AsyncMock
 
@@ -483,3 +484,87 @@ async def test_baseline_roll_stamps_date_only_on_success(
     monkeypatch.setattr(hub, "_ensure_baselines", succeeding)
     await hub._roll_baselines_if_new_day()
     assert hub._baseline_date == today
+
+
+# ---------------------------------------------------------------------------
+# Minute-bar authority (card #325): admitted prints build the forming minute,
+# Form-T prints feed it too, vendor b/u bars replace ours, frames go out.
+# ---------------------------------------------------------------------------
+
+
+class _FakeWs:
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    async def send_json(self, payload: dict) -> None:
+        self.sent.append(payload)
+
+
+@pytest.mark.asyncio
+async def test_admitted_prints_form_minute_and_ride_quote_frame() -> None:
+    hub = AlpacaMarketStreamHub()
+    ws = _FakeWs()
+    hub._clients[ws] = {"AAPL"}  # type: ignore[index]
+    hub._quotes["AAPL"] = QuoteState(price=200.0, prev_close=200.0)
+    t = "2026-08-17T15:46:00.100Z"
+    await hub._on_trade({"S": "AAPL", "p": 201.0, "s": 100, "t": t})
+    await hub._on_trade({"S": "AAPL", "p": 201.5, "s": 50, "t": "2026-08-17T15:46:30Z"})
+    await asyncio.sleep(0.15)  # the 100ms trailing broadcast re-reads state
+    quote_frames = [p for p in ws.sent if p["type"] == "quote"]
+    assert quote_frames, "quote frame expected"
+    bar = quote_frames[-1]["bar"]
+    assert bar["timeframe"] == "1Min" and bar["final"] is False
+    assert bar["open"] == 201.0 and bar["high"] == 201.5 and bar["close"] == 201.5
+    assert bar["volume"] == 150 and bar["session"] == "regular"
+    assert bar["time"] == 1_786_981_560_000 or bar["time"] % 60_000 == 0
+    # Next minute's print seals 15:46 → a `bar` frame, opens 15:47 at 201.4
+    await hub._on_trade({"S": "AAPL", "p": 201.4, "s": 10, "t": "2026-08-17T15:47:00.010Z"})
+    sealed = [p for p in ws.sent if p["type"] == "bar"]
+    assert len(sealed) == 1 and sealed[0]["close"] == 201.5 and sealed[0]["final"] is False
+    forming = hub.bars.forming("AAPL")
+    assert forming is not None and forming.open == 201.4
+
+
+@pytest.mark.asyncio
+async def test_form_t_print_feeds_bars_but_not_last_price() -> None:
+    hub = AlpacaMarketStreamHub()
+    hub._quotes["AAPL"] = QuoteState(price=200.0, prev_close=200.0)
+    await hub._on_trade(
+        {"S": "AAPL", "p": 202.0, "s": 5, "t": "2026-08-17T12:00:00Z", "c": ["T"]}
+    )
+    assert hub._quotes["AAPL"].price == 200.0  # last price untouched (pre-market)
+    forming = hub.bars.forming("AAPL")
+    assert forming is not None and forming.close == 202.0
+    # Off-band Form-T junk is dropped; other excluded conditions never build.
+    await hub._on_trade(
+        {"S": "AAPL", "p": 300.0, "s": 5, "t": "2026-08-17T12:00:05Z", "c": ["T"]}
+    )
+    assert hub.bars.forming("AAPL").high == 202.0
+    await hub._on_trade(
+        {"S": "AAPL", "p": 203.0, "s": 5, "t": "2026-08-17T12:00:06Z", "c": ["T", "W"]}
+    )
+    assert hub.bars.forming("AAPL").high == 202.0
+
+
+@pytest.mark.asyncio
+async def test_vendor_minute_and_daily_bars_are_forwarded_final() -> None:
+    hub = AlpacaMarketStreamHub()
+    ws = _FakeWs()
+    hub._clients[ws] = {"AAPL"}  # type: ignore[index]
+    await hub._handle_alpaca_message(
+        '[{"T":"b","S":"AAPL","o":1,"h":2,"l":0.5,"c":1.5,"v":9,"t":"2026-08-17T15:46:00Z"}]'
+    )
+    frame = ws.sent[-1]
+    assert frame["type"] == "bar" and frame["final"] is True and frame["timeframe"] == "1Min"
+    assert hub.bars.forming("AAPL").final is True
+    await hub._handle_alpaca_message(
+        '[{"T":"u","S":"AAPL","o":1,"h":2.5,"l":0.5,"c":1.6,"v":12,"t":"2026-08-17T15:46:00Z"}]'
+    )
+    assert hub.bars.forming("AAPL").high == 2.5 and ws.sent[-1]["high"] == 2.5
+    await hub._handle_alpaca_message(
+        '[{"T":"d","S":"AAPL","o":1,"h":3,"l":0.5,"c":2,"v":100,"t":"2026-08-17T04:00:00Z"}]'
+    )
+    daily = [p for p in ws.sent if p["type"] == "bar" and p["timeframe"] == "1Day"]
+    assert len(daily) == 1 and daily[0]["close"] == 2 and daily[0]["final"] is True
+    # Daily bars are NOT folded into the minute ring.
+    assert [b.time for b in hub.bars.recent("AAPL")] == [hub.bars.forming("AAPL").time]

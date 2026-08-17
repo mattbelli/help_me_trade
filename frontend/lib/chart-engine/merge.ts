@@ -1,40 +1,62 @@
 /**
- * Live-tick merge — the contract that made the TV 1D→4H page-kill impossible
- * here by construction (CHART_ENGINE.md → Live data contract): a live price
- * may mutate ONLY the last bar. It never appends, reorders, or touches
- * history. Bar rollover is a separate, explicit act (`rolledOverBar`), never a
- * side effect of a price tick.
+ * Live data contract (CHART_ENGINE.md → Live data contract, rewritten for
+ * card #325): the chart never invents candles. Bars arrive from ONE authority
+ * — the backend's minute-bar builder (SIP prints bucketed by their own
+ * timestamps, Alpaca `bars`/`updatedBars` replacing ours minute-for-minute)
+ * — as `bar` frames, and the client's whole job is TradingView's rule:
+ * same time → replace, newer → append, older → leave history alone.
+ *
+ * Nothing here consults the wall clock, a bare price, a staleness gate or a
+ * plausibility band. Those lived in the browser from 07-11 to 08-17 and each
+ * one was a bandaid over the vendor tail trailing real time.
  */
 
 import type { EngineBar } from "./types";
 
+/** A `bar` frame (or the `bar` field on a quote frame) from /ws/market. */
+export type BarFrame = {
+  symbol: string;
+  timeframe: "1Min" | "1Day";
+  /** Epoch ms, bucket start (minute, or the vendor's 04:00Z daily stamp). */
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  /** True once the vendor's own bar for this bucket replaced the built one. */
+  final: boolean;
+  session: "pre" | "regular" | "post" | "overnight";
+};
+
+export type ApplyResult =
+  | { kind: "ignored" }
+  | { kind: "replaced"; index: number }
+  | { kind: "appended"; index: number; skipped: number };
+
 /**
- * Merge a live price into the last bar. Returns true when the bar changed
- * (callers repaint only then). Non-finite/non-positive prices and empty data
- * are no-ops.
+ * Caller-owned memory for coarse-bucket volume roll-up. `base` is the bar's
+ * volume when frames first touched this bucket (the vendor's figure, which may
+ * already include the minute/day in progress at that moment); per frame time
+ * we keep the first and latest volume seen. Reset it to null whenever a fetched
+ * payload replaces the bars — the new base then includes everything summed so
+ * far, and summing on top would double count.
  */
-export function applyLive(bars: EngineBar[], price: number): boolean {
-  if (bars.length === 0) return false;
-  if (!Number.isFinite(price) || price <= 0) return false;
-  const last = bars[bars.length - 1];
-  if (price === last.close && price <= last.high && price >= last.low) {
-    return false;
-  }
-  last.close = price;
-  if (price > last.high) last.high = price;
-  if (price < last.low) last.low = price;
-  return true;
-}
+export type VolumeMemory = {
+  bucket: number;
+  base: number;
+  seen: Map<number, { first: number; latest: number }>;
+};
+export type VolumeMemoryRef = { current: VolumeMemory | null };
+
+const MINUTE_MS = 60_000;
 
 /**
  * Reconcile a freshly fetched series with the locally-formed tail.
  *
  * A periodic refresh exists to adopt vendor corrections — it must never REGRESS
- * the tail. Dropping a bar we rolled over locally makes the next tick roll over
- * again and re-open it at the CURRENT price, painting a gap the size of
- * everything that moved since the payload was built (up to a full cache TTL).
- * Vendor bars always win; ours survive only past the end of what it published,
- * so this can neither duplicate a timestamp nor reorder the series.
+ * the tail. Vendor bars always win; ours survive only past the end of what it
+ * published, so this can neither duplicate a timestamp nor reorder the series.
  */
 export function mergeFetchedBars(
   fetched: EngineBar[],
@@ -47,50 +69,147 @@ export function mergeFetchedBars(
 }
 
 /**
- * A fresh forming bar `steps` buckets after `prev`, opening at `prev.close`
- * and spanning to `price`. Pure construction — the caller decides whether
- * appending is legitimate. `steps > 1` skips buckets rather than fabricating
- * them: one bar lands in the bucket containing `now` and the missing ones stay
- * missing until a refetch supplies them.
+ * Fold one bar frame into the series in place. Returns what happened so the
+ * caller can repaint (and, on a skipped bucket, kick a refetch for the hole).
  *
- * The open is ALWAYS the previous bar's close, never `price`. Opening at
- * `price` fabricated a visible gap on every rollover, because the bar we
- * follow closed at a VENDOR SNAPSHOT that trails real time: measured
- * 2026-08-12 on TSLA 1Min, the served tail sat 93-133s behind with its close
- * frozen at 325.91 while the live tape was 326.04 — and the drift grows with
- * staleness. Worse, that window is exactly when no live tick had a chance to
- * walk the previous close forward, so the first tick after a fresh payload
- * lands rolls over immediately and the whole vendor lag becomes one jump.
- * Distinct from the 07-29 phantom-gap fix (a cache HIT re-applying a payload
- * and deleting the forming bar) — that one is fixed and still stands; this is
- * the cache-MISS path, where the vendor bar legitimately replaces ours but is
- * already stale.
- *
- * The skipped-bucket case (`steps > 1`) briefly (08-12→08-17) opened at
- * `price` on the theory that missing buckets meant nothing traded (true on a
- * thin symbol like FXE). Measured 2026-08-17 it is instead the COMMON case on
- * liquid names: the 1Min tail sits 2-3 buckets behind on most loads (137-197s
- * on SPY/TSLA), the 5Min vendor series never includes the forming bucket, and
- * the serve-stale bars path (#308) can hand a first payload up to ~11 min old
- * — so the "gap" was vendor lag drawn as a price jump, on nearly every load.
- * Opening at the prior close draws the move as a wick instead of a gap, which
- * is the honest shape: we know price travelled between those two points, we
- * just don't have the vendor's bucket boundary yet. Vendor truth overwrites the
- * whole bar within a refresh or two — for the thin symbol too.
+ * - `frame.timeframe` must match the series' family: 1Min frames drive every
+ *   intraday chart (rolled up into the chart's bucket by UTC floor — the
+ *   vendor's own alignment); 1Day frames drive 1Day/1Week/1Month.
+ * - Inside the last bucket: exact-interval charts (1Min ← 1Min, 1Day ← 1Day)
+ *   REPLACE the bar — the frame is the authority. Coarser charts widen
+ *   high/low, take the close, and grow volume by what the frames add on top
+ *   of the vendor's figure (`memory`; see `rollupVolume`).
+ * - Past the last bucket: append ONE bar in the bucket containing the frame,
+ *   opening at the frame's open — a real print, never a guessed continuation.
+ *   Buckets in between stay absent (`skipped > 0`) for the refetch to fill.
+ * - Before the last bucket: replace an exact-time match on exact-interval
+ *   charts (an `updatedBars` correction); otherwise ignore — history is the
+ *   vendor's.
  */
-export function rolledOverBar(
-  prev: EngineBar,
-  intervalMs: number,
-  price: number,
-  steps = 1,
-): EngineBar {
-  const open = prev.close;
+export function applyBarFrame(
+  bars: EngineBar[],
+  frame: BarFrame,
+  opts: {
+    intraday: boolean;
+    intervalMs: number;
+    showExt: boolean;
+    memory: VolumeMemoryRef;
+  },
+): ApplyResult {
+  if (bars.length === 0) return { kind: "ignored" };
+  if (!Number.isFinite(frame.close) || frame.close <= 0) {
+    return { kind: "ignored" };
+  }
+  const isMinute = frame.timeframe === "1Min";
+  if (opts.intraday !== isMinute) return { kind: "ignored" };
+  if (isMinute && !opts.showExt && frame.session !== "regular") {
+    return { kind: "ignored" };
+  }
+  const interval = opts.intervalMs;
+  if (!(interval > 0)) return { kind: "ignored" };
+  const frameInterval = isMinute ? MINUTE_MS : 86_400_000;
+  const exact = interval === frameInterval;
+  const last = bars[bars.length - 1];
+  const lastIndex = bars.length - 1;
+
+  // The chart bucket this frame belongs to. Exact charts keep the frame's own
+  // stamp (daily bars carry the vendor's 04:00Z-style time, not a UTC floor);
+  // coarser intraday charts floor to the interval (vendor alignment); weekly /
+  // monthly step from the last bar since their buckets are calendar-shaped.
+  let bucket: number;
+  if (exact) {
+    bucket = frame.time;
+  } else if (isMinute) {
+    bucket = frame.time - (frame.time % interval);
+  } else if (frame.time < last.time) {
+    return { kind: "ignored" };
+  } else {
+    const steps = Math.floor((frame.time - last.time) / interval);
+    bucket = steps === 0 ? last.time : frame.time;
+  }
+
+  if (bucket < last.time) {
+    if (exact) {
+      // Correction to a kept bar (Alpaca updatedBars): exact-time replace.
+      for (let i = lastIndex - 1; i >= 0 && bars[i].time >= frame.time; i--) {
+        if (bars[i].time === frame.time) {
+          bars[i] = toBar(frame);
+          return { kind: "replaced", index: i };
+        }
+      }
+    }
+    return { kind: "ignored" };
+  }
+
+  if (bucket === last.time) {
+    if (exact) {
+      bars[lastIndex] = toBar(frame);
+      return { kind: "replaced", index: lastIndex };
+    }
+    widen(last, frame);
+    last.volume = rollupVolume(opts.memory, bucket, frame, last.volume);
+    return { kind: "replaced", index: lastIndex };
+  }
+
+  // Past the tail: one bar in the bucket containing the frame.
+  const skipped =
+    exact || isMinute ? Math.round((bucket - last.time) / interval) - 1 : 0;
+  const fresh = toBar(frame);
+  fresh.time = bucket;
+  if (!exact) {
+    opts.memory.current = null; // memory belongs to the forming bucket only
+    fresh.volume = rollupVolume(opts.memory, bucket, frame, 0);
+  }
+  bars.push(fresh);
+  return { kind: "appended", index: lastIndex + 1, skipped: Math.max(0, skipped) };
+}
+
+function toBar(f: BarFrame): EngineBar {
   return {
-    time: prev.time + intervalMs * steps,
-    open,
-    high: Math.max(open, price),
-    low: Math.min(open, price),
-    close: price,
-    volume: 0,
+    time: f.time,
+    open: f.open,
+    high: f.high,
+    low: f.low,
+    close: f.close,
+    volume: f.volume,
   };
+}
+
+function widen(bar: EngineBar, f: BarFrame): void {
+  if (f.high > bar.high) bar.high = f.high;
+  if (f.low < bar.low) bar.low = f.low;
+  bar.close = f.close;
+}
+
+/**
+ * Volume of a coarse forming bucket = base + Σ over frame times of
+ * (latest − first-seen), except that frame times which began AFTER we started
+ * watching count in full. `base` is the bar's volume at first touch — the
+ * vendor's figure, which can already include the minute/day in progress at
+ * that moment, so that one contributes only its growth since; later minutes
+ * cannot be in the base and count whole. Exact to within one frame; the
+ * caller resets the memory when a fetched payload replaces the bars.
+ */
+function rollupVolume(
+  memory: VolumeMemoryRef,
+  bucket: number,
+  f: BarFrame,
+  current: number,
+): number {
+  let m = memory.current;
+  if (!m || m.bucket !== bucket) {
+    m = { bucket, base: current, seen: new Map() };
+    memory.current = m;
+  }
+  const rec = m.seen.get(f.time);
+  if (rec) rec.latest = f.volume;
+  else m.seen.set(f.time, { first: f.volume, latest: f.volume });
+  let firstTime = Infinity;
+  for (const t of m.seen.keys()) if (t < firstTime) firstTime = t;
+  let sum = m.base;
+  for (const [t, r] of m.seen) {
+    // Only a non-zero base can already contain the first-seen frame's start.
+    sum += t === firstTime && m.base > 0 ? r.latest - r.first : r.latest;
+  }
+  return sum;
 }

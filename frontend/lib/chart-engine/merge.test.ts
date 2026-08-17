@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { applyLive, mergeFetchedBars, rolledOverBar } from "./merge";
+import {
+  applyBarFrame,
+  mergeFetchedBars,
+  type BarFrame,
+  type VolumeMemoryRef,
+} from "./merge";
 import type { EngineBar } from "./types";
 
 function mkBars(): EngineBar[] {
@@ -10,49 +15,6 @@ function mkBars(): EngineBar[] {
     { time: 3000, open: 12, high: 12.5, low: 11.5, close: 12.2, volume: 300 },
   ];
 }
-
-describe("applyLive", () => {
-  it("mutates only the last bar — history is untouched, nothing appends", () => {
-    const bars = mkBars();
-    const historySnapshot = structuredClone(bars.slice(0, -1));
-
-    expect(applyLive(bars, 13.1)).toBe(true);
-
-    expect(bars).toHaveLength(3);
-    expect(bars.slice(0, -1)).toEqual(historySnapshot);
-    const last = bars[2];
-    expect(last.close).toBe(13.1);
-    expect(last.high).toBe(13.1); // extended up
-    expect(last.low).toBe(11.5); // unchanged
-    expect(last.open).toBe(12); // never touched
-    expect(last.time).toBe(3000); // never touched
-    expect(last.volume).toBe(300); // never touched
-  });
-
-  it("extends the low on a down tick", () => {
-    const bars = mkBars();
-    applyLive(bars, 11.0);
-    expect(bars[2].low).toBe(11.0);
-    expect(bars[2].high).toBe(12.5);
-    expect(bars[2].close).toBe(11.0);
-  });
-
-  it("returns false (no repaint) when nothing changed", () => {
-    const bars = mkBars();
-    expect(applyLive(bars, 12.2)).toBe(false); // same close, inside range
-  });
-
-  it("rejects empty data and garbage prices", () => {
-    expect(applyLive([], 10)).toBe(false);
-    const bars = mkBars();
-    const before = structuredClone(bars);
-    expect(applyLive(bars, NaN)).toBe(false);
-    expect(applyLive(bars, 0)).toBe(false);
-    expect(applyLive(bars, -5)).toBe(false);
-    expect(applyLive(bars, Infinity)).toBe(false);
-    expect(bars).toEqual(before);
-  });
-});
 
 describe("mergeFetchedBars", () => {
   const local = (): EngineBar[] => [
@@ -99,71 +61,165 @@ describe("mergeFetchedBars", () => {
   });
 });
 
-describe("rolledOverBar", () => {
-  const prev: EngineBar = {
-    time: 3000,
-    open: 12,
-    high: 12.5,
-    low: 11.5,
-    close: 12.2,
-    volume: 300,
+
+// ---------------------------------------------------------------------------
+// applyBarFrame — the whole live contract: same time replaces, newer appends,
+// older is history. No clock, no price, no plausibility.
+// ---------------------------------------------------------------------------
+
+const MIN = 60_000;
+const T0 = 1_755_446_400_000; // 2026-08-17T16:00:00Z, minute + hour aligned
+
+function frame(over: Partial<BarFrame> & { time: number }): BarFrame {
+  return {
+    symbol: "SPY",
+    timeframe: "1Min",
+    open: 100,
+    high: 101,
+    low: 99,
+    close: 100.5,
+    volume: 10,
+    final: false,
+    session: "regular",
+    ...over,
   };
+}
 
-  it("opens at the PREVIOUS close, never at the live price — no fabricated gap", () => {
-    const b = rolledOverBar(prev, 60_000, 12.4);
-    expect(b).toEqual({
-      time: 63_000,
-      open: 12.2, // prev.close, not the 12.4 tick
-      high: 12.4,
-      low: 12.2,
-      close: 12.4,
-      volume: 0,
-    });
+function minuteBars(): EngineBar[] {
+  return [
+    { time: T0 - 2 * MIN, open: 99, high: 99.5, low: 98.5, close: 99.2, volume: 5 },
+    { time: T0 - MIN, open: 99.2, high: 99.8, low: 99, close: 99.6, volume: 7 },
+    { time: T0, open: 99.6, high: 100, low: 99.4, close: 99.9, volume: 4 },
+  ];
+}
+
+const opts1 = () => ({
+  intraday: true,
+  intervalMs: MIN,
+  showExt: true,
+  memory: { current: null } as VolumeMemoryRef,
+});
+
+describe("applyBarFrame — 1Min chart", () => {
+  it("replaces the last bar wholesale when the frame is for it (frame is the authority)", () => {
+    const bars = minuteBars();
+    const r = applyBarFrame(bars, frame({ time: T0, open: 99.6, high: 100.4, low: 99.4, close: 100.3, volume: 40 }), opts1());
+    expect(r).toEqual({ kind: "replaced", index: 2 });
+    expect(bars).toHaveLength(3);
+    expect(bars[2]).toEqual({ time: T0, open: 99.6, high: 100.4, low: 99.4, close: 100.3, volume: 40 });
   });
 
-  it("spans downward moves too — the tick becomes the low, not the open", () => {
-    const b = rolledOverBar(prev, 60_000, 11.9);
-    expect(b.open).toBe(12.2);
-    expect(b.high).toBe(12.2);
-    expect(b.low).toBe(11.9);
-    expect(b.close).toBe(11.9);
+  it("appends the next minute opening at the FRAME's open — a real print, no fabricated continuation", () => {
+    const bars = minuteBars();
+    const r = applyBarFrame(bars, frame({ time: T0 + MIN, open: 100.1, high: 100.2, low: 100, close: 100.2, volume: 3 }), opts1());
+    expect(r).toEqual({ kind: "appended", index: 3, skipped: 0 });
+    expect(bars[3].time).toBe(T0 + MIN);
+    expect(bars[3].open).toBe(100.1);
+    expect(bars.slice(0, 3)).toEqual(minuteBars()); // history untouched
   });
 
-  it("lands in the bucket containing now when buckets were skipped", () => {
-    const b = rolledOverBar(prev, 60_000, 12.4, 3);
-    expect(b.time).toBe(3000 + 180_000); // 3 buckets on, not 1
+  it("lands a frame two minutes on in ITS bucket and reports the hole", () => {
+    const bars = minuteBars();
+    const r = applyBarFrame(bars, frame({ time: T0 + 3 * MIN }), opts1());
+    expect(r).toEqual({ kind: "appended", index: 3, skipped: 2 });
+    expect(bars.map((b) => b.time)).toEqual([T0 - 2 * MIN, T0 - MIN, T0, T0 + 3 * MIN]);
   });
 
-  it("opens a skipped-bucket rollover at prev.close too — vendor lag, not a gap", () => {
-    // Measured 2026-08-17: on liquid names the tail is routinely 2-3 buckets
-    // behind at load, so skipped buckets mean the vendor is late, not that
-    // nothing traded. The candle must still start where the last one ended.
-    const b = rolledOverBar(prev, 60_000, 12.4, 2);
-    expect(b).toEqual({
-      time: 123_000,
-      open: 12.2,
-      high: 12.4,
-      low: 12.2,
-      close: 12.4,
-      volume: 0,
-    });
+  it("applies an updatedBars correction to a kept minute by exact time", () => {
+    const bars = minuteBars();
+    const r = applyBarFrame(bars, frame({ time: T0 - MIN, high: 105, final: true }), opts1());
+    expect(r).toEqual({ kind: "replaced", index: 1 });
+    expect(bars[1].high).toBe(105);
+    expect(bars).toHaveLength(3);
   });
 
-  it("treats an explicit single step exactly like the default", () => {
-    expect(rolledOverBar(prev, 60_000, 12.4, 1)).toEqual(
-      rolledOverBar(prev, 60_000, 12.4),
-    );
+  it("ignores frames older than the series holds, daily frames, and bad prices", () => {
+    const bars = minuteBars();
+    expect(applyBarFrame(bars, frame({ time: T0 - 10 * MIN }), opts1())).toEqual({ kind: "ignored" });
+    expect(applyBarFrame(bars, frame({ time: T0, timeframe: "1Day" }), opts1())).toEqual({ kind: "ignored" });
+    expect(applyBarFrame(bars, frame({ time: T0, close: 0 }), opts1())).toEqual({ kind: "ignored" });
+    expect(applyBarFrame([], frame({ time: T0 }), opts1())).toEqual({ kind: "ignored" });
+    expect(bars).toEqual(minuteBars());
   });
 
-  it("is a flat doji when price has not moved since the previous close", () => {
-    const b = rolledOverBar(prev, 60_000, 12.2);
-    expect(b).toEqual({
-      time: 63_000,
-      open: 12.2,
-      high: 12.2,
-      low: 12.2,
-      close: 12.2,
-      volume: 0,
-    });
+  it("hides non-regular sessions when ETH is off, shows them when on", () => {
+    const off = { ...opts1(), showExt: false };
+    const bars = minuteBars();
+    expect(applyBarFrame(bars, frame({ time: T0 + MIN, session: "post" }), off)).toEqual({ kind: "ignored" });
+    expect(applyBarFrame(bars, frame({ time: T0 + MIN, session: "post" }), opts1()).kind).toBe("appended");
+  });
+});
+
+describe("applyBarFrame — 5Min chart rolls minutes up", () => {
+  const FIVE = 5 * MIN;
+  const opts5 = () => ({ ...opts1(), intervalMs: FIVE });
+  const fiveBars = (): EngineBar[] => [
+    { time: T0 - FIVE, open: 99, high: 99.9, low: 98.5, close: 99.6, volume: 50 },
+    // vendor's partial forming bucket (as of its snapshot)
+    { time: T0, open: 99.6, high: 100, low: 99.4, close: 99.9, volume: 40 },
+  ];
+
+  it("widens the forming bucket and takes the minute's close; volume grows by the delta only", () => {
+    const bars = fiveBars();
+    const o = opts5();
+    // minute T0+2 first seen with 6 already traded (partly in the vendor's 40)
+    applyBarFrame(bars, frame({ time: T0 + 2 * MIN, high: 100.5, low: 99.3, close: 100.4, volume: 6 }), o);
+    expect(bars).toHaveLength(2);
+    expect(bars[1]).toMatchObject({ open: 99.6, high: 100.5, low: 99.3, close: 100.4, volume: 40 });
+    applyBarFrame(bars, frame({ time: T0 + 2 * MIN, high: 100.5, low: 99.3, close: 100.2, volume: 9 }), o);
+    expect(bars[1].volume).toBe(43); // +3 since first seen
+    // a NEW minute counts in full (it cannot be in the vendor's snapshot)
+    applyBarFrame(bars, frame({ time: T0 + 3 * MIN, high: 100.6, low: 100.1, close: 100.3, volume: 2 }), o);
+    expect(bars[1]).toMatchObject({ high: 100.6, low: 99.3, close: 100.3, volume: 45 });
+  });
+
+  it("opens the next 5-minute bucket at the minute's open, volume from scratch", () => {
+    const bars = fiveBars();
+    const o = opts5();
+    const r = applyBarFrame(bars, frame({ time: T0 + FIVE + MIN, open: 100.2, high: 100.3, low: 100.1, close: 100.25, volume: 8 }), o);
+    expect(r).toEqual({ kind: "appended", index: 2, skipped: 0 });
+    expect(bars[2]).toEqual({ time: T0 + FIVE, open: 100.2, high: 100.3, low: 100.1, close: 100.25, volume: 8 });
+    applyBarFrame(bars, frame({ time: T0 + FIVE + 2 * MIN, close: 100.5, high: 100.5, low: 100.2, volume: 4 }), o);
+    expect(bars[2].volume).toBe(12);
+    expect(bars[2].high).toBe(100.5);
+  });
+
+  it("a minute frame for an already-closed 5-minute bucket is ignored (history is the vendor's)", () => {
+    const bars = fiveBars();
+    expect(applyBarFrame(bars, frame({ time: T0 - FIVE + MIN, high: 500 }), opts5())).toEqual({ kind: "ignored" });
+    expect(bars[0].high).toBe(99.9);
+  });
+});
+
+describe("applyBarFrame — daily family", () => {
+  const DAY = 86_400_000;
+  const D0 = 1_755_403_200_000; // 2026-08-17T04:00:00Z (vendor daily stamp)
+  const daily = (): EngineBar[] => [
+    { time: D0 - 3 * DAY, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 },
+    { time: D0, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 3 },
+  ];
+  const dframe = (over: Partial<BarFrame> & { time: number }) => frame({ timeframe: "1Day", ...over });
+  const optsD = () => ({ intraday: false, intervalMs: DAY, showExt: false, memory: { current: null } as VolumeMemoryRef });
+
+  it("1Day: replaces today by exact time and appends tomorrow", () => {
+    const bars = daily();
+    expect(applyBarFrame(bars, dframe({ time: D0, close: 1.7, high: 1.8, volume: 30 }), optsD())).toEqual({ kind: "replaced", index: 1 });
+    expect(bars[1]).toMatchObject({ close: 1.7, high: 1.8, volume: 30 });
+    expect(applyBarFrame(bars, dframe({ time: D0 + DAY, open: 1.7, close: 1.75 }), optsD()).kind).toBe("appended");
+    expect(bars[2].time).toBe(D0 + DAY);
+    // minute frames never touch a daily chart
+    expect(applyBarFrame(bars, frame({ time: D0 + DAY }), optsD())).toEqual({ kind: "ignored" });
+  });
+
+  it("1Week: a daily frame inside the week widens the last bar; a new week appends", () => {
+    const WEEK = 7 * DAY;
+    const bars = [{ time: D0, open: 1.5, high: 1.6, low: 1.4, close: 1.55, volume: 3 }];
+    const o = { ...optsD(), intervalMs: WEEK };
+    applyBarFrame(bars, dframe({ time: D0 + 2 * DAY, high: 2, low: 1.3, close: 1.9, volume: 5 }), o);
+    expect(bars).toHaveLength(1);
+    expect(bars[0]).toMatchObject({ open: 1.5, high: 2, low: 1.3, close: 1.9 });
+    const r = applyBarFrame(bars, dframe({ time: D0 + WEEK, open: 1.9, close: 2.1, high: 2.1, low: 1.9 }), o);
+    expect(r).toEqual({ kind: "appended", index: 1, skipped: 0 });
+    expect(bars[1].time).toBe(D0 + WEEK);
   });
 });

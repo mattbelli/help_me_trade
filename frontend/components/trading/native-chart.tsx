@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createDrawing,
@@ -32,7 +32,12 @@ import {
   withAlpha,
 } from "@/lib/chart-colors";
 import { ChartEngine } from "@/lib/chart-engine/engine";
-import { mergeFetchedBars } from "@/lib/chart-engine/merge";
+import {
+  mergeFetchedBars,
+  type VolumeMemoryRef,
+} from "@/lib/chart-engine/merge";
+import type { BarEvent } from "@/lib/use-symbol-quote";
+import type { BarFrame } from "@/lib/chart-engine/merge";
 import { crosshairTimeLabel } from "@/lib/chart-engine/ticks";
 import type {
   EngineBar,
@@ -70,6 +75,10 @@ type Props = {
   livePrice?: number;
   extPrice?: number | null;
   marketSession?: string | null;
+  /** Live bars from the server's minute-bar authority (card #325): the forming
+      minute (rides each quote frame) and sealed/vendor/daily bar events. */
+  formingBar?: BarFrame;
+  barEvent?: BarEvent;
   compact?: boolean;
   /** ETH candles — defaults ON for intraday; ignored on daily+. */
   extended?: boolean;
@@ -85,8 +94,8 @@ type Props = {
   studies?: string[];
 };
 
-// Rollover/refetch cadence: the bars cache TTL is the real gate — this just
-// polls it (a cache hit is free), so forming-bar rollover lags TTL, not this.
+// Refetch cadence: the bars cache TTL is the real gate — this just polls it
+// (a cache hit is free). Live candles come from `bar` frames, not from this.
 const INTRADAY_REFRESH_MS = 30_000;
 const DAILY_REFRESH_MS = 300_000;
 // Overlay polls (match TvLightChart's alert cadence; drawings change rarely).
@@ -200,6 +209,8 @@ export function NativeChart({
   livePrice,
   extPrice,
   marketSession,
+  formingBar,
+  barEvent,
   compact: _compact = false,
   extended = true,
   showLevels = false,
@@ -213,7 +224,7 @@ export function NativeChart({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<ChartEngine | null>(null);
-  // The engine holds a reference to this same array: applyLive/rollover
+  // The engine holds a reference to this same array: applyBarFrame
   // mutate it in place, so the wrapper's freshness/plausibility checks always
   // see the bars the engine is drawing.
   const barsRef = useRef<EngineBar[]>([]);
@@ -223,6 +234,9 @@ export function NativeChart({
   const appliedPayloadRef = useRef<unknown>(null);
   const staleRefetchPendingRef = useRef(false);
   const staleRefetchLastSecRef = useRef(0);
+  // Coarse-bucket volume roll-up memory (merge.ts → VolumeMemory); reset
+  // whenever a fetched payload replaces the bars.
+  const volumeMemoryRef = useRef<VolumeMemoryRef>({ current: null });
   const styleRef = useRef(style);
 
   const [loading, setLoading] = useState(true);
@@ -604,6 +618,7 @@ export function NativeChart({
           : mergeFetchedBars(fetched, barsRef.current);
         barsRef.current = bars;
         dataKeyRef.current = key;
+        volumeMemoryRef.current.current = null;
         engineRef.current?.setBars(bars, { anchorRight: keyChanged });
         setBarsNonce((n) => n + 1);
         setError(null);
@@ -626,8 +641,8 @@ export function NativeChart({
     };
   }, [symbol, timeframe.value, timeframe.days, showExt, refreshNonce]);
 
-  // Periodic refetch — Phase 1's completed-bar reconciliation (volume, vendor
-  // corrections) and the rollover backstop. Skips hidden tabs and hidden pages.
+  // Periodic refetch — completed-bar reconciliation (volume, vendor
+  // corrections) and the hole-filler backstop. Skips hidden tabs and pages.
   useEffect(() => {
     const ms = timeframe.intraday ? INTRADAY_REFRESH_MS : DAILY_REFRESH_MS;
     const id = setInterval(() => {
@@ -789,97 +804,55 @@ export function NativeChart({
           ]
     : [];
 
-  // Live-tick merge — mirrors TvLightChart's gating exactly:
-  //   regular/unknown → livePrice; pre/post/overnight → extPrice when ETH on;
-  //   closed → nothing. Then the staleness gate, the ±50% plausibility band
-  //   vs the prior COMPLETED bar, single-step rollover, and finally the merge.
-  useEffect(() => {
-    if (loading) return;
-    // Never merge across a symbol/timeframe/ETH switch window: until the new
-    // key's fetch lands, barsRef still holds the OLD granularity's bars and a
-    // rollover/merge against them paints a garbage candle (the TV 1D→4H bug
-    // class — here the guard is the data key, since EngineBar times are
-    // always numeric).
-    const key = `${symbol}|${timeframe.value}|${showExt ? "ext" : "rth"}`;
-    if (dataKeyRef.current !== key) return;
-    const bars = barsRef.current;
-    const engine = engineRef.current;
-    if (!engine || bars.length === 0) return;
-
-    const sess = marketSession ?? "regular";
-    let tick: number | undefined;
-    if (sess === "pre" || sess === "post" || sess === "overnight") {
-      tick = showExt ? (extPrice ?? undefined) : undefined;
-    } else if (sess === "closed") {
-      tick = undefined;
-    } else {
-      tick = livePrice ?? undefined;
-    }
-    if (tick == null) return;
-
-    const intervalSec = timeframe.intraday
-      ? timeframeSeconds(timeframe.value)
-      : 0;
-    const last = bars[bars.length - 1];
-    const lastSec = Math.floor(last.time / 1000);
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    // How many buckets the clock has moved past the tail. Counting them (rather
-    // than testing "is it stale?") is what lets a lagging tail still merge: the
-    // rollover lands in the bucket containing `now`, so it can never fuse the
-    // gap into one candle.
-    const steps =
-      intervalSec > 0 ? Math.floor((nowSec - lastSec) / intervalSec) : 0;
-
-    // A tail ≥2 buckets behind means real bars are missing — ask the vendor for
-    // them (once per episode, with an off-hours cooldown so overnight ext ticks
-    // don't refetch all night). This no longer blocks the merge. It used to,
-    // and that made the chart bistable: once rollover is running the tail stays
-    // fresh and the gate is unreachable, but a load whose first payload was
-    // already ≥2 intervals old never started that loop and stayed shut. Our own
-    // worst-case tail age (vendor lag + the 60s bars cache) is ~138s measured
-    // against a 120s threshold on 1Min, so that coin flip came up often, and on
-    // a thin symbol it never recovered at all — no newer bar exists to fetch.
-    // Measured 2026-08-12 replaying this effect on the live tick stream: SPY
-    // dropped 427/1400 ticks (91s of 300s frozen), FXE dropped 10/10.
-    if (steps >= 2) {
-      const cooldownSec = Math.max(2 * intervalSec, 300);
-      if (
-        !staleRefetchPendingRef.current &&
-        nowSec - staleRefetchLastSecRef.current >= cooldownSec
-      ) {
-        staleRefetchPendingRef.current = true;
-        staleRefetchLastSecRef.current = nowSec;
-        invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
-        setRefreshNonce((n) => n + 1);
+  // Live bars (card #325). The server is the bar authority; the client only
+  // replaces/appends by bar time (merge.ts → applyBarFrame). No clock, no
+  // bare price, no staleness gate, no plausibility band. Two inputs: the
+  // forming minute riding each quote frame, and ordered `bar` events (sealed
+  // minutes, Alpaca bars/updatedBars, daily bars).
+  const applyFrame = useCallback(
+    (frame: BarFrame) => {
+      if (loading) return;
+      // Never merge across a symbol/timeframe/ETH switch window: until the
+      // new key's fetch lands, barsRef still holds the OLD series.
+      const key = `${symbol}|${timeframe.value}|${showExt ? "ext" : "rth"}`;
+      if (dataKeyRef.current !== key) return;
+      if (frame.symbol !== symbol) return;
+      const engine = engineRef.current;
+      if (!engine || barsRef.current.length === 0) return;
+      const result = engine.applyBarFrame(frame, {
+        intraday: timeframe.intraday,
+        intervalMs: timeframeSeconds(timeframe.value) * 1000,
+        showExt,
+        memory: volumeMemoryRef.current,
+      });
+      // A frame that landed past a hole means bars are missing between the
+      // vendor tail and now (a symbol the hub only just started building, or
+      // a stream hiccup) — ask the vendor for them, once per episode.
+      if (result.kind === "appended" && result.skipped > 0) {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const intervalSec = timeframeSeconds(timeframe.value);
+        const cooldownSec = Math.max(2 * intervalSec, 300);
+        if (
+          !staleRefetchPendingRef.current &&
+          nowSec - staleRefetchLastSecRef.current >= cooldownSec
+        ) {
+          staleRefetchPendingRef.current = true;
+          staleRefetchLastSecRef.current = nowSec;
+          invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
+          setRefreshNonce((n) => n + 1);
+        }
       }
-    }
+    },
+    [loading, symbol, timeframe.value, timeframe.days, timeframe.intraday, showExt],
+  );
 
-    // Plausibility band vs the prior COMPLETED bar (live ticks mutate `last`,
-    // so it can't be the reference): a >1.5×/<0.5× jump is a bad print.
-    const ref = bars.length >= 2 ? bars[bars.length - 2].close : last.open;
-    if (ref > 0 && (tick > ref * 1.5 || tick * 2 < ref)) return;
+  useEffect(() => {
+    if (formingBar) applyFrame(formingBar);
+  }, [formingBar, applyFrame]);
 
-    // The clock crossed into a later bucket, so open the forming bar there
-    // (at the prior close — see rolledOverBar) instead of polluting the
-    // completed one.
-    if (steps >= 1) {
-      engine.rollover(intervalSec * 1000, tick, steps);
-      return;
-    }
-
-    engine.applyLive(tick);
-  }, [
-    livePrice,
-    extPrice,
-    marketSession,
-    showExt,
-    loading,
-    symbol,
-    timeframe.value,
-    timeframe.days,
-    timeframe.intraday,
-  ]);
+  useEffect(() => {
+    if (barEvent) applyFrame(barEvent.bar);
+  }, [barEvent, applyFrame]);
 
   return (
     <div className="relative h-full w-full min-h-0 overflow-hidden">

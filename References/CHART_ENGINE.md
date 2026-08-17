@@ -97,12 +97,22 @@ with 5,000 visible bars at 1080p on the dev box. A dev-only frame-time overlay
 
 ## Live data contract
 
+Rewritten 2026-08-17 (card #325). **The chart never invents candles.** Bars come from ONE
+authority — the backend's minute-bar builder (`brokers/bar_builder.py`: SIP prints bucketed by
+their own exchange timestamps, Alpaca `bars`/`updatedBars` replacing ours minute-for-minute,
+Schwab level-one futures ticks and the overnight REST price as sizeless prints) — and reach the
+browser two ways: the forming minute rides every `/ws/market` quote frame as `bar`, and sealed /
+vendor-final / daily bars arrive as `{"type":"bar", ...}` frames. `/api/bars` splices the hub's
+recent minutes past the (cached, minutes-stale) vendor tail so a fresh load is never behind.
+
 - `setBars(bars)` replaces history (sorted ascending, dedup by time — the wrapper guarantees).
-- `applyLive(price)` mutates **only the last bar**: `close = price`, `high = max`, `low = min`.
-  It never appends, reorders, or touches history. (The TV 1D→4H page-kill came from exactly
-  this seam — the merge ran against the wrong series. Here the rule is structural.)
-- New-bar rollover in Phase 1 comes from the wrapper's periodic refetch (bars-cache TTLs);
-  Phase 2 adds local rollover from the timeframe so the forming bar appears without a fetch.
+- `applyBarFrame(frame, opts)` is the ONLY live mutation (`merge.ts`): TradingView's rule —
+  **same time → replace, newer → append, older → leave history alone**. 1Min frames drive every
+  intraday chart (coarser buckets by UTC floor, the vendor's alignment; volume by base+delta);
+  1Day frames drive 1Day/1Week/1Month. An append with skipped buckets kicks one refetch.
+- There is no wall clock, no bare price, no staleness gate and no plausibility band in the chart.
+  Everything of that kind lived here 07-11 → 08-17 and each was a bandaid over the vendor tail
+  trailing real time (see BUILD_LOG 08-17).
 
 ## Painter interface (the adapter seam)
 

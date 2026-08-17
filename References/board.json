@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 325,
+   "id": "chart-server-bar-authority",
+   "title": "Chart bars: server-side bar authority (Alpaca bars/updatedBars stream + trade-built forming bar) replaces browser rollover glue",
+   "lane": "done",
+   "type": "feature",
+   "priority": "high",
+   "owner": "orchestrator",
+   "updated_at": "2026-08-17",
+   "notes": "2026-08-17 founder: candles not lining up again; 5 bandaids since 07-29 all in the browser's history+tick glue. Research (TradingView datafeed contract, Alpaca docs 'stream beats polling historical', Binance kline design): bars must come from ONE authority joined by timestamp; the chart is dumb (replace/append). Plan: collector subscribes bars+updatedBars → proxy → hub builds forming 1Min from trades (bucket by trade ts) → /ws/market 'bar' frames → /api/bars splices hub tail → chart deletes steps/staleness/plausibility/rollover. Futures (/ES via Schwab) keep fallback.\n2026-08-17: 2026-08-17 SHIPPED + deployed: bar_builder.py + hub/collector wiring + /api/bars splice + applyBarFrame client; live-verified (forming bars on quote frames, Alpaca b frames final ~15s after close, tails 70s→12s). Follow-up measured: SIP prints reach hub 1-7s late under load (pre-existing). Pending founder in-browser check."
+  },
+  {
    "num": 324,
    "id": "point-the-research-reader-at-self-hosted-firecra",
    "title": "Point the research reader at self-hosted Firecrawl (replace the regex tag-stripper)",

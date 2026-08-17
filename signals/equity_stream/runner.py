@@ -47,9 +47,10 @@ class EquityTapeRunner:
             on_trade=self._on_trade,
             on_quote=self._on_quote,
             on_daily_bar=self._on_daily_bar,
+            on_bar=self._on_bar,
         )
         self.proxy = LocalMarketProxy(
-            on_daily_bar_symbols_change=self.stream.set_daily_bar_symbols
+            on_channel_symbols_change=self.stream.set_channel_symbols
         )
         # Couple proxy availability to upstream health: while our Alpaca socket
         # is down, the hub must see a refused/dropped connection, not a silent
@@ -173,6 +174,14 @@ class EquityTapeRunner:
         symbol = m.get("S")
         if symbol and self.proxy.wants("dailyBars", symbol):
             self.proxy.publish("dailyBars", symbol, to_json_msg(m))
+
+    def _on_bar(self, m: dict[str, Any]) -> None:
+        """Alpaca minute bars (`b`) / updated bars (`u`) → the hub's chart bar
+        authority. Pass-through only; the collector keeps no bars itself."""
+        symbol = m.get("S")
+        channel = "updatedBars" if m.get("T") == "u" else "bars"
+        if symbol and self.proxy.wants(channel, symbol):
+            self.proxy.publish(channel, symbol, to_json_msg(m))
 
     # -- loops ---------------------------------------------------------------------
 

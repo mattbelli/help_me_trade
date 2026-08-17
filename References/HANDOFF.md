@@ -516,6 +516,17 @@ PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (wa
 timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
 `_build_bars_response` (mind half-days), next UI round.
 
+## ▶ Chart live candles — server-side bar authority shipped 08-17 (BUILD_LOG 08-17, card #325)
+
+Open: (1) founder in-browser check — candles should now start where the last one ended on every
+timeframe/load, forming bar updates ~10Hz, ETH-off hides pre/post frames; (2) MEASURED, not fixed:
+SIP prints reach the hub 1-7s late under load (uvicorn ~220% CPU post-restart) — bucketing is by
+trade time so nothing mislabels, but the forming candle updates late; find where the seconds go
+(proxy queue vs `_on_trade` work per print) — related and ALSO pre-existing: the hub's socket to the
+proxy logs `keepalive ping timeout` + reconnect every ~5 min (129 since 08-14; the hub loop stalls
+>20s), each reconnect = a few seconds of dropped prints; (3) `test_bars_routes`-level test for
+`_splice_live_tail` (unit-tested via `splice_vendor_tail` only).
+
 ## ▶ Per-symbol vol model — shipped disabled; ARMING is the open thread
 
 Double-gated off (`volatility_enabled` + per-strategy `vol_target`). Open:

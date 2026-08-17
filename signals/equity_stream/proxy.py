@@ -29,7 +29,10 @@ from signals.equity_stream.stream import parse_client_frame
 
 logger = logging.getLogger(__name__)
 
-_CHANNELS = ("trades", "quotes", "dailyBars")
+_CHANNELS = ("trades", "quotes", "dailyBars", "bars", "updatedBars")
+# Channels the collector subscribes upstream PER SYMBOL (trades/quotes are
+# wildcard): the proxy reports their union so the stream can diff-subscribe.
+_PER_SYMBOL_CHANNELS = ("dailyBars", "bars", "updatedBars")
 
 
 class _Client:
@@ -49,11 +52,11 @@ class LocalMarketProxy:
         *,
         host: str = EQUITY_TAPE_PROXY_HOST,
         port: int = EQUITY_TAPE_PROXY_PORT,
-        on_daily_bar_symbols_change: Callable[[set[str]], None] | None = None,
+        on_channel_symbols_change: Callable[[str, set[str]], None] | None = None,
     ) -> None:
         self._host = host
         self._port = port
-        self._on_daily_change = on_daily_bar_symbols_change
+        self._on_channel_change = on_channel_symbols_change
         self._clients: dict[Any, _Client] = {}
         # Union view per channel — the hot path asks wants() 17k times/s, so
         # membership must be one set lookup, rebuilt only on subscription edits.
@@ -122,11 +125,12 @@ class LocalMarketProxy:
             self._union[ch] = set().union(
                 *(c.subs[ch] for c in self._clients.values())
             ) if self._clients else set()
-        if self._on_daily_change is not None:
-            try:
-                self._on_daily_change(set(self._union["dailyBars"]))
-            except Exception:
-                logger.warning("dailyBars change callback failed", exc_info=True)
+        if self._on_channel_change is not None:
+            for ch in _PER_SYMBOL_CHANNELS:
+                try:
+                    self._on_channel_change(ch, set(self._union[ch]))
+                except Exception:
+                    logger.warning("%s change callback failed", ch, exc_info=True)
 
     async def _handle(self, ws: Any) -> None:
         if not self._upstream_healthy:

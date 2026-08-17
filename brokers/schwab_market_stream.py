@@ -546,6 +546,13 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 continue
 
             state.price = price_f
+            # Futures have no SIP trade stream here — the level-one last is
+            # the print. Receipt-time bucketed, sizeless; the vendor bar wins
+            # on the next /api/bars refresh as with equities. Sync handler:
+            # fold now, fan the completed-minute frame off like a tick.
+            completed = self._fold_print(symbol, price_f, 0.0, None)
+            if completed is not None:
+                self._schedule_task(self._broadcast_bar(symbol, completed))
             if bid_raw is not None:
                 state.bid = float(bid_raw)
             if ask_raw is not None:
@@ -593,6 +600,18 @@ class SchwabMarketStreamHub(BaseMarketHub):
             if ext
             else self._post_tick(symbol, prev, current)
         )
+        task = loop.create_task(coro)
+        self._inflight_ticks.add(task)
+        task.add_done_callback(self._inflight_ticks.discard)
+
+    def _schedule_task(self, coro: Any) -> None:
+        """Run a coroutine off the sync handler with the same strong-ref
+        discipline as _schedule_post_tick."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            coro.close()
+            return
         task = loop.create_task(coro)
         self._inflight_ticks.add(task)
         task.add_done_callback(self._inflight_ticks.discard)

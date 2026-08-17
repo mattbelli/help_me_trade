@@ -83,6 +83,10 @@ class HybridMarketStreamHub(BaseMarketHub):
         for child in (self._alpaca, self._schwab):
             child._quotes = self._quotes
             child._clients = self._clients
+            # One minute-bar authority: /api/bars splices from THIS composite's
+            # ring, so both children must build into it.
+            child.bars = self.bars
+            child._last_print_ms = self._last_print_ms
             # One tape detector: the equity child's _on_trade tap must queue
             # into the deque the api drain loop reads off THIS composite.
             child.tape_detector = self.tape_detector

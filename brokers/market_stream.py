@@ -28,6 +28,12 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from brokers.alpaca import AlpacaAdapter
 from brokers.alpaca_tier import effective_alpaca_feed
+from brokers.bar_builder import (
+    Bar,
+    MinuteBarBuilder,
+    bar_payload,
+    parse_ts_ms,
+)
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
 from config.settings import alpaca_config, broker_is_configured, normalize_alpaca_data_feed
@@ -208,6 +214,15 @@ class BaseMarketHub:
         self._external_tape = os.environ.get(
             "EQUITY_TAPE_EXTERNAL_COLLECTOR", "0"
         ).strip() not in ("0", "false", "no")
+        # Live minute-bar authority for the chart (card #325): admitted prints
+        # build the forming minute here, Alpaca bars/updatedBars replace ours,
+        # the forming bar rides every quote frame, completed/vendor minutes go
+        # out as `bar` frames, and /api/bars splices the ring past the vendor
+        # tail. Shared by reference across the hybrid hub's children.
+        self.bars = MinuteBarBuilder()
+        # epoch-ms of the last print folded into `bars` per symbol — gates the
+        # overnight REST-price fallback in apply_extended (prints always win).
+        self._last_print_ms: dict[str, int] = {}
 
     async def start(self) -> None:
         if self._running:
@@ -286,7 +301,10 @@ class BaseMarketHub:
             {
                 "type": "quotes",
                 "live": self._live_flag(),
-                "quotes": {sym: _quote_payload(state) for sym, state in quotes.items()},
+                "quotes": {
+                    sym: self._quote_payload_for(sym, state)
+                    for sym, state in quotes.items()
+                },
             }
         )
 
@@ -350,8 +368,18 @@ class BaseMarketHub:
             "type": "quote",
             "symbol": symbol,
             "live": True,
-            **_quote_payload(state),
+            **self._quote_payload_for(symbol, state),
         }
+        await self._send_to_subscribers(symbol, payload)
+
+    def _quote_payload_for(self, symbol: str, state: QuoteState) -> dict[str, Any]:
+        payload = _quote_payload(state)
+        forming = self.bars.forming(symbol)
+        if forming is not None:
+            payload["bar"] = bar_payload(symbol, forming)
+        return payload
+
+    async def _send_to_subscribers(self, symbol: str, payload: dict[str, Any]) -> None:
         dead: list[WebSocket] = []
         for ws, symbols in list(self._clients.items()):
             if symbol not in symbols:
@@ -362,6 +390,44 @@ class BaseMarketHub:
                 dead.append(ws)
         for ws in dead:
             self._clients.pop(ws, None)
+
+    def _fold_print(
+        self, symbol: str, price: float, size: float, ts_ms: int | None
+    ) -> Bar | None:
+        """Sync half of print ingestion (usable from sync stream handlers):
+        fold the print into the minute-bar authority and return the minute it
+        completed (or a late print's correction to a kept minute), if any."""
+        if ts_ms is None:
+            ts_ms = int(time.time() * 1000)
+        self._last_print_ms[symbol] = ts_ms
+        _forming, completed = self.bars.on_print(symbol, price, size, ts_ms)
+        return completed
+
+    async def _ingest_print(
+        self, symbol: str, price: float, size: float, ts_ms: int | None
+    ) -> None:
+        """Fold an admitted print into the minute-bar authority. The forming
+        bar is NOT broadcast here — it rides the next (throttled) quote frame;
+        a minute this print completed goes out immediately as a `bar` frame so
+        the browser seals it."""
+        completed = self._fold_print(symbol, price, size, ts_ms)
+        if completed is not None:
+            await self._broadcast_bar(symbol, completed)
+
+    async def _broadcast_bar(self, symbol: str, bar: Bar, timeframe: str = "1Min") -> None:
+        await self._send_to_subscribers(
+            symbol, {"type": "bar", **bar_payload(symbol, bar, timeframe=timeframe)}
+        )
+
+    async def _ingest_vendor_bar(self, symbol: str, bar: Bar, timeframe: str = "1Min") -> None:
+        """Adopt a vendor bar (Alpaca `b`/`u` minute, or `d` daily) and push it
+        to subscribers as a final `bar` frame. Daily bars are not folded into
+        the minute ring — they are forwarded for the 1Day chart only."""
+        if timeframe == "1Min":
+            bar = self.bars.on_vendor_bar(symbol, bar)
+        else:
+            bar.final = True
+        await self._broadcast_bar(symbol, bar, timeframe)
 
     def quote_snapshot(self, symbols: set[str] | list[str]) -> dict[str, dict[str, Any]]:
         normalized = {str(s).strip().upper() for s in symbols if str(s).strip()}
@@ -524,6 +590,14 @@ class BaseMarketHub:
         state.ext_price = ext_price
         state.ext_change_pct = ext_change_pct
         state.market_session = market_session
+        # Overnight (Blue Ocean) prints never reach the SIP stream, so the only
+        # live price then is this REST poll — feed it to the bar authority as a
+        # sizeless print so the ETH chart's overnight candle still forms.
+        # Prints win whenever they exist (pre/post carry Form-T trades).
+        if ext_price is not None and market_session == "overnight":
+            now_ms = int(time.time() * 1000)
+            if now_ms - self._last_print_ms.get(sym, 0) > 120_000:
+                await self._ingest_print(sym, float(ext_price), 0.0, now_ms)
         if broadcast:
             await self._broadcast_quote(sym)
         # Drive price-alert evaluation off the extended/overnight price too. The
@@ -663,6 +737,8 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                             {
                                 "action": "subscribe",
                                 "trades": sorted(initial),
+                                "bars": sorted(initial),
+                                "updatedBars": sorted(initial),
                                 "dailyBars": sorted(initial),
                             },
                         )
@@ -680,6 +756,8 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                                     {
                                         "action": "unsubscribe",
                                         "trades": sorted(pending_remove),
+                                        "bars": sorted(pending_remove),
+                                        "updatedBars": sorted(pending_remove),
                                         "dailyBars": sorted(pending_remove),
                                     },
                                 )
@@ -689,6 +767,8 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                                     {
                                         "action": "subscribe",
                                         "trades": sorted(pending_add),
+                                        "bars": sorted(pending_add),
+                                        "updatedBars": sorted(pending_add),
                                         "dailyBars": sorted(pending_add),
                                     },
                                 )
@@ -767,6 +847,8 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             msg_type = item.get("T")
             if msg_type == "t":
                 await self._on_trade(item)
+            elif msg_type in ("b", "u"):
+                await self._on_vendor_minute_bar(item)
             elif msg_type in ("d", "db"):
                 # Alpaca's stocks v2 daily-bar type is "d"; "db" kept for the
                 # shape this handler was originally written against. Verified
@@ -805,9 +887,16 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             logger.debug("Tape detector failed for %s", symbol, exc_info=True)
 
         if conditions:
-            for code in conditions:
-                if code in TRADE_EXCLUDE_CONDITIONS:
-                    return
+            excluded = {c for c in conditions if c in TRADE_EXCLUDE_CONDITIONS}
+            if excluded:
+                # Form-T (extended-hours) prints are not the consolidated last
+                # sale, but they ARE the pre/post candles — feed the bar
+                # authority (band-checked, no corroboration) and stop there.
+                if excluded <= {"T"} and self._ext_print_plausible(symbol, price_f):
+                    await self._ingest_print(
+                        symbol, price_f, float(item.get("s") or 0), parse_ts_ms(item.get("t"))
+                    )
+                return
 
         state = self._quotes.get(symbol)
         ref = self._prev_prices.get(symbol)
@@ -891,6 +980,10 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             state.sparkline = [*state.sparkline[:-1], round(price_f, 4)]
         else:
             state.sparkline = [round(price_f, 4)]
+        # Admitted print → forming minute (rides the broadcast just below).
+        await self._ingest_print(
+            symbol, price_f, float(item.get("s") or 0), parse_ts_ms(item.get("t"))
+        )
         await self._broadcast_quote(symbol)
 
         if prev is not None:
@@ -907,12 +1000,42 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                 await self._check_price_alerts(symbol, prev, price_f)
         self._prev_prices[symbol] = price_f
 
+    def _ext_print_plausible(self, symbol: str, price: float) -> bool:
+        state = self._quotes.get(symbol)
+        ref = 0.0
+        if state:
+            ref = state.ext_price or state.price or state.prev_close or 0.0
+        if not ref:
+            return True
+        return ref * (1 - TICK_BAND_PCT_TRADE) <= price <= ref * (1 + TICK_BAND_PCT_TRADE)
+
+    @staticmethod
+    def _vendor_bar(item: dict[str, Any]) -> Bar | None:
+        t = parse_ts_ms(item.get("t"))
+        try:
+            o, h, lo, c = (float(item["o"]), float(item["h"]), float(item["l"]), float(item["c"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if t is None:
+            return None
+        return Bar(t, o, h, lo, c, float(item.get("v") or 0.0))
+
+    async def _on_vendor_minute_bar(self, item: dict[str, Any]) -> None:
+        symbol = str(item.get("S", "")).upper()
+        bar = self._vendor_bar(item)
+        if not symbol or bar is None:
+            return
+        await self._ingest_vendor_bar(symbol, bar)
+
     async def _on_daily_bar(self, item: dict[str, Any]) -> None:
         symbol = str(item.get("S", "")).upper()
         close = item.get("c")
         if not symbol or close is None:
             return
         close_f = float(close)
+        vbar = self._vendor_bar(item)
+        if vbar is not None:
+            await self._ingest_vendor_bar(symbol, vbar, timeframe="1Day")
         state = self._quotes.get(symbol)
         if not state:
             state = QuoteState()

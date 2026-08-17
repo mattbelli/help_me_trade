@@ -271,7 +271,11 @@ def test_msgpack_timestamps_become_rfc3339():
 
 def test_proxy_subscriptions_fanout_and_daily_bar_callback():
     changes: list[set[str]] = []
-    p = LocalMarketProxy(on_daily_bar_symbols_change=changes.append)
+    p = LocalMarketProxy(
+        on_channel_symbols_change=lambda ch, syms: (
+            changes.append(syms) if ch == "dailyBars" else None
+        )
+    )
     ws = object()
     client = _Client()
     p._clients[ws] = client

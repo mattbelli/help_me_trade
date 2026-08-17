@@ -77,6 +77,7 @@ class EquityStream:
         on_trade: Callable[[dict[str, Any], float], None],
         on_quote: Callable[[dict[str, Any], float], None],
         on_daily_bar: Callable[[dict[str, Any]], None] | None = None,
+        on_bar: Callable[[dict[str, Any]], None] | None = None,
         url: str = STOCKS_WS_URL,
     ) -> None:
         self._key = key
@@ -85,8 +86,13 @@ class EquityStream:
         self._on_trade = on_trade
         self._on_quote = on_quote
         self._on_daily_bar = on_daily_bar
-        self._daily_syms: set[str] = set()
-        self._daily_dirty = False
+        self._on_bar = on_bar
+        # Per-symbol upstream channels (trades/quotes are wildcard): the wanted
+        # set per channel + a dirty flag the run loop diffs against what's applied.
+        self._chan_syms: dict[str, set[str]] = {
+            "dailyBars": set(), "bars": set(), "updatedBars": set()
+        }
+        self._chan_dirty = False
         self._running = True
         # Health hooks (assigned by the runner): the proxy must refuse/drop
         # clients while upstream is down, or the hub freezes silently while
@@ -104,11 +110,16 @@ class EquityStream:
     def stop(self) -> None:
         self._running = False
 
-    def set_daily_bar_symbols(self, symbols: set[str]) -> None:
+    def set_channel_symbols(self, channel: str, symbols: set[str]) -> None:
+        if channel not in self._chan_syms:
+            return
         wanted = {s.strip().upper() for s in symbols if s.strip()}
-        if wanted != self._daily_syms:
-            self._daily_syms = wanted
-            self._daily_dirty = True
+        if wanted != self._chan_syms[channel]:
+            self._chan_syms[channel] = wanted
+            self._chan_dirty = True
+
+    def set_daily_bar_symbols(self, symbols: set[str]) -> None:
+        self.set_channel_symbols("dailyBars", symbols)
 
     def lag_percentiles(self) -> tuple[float, float]:
         """(p50, p95) of recent delivery lag in ms; resets the sample window."""
@@ -142,21 +153,21 @@ class EquityStream:
                         "trades": ["*"],
                         "quotes": ["*"],
                     }
-                    if self._daily_syms:
-                        sub["dailyBars"] = sorted(self._daily_syms)
+                    for ch, syms in self._chan_syms.items():
+                        if syms:
+                            sub[ch] = sorted(syms)
                     await ws.send(msgpack.packb(sub))
-                    self._daily_dirty = False
-                    applied_daily = set(self._daily_syms)
+                    self._chan_dirty = False
+                    applied = {ch: set(syms) for ch, syms in self._chan_syms.items()}
                     logger.info(
-                        "equity stream connected: trades[*] quotes[*] dailyBars=%d",
-                        len(applied_daily),
+                        "equity stream connected: trades[*] quotes[*] dailyBars=%d bars=%d",
+                        len(applied["dailyBars"]),
+                        len(applied["bars"]),
                     )
                     self._signal(self.on_connect)
                     while self._running:
-                        if self._daily_dirty:
-                            applied_daily = await self._apply_daily_diff(
-                                ws, applied_daily
-                            )
+                        if self._chan_dirty:
+                            applied = await self._apply_channel_diffs(ws, applied)
                         try:
                             raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
                         except asyncio.TimeoutError:
@@ -198,22 +209,26 @@ class EquityStream:
                 return
         raise ConnectionError(f"auth failed: {got}")
 
-    async def _apply_daily_diff(self, ws: Any, applied: set[str]) -> set[str]:
-        self._daily_dirty = False
-        wanted = set(self._daily_syms)
-        to_add = wanted - applied
-        to_remove = applied - wanted
-        if to_remove:
-            await ws.send(
-                msgpack.packb(
-                    {"action": "unsubscribe", "dailyBars": sorted(to_remove)}
-                )
-            )
-        if to_add:
-            await ws.send(
-                msgpack.packb({"action": "subscribe", "dailyBars": sorted(to_add)})
-            )
-        return wanted
+    async def _apply_channel_diffs(
+        self, ws: Any, applied: dict[str, set[str]]
+    ) -> dict[str, set[str]]:
+        self._chan_dirty = False
+        unsub: dict[str, list[str]] = {}
+        sub: dict[str, list[str]] = {}
+        wanted_all: dict[str, set[str]] = {}
+        for ch, wanted in self._chan_syms.items():
+            wanted = set(wanted)
+            wanted_all[ch] = wanted
+            have = applied.get(ch, set())
+            if have - wanted:
+                unsub[ch] = sorted(have - wanted)
+            if wanted - have:
+                sub[ch] = sorted(wanted - have)
+        if unsub:
+            await ws.send(msgpack.packb({"action": "unsubscribe", **unsub}))
+        if sub:
+            await ws.send(msgpack.packb({"action": "subscribe", **sub}))
+        return wanted_all
 
     def _dispatch(self, raw: bytes) -> None:
         now_ms = time.time() * 1000.0
@@ -245,15 +260,22 @@ class EquityStream:
                     self._on_daily_bar(m)
                 except Exception:
                     self._count_callback_error(m)
+            elif t in ("b", "u") and self._on_bar is not None:
+                try:
+                    self._on_bar(m)
+                except Exception:
+                    self._count_callback_error(m)
             elif t == "error":
                 self.vendor_errors += 1
                 logger.warning("equity stream vendor error frame: %s", m)
             elif t == "subscription":
                 logger.info(
-                    "equity stream subscription ack: trades=%s quotes=%s dailyBars=%d",
+                    "equity stream subscription ack: trades=%s quotes=%s dailyBars=%d bars=%d updatedBars=%d",
                     m.get("trades"),
                     m.get("quotes"),
                     len(m.get("dailyBars") or []),
+                    len(m.get("bars") or []),
+                    len(m.get("updatedBars") or []),
                 )
 
     def _count_callback_error(self, m: dict[str, Any]) -> None:
