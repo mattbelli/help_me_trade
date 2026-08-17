@@ -67,6 +67,11 @@ export const CHAT_TOOL_OPTIONS = [
     description: "SearXNG web index — not live X/Reddit sentiment",
   },
   {
+    id: "fetch_url",
+    label: "Read page",
+    description: "Read one web page found by search (full text, not a snippet)",
+  },
+  {
     id: "get_option_quote",
     label: "Option quote",
     description: "Broker options bid/ask for limit-price context",

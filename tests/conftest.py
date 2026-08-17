@@ -189,6 +189,18 @@ def _neutralize_ambient_alpaca_suffixes(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.fixture(autouse=True)
+def _neutralize_ambient_firecrawl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset FIRECRAWL_URL leaked from the real .env.
+
+    Same trap as the APCA_* suffixes above: load_dotenv() at config.settings
+    import puts the developer's FIRECRAWL_URL into os.environ, which would send
+    fetch_url down the Firecrawl branch and past the httpx mocks the SSRF tests
+    install. Tests that want the branch set it explicitly via monkeypatch.
+    """
+    monkeypatch.delenv("FIRECRAWL_URL", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _clear_broker_caches():
     """Clear module-global broker adapter caches (incl. the new per-connection
     cache) between tests so a stale adapter never leaks across tests."""

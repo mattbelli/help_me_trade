@@ -30,7 +30,7 @@ export const CHAT_COMMANDS: ChatCommand[] = [
     description: "Search the web via SearXNG",
     prompt:
       "Search the web for the most talked-about stocks this morning on X, Reddit, and financial news.",
-    tools: ["web_search"],
+    tools: ["web_search", "fetch_url"],
   },
   {
     id: "research",

@@ -124,6 +124,14 @@ _PARAMETERS: dict[str, dict] = {
         },
         "required": ["query"],
     },
+    "fetch_url": {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "max_chars": {"type": "integer", "minimum": 500, "maximum": 20000},
+        },
+        "required": ["url"],
+    },
     "get_option_quote": {
         "type": "object",
         "properties": {

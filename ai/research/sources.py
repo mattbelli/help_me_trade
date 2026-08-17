@@ -19,7 +19,7 @@ from ai.memories.retrieval import retrieve_relevant_memories
 from ai.utils.symbols import extract_symbol
 from brokers.errors import BrokerError
 from brokers.factory import get_broker
-from config.research import get_searxng_url
+from config.research import get_firecrawl_url, get_searxng_url
 from config.settings import broker_is_configured
 from db.sqlite import get_latest_snapshot
 
@@ -457,12 +457,84 @@ def _extract_main_content(html: str) -> str:
     return re.sub(r"\s+", " ", out).strip() if out else ""
 
 
+FIRECRAWL_TIMEOUT_S = float(os.environ.get("FIRECRAWL_TIMEOUT_S", "45"))
+
+
+def _firecrawl_fetch(base_url: str, url: str, *, max_chars: int) -> str:
+    """Page text via self-hosted Firecrawl, or "" to fall back to httpx.
+
+    Firecrawl drives a real browser, which is the one thing the httpx path
+    cannot do: it renders JS and reads sites that answer a plain client with a
+    block page (reddit.com returned NOTHING to the old reader and reads fine
+    here). But its markdown is not a substitute for boilerplate removal —
+    measured 2026-08-17 on cboe.com/us/options/market_statistics/daily, the
+    put/call numbers sit at char 10,150 of Firecrawl's markdown and at char
+    ~3,000 of trafilatura's extract, so at the callers' 4,000-char limits the
+    markdown hands the model a page of navigation and none of the data.
+    ``excludeTags`` did not help — that nav is div soup, not <nav>.
+
+    So Firecrawl RENDERS and trafilatura EXTRACTS, each doing the job it is
+    good at, and Firecrawl's markdown becomes the floor when trafilatura finds
+    no article (link-list and dashboard pages) — strictly better furniture than
+    the tag strip that floor used to be.
+
+    SSRF: the caller has already validated ``url``, but Firecrawl follows
+    redirects itself inside its own container, so the per-hop check the httpx
+    path performs is not available here. The landing URL comes back in the
+    metadata and is re-validated below — a check AFTER the request, so it
+    rejects the *content* of a redirect into private space rather than
+    preventing the request. Accepted because the instance is loopback-bound on
+    this host; the httpx fallback keeps the strict per-hop guard.
+    """
+    try:
+        with httpx.Client(timeout=FIRECRAWL_TIMEOUT_S) as client:
+            resp = client.post(
+                f"{base_url}/v2/scrape",
+                json={
+                    "url": url,
+                    "formats": ["html", "markdown"],
+                    "onlyMainContent": True,
+                },
+            )
+            resp.raise_for_status()
+            payload = resp.json()
+    except Exception as exc:
+        # Sites that block Firecrawl usually block the fallback too (sec.gov and
+        # marketwatch.com answer both with 403/401), so this is a fall-through,
+        # not a failure worth surfacing.
+        logger.warning("Firecrawl fetch failed %s: %s", url, exc)
+        return ""
+    if not isinstance(payload, dict) or not payload.get("success"):
+        logger.warning("Firecrawl returned no content for %s", url)
+        return ""
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return ""
+    metadata = data.get("metadata")
+    landed = str(metadata.get("url") or url) if isinstance(metadata, dict) else url
+    if landed != url and not _is_fetch_url_safe(landed):
+        logger.warning("Firecrawl landed on an unsafe URL: %s", landed)
+        return ""
+
+    body = _extract_main_content(str(data.get("html") or ""))
+    if len(body) < _MIN_MAIN_CONTENT_CHARS:
+        # Collapse blank-line runs only: unlike the tag strip this keeps the
+        # markdown structure (tables, headings) worth reading.
+        body = re.sub(r"\n{3,}", "\n\n", str(data.get("markdown") or "")).strip()
+    return body[:max_chars]
+
+
 def fetch_url(url: str, *, max_chars: int = 4000) -> str:
     if not url or "research.local" in url:
         return ""
     if not _is_fetch_url_safe(url):
         logger.warning("Blocked unsafe URL fetch: %s", url)
         return ""
+    firecrawl = get_firecrawl_url()
+    if firecrawl:
+        body = _firecrawl_fetch(firecrawl, url, max_chars=max_chars)
+        if body:
+            return body
     try:
         current = url
         with httpx.Client(timeout=15.0, follow_redirects=False) as client:

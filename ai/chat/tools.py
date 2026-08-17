@@ -190,6 +190,16 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "Do NOT use for option bid/ask or contract pricing — use get_option_quote."
         ),
     },
+    "fetch_url": {
+        "title": "Read a web page",
+        "description": (
+            "Read the full text of ONE web page URL as markdown. Pair it with "
+            "web_search: search returns titles and snippets, this returns the "
+            "actual page, so read the source before citing a number from it. "
+            "Public http(s) pages only. Returns empty content if the page could "
+            "not be read — say so rather than guessing what it said."
+        ),
+    },
     "get_option_quote": {
         "title": "Option quote",
         "description": (
@@ -790,6 +800,34 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
                 "showing aggregate real accounts"
             )
         return formatted
+
+    if name == "fetch_url":
+        from ai.research.sources import fetch_url
+
+        url = str(args.get("url", "")).strip()
+        if not url:
+            return {"error": "url is required"}
+        max_chars = min(max(int(args.get("max_chars", 6000)), 500), 20000)
+        content = fetch_url(url, max_chars=max_chars)
+        if not content:
+            # Blocked, unreachable or empty all look the same to the caller, and
+            # a model handed {} will happily narrate what the page "said". Make
+            # the failure explicit instead.
+            return {
+                "error": "page_unreadable",
+                "message": (
+                    "Could not read that page (blocked, unreachable, or no "
+                    "extractable text). Do not guess its contents."
+                ),
+                "url": url,
+                "content": "",
+            }
+        return {
+            "url": url,
+            "content": content,
+            "chars": len(content),
+            "truncated": len(content) >= max_chars,
+        }
 
     if name == "web_search":
         from ai.research.sources import (

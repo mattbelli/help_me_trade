@@ -15,6 +15,7 @@ TOOLS=(
   "Bash(uv run python tools/book_context_pack.py:*)"
   "Bash(uv run python tools/book_session_submit.py:*)"
   "Bash(uv run python tools/perception_query.py:*)"
+  "Bash(bash tools/fc.sh:*)"
   "Read"
   "Write"
   "WebSearch"

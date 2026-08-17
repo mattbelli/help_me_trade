@@ -323,3 +323,140 @@ def test_deepseek_json_mode_requires_json_in_prompt() -> None:
     assert payload["content_excerpt"]
     assert len(payload["content_excerpt"]) == 100
     assert source_content_excerpt(source, max_chars=50) == "x" * 50
+
+
+# --- Firecrawl reader -------------------------------------------------------
+
+
+def _firecrawl_client(payload):
+    """httpx.Client stub: POST answers Firecrawl, GET is the httpx fallback."""
+
+    class _Resp:
+        def __init__(self, data) -> None:
+            self._data = data
+            self.status_code = 200
+            self.text = _PAGE
+            self.headers: dict = {}
+
+        def raise_for_status(self) -> None: ...
+
+        def json(self):
+            return self._data
+
+    class _Client:
+        posted: list = []
+        got: list = []
+
+        def __init__(self, *_a, **_k) -> None: ...
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a) -> None: ...
+
+        def post(self, url, **kwargs):
+            _Client.posted.append((url, kwargs.get("json")))
+            if payload is None:
+                raise RuntimeError("firecrawl down")
+            return _Resp(payload)
+
+        def get(self, url, **_k):
+            _Client.got.append(url)
+            return _Resp(None)
+
+    _Client.posted = []
+    _Client.got = []
+    return _Client
+
+
+_FC_OK = {
+    "success": True,
+    "data": {
+        "html": "<html><body><article>rendered</article></body></html>",
+        "markdown": "# Nav\n\n\n\n| Put/Call | 0.77 |",
+        "metadata": {"url": "https://example.test/p"},
+    },
+}
+
+
+def test_firecrawl_renders_and_trafilatura_extracts(monkeypatch) -> None:
+    """Firecrawl does the rendering; the article extractor still does the
+    boilerplate removal. Measured why: on cboe.com the numbers sit at char
+    10,150 of Firecrawl's markdown but ~3,000 of the extract, and callers cut
+    at 4,000."""
+    monkeypatch.setattr(sources, "_is_fetch_url_safe", lambda _u: True)
+    monkeypatch.setattr(sources, "get_firecrawl_url", lambda: "http://fc.test")
+    monkeypatch.setattr(sources, "_extract_main_content", lambda h: "ARTICLE " * 40)
+    client = _firecrawl_client(_FC_OK)
+    monkeypatch.setattr(sources.httpx, "Client", client)
+
+    body = sources.fetch_url("https://example.test/p")
+
+    assert body.startswith("ARTICLE")  # the extract won, not the raw markdown
+    assert "Put/Call" not in body
+    assert client.got == []  # httpx fallback never ran
+    assert client.posted[0][0] == "http://fc.test/v2/scrape"
+    assert client.posted[0][1]["formats"] == ["html", "markdown"]
+
+
+def test_firecrawl_markdown_is_the_floor_when_there_is_no_article(monkeypatch) -> None:
+    """Link-list pages (a subreddit index) have no article to extract. The old
+    floor was the tag strip; Firecrawl's markdown is strictly better furniture,
+    and its table structure must survive."""
+    monkeypatch.setattr(sources, "_is_fetch_url_safe", lambda _u: True)
+    monkeypatch.setattr(sources, "get_firecrawl_url", lambda: "http://fc.test")
+    monkeypatch.setattr(sources, "_extract_main_content", lambda h: "")
+    monkeypatch.setattr(sources.httpx, "Client", _firecrawl_client(_FC_OK))
+
+    body = sources.fetch_url("https://example.test/p")
+
+    assert "| Put/Call | 0.77 |" in body  # table intact, not collapsed to a line
+    assert "\n\n\n" not in body  # blank-line runs collapsed
+
+
+def test_fetch_url_falls_back_to_httpx_when_firecrawl_is_down(monkeypatch) -> None:
+    """A dead local stack must degrade to the old reader, never to nothing."""
+    monkeypatch.setattr(sources, "_is_fetch_url_safe", lambda _u: True)
+    monkeypatch.setattr(sources, "get_firecrawl_url", lambda: "http://fc.test")
+    monkeypatch.setattr(sources.httpx, "Client", _firecrawl_client(None))
+
+    body = sources.fetch_url("https://example.test/p")
+
+    assert "Record quarterly revenue" in body
+
+
+def test_fetch_url_rejects_firecrawl_landing_on_private_host(monkeypatch) -> None:
+    """Firecrawl follows redirects itself, so the landing URL is re-validated."""
+    monkeypatch.setattr(
+        sources, "_is_fetch_url_safe", lambda u: "169.254.169.254" not in u
+    )
+    monkeypatch.setattr(sources, "get_firecrawl_url", lambda: "http://fc.test")
+    monkeypatch.setattr(sources, "_extract_main_content", lambda h: "creds " * 40)
+    payload = {
+        "success": True,
+        "data": {
+            "html": "<html>creds</html>",
+            "markdown": "creds",
+            "metadata": {"url": "http://169.254.169.254/latest/meta-data"},
+        },
+    }
+    monkeypatch.setattr(sources.httpx, "Client", _firecrawl_client(payload))
+
+    # Asserted on the Firecrawl reader itself: fetch_url would go on to retry
+    # via httpx, whose per-hop guard blocks the same redirect independently.
+    body = sources._firecrawl_fetch(
+        "http://fc.test", "https://example.test/start", max_chars=4000
+    )
+
+    assert body == ""
+
+
+def test_fetch_url_skips_firecrawl_when_unconfigured(monkeypatch) -> None:
+    monkeypatch.setattr(sources, "_is_fetch_url_safe", lambda _u: True)
+    monkeypatch.setattr(sources, "get_firecrawl_url", lambda: "")
+    client = _firecrawl_client(_FC_OK)
+    monkeypatch.setattr(sources.httpx, "Client", client)
+
+    sources.fetch_url("https://example.test/p")
+
+    assert client.posted == []  # no local stack was contacted

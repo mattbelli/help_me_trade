@@ -28,6 +28,7 @@ ANALYST_TOOLS = frozenset(
         "query",  # app data across resources (watchlists, regime, flow_report…)
         "get_earnings_dates",
         "web_search",  # outside data via SearXNG
+        "fetch_url",  # READ a page found by web_search (Firecrawl-backed)
     }
 )
 
