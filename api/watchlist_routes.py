@@ -26,6 +26,7 @@ from brokers.alpaca import StockBar
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
 from brokers.market_clock import market_session as _market_session
+from brokers.market_stream import _daily_prev_close
 from config.settings import (
     add_watchlist_symbol,
     create_watchlist,
@@ -397,15 +398,19 @@ async def api_watchlist_market(symbols: str = ""):
         closes = [b.close for b in bars]
         latest = bars[-1]
         price = closes[-1]
-        prev = closes[-2] if len(closes) >= 2 else price
-        change_pct = ((price - prev) / prev * 100) if prev else 0.0
-        intraday = _session_intraday_closes(
-            intraday_by_symbol.get(sym, []), futures=sym.startswith("/")
-        )
-
         # Futures symbols (e.g. /ES, /NQ) have no fundamentals, extended session,
         # volume profile, or earnings — skip all equity-only enrichment.
         is_future = sym.startswith("/")
+        # Equities: the same day-reference close the WS hub uses (yesterday's
+        # regular close, held through post-market + the weekend; rolls at
+        # midnight ET) so the REST and stream halves of a row never disagree on
+        # what "%" means. Futures keep settle-vs-prior-settle (Globex roll below).
+        if is_future:
+            prev = closes[-2] if len(closes) >= 2 else price
+        else:
+            prev = _daily_prev_close(bars, session)
+        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        intraday = _session_intraday_closes(intraday_by_symbol.get(sym, []), futures=is_future)
 
         if is_future:
             day_high = float(latest.high)
@@ -465,12 +470,20 @@ async def api_watchlist_market(symbols: str = ""):
         _ext_sessions = ("pre", "post", "overnight", "closed")
         ext_price_val = eq.get("ext_last") if session in _ext_sessions else None
         ext_change_val = eq.get("ext_change_pct") if session in _ext_sessions else None
+        # ToS "Mark % change": the ext % is vs the SAME reference as change_pct
+        # (yesterday's regular close), so after the bell the row keeps showing
+        # the day's move + the after-hours move as one number — the providers'
+        # value is "since today's close" and is only a fallback without a prev.
+        if ext_price_val is not None and prev:
+            ext_change_val = round((float(ext_price_val) - prev) / prev * 100, 2)
 
-        # Gap at the open vs prior close — from the daily bar already in hand.
+        # Gap at the open vs prior close — from the daily bar already in hand
+        # (the bar's OWN prior close, so a pre-open series still shows the last
+        # session's gap).
         gap_pct: float | None = None
         try:
-            if prev and len(bars) >= 2:
-                gap_pct = round((float(latest.open) - prev) / prev * 100, 2)
+            if len(closes) >= 2 and closes[-2]:
+                gap_pct = round((float(latest.open) - closes[-2]) / closes[-2] * 100, 2)
         except (TypeError, ValueError):
             pass
 

@@ -118,17 +118,29 @@ TRADE_EXCLUDE_CONDITIONS = frozenset(
 BROADCAST_THROTTLE_MS = 100.0
 
 
-def _daily_prev_close(bars: list) -> float:
-    """Baseline close for day-change math: the last COMPLETED session's close.
+def _daily_prev_close(bars: list, session: str | None = None) -> float:
+    """The close every % on a row is measured against — ToS "Mark % change"
+    style: yesterday's regular close, held through post-market and the
+    weekend, so the day's move and the after-hours move read as ONE number.
 
-    bars[-1] is today's developing bar only while a session is running. A
-    series fetched overnight/pre-open ends at the last completed session, and
-    blindly taking closes[-2] as "yesterday" then pins prev_close two sessions
-    back — every subsequent tick's change_pct inherits the error (NTSK −13.65%
-    displayed vs a real −3.6% after an overnight restart, 2026-07-23; the REST
-    twin of this bug was fixed 2026-07-22 via _wl_daily_series_stale).
+    bars[-1] is today's developing/finished bar while the trading day is
+    still on (regular, post, overnight before midnight ET) → closes[-2].
+    Weekend/holiday ``closed`` keeps Friday's day change on the board →
+    closes[-2]. A series fetched after midnight/pre-open ends at the last
+    COMPLETED session, which IS the reference → closes[-1] (a name with no
+    pre-market trades reads 0.00%, like ToS). Blindly taking closes[-2] then
+    pinned prev_close two sessions back — every subsequent tick's change_pct
+    inherited the error (NTSK −13.65% displayed vs a real −3.6% after an
+    overnight restart, 2026-07-23; the REST twin was fixed 2026-07-22 via
+    _wl_daily_series_stale).
     """
     closes = [b.close for b in bars]
+    if session is None:
+        from brokers.market_clock import market_session
+
+        session = market_session()
+    if session == "closed":
+        return closes[-2] if len(closes) >= 2 else closes[-1]
     try:
         last_date = (
             datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
@@ -588,6 +600,15 @@ class BaseMarketHub:
                 return
         prev_ext = state.ext_price
         state.ext_price = ext_price
+        # ToS-style: the ext % is measured against the same day-reference close
+        # as change_pct (yesterday's regular close), so post-market shows the
+        # day's move + the after-hours move as one number — never "since the
+        # 4pm close". Callers' since-close values only survive when the state
+        # has no baseline yet (an alert-poll symbol nobody subscribed).
+        if ext_price is not None and state.prev_close:
+            ext_change_pct = round(
+                (float(ext_price) - state.prev_close) / state.prev_close * 100, 2
+            )
         state.ext_change_pct = ext_change_pct
         state.market_session = market_session
         # Overnight (Blue Ocean) prints never reach the SIP stream, so the only

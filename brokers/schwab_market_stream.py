@@ -478,15 +478,16 @@ class SchwabMarketStreamHub(BaseMarketHub):
 
             if not is_regular:
                 # Route after-hours trades to the extended fields; leave the
-                # regular price frozen. ext_change_pct is measured vs the frozen
-                # regular close (state.price) when set, else the prior daily close.
+                # regular price frozen. ext_change_pct is measured vs the day
+                # reference (prev_close — yesterday's regular close, ToS-style)
+                # when seeded, else the frozen regular close.
                 # Cross-detection mirrors apply_extended (needs a prior ext value);
                 # dedup vs the REST poll is structural — both write state.ext_price
                 # from the SAME Schwab quote, so a repeated price yields no move and
                 # only one path fires per distinct price.
                 prev_ext = state.ext_price
                 state.ext_price = price_f
-                base = state.price if state.price else state.prev_close
+                base = state.prev_close if state.prev_close else state.price
                 state.ext_change_pct = (
                     round((price_f - base) / base * 100, 2) if base else None
                 )

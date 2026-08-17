@@ -185,7 +185,8 @@ async def test_regular_tick_drives_price_leaves_ext_untouched() -> None:
 @pytest.mark.asyncio
 async def test_post_session_freezes_price_routes_to_ext(monkeypatch) -> None:
     """Post-market tick leaves price/change_pct/sparkline frozen and fills the ext
-    fields (ext_change_pct measured vs the frozen regular close)."""
+    fields (ext_change_pct measured vs prev_close — the day reference, ToS
+    "Mark % change" style — so the day move + AH move read as one number)."""
     monkeypatch.setattr(
         "brokers.schwab_market_stream.market_session", lambda: "post"
     )
@@ -203,26 +204,28 @@ async def test_post_session_freezes_price_routes_to_ext(monkeypatch) -> None:
     assert state.price == pytest.approx(198.0)
     assert state.change_pct == pytest.approx(0.5)
     assert state.sparkline == [197.0, 198.0]
-    # Ext fields updated: (200.5 - 198.0) / 198.0 * 100 = 1.26%.
+    # Ext fields updated: (200.5 - 196.0) / 196.0 * 100 = 2.30% (vs prev_close,
+    # NOT vs the 198 regular close — that would read "since the bell").
     assert state.ext_price == pytest.approx(200.5)
-    assert state.ext_change_pct == pytest.approx(1.26)
+    assert state.ext_change_pct == pytest.approx(2.30)
     assert state.market_session == "post"
 
 
 @pytest.mark.asyncio
-async def test_ext_change_pct_falls_back_to_prev_close(monkeypatch) -> None:
-    """When no frozen regular price is set, ext_change_pct measures vs prev_close."""
+async def test_ext_change_pct_falls_back_to_frozen_price(monkeypatch) -> None:
+    """With no prev_close seeded yet, ext_change_pct measures vs the frozen
+    regular price rather than going blank."""
     monkeypatch.setattr(
         "brokers.schwab_market_stream.market_session", lambda: "overnight"
     )
     hub = SchwabMarketStreamHub()
     monkeypatch.setattr(hub, "_broadcast_quote", _noop_async)
     monkeypatch.setattr(hub, "_check_price_alerts", _noop_async)
-    hub._quotes["MSFT"] = QuoteState(price=0.0, prev_close=400.0)
+    hub._quotes["MSFT"] = QuoteState(price=400.0, prev_close=0.0)
     hub._on_equity({"content": [{"key": "MSFT", "LAST_PRICE": 404.0}]})
     await _drain(hub)
     state = hub._quotes["MSFT"]
-    assert state.price == pytest.approx(0.0)  # still frozen (unset)
+    assert state.price == pytest.approx(400.0)  # still frozen
     assert state.ext_price == pytest.approx(404.0)
     assert state.ext_change_pct == pytest.approx(1.0)  # (404-400)/400*100
     assert state.market_session == "overnight"
