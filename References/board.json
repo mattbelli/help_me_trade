@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-16",
+ "updated_at": "2026-08-17",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 324,
+   "id": "point-the-research-reader-at-self-hosted-firecra",
+   "title": "Point the research reader at self-hosted Firecrawl (replace the regex tag-stripper)",
+   "lane": "backlog",
+   "type": "infra",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-17",
+   "notes": "ai/research/sources.py:460 fetch_url = httpx GET + regex _extract_main_content, no JS rendering, 4000-char cap, falls back to _strip_tags (nav menus -> LLM). Self-hosted Firecrawl now live at 127.0.0.1:3002 (docker ~/firecrawl, Playwright service, unless-stopped) and measured 0.6-2.0s/page on 5/5 test pages 2026-08-17. Swap fetch_url's body to POST /v2/scrape {formats:[markdown],onlyMainContent:true}, keep _is_fetch_url_safe SSRF guard in front, keep the httpx path as fallback when the stack is down. Callers to re-verify: ai/research/specialists.py, ai/research/setup_scan.py, tests/test_research_sources.py, tests/test_ssrf_guard.py. WIRE-IT-EVERYWHERE: also reaches research/book_tools.py + tools/book_session.sh allowedTools."
+  },
   {
    "num": 323,
    "id": "local-model-panel-book",
