@@ -13,6 +13,7 @@ separate, founder-visible round (spec §2.9, one component at a time).
 
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
 from typing import Any
@@ -78,7 +79,10 @@ def normalize_news_item(raw: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     raw_id = raw.get("id")
-    headline = str(raw.get("headline") or "").strip()
+    # Benzinga ships headlines HTML-escaped (``&#39;`` / ``&amp;``) — ~12% of
+    # stored rows measured; decode once at the write side so every consumer
+    # (UI, agents, fusion) sees plain text.
+    headline = html.unescape(str(raw.get("headline") or "")).strip()
     if raw_id is None or not headline:
         return None
     symbols = sorted(
@@ -97,7 +101,7 @@ def normalize_news_item(raw: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "id": str(raw_id),
         "headline": headline,
-        "summary": str(raw.get("summary") or "").strip(),
+        "summary": html.unescape(str(raw.get("summary") or "")).strip(),
         "url": str(raw.get("url") or "").strip(),
         "source": str(raw.get("source") or "").strip(),
         "author": str(raw.get("author") or "").strip(),
