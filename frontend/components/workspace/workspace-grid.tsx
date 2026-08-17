@@ -12,7 +12,7 @@ import {
   type PointerEvent,
 } from "react";
 import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
-import { Bell, BellOff, Check, ChevronDown, Eye, GripVertical, Menu as MenuIcon, Plus, SlidersHorizontal, TrendingUp, X } from "lucide-react";
+import { Bell, BellOff, Check, ChevronDown, Eye, Menu as MenuIcon, Plus, SlidersHorizontal, TrendingUp, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
 import {
@@ -922,10 +922,6 @@ function WidgetHeader({
         !locked && !isStatic && "cursor-grab active:cursor-grabbing",
       )}
     >
-      <GripVertical
-        className="size-3.5 shrink-0 text-[var(--fg-faint)]"
-        aria-hidden
-      />
       {isChart && config && onConfigChange ? (
         <ChartHeaderControls
           config={config}
