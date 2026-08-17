@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 327,
+   "id": "backend-cpu-sweeps",
+   "title": "Backend CPU saturation — background sweeps hogging the GIL",
+   "lane": "done",
+   "type": "fix",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-17",
+   "notes": "08-17: /api/debug/threads sampler added (py-spy denied by yama). Found: lifecycle sweep full-scanned 422k evidence_dots per open episode (2,207) = ~200 CPU-s/pass at 60s cadence → thread pinned 100% all day; idea sweep + intake re-ran init_*_tables per write. Fixed: idx_evidence_symbol_ts, once_per_db memo, one read conn in the sweep. Process ~215%→~106% of a core; snapshot 5-10s→0.3s, watchlist/market 13.6s→0.7-1.5s under a 10-req burst. Follow-ups (own rounds): intake batches discards (87% of 85k/h dispositions pay 2 fsyncs each); fusion radar compute-on-read 2.1s/call polled every 15s."
+  },
+  {
    "num": 326,
    "id": "chart-progressive-bars",
    "title": "Progressive bar loading: newest-N first, backfill on pan — retire days/prewarm/serve-stale",

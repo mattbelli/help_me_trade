@@ -228,3 +228,20 @@ def test_idea_ledger_route_shape(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == expected
     assert set(response.json()) == {"rows", "total"}
+
+
+def test_init_idea_outcomes_tables_reruns_after_file_recreated(tmp_path) -> None:
+    """The schema check is memoised per (path, inode) — a DB deleted and recreated
+    at the SAME path (fixture teardown) must get its tables again, not a stale
+    'already initialised' skip."""
+    from db.idea_outcomes import init_idea_outcomes_tables
+
+    db = tmp_path / "ideas.db"
+    init_idea_outcomes_tables(db)
+    init_idea_outcomes_tables(db)  # memo hit
+    db.unlink()
+    init_idea_outcomes_tables(db)  # new inode → DDL runs again
+    with connect(db) as conn:
+        assert conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'idea_outcomes'"
+        ).fetchone()

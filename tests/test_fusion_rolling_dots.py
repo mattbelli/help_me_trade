@@ -229,6 +229,10 @@ def test_legacy_bucket_keyed_attention_dots_are_zeroed_not_deleted(
         conn.execute("DELETE FROM fusion_migrations")
         conn.commit()
 
+    # init is memoised per process (once_per_db); a replay means a fresh process.
+    from db.schema_helpers import _SCHEMA_READY
+
+    _SCHEMA_READY.clear()
     init_fusion_tables(fusion_db)
 
     with connect(fusion_db) as conn:

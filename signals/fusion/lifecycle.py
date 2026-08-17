@@ -369,10 +369,12 @@ def sweep_lifecycle(
                 "SELECT * FROM fusion_episodes WHERE state = 'open'"
             ).fetchall()
         ]
+    # One read connection for the whole pass (autocommit reads — no snapshot is
+    # pinned across the per-episode close writes below).
+    read_conn = _connect(db_path)
     for ep in open_eps:
         dots = fusion_db.episode_dots(ep["id"], db_path=db_path)
-        with _connect(db_path) as conn:
-            latest = _latest_price(str(ep["symbol"]), price_lookup, conn)
+        latest = _latest_price(str(ep["symbol"]), price_lookup, read_conn)
         reason = _episode_close_reason(ep, dots, now_dt, latest)
         if reason is None:
             continue

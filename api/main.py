@@ -53,6 +53,7 @@ from api.jobs import (
 )
 from api.journal_routes import router as journal_router
 from api.loop_probe import LoopProbe
+from api.loop_probe import router as debug_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
 from api.ops_jobs import _filings_initial_fill
@@ -321,6 +322,7 @@ app.include_router(orders_router)
 app.include_router(alert_drawing_router)
 app.include_router(fusion_router)
 app.include_router(status_page_router)
+app.include_router(debug_router)
 app.include_router(workspace_router)
 app.include_router(reports_router)
 app.include_router(bars_router)

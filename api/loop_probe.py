@@ -13,18 +13,27 @@ Two heartbeats, one watchdog thread:
   pool saturation is invisible to the loop heartbeat.
 
 Grep keys: ``loop_probe: event-loop stall``, ``loop_probe: executor lag``.
+
+``GET /api/debug/threads`` is the on-demand twin: every thread's name, OS tid,
+cumulative CPU seconds and stack — the poor man's py-spy for a box where ptrace
+is denied (yama scope 1, no sudo). Sample it a few times; the thread whose
+``cpu_s`` climbs fastest between samples is the one burning the GIL.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import threading
 import time
 import traceback
 
+from fastapi import APIRouter
+
 logger = logging.getLogger("api.loop_probe")
+router = APIRouter(tags=["debug"])
 
 _BEAT_INTERVAL_S = 0.25
 _WATCH_INTERVAL_S = 0.5
@@ -124,3 +133,42 @@ class LoopProbe:
                 f"--- {names.get(ident, '?')} (tid {ident}){marker} ---\n{stack}"
             )
         return "\n".join(chunks)
+
+
+def _thread_cpu_seconds() -> dict[int, float]:
+    """OS tid -> user+sys CPU seconds, from /proc/self/task/*/stat (Linux only)."""
+    tick = os.sysconf("SC_CLK_TCK")
+    out: dict[int, float] = {}
+    try:
+        tids = os.listdir("/proc/self/task")
+    except OSError:
+        return out
+    for tid in tids:
+        try:
+            with open(f"/proc/self/task/{tid}/stat") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            # fields[0] is state; utime/stime are the 14th/15th stat columns.
+            out[int(tid)] = (int(fields[11]) + int(fields[12])) / tick
+        except (OSError, ValueError, IndexError):
+            continue
+    return out
+
+
+@router.get("/api/debug/threads")
+def api_debug_threads() -> dict:
+    cpu = _thread_cpu_seconds()
+    by_ident = {t.ident: t for t in threading.enumerate()}
+    threads = []
+    for ident, frame in sys._current_frames().items():
+        t = by_ident.get(ident)
+        native = getattr(t, "native_id", None) if t else None
+        threads.append(
+            {
+                "name": t.name if t else "?",
+                "native_id": native,
+                "cpu_s": cpu.get(native or -1),
+                "stack": traceback.format_stack(frame, limit=25),
+            }
+        )
+    threads.sort(key=lambda d: d["cpu_s"] or 0.0, reverse=True)
+    return {"process_cpu_s": sum(cpu.values()), "threads": threads}

@@ -19,7 +19,7 @@ from config.idea_engine import IDEA_COOLDOWN_MIN
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
-from db.schema_helpers import _add_column_if_missing
+from db.schema_helpers import _add_column_if_missing, once_per_db
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +149,7 @@ def grade_outcome(
     return "graded"
 
 
+@once_per_db
 def init_idea_outcomes_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as conn:
         conn.executescript(

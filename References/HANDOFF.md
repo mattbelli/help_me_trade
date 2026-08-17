@@ -518,19 +518,14 @@ Open: (0) founder in-browser check of #326 — hard refresh; every timeframe sho
 upstream page (SLV 1H was 5.6s cold, now ~one Alpaca page: 0.2–3s depending on the symbol's
 luck on Alpaca's side), pan-left backfills 300 more without the visible bars moving, 4H fills
 progressively (Alpaca pages aggregated timeframes at ~50 4-hour bars per round trip);
-(0b) **the dominant page-load latency is now the backend event loop, not bars**: a full workspace
-load measured 5–10s on EVERY endpoint (`/api/snapshot`, `/api/ai/models/options`,
-`/api/watchlist/market` 13.6s) with uvicorn at 270% CPU — two worker threads at 90%/64%
-(`top -H`) holding the GIL; find them (`sys.remote_exec` + faulthandler per
-`python314-stack-dump-remote-exec`, or py-spy on the 3.12 venv) — this is the same saturation as
-(2) below; (0c) futures 1W/1M backfill can show one split week/month at the page seam (Schwab
+(0b) backend event-loop saturation FOUND + halved (BUILD_LOG 08-17, card #327): `GET /api/debug/threads` is the profiler now (sample twice, diff `cpu_s`); the two remaining CPU consumers are recorded there and are their own rounds — the fusion intake's per-event double-commit for discarded events (87% of 85k/h) and the radar's compute-on-read (2.1s/call every 15s per viewer); (0c) futures 1W/1M backfill can show one split week/month at the page seam (Schwab
 weekly/monthly stamps = first day IN the fetch window, so the two windows' halves don't merge) —
 only past ~6 years of /ES weekly, unfixed; (0d) `/ES` 4H frames roll into UTC-floor buckets in
 `applyBarFrame` while Schwab stamps 4H session-anchored (18:00 ET) — pre-existing #325 seam,
 check the forming /ES 4H candle lands on the right stamp; (1) founder in-browser check of #325 —
 candles start where the last one ended on every timeframe/load, forming bar updates ~10Hz,
 ETH-off hides pre/post frames; (2) MEASURED, not fixed:
-SIP prints reach the hub 1-7s late under load (uvicorn ~220% CPU post-restart) — bucketing is by
+SIP prints reach the hub 1-7s late under load (uvicorn ~220% CPU post-restart — now ~106% after #327; re-measure the lag) — bucketing is by
 trade time so nothing mislabels, but the forming candle updates late; find where the seconds go
 (proxy queue vs `_on_trade` work per print) — related and ALSO pre-existing: the hub's socket to the
 proxy logs `keepalive ping timeout` + reconnect every ~5 min (129 since 08-14; the hub loop stalls

@@ -581,6 +581,11 @@ def test_existing_deployed_db_gains_the_news_cursor_row(tmp_path: Path) -> None:
             "SELECT COUNT(*) FROM bus_cursors WHERE store = 'news'"
         ).fetchone()[0] == 0
 
+    # init is memoised per process (db.schema_helpers.once_per_db) — a legacy
+    # DB meets a FRESH process, so simulate that by forgetting this file.
+    from db.schema_helpers import _SCHEMA_READY
+
+    _SCHEMA_READY.clear()
     init_fusion_tables(path)
 
     with connect(path) as conn:

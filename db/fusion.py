@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
-from db.schema_helpers import _table_columns
+from db.schema_helpers import _table_columns, once_per_db
 
 _ET = ZoneInfo("America/New_York")
 
@@ -149,6 +149,7 @@ def _migrate_attention_rolling_dots(conn: Any) -> None:
 DISPOSITIONS = frozenset({"scored", "collapsed", "shed", "unstampable", "ignored_by_rule"})
 
 
+@once_per_db
 def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
     with _connect(db_path) as conn:
         conn.executescript(
@@ -211,6 +212,11 @@ def init_fusion_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_evidence_episode
                 ON evidence_dots(episode_id, ts);
+            -- lifecycle._latest_price: newest stamped price per SYMBOL. Without
+            -- this the sweep full-scanned 400k+ dots per open episode (2026-08-17:
+            -- ~200 CPU-s per pass, a thread pinned at 100% all session).
+            CREATE INDEX IF NOT EXISTS idx_evidence_symbol_ts
+                ON evidence_dots(symbol, ts, id);
 
             CREATE TABLE IF NOT EXISTS fusion_dispositions (
                 source_store TEXT NOT NULL,
