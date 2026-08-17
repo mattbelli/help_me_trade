@@ -301,18 +301,19 @@ def test_api_bars_uses_provider_with_extended_hours(
     test_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provider = MagicMock(spec=SchwabMarketData)
-    provider.aget_stock_bars = AsyncMock(return_value=_sample_bars())
+    provider.aget_stock_bars_latest = AsyncMock(return_value=(_sample_bars(), False))
     monkeypatch.setattr("api.bars_routes.get_market_data_provider", lambda: provider)
 
-    resp = test_client.get("/api/bars?symbol=AAPL&timeframe=5Min&days=10")
+    resp = test_client.get("/api/bars?symbol=AAPL&timeframe=5Min&limit=10")
     assert resp.status_code == 200
     data = resp.json()
     assert data["symbol"] == "AAPL"
     assert data["timeframe"] == "5Min"
     assert len(data["bars"]) == 1
+    assert data["has_more"] is False
 
-    provider.aget_stock_bars.assert_awaited_once_with(
-        "AAPL", timeframe="5Min", days=10, extended_hours=True
+    provider.aget_stock_bars_latest.assert_awaited_once_with(
+        "AAPL", timeframe="5Min", limit=10, extended_hours=True
     )
 
 
@@ -320,24 +321,23 @@ def test_api_bars_falls_back_to_alpaca_on_provider_error(
     test_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provider = MagicMock(spec=SchwabMarketData)
-    provider.aget_stock_bars = AsyncMock(
+    provider.aget_stock_bars_latest = AsyncMock(
         side_effect=BrokerError("Schwab unavailable")
     )
     alpaca = MagicMock(spec=AlpacaAdapter)
-    alpaca.aget_stock_bars = AsyncMock(return_value=_sample_bars())
+    alpaca.aget_stock_bars_latest = AsyncMock(return_value=(_sample_bars(), True))
 
     monkeypatch.setattr("api.bars_routes.get_market_data_provider", lambda: provider)
     monkeypatch.setattr("api.bars_routes._require_alpaca", lambda: alpaca)
 
-    resp = test_client.get("/api/bars?symbol=SPY&timeframe=5Min&days=10")
+    resp = test_client.get("/api/bars?symbol=SPY&timeframe=5Min&limit=10")
     assert resp.status_code == 200
     assert resp.json()["symbol"] == "SPY"
 
-    provider.aget_stock_bars.assert_awaited_once()
-    assert provider.aget_stock_bars.call_args.kwargs["extended_hours"] is True
-    # Alpaca fallback stays RTH-only (free IEX feed ignores ext anyway).
-    alpaca.aget_stock_bars.assert_awaited_once_with(
-        "SPY", timeframe="5Min", days=10
+    provider.aget_stock_bars_latest.assert_awaited_once()
+    assert provider.aget_stock_bars_latest.call_args.kwargs["extended_hours"] is True
+    alpaca.aget_stock_bars_latest.assert_awaited_once_with(
+        "SPY", timeframe="5Min", limit=10, extended_hours=True
     )
 
 
@@ -346,28 +346,26 @@ def test_api_bars_resolves_extended_flag(
 ) -> None:
     """The endpoint resolves the ext flag: intraday → ON, daily+ → OFF, explicit
     ``extended`` query param wins. Mock the fetch core so the assertion is hermetic
-    (no cache/prewarm/provider interaction)."""
+    (no cache/provider interaction)."""
     calls: list[tuple] = []
 
-    async def _fake(
-        sym: str, timeframe: str, days: int, extended: bool, *, stale_ok: bool = False
-    ) -> dict:
-        calls.append((sym, timeframe, days, extended))
+    async def _fake(sym: str, timeframe: str, extended: bool, limit: int) -> dict:
+        calls.append((sym, timeframe, limit, extended))
         return {"symbol": sym, "timeframe": timeframe, "bars": []}
 
     monkeypatch.setattr("api.bars_routes._get_bars_cached", _fake)
 
-    assert test_client.get("/api/bars?symbol=AAA&timeframe=1Day&days=365").status_code == 200
-    assert test_client.get("/api/bars?symbol=BBB&timeframe=5Min&days=10").status_code == 200
+    assert test_client.get("/api/bars?symbol=AAA&timeframe=1Day&limit=365").status_code == 200
+    assert test_client.get("/api/bars?symbol=BBB&timeframe=5Min&limit=10").status_code == 200
     assert (
         test_client.get(
-            "/api/bars?symbol=CCC&timeframe=5Min&days=10&extended=false"
+            "/api/bars?symbol=CCC&timeframe=5Min&limit=10&extended=false"
         ).status_code
         == 200
     )
     assert (
         test_client.get(
-            "/api/bars?symbol=DDD&timeframe=1Day&days=365&extended=true"
+            "/api/bars?symbol=DDD&timeframe=1Day&limit=365&extended=true"
         ).status_code
         == 200
     )
@@ -385,33 +383,33 @@ async def test_get_bars_cached_threads_extended_to_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The fetch core resolves the per-timeframe default and threads it to the
-    provider + into the cache key (ext / RTH must not alias)."""
+    provider + into the store key (ext / RTH must not alias)."""
     import api.bars_routes as bars_routes
 
     bars_routes._BARS_CACHE.clear()
     provider = MagicMock(spec=SchwabMarketData)
-    provider.aget_stock_bars = AsyncMock(return_value=_sample_bars())
+    provider.aget_stock_bars_latest = AsyncMock(return_value=(_sample_bars(), False))
     monkeypatch.setattr("api.bars_routes.get_market_data_provider", lambda: provider)
 
     # Daily → ext OFF by default.
-    await bars_routes._get_bars_cached("QDLY", "1Day", 365)
-    provider.aget_stock_bars.assert_awaited_once_with(
-        "QDLY", timeframe="1Day", days=365, extended_hours=False
+    await bars_routes._get_bars_cached("QDLY", "1Day", limit=365)
+    provider.aget_stock_bars_latest.assert_awaited_once_with(
+        "QDLY", timeframe="1Day", limit=365, extended_hours=False
     )
-    assert ("QDLY", "1Day", 365, False) in bars_routes._BARS_CACHE
+    assert ("QDLY", "1Day", False) in bars_routes._BARS_CACHE
 
-    # Intraday → ext ON by default (distinct cache key from an RTH-only variant).
-    provider.aget_stock_bars.reset_mock()
-    await bars_routes._get_bars_cached("QINT", "5Min", 10)
-    provider.aget_stock_bars.assert_awaited_once_with(
-        "QINT", timeframe="5Min", days=10, extended_hours=True
+    # Intraday → ext ON by default (distinct store key from an RTH-only variant).
+    provider.aget_stock_bars_latest.reset_mock()
+    await bars_routes._get_bars_cached("QINT", "5Min", limit=10)
+    provider.aget_stock_bars_latest.assert_awaited_once_with(
+        "QINT", timeframe="5Min", limit=10, extended_hours=True
     )
-    assert ("QINT", "5Min", 10, True) in bars_routes._BARS_CACHE
+    assert ("QINT", "5Min", True) in bars_routes._BARS_CACHE
 
     # Explicit override on the same intraday spec → different key, refetched.
-    provider.aget_stock_bars.reset_mock()
-    await bars_routes._get_bars_cached("QINT", "5Min", 10, extended=False)
-    provider.aget_stock_bars.assert_awaited_once_with(
-        "QINT", timeframe="5Min", days=10, extended_hours=False
+    provider.aget_stock_bars_latest.reset_mock()
+    await bars_routes._get_bars_cached("QINT", "5Min", False, limit=10)
+    provider.aget_stock_bars_latest.assert_awaited_once_with(
+        "QINT", timeframe="5Min", limit=10, extended_hours=False
     )
-    assert ("QINT", "5Min", 10, False) in bars_routes._BARS_CACHE
+    assert ("QINT", "5Min", False) in bars_routes._BARS_CACHE

@@ -132,6 +132,19 @@ class MarketDataProvider(Protocol):
         end: datetime,
     ) -> list[StockBar]: ...
 
+    async def aget_stock_bars_latest(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        limit: int = 300,
+        before: datetime | None = None,
+        extended_hours: bool = False,
+    ) -> tuple[list[StockBar], bool]:
+        """Newest ``limit`` bars (strictly before ``before`` when given),
+        ascending, plus whether older history exists."""
+        ...
+
     async def aget_stock_bars_batch(
         self,
         symbols: list[str],

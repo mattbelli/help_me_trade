@@ -503,7 +503,8 @@ function BookActor({ id, family }: { id: string; family: ActorFamily }) {
             3650,
             Math.max(2, Math.ceil((lastMs - firstMs) / 86_400_000) + 3),
           );
-          fetchBars("SPY", { timeframe: "1Day", days })
+          const limit = Math.min(5000, Math.ceil((days * 252) / 365) + 5);
+          fetchBars("SPY", { timeframe: "1Day", limit })
             .then((res) => {
               if (cancelled) return;
               const win = res.bars.filter(

@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/scan", tags=["scan"])
 # (no broker) and is meant to span ~500 names.
 _MAX_UNIVERSE = 120
 _SCAN_BARS_TIMEFRAME = "1Day"
-_SCAN_BARS_DAYS = 365  # ~250 trading days — covers 200-DMA and the 52-week range
+_SCAN_BARS_LIMIT = 260  # ~a year of sessions — covers 200-DMA and the 52-week range
 
 # The universes a scan may screen. ``watchlist`` = live/cached bars (bounded);
 # ``sp500`` = the persisted momentum daily-bars store (read-only, no broker).
@@ -67,10 +67,9 @@ def _make_bars_getter():
     """Return an async ``get_bars`` bound to the app's cached daily-bars path.
 
     Reuses ``api.bars_routes._get_bars_cached`` — cache-read first, fetching only on a
-    miss — the very function the chart endpoint and prewarm loop use. Watchlist
-    symbols are already kept warm by the prewarm loop, so scans are served from
-    cache; at most a handful of cold open-position symbols trigger a paced,
-    per-symbol fetch (never a concurrent burst).
+    miss — the very function the chart endpoint uses, so a symbol charted recently
+    is served from its store; cold symbols fetch one newest-window page each,
+    sequentially (never a concurrent burst).
     """
     from api.bars_routes import _get_bars_cached
 
@@ -78,7 +77,7 @@ def _make_bars_getter():
         # RTH-only, pinned explicitly: the scan's daily inputs (200-DMA, 52-week
         # range) must stay regular-session-consistent, never ext-inclusive.
         response = await _get_bars_cached(
-            symbol, _SCAN_BARS_TIMEFRAME, _SCAN_BARS_DAYS, extended=False
+            symbol, _SCAN_BARS_TIMEFRAME, False, limit=_SCAN_BARS_LIMIT
         )
         if not response:
             return None

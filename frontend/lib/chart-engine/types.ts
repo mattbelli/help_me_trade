@@ -161,6 +161,9 @@ export type EngineOptions = {
     id: string,
     seg: { a: DrawPoint; b: DrawPoint; parallelOffset?: number },
   ) => void;
+  /** The view is within HISTORY_PREFETCH_BARS of the oldest bar — fetch older
+      history (fires on every paint while there; the wrapper de-dupes). */
+  onNeedHistory?: () => void;
 };
 
 // --- Layout constants (CHART_ENGINE.md → Panes & layout) ---------------------------
@@ -183,6 +186,8 @@ export const DEFAULT_BAR_SPACING = 7;
 export const DEFAULT_RIGHT_OFFSET = 5;
 /** At least this many bars stay on screen when panning/zooming. */
 export const MIN_VISIBLE_BARS = 2;
+/** Ask for older bars once fewer than this many remain left of the view. */
+export const HISTORY_PREFETCH_BARS = 100;
 
 // --- Scale constants ----------------------------------------------------------------
 /** Autoscale pad above/below the visible high/low, as a fraction of the range. */

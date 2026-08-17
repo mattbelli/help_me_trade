@@ -92,6 +92,10 @@ def _trade_at_or_after(trade: dict, cutoff: datetime) -> bool:
 
 _NON_INTRADAY_TIMEFRAMES = frozenset({"1Day", "1Week", "1Month"})
 _OVERNIGHT_BARS_FEED = "boats"
+# Newest-first bar pages need a `start`; Alpaca equity history begins 2016.
+_BARS_HISTORY_START = "2016-01-01T00:00:00Z"
+# Upstream pages one newest-first request may walk (see _aget_latest_with_feed).
+_LATEST_MAX_PAGES = 1
 
 
 from brokers.alpaca_tier import data_tier, effective_alpaca_feed
@@ -867,6 +871,104 @@ class AlpacaAdapter:
             if boats:
                 bars = self._merge_bars_by_time(bars, boats)
         return bars
+
+    async def _aget_latest_with_feed(
+        self,
+        symbol: str,
+        *,
+        timeframe: str,
+        limit: int,
+        before: datetime | None,
+        feed: str,
+    ) -> tuple[list[StockBar], bool]:
+        """Up to ``limit`` newest bars (strictly before ``before`` when given)
+        from one feed, paged newest-first. Returns (ascending bars, has_more).
+
+        Alpaca honours ``limit`` per page for native 1Min/1Day series but caps
+        every aggregated timeframe (5Min…4Hour, 1Week) at ~10k underlying
+        minute rows per page — measured 2026-08-17: ~200 hourly / ~50 4-hour
+        bars per round trip, at 0.2–3s per page depending on the symbol and
+        time of day. So a request walks at most ``_LATEST_MAX_PAGES`` pages and
+        returns what that yielded with ``has_more`` set: the chart paints
+        immediately and pulls the rest through its left-edge backfill."""
+        params: dict[str, Any] = {
+            "timeframe": timeframe,
+            "start": _BARS_HISTORY_START,
+            "feed": feed,
+            "sort": "desc",
+            "adjustment": "split",
+        }
+        if before is not None:
+            # `end` is inclusive and bar times are bucket starts: step back one
+            # second so a bar AT `before` (the caller's oldest) is not repeated.
+            params["end"] = (before.astimezone(UTC) - timedelta(seconds=1)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+        raw: list = []
+        page_token: str | None = None
+        has_more = False
+        for _ in range(_LATEST_MAX_PAGES):
+            request_params = dict(params)
+            request_params["limit"] = min(_BARS_PAGE_LIMIT, max(1, limit - len(raw)))
+            if page_token:
+                request_params["page_token"] = page_token
+            data = await self._aget_data(f"/v2/stocks/{symbol}/bars", params=request_params)
+            raw.extend(data.get("bars") or [])
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+            if len(raw) >= limit:
+                has_more = True
+                break
+        else:
+            has_more = True
+        bars = self._parse_stock_bars(raw)
+        bars.reverse()
+        return bars, has_more
+
+    async def aget_stock_bars_latest(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        limit: int = 300,
+        before: datetime | None = None,
+        extended_hours: bool = False,
+    ) -> tuple[list[StockBar], bool]:
+        """The newest ``limit`` bars ending now (or strictly before ``before``),
+        ascending, plus whether older history exists. The chart's progressive
+        load: newest window first, older pages on demand (card #326)."""
+        symbol = symbol.strip().upper()
+        if not symbol:
+            raise AlpacaError("Symbol is required")
+        if not (extended_hours and self._is_intraday_timeframe(timeframe)):
+            return await self._aget_latest_with_feed(
+                symbol, timeframe=timeframe, limit=limit, before=before, feed=self._data_feed
+            )
+        (sip, more_sip), (boats, more_boats) = await asyncio.gather(
+            self._aget_latest_with_feed(
+                symbol, timeframe=timeframe, limit=limit, before=before, feed=self._data_feed
+            ),
+            self._aget_latest_with_feed(
+                symbol,
+                timeframe=timeframe,
+                limit=limit,
+                before=before,
+                feed=_OVERNIGHT_BARS_FEED,
+            ),
+        )
+        if not boats:
+            return sip, more_sip
+        merged = self._merge_bars_by_time(sip, boats)
+        # A feed that still has more reaches back only to its own oldest bar; the
+        # union is complete only from the SHALLOWER reach onward. Trim there so
+        # history never shows one feed's bars alone (overnight-only candles with
+        # the day sessions missing) — the next `before` page re-fetches them.
+        floors = [b[0].time for b, more in ((sip, more_sip), (boats, more_boats)) if more and b]
+        if floors:
+            floor = max(floors)
+            merged = [b for b in merged if b.time >= floor]
+        return merged, more_sip or more_boats
 
     _assets_cache: tuple[float, list[str]] | None = None
     _overnight_cache: tuple[float, set[str]] | None = None

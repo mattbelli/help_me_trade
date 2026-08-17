@@ -86,16 +86,14 @@ The Alpaca OPRA sidecar degradation (08-07→08-12, tracked here since 08-11) RE
 pairing matched 99.1%, wire lag a-lane p50 11-15ms all session — entry closed per its own
 checkpoint. The #308 chart-hang verdict landed on OUR side (prewarm self-saturation since
 PR #102); serve-stale + hot-spec scope cut shipped + deployed 08-13 ~19:24 UTC.
-- ⏳ **founder in-browser feel-check**: timeframe switching should paint instantly (stale ok)
-  and never sit 10-40s; first view of a never-cached combo still cold-loads once.
+- ✅ 08-17: prewarm loop DELETED with the progressive-load redesign (#326, BUILD_LOG 08-17) —
+  the feel-check and the reboot-persistent-cache idea are moot (a cold load is one upstream
+  page now).
 - ⏳ **WS keepalive blame probe**: the chronic stocks-stream ping timeouts (61-124/weekday
   since ≥07-28, market-hours clustered) are ambiguous — our loop starvation vs Alpaca edge.
-  With prewarm calmed, watch the daily count; if it collapses, it was us (case closed, no
+  With prewarm gone, watch the daily count; if it collapses, it was us (case closed, no
   probe needed). If not, run a standalone minimal WS client beside the backend for a day
   BEFORE any Alpaca ticket.
-- ⏳ **reboot-persistent bars cache** (uncarded): the 08-13 power-off cold-started every
-  cache into a vendor slow patch — worst-case UX. A periodic disk snapshot of _BARS_CACHE
-  would make reboots paint instantly. Small, wants its own round.
 - ⏳ unexplained (carried): flow-collector restarted ~12× in 3 min Sun 08-09 10:47Z then
   stabilized — if that wasn't founder/deploy activity, worth one journal look.
 
@@ -313,8 +311,6 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
 - ⏳ (was 07-28 open) books MOO probe `exec_e22a1bd20a39` (F, 1sh, market DAY, resting since
   Friday): filled at Monday's open ⇒ paper-MOO queued-DAY fix holds; expired ⇒ fix wrong, needs
   submit-at-the-open. The stop_guard half is no longer blocked — the guard ships and has fired.
-- ⏳ chart prewarm: `/health` bars_prewarm `lag_s` stays well under the shortest TTL across a few
-  sessions (`chart-bars-prewarm-storms`).
 
 ## ▶ 2026-07-27 Postgres migration — design BANKED, execution PAUSED on trigger
 
@@ -516,10 +512,24 @@ PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (wa
 timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
 `_build_bars_response` (mind half-days), next UI round.
 
-## ▶ Chart live candles — server-side bar authority shipped 08-17 (BUILD_LOG 08-17, card #325)
+## ▶ Chart data — bar authority (#325) + progressive load (#326) shipped 08-17 (BUILD_LOG 08-17)
 
-Open: (1) founder in-browser check — candles should now start where the last one ended on every
-timeframe/load, forming bar updates ~10Hz, ETH-off hides pre/post frames; (2) MEASURED, not fixed:
+Open: (0) founder in-browser check of #326 — hard refresh; every timeframe should paint in one
+upstream page (SLV 1H was 5.6s cold, now ~one Alpaca page: 0.2–3s depending on the symbol's
+luck on Alpaca's side), pan-left backfills 300 more without the visible bars moving, 4H fills
+progressively (Alpaca pages aggregated timeframes at ~50 4-hour bars per round trip);
+(0b) **the dominant page-load latency is now the backend event loop, not bars**: a full workspace
+load measured 5–10s on EVERY endpoint (`/api/snapshot`, `/api/ai/models/options`,
+`/api/watchlist/market` 13.6s) with uvicorn at 270% CPU — two worker threads at 90%/64%
+(`top -H`) holding the GIL; find them (`sys.remote_exec` + faulthandler per
+`python314-stack-dump-remote-exec`, or py-spy on the 3.12 venv) — this is the same saturation as
+(2) below; (0c) futures 1W/1M backfill can show one split week/month at the page seam (Schwab
+weekly/monthly stamps = first day IN the fetch window, so the two windows' halves don't merge) —
+only past ~6 years of /ES weekly, unfixed; (0d) `/ES` 4H frames roll into UTC-floor buckets in
+`applyBarFrame` while Schwab stamps 4H session-anchored (18:00 ET) — pre-existing #325 seam,
+check the forming /ES 4H candle lands on the right stamp; (1) founder in-browser check of #325 —
+candles start where the last one ended on every timeframe/load, forming bar updates ~10Hz,
+ETH-off hides pre/post frames; (2) MEASURED, not fixed:
 SIP prints reach the hub 1-7s late under load (uvicorn ~220% CPU post-restart) — bucketing is by
 trade time so nothing mislabels, but the forming candle updates late; find where the seconds go
 (proxy queue vs `_on_trade` work per print) — related and ALSO pre-existing: the hub's socket to the

@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 326,
+   "id": "chart-progressive-bars",
+   "title": "Progressive bar loading: newest-N first, backfill on pan — retire days/prewarm/serve-stale",
+   "lane": "done",
+   "type": "feature",
+   "priority": "high",
+   "owner": "claude",
+   "updated_at": "2026-08-17",
+   "notes": "Founder-measured: SLV 1H cold load 5.6s = 14 sequential Alpaca pages (11 SIP + 3 boats) for a 180d window nobody looks at. Fix = TradingView contract: /api/bars?limit=N returns the newest N (one round trip), /api/bars?before=<iso> backfills older on pan-left. Server: ONE bar store per (symbol,timeframe,ext) with two ops (refresh tail / extend older); prewarm loop, serve-stale window, incremental-vs-full, days cache key all deleted. Client: chart-time.ts loses days; engine prependBars + left-edge callback; refresh merges a window by time.\n2026-08-17: Shipped 08-17: newest-window + before= backfill; prewarm/serve-stale/incremental/days deleted; deployed + measured (SLV 1H 5.6s→1.8s = one Alpaca page; 4H fills progressively at ~50 bars/page). Follow-ups in HANDOFF: backend event-loop saturation now dominates page load; futures 1W/1M seam; /ES 4H session-anchored bucket vs UTC floor in applyBarFrame."
+  },
+  {
    "num": 325,
    "id": "chart-server-bar-authority",
    "title": "Chart bars: server-side bar authority (Alpaca bars/updatedBars stream + trade-built forming bar) replaces browser rollover glue",

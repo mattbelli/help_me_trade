@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 
-from api.bars_routes import _BARS_PREWARM_INTERVAL
 from api.earnings_jobs import (
     _EARNINGS_ALERTS_ENABLED,
     EARNINGS_ALERT_INTERVAL_SECONDS,
@@ -109,7 +108,6 @@ def _register_background_jobs() -> None:
             float(MORNING_REPORT_INTERVAL_SECONDS),
             lambda: _MORNING_REPORT_ENV_ENABLED,
         ),
-        ("bars_prewarm", _BARS_PREWARM_INTERVAL, None),
         ("equity_tape_flush", _EQUITY_TAPE_FLUSH_SECONDS, None),
         ("regime_sleeves", float(REGIME_SLEEVES_SCAN_INTERVAL_SECONDS), None),
         ("social_buzz", float(_SOCIAL_BUZZ_INTERVAL_SECONDS), None),

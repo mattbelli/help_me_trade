@@ -7,7 +7,7 @@ export type StoredEntry = { data: unknown; fetchedAt: number };
 export type StoredPair = [string, StoredEntry];
 
 // Bumped when the persisted shape changes, so an old blob is ignored not mis-read.
-export const BARS_CACHE_STORAGE_KEY = "hmt.bars-cache.v1";
+export const BARS_CACHE_STORAGE_KEY = "hmt.bars-cache.v2"; // v2: keys are symbol|tf|ext|limit|before
 // Stay well under the ~5MB sessionStorage quota — an intraday payload can be ~1MB,
 // so a few charts fit; the oldest are dropped past this budget.
 export const BARS_CACHE_PERSIST_BUDGET_BYTES = 3_500_000;

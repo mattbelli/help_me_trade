@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyBarFrame,
   mergeFetchedBars,
+  prependFetchedBars,
   type BarFrame,
   type VolumeMemoryRef,
 } from "./merge";
@@ -55,9 +56,46 @@ describe("mergeFetchedBars", () => {
     expect(merged.map((b) => b.time)).toEqual([1000, 2000, 3000, 5000]);
   });
 
-  it("an empty payload clears, and no local tail is invented", () => {
-    expect(mergeFetchedBars([], local())).toEqual([]);
+  it("an empty refresh keeps what we have; no local tail is invented", () => {
+    expect(mergeFetchedBars([], local())).toEqual(local());
     expect(mergeFetchedBars(mkBars(), [])).toEqual(mkBars());
+  });
+
+  it("a newest WINDOW replaces only the span it covers — backfilled history survives", () => {
+    const history = [
+      { time: 500, open: 9, high: 9.5, low: 8.5, close: 9.2, volume: 100 },
+      ...local(),
+    ];
+    const window = [
+      { time: 2000, open: 11, high: 13, low: 10, close: 12.1, volume: 650 },
+      { time: 3000, open: 12, high: 12.5, low: 11.5, close: 12.2, volume: 300 },
+    ];
+    const merged = mergeFetchedBars(window, history);
+    expect(merged.map((b) => b.time)).toEqual([500, 1000, 2000, 3000, 4000]);
+    expect(merged[2].close).toBe(12.1); // vendor's copy inside the window
+    expect(merged[0].close).toBe(9.2); // backfilled history untouched
+    expect(merged[4].close).toBe(12.5); // hub-built tail past the window kept
+  });
+});
+
+describe("prependFetchedBars", () => {
+  it("prepends only bars strictly older than our oldest and reports the count", () => {
+    const page = [
+      { time: 500, open: 9, high: 9.5, low: 8.5, close: 9.2, volume: 100 },
+      { time: 800, open: 9.2, high: 10, low: 9, close: 9.9, volume: 120 },
+      { time: 1000, open: 99, high: 99, low: 99, close: 99, volume: 1 }, // overlaps ours
+    ];
+    const { bars, added } = prependFetchedBars(page, mkBars());
+    expect(added).toBe(2);
+    expect(bars.map((b) => b.time)).toEqual([500, 800, 1000, 2000, 3000]);
+    expect(bars[2].close).toBe(11); // ours wins on the overlap
+  });
+
+  it("nothing older → unchanged, added 0; empty local → the page", () => {
+    const { bars, added } = prependFetchedBars(mkBars(), mkBars());
+    expect(added).toBe(0);
+    expect(bars).toEqual(mkBars());
+    expect(prependFetchedBars(mkBars(), [])).toEqual({ bars: mkBars(), added: 3 });
   });
 });
 

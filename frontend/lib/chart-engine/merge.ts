@@ -52,20 +52,41 @@ export type VolumeMemoryRef = { current: VolumeMemory | null };
 const MINUTE_MS = 60_000;
 
 /**
- * Reconcile a freshly fetched series with the locally-formed tail.
- *
- * A periodic refresh exists to adopt vendor corrections — it must never REGRESS
- * the tail. Vendor bars always win; ours survive only past the end of what it
- * published, so this can neither duplicate a timestamp nor reorder the series.
+ * Reconcile a freshly fetched WINDOW (the newest N bars, or a periodic
+ * refresh of them) with the local series. The vendor's bars replace ours over
+ * the span they cover; ours survive on both sides — history the browser
+ * backfilled before the window, and the hub-built tail past it. Same-provider
+ * ascending times on both sides, so this can neither duplicate a timestamp nor
+ * reorder the series. An empty refresh keeps what we have (an upstream hiccup
+ * must not wipe a chart); a symbol/timeframe switch never merges at all.
  */
 export function mergeFetchedBars(
   fetched: EngineBar[],
   local: readonly EngineBar[],
 ): EngineBar[] {
-  if (fetched.length === 0) return fetched; // an empty payload clears, as before
-  const lastFetched = fetched[fetched.length - 1].time;
-  const tail = local.filter((b) => b.time > lastFetched);
-  return tail.length ? [...fetched, ...tail] : fetched;
+  if (fetched.length === 0) return local.length ? [...local] : fetched;
+  const first = fetched[0].time;
+  const last = fetched[fetched.length - 1].time;
+  const older = local.filter((b) => b.time < first);
+  const newer = local.filter((b) => b.time > last);
+  if (older.length === 0 && newer.length === 0) return fetched;
+  return [...older, ...fetched, ...newer];
+}
+
+/**
+ * Prepend an older page (bars strictly before our oldest) to the series.
+ * Returns the new array and how many bars were added — the engine shifts the
+ * view by that many so what's on screen stays put.
+ */
+export function prependFetchedBars(
+  page: EngineBar[],
+  local: readonly EngineBar[],
+): { bars: EngineBar[]; added: number } {
+  if (local.length === 0) return { bars: page, added: page.length };
+  const cutoff = local[0].time;
+  const older = page.filter((b) => b.time < cutoff);
+  if (older.length === 0) return { bars: [...local], added: 0 };
+  return { bars: [...older, ...local], added: older.length };
 }
 
 /**

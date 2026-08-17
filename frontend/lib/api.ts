@@ -250,6 +250,8 @@ export type BarsResponse = {
   symbol: string;
   timeframe: string;
   bars: StockBar[];
+  /** Older history exists past the first bar returned (backfill on pan-left). */
+  has_more?: boolean;
   overnight_delayed?: boolean;
 };
 
@@ -277,25 +279,23 @@ export async function fetchPortfolioHistory(
 
 export async function fetchBars(
   symbol: string,
-  options?: { timeframe?: string; days?: number; extended?: boolean },
+  options?: {
+    timeframe?: string;
+    /** Newest `limit` bars (or the `limit` bars before `before`). */
+    limit?: number;
+    /** RFC3339 — return bars strictly before this time (an older page). */
+    before?: string;
+    extended?: boolean;
+  },
 ): Promise<BarsResponse> {
   const params = new URLSearchParams({ symbol });
   if (options?.timeframe) params.set("timeframe", options.timeframe);
-  if (options?.days) params.set("days", String(options.days));
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.before) params.set("before", options.before);
   if (options?.extended != null) {
     params.set("extended", options.extended ? "true" : "false");
   }
-
-  // 60s, not the 20s default: a first-ever load of a long-range intraday
-  // series is a legitimate 10–30s paginated walk server-side (~50 bars/page).
-  // A 20s abort turned every cold chart into a flash/timeout loop — the
-  // server finishes and caches the walk regardless, so waiting it out once
-  // is strictly better than aborting into a retry.
-  const res = await apiFetch(
-    `${API_BASE}/api/bars?${params}`,
-    { cache: "no-store" },
-    60_000,
-  );
+  const res = await apiFetch(`${API_BASE}/api/bars?${params}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(

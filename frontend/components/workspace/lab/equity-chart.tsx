@@ -104,7 +104,9 @@ export function EquityChart({
       3650,
       Math.max(2, Math.ceil((last - first) / 86_400_000) + 3),
     );
-    fetchBars("SPY", { timeframe: "1Day", days })
+    // ~252 sessions per 365 calendar days, plus slack for the window's edges.
+    const limit = Math.min(5000, Math.ceil((days * 252) / 365) + 5);
+    fetchBars("SPY", { timeframe: "1Day", limit })
       .then((res) => {
         if (cancelled) return;
         const inWindow = res.bars.filter(

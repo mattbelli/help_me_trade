@@ -114,6 +114,21 @@ recent minutes past the (cached, minutes-stale) vendor tail so a fresh load is n
   Everything of that kind lived here 07-11 → 08-17 and each was a bandaid over the vendor tail
   trailing real time (see BUILD_LOG 08-17).
 
+### History: progressive load (card #326, 2026-08-17)
+
+The chart asks `/api/bars?limit=300` for the **newest window** (one or two upstream round trips —
+Alpaca pages aggregated timeframes at ~10k underlying minute rows: ~200 hourly / ~50 4-hour bars
+per page), paints, and asks `/api/bars?before=<oldest ISO>&limit=300` for **older pages only when
+the view nears the oldest bar** (`onNeedHistory`, fired from the paint loop inside
+`HISTORY_PREFETCH_BARS`; the wrapper keeps one page in flight per data key and stops on
+`has_more:false`). `setBars(bars, { prepended: n })` shifts the view by `n` so the bars on screen
+never move. There is no per-timeframe history depth anywhere — `chart-time.ts` has no `days`.
+Server side: one store per (symbol, timeframe, ext) holding the newest window, tail-refreshed since
+its last bar when stale and re-baselined hourly; older pages are fetched on demand and not stored.
+The periodic refresh returns that window and `mergeFetchedBars` replaces only the span it covers
+(backfilled history before it and hub-built bars past it survive). Deleted with this: the prewarm
+loop, the serve-stale window, incremental-vs-full, the `(symbol, timeframe, days)` cache key.
+
 ## Painter interface (the adapter seam)
 
 ```ts
@@ -136,7 +151,8 @@ around it.
 
 - Mirrors `TvLightChart`'s props (`symbol, timeframe, style, livePrice, extPrice,
   marketSession, compact, extended, ...`) so `chart-widget` can swap engines per widget.
-- Owns data: `fetchBarsCached` (same cache as TV), loading/error states, live-price effect.
+- Owns data: `fetchBarsCached` (newest window + older pages on `onNeedHistory`), loading/error
+  states, live `bar` frames → `applyBarFrame`.
 - Owns theme: resolves `EngineColors` from CSS vars (`chart-colors.ts`) and re-resolves on
   theme change → `engine.setColors()`. All four themes + custom themes work from day one.
 - Owns the OHLC legend (DOM overlay fed by the crosshair callback) — text UI stays in React;

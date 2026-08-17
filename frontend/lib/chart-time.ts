@@ -1,22 +1,21 @@
 export type ChartTimeframe = {
   label: string;
   value: string;
-  days: number;
   intraday: boolean;
 };
 
-// `days` = history fetched per timeframe (drives payload size + cold-load lag). Kept
-// generous enough to pan back several sessions, but trimmed off the heaviest views —
-// 1Min @ 10d was ~9k bars / ~1MB, an unreasonable client freeze for a ~150-bar view.
+// No per-timeframe history depth here: the chart loads the newest window and
+// backfills older bars as you pan left (card #326), so "how far back" is
+// whatever you scroll to.
 export const CHART_TIMEFRAMES: ChartTimeframe[] = [
-  { label: "1m", value: "1Min", days: 5, intraday: true },
-  { label: "5m", value: "5Min", days: 20, intraday: true },
-  { label: "15m", value: "15Min", days: 60, intraday: true },
-  { label: "1H", value: "1Hour", days: 180, intraday: true },
-  { label: "4H", value: "4Hour", days: 180, intraday: true },
-  { label: "1D", value: "1Day", days: 1825, intraday: false },
-  { label: "1W", value: "1Week", days: 3650, intraday: false },
-  { label: "1M", value: "1Month", days: 3650, intraday: false },
+  { label: "1m", value: "1Min", intraday: true },
+  { label: "5m", value: "5Min", intraday: true },
+  { label: "15m", value: "15Min", intraday: true },
+  { label: "1H", value: "1Hour", intraday: true },
+  { label: "4H", value: "4Hour", intraday: true },
+  { label: "1D", value: "1Day", intraday: false },
+  { label: "1W", value: "1Week", intraday: false },
+  { label: "1M", value: "1Month", intraday: false },
 ];
 
 const ET = "America/New_York";

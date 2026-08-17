@@ -32,7 +32,6 @@ from api.auth import (
     verify_websocket_auth,
 )
 from api.background_jobs import _NEWS_STREAM_ENABLED, _register_background_jobs
-from api.bars_routes import _bars_prewarm_loop
 from api.bars_routes import router as bars_router
 from api.device_routes import router as device_router
 from api.earnings_jobs import _earnings_refresh_loop, _earnings_release_loop
@@ -269,7 +268,6 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_regime_refresh_loop()),
         asyncio.create_task(_regime_sleeves_loop()),
         asyncio.create_task(_reports_scheduler_loop()),
-        asyncio.create_task(_bars_prewarm_loop()),
         asyncio.create_task(_equity_tape_flush_loop()),
     ]
     if _NEWS_STREAM_ENABLED:

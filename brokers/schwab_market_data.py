@@ -96,6 +96,21 @@ _TIMEFRAME_MINUTE: dict[str, Client.PriceHistory.Frequency] = {
 }
 
 
+# Bars per CALENDAR day for a ~23h/5-day futures week — sizes the fetch window
+# behind aget_stock_bars_latest (Schwab has no newest-first page cursor).
+_FUTURES_BARS_PER_CALENDAR_DAY: dict[str, float] = {
+    "1Min": 23 * 60 * 5 / 7,
+    "5Min": 23 * 12 * 5 / 7,
+    "15Min": 23 * 4 * 5 / 7,
+    "30Min": 23 * 2 * 5 / 7,
+    "1Hour": 23 * 5 / 7,
+    "4Hour": 6 * 5 / 7,
+    "1Day": 5 / 7,
+    "1Week": 1 / 7,
+    "1Month": 1 / 30,
+}
+
+
 class SchwabMarketData:
     """Read-only Schwab market data — no order or execution methods."""
 
@@ -402,6 +417,33 @@ class SchwabMarketData:
             end=end,
             extended_hours=extended_hours,
         )
+
+    async def aget_stock_bars_latest(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        limit: int = 300,
+        before: datetime | None = None,
+        extended_hours: bool = False,
+    ) -> tuple[list[StockBar], bool]:
+        """Schwab price history is a date range, not a page cursor: fetch a
+        window sized to hold ``limit`` bars and keep the newest ``limit``.
+        ``has_more`` = the window filled up (history probably continues)."""
+        end = before or datetime.now(UTC)
+        per_day = _FUTURES_BARS_PER_CALENDAR_DAY.get(timeframe, 1.0)
+        days = int(limit / per_day) + 3
+        bars = await self.aget_stock_bars_range(
+            symbol,
+            timeframe=timeframe,
+            start=end - timedelta(days=days),
+            end=end,
+            extended_hours=extended_hours,
+        )
+        if before is not None:
+            cutoff = before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            bars = [b for b in bars if b.time < cutoff]
+        return bars[-limit:], len(bars) >= limit
 
     async def aget_stock_bars(
         self,

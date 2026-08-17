@@ -34,6 +34,7 @@ import {
 import { ChartEngine } from "@/lib/chart-engine/engine";
 import {
   mergeFetchedBars,
+  prependFetchedBars,
   type VolumeMemoryRef,
 } from "@/lib/chart-engine/merge";
 import type { BarEvent } from "@/lib/use-symbol-quote";
@@ -98,6 +99,21 @@ type Props = {
 // (a cache hit is free). Live candles come from `bar` frames, not from this.
 const INTRADAY_REFRESH_MS = 30_000;
 const DAILY_REFRESH_MS = 300_000;
+// Progressive load (card #326): the newest window first — a couple of screens
+// at the default zoom, one upstream round trip — then this many more per page
+// as the view nears the oldest bar.
+const BARS_PAGE = 300;
+function toEngineBars(bars: StockBar[]): EngineBar[] {
+  return bars.map((b) => ({
+    time: Date.parse(b.time),
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+    volume: b.volume,
+  }));
+}
+
 // Overlay polls (match TvLightChart's alert cadence; drawings change rarely).
 const ALERTS_POLL_MS = 20_000;
 const DRAWINGS_POLL_MS = 60_000;
@@ -234,6 +250,10 @@ export function NativeChart({
   const appliedPayloadRef = useRef<unknown>(null);
   const staleRefetchPendingRef = useRef(false);
   const staleRefetchLastSecRef = useRef(0);
+  // Older-history backfill state for the CURRENT data key: one page in flight
+  // at a time; `exhausted` once the vendor says there is nothing older.
+  const historyRef = useRef({ key: "", loading: false, exhausted: false });
+  const loadOlderRef = useRef<() => void>(() => {});
   // Coarse-bucket volume roll-up memory (merge.ts → VolumeMemory); reset
   // whenever a fetched payload replaces the bars.
   const volumeMemoryRef = useRef<VolumeMemoryRef>({ current: null });
@@ -373,6 +393,7 @@ export function NativeChart({
           .catch(() => {})
           .finally(() => setDrawingsNonce((n) => n + 1));
       },
+      onNeedHistory: () => loadOlderRef.current(),
       onSegmentDragEnd: (id, seg) => {
         if (!id.startsWith("shape:")) return;
         const drawingId = Number(id.slice(6));
@@ -586,8 +607,8 @@ export function NativeChart({
 
     fetchBarsCached(symbol, {
       timeframe: timeframe.value,
-      days: timeframe.days,
       extended: showExt,
+      limit: BARS_PAGE,
     })
       .then((data) => {
         if (cancelled) return;
@@ -603,21 +624,18 @@ export function NativeChart({
           return; // nothing new to reconcile — leave the live bars alone
         }
         appliedPayloadRef.current = data;
-        const fetched: EngineBar[] = data.bars.map((b: StockBar) => ({
-          time: Date.parse(b.time),
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          close: b.close,
-          volume: b.volume,
-        }));
-        // Keep locally-formed bars the vendor hasn't published yet. A key
-        // change is a different series entirely — nothing to carry over.
+        const fetched = toEngineBars(data.bars);
+        // The newest window replaces the span it covers; history we backfilled
+        // and hub-built bars past it survive. A key change is a different
+        // series entirely — nothing to carry over.
         const bars = keyChanged
           ? fetched
           : mergeFetchedBars(fetched, barsRef.current);
         barsRef.current = bars;
         dataKeyRef.current = key;
+        if (keyChanged) {
+          historyRef.current = { key, loading: false, exhausted: !data.has_more };
+        }
         volumeMemoryRef.current.current = null;
         engineRef.current?.setBars(bars, { anchorRight: keyChanged });
         setBarsNonce((n) => n + 1);
@@ -639,7 +657,47 @@ export function NativeChart({
       // shut for the next key (its .finally() bails on `cancelled`).
       staleRefetchPendingRef.current = false;
     };
-  }, [symbol, timeframe.value, timeframe.days, showExt, refreshNonce]);
+  }, [symbol, timeframe.value, showExt, refreshNonce]);
+
+  // Older history on demand: the engine calls this (via the ref) whenever the
+  // view nears the oldest bar. One page in flight per data key; stops once the
+  // vendor reports nothing older. The page is prepended and the view shifted by
+  // the same count, so the bars on screen never move.
+  useEffect(() => {
+    loadOlderRef.current = () => {
+      const key = dataKeyRef.current;
+      const h = historyRef.current;
+      if (!key || h.key !== key || h.loading || h.exhausted) return;
+      const oldest = barsRef.current[0];
+      if (!oldest) return;
+      h.loading = true;
+      fetchBarsCached(symbol, {
+        timeframe: timeframe.value,
+        extended: showExt,
+        limit: BARS_PAGE,
+        before: new Date(oldest.time).toISOString(),
+      })
+        .then((data) => {
+          if (dataKeyRef.current !== key) return; // series changed underneath us
+          const { bars, added } = prependFetchedBars(
+            toEngineBars(data.bars),
+            barsRef.current,
+          );
+          if (added > 0) {
+            barsRef.current = bars;
+            engineRef.current?.setBars(bars, { prepended: added });
+            setBarsNonce((n) => n + 1);
+          }
+          historyRef.current.exhausted = !data.has_more || added === 0;
+        })
+        .catch(() => {
+          /* the next pan retries */
+        })
+        .finally(() => {
+          if (historyRef.current.key === key) historyRef.current.loading = false;
+        });
+    };
+  });
 
   // Periodic refetch — completed-bar reconciliation (volume, vendor
   // corrections) and the hole-filler backstop. Skips hidden tabs and pages.
@@ -838,12 +896,16 @@ export function NativeChart({
         ) {
           staleRefetchPendingRef.current = true;
           staleRefetchLastSecRef.current = nowSec;
-          invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
+          invalidateBars(symbol, {
+            timeframe: timeframe.value,
+            extended: showExt,
+            limit: BARS_PAGE,
+          });
           setRefreshNonce((n) => n + 1);
         }
       }
     },
-    [loading, symbol, timeframe.value, timeframe.days, timeframe.intraday, showExt],
+    [loading, symbol, timeframe.value, timeframe.intraday, showExt],
   );
 
   useEffect(() => {
@@ -901,7 +963,11 @@ export function NativeChart({
             size="sm"
             variant="outline"
             onClick={() => {
-              invalidateBars(symbol, timeframe.value, timeframe.days, showExt);
+              invalidateBars(symbol, {
+                timeframe: timeframe.value,
+                extended: showExt,
+                limit: BARS_PAGE,
+              });
               setRefreshNonce((n) => n + 1);
             }}
           >

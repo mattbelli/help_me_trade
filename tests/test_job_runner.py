@@ -40,7 +40,6 @@ AUDIT_LOOP_NAMES = [
     "schwab_snapshot",
     "db_retention",
     "reports_scheduler",
-    "bars_prewarm",
     "equity_tape_flush",
     "filings_edgar",
     "filings_congress",

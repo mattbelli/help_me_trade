@@ -31,6 +31,7 @@ import {
 import {
   DEFAULT_BAR_SPACING,
   DEFAULT_RIGHT_OFFSET,
+  HISTORY_PREFETCH_BARS,
   PRICE_AXIS_WIDTH,
   TAG_GUTTER_WIDTH,
   TIME_AXIS_HEIGHT,
@@ -64,6 +65,7 @@ export class ChartEngine {
   private readonly onLineDragEnd?: EngineOptions["onLineDragEnd"];
   private readonly onDrawComplete?: EngineOptions["onDrawComplete"];
   private readonly onSegmentDragEnd?: EngineOptions["onSegmentDragEnd"];
+  private readonly onNeedHistory?: EngineOptions["onNeedHistory"];
 
   private width = 0;
   private height = 0;
@@ -139,6 +141,7 @@ export class ChartEngine {
     this.onLineDragEnd = options.onLineDragEnd;
     this.onDrawComplete = options.onDrawComplete;
     this.onSegmentDragEnd = options.onSegmentDragEnd;
+    this.onNeedHistory = options.onNeedHistory;
     this.perfEnabled =
       typeof location !== "undefined" && /[?&]chartPerf=1/.test(location.search);
 
@@ -173,10 +176,15 @@ export class ChartEngine {
 
   /**
    * Replace history. `anchorRight` (symbol/timeframe switch) keeps the zoom
-   * but re-anchors to the latest bar; otherwise a view sitting at the right
-   * edge follows new data and a panned-back view stays put.
+   * but re-anchors to the latest bar; `prepended` (older history backfilled
+   * in front) shifts the view by that many bars so what's on screen stays
+   * put; otherwise a view sitting at the right edge follows new data and a
+   * panned-back view stays put.
    */
-  setBars(bars: EngineBar[], opts?: { anchorRight?: boolean }): void {
+  setBars(
+    bars: EngineBar[],
+    opts?: { anchorRight?: boolean; prepended?: number },
+  ): void {
     const prevLast = this.bars.length - 1;
     const wasAtRightEdge =
       this.bars.length === 0 || this.vp.rightEdgeIndex >= prevLast;
@@ -191,6 +199,15 @@ export class ChartEngine {
     if (!hadBars) {
       this.vp = defaultViewport(bars.length, this.paneWidth());
       this.priceOverride = null;
+    } else if (opts?.prepended) {
+      this.vp = clampViewport(
+        {
+          barSpacing: this.vp.barSpacing,
+          rightEdgeIndex: this.vp.rightEdgeIndex + opts.prepended,
+        },
+        this.paneWidth(),
+        bars.length,
+      );
     } else if (opts?.anchorRight) {
       // Symbol/timeframe switch: a manual price scale from the old series
       // would frame the new one absurdly — return to autoscale.
@@ -741,6 +758,13 @@ export class ChartEngine {
       // The crosshair sits over repositioned content — keep it in sync.
       this.dirtyCursor = true;
       this.dirtyScene = false;
+      // Progressive history: nearing the oldest bar asks the wrapper for more.
+      if (this.bars.length > 0 && this.onNeedHistory) {
+        const visible = this.paneWidth() / this.vp.barSpacing;
+        if (this.vp.rightEdgeIndex - visible < HISTORY_PREFETCH_BARS) {
+          this.onNeedHistory();
+        }
+      }
     }
 
     if (this.dirtyCursor) {

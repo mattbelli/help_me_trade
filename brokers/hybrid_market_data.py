@@ -168,6 +168,31 @@ class HybridMarketData:
             symbol, timeframe=timeframe, start=start, end=end
         )
 
+    async def aget_stock_bars_latest(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        limit: int = 300,
+        before: datetime | None = None,
+        extended_hours: bool = False,
+    ) -> tuple[list[StockBar], bool]:
+        cls = classify_symbol(symbol)
+        if cls in ("crypto", "option"):
+            logger.warning(
+                "HybridMarketData: no REST bar endpoint for %s (%s) — returning empty",
+                symbol,
+                cls,
+            )
+            return [], False
+        return await self._child_for(symbol).aget_stock_bars_latest(
+            symbol,
+            timeframe=timeframe,
+            limit=limit,
+            before=before,
+            extended_hours=extended_hours,
+        )
+
     async def aget_stock_bars_batch(
         self,
         symbols: list[str],
