@@ -49,9 +49,11 @@ SESSIONS_PER_WEEK = 5
 LABEL = "abnormality perception — magnitude tell."
 CAVEAT = (
     "Selects unusual range/volume vs this name's own time-of-day norm and its "
-    "peers. Measured in-sample (1.14f/g): fired names moved 32–43% more than "
-    "their time-matched norm over the next 2h; direction was a coin flip. "
-    "Not a validated edge; no direction implied."
+    "peers. Measured in-sample (1.14f/g, options-eligible names, first fire of "
+    "the day): fired names' next-2h max move ran ~1.3x their own time-of-day norm "
+    "vs ~0.94x for non-fired peers; direction was a coin flip. Own-norm units "
+    "only — not a forecast of a large absolute move. Not a validated edge; no "
+    "direction implied."
 )
 PAIRED_CAVEAT = (
     "Base-state pairing encodes a founder thesis (accumulation/distribution) — "

@@ -13,7 +13,12 @@ from typing import Any
 
 import numpy as np
 
-from signals.abnormality.baselines import Baselines, load_baselines
+from signals.abnormality.baselines import (
+    Baselines,
+    artifact_sessions,
+    default_dir,
+    load_baselines,
+)
 from signals.abnormality.constants import KIND_PAIRED, N_BUCKETS, WINDOW_BARS
 from signals.abnormality.engine import FireThresholds, PriorFire, evaluate_boundary
 from signals.abnormality.store import list_sessions, load_5min, window_slice
@@ -89,34 +94,58 @@ def replay_session(
 
 def replay_store(
     bars_5min_dir: Path,
-    baselines: Baselines,
+    baselines_dir: Path,
     thresholds: FireThresholds,
     *,
     start: date | None = None,
     end: date | None = None,
 ) -> dict[str, Any]:
+    """Replay each session against the newest baseline artifact built STRICTLY
+    BEFORE it — never a forward-looking one (the registered rule: normalizers use
+    sessions <= t-1). Sessions with no prior artifact are skipped and counted, so
+    a fire rate is only ever measured the way the live detector would have
+    produced it. Build historical artifacts with tools/abnormality_baselines.py
+    --as-of."""
     sessions = [
         s for s in list_sessions(bars_5min_dir)
         if (start is None or s >= start) and (end is None or s <= end)
     ]
+    artifacts = artifact_sessions(baselines_dir)
     per = []
     total = paired = 0
+    skipped: list[str] = []
+    cache: dict[date, Baselines | None] = {}
+    replayed: list[date] = []
+    examples: list[dict[str, Any]] = []
     for s in sessions:
+        prior = [a for a in artifacts if a < s]
+        if not prior:
+            skipped.append(s.isoformat())
+            continue
+        a = prior[-1]
+        if a not in cache:
+            cache[a] = load_baselines(baselines_dir, session=a)
+        baselines = cache[a]
+        if baselines is None:
+            skipped.append(s.isoformat())
+            continue
+        replayed.append(s)
         row = replay_session(bars_5min_dir / f"{s.isoformat()}.npz", baselines, thresholds)
         per.append({"session": row["session"], "fires": row["fires"], "paired": row["paired"]})
         total += int(row["fires"])
         paired += int(row["paired"])
         examples = row["examples"]
-    n = len(sessions) or 1
+    n = len(replayed) or 1
     return {
         "thresholds": asdict(thresholds),
-        "sessions": len(sessions),
+        "sessions": len(replayed),
+        "skipped_no_prior_artifact": skipped,
         "fires": total,
         "paired": paired,
         "fires_per_day": round(total / n, 2),
         "paired_per_week": round(paired / max(n / 5, 1e-9), 2),
         "per_session": per,
-        "examples": examples if sessions else [],
+        "examples": examples if replayed else [],
     }
 
 
@@ -127,9 +156,9 @@ def replay_candidates(
     start: date | None = None,
     end: date | None = None,
 ) -> list[dict[str, Any]]:
-    bl = load_baselines(baselines_dir)
-    if bl is None:
+    d = baselines_dir or default_dir()
+    if not artifact_sessions(d):
         raise SystemExit("no baselines artifact — run tools/abnormality_baselines.py first")
     return [
-        replay_store(bars_5min_dir, bl, thr, start=start, end=end) for thr in CANDIDATES
+        replay_store(bars_5min_dir, d, thr, start=start, end=end) for thr in CANDIDATES
     ]

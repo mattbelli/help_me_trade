@@ -183,6 +183,12 @@ async def api_fusion_radar(sessions: int = Query(5, ge=1, le=30)):
     """Live warming radar: v2 decayed masses per recently-active symbol,
     ranked by thesis z. Read-only compute-on-read (offloaded off the loop)."""
     now_iso_str = datetime.now(timezone.utc).isoformat()
+    from api.background_jobs import _FUSION_ENABLED
+
+    if not _FUSION_ENABLED:
+        # Fusion is gated off (FUSION_ENABLED=0): no intake is running, so the
+        # radar would re-score a frozen corpus (2.1s per call, polled every 15s).
+        return {"rows": [], "now": now_iso_str, "sessions": sessions, "disabled": True}
     rows = await asyncio.to_thread(_fusion_radar_sync, sessions, now_iso_str)
     return {"rows": rows, "now": now_iso_str, "sessions": sessions}
 

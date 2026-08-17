@@ -2089,6 +2089,8 @@ export type FusionRadarResponse = {
   rows: FusionRadarRow[];
   now: string;
   sessions: number;
+  /** Server has FUSION_ENABLED=0 — the layer is gated off, not merely quiet. */
+  disabled?: boolean;
 };
 
 export async function getFusionRadar(

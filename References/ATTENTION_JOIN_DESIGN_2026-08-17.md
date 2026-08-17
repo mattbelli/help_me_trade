@@ -200,7 +200,33 @@ land in the low tens per day, which is the target the abnormality brief set and 
    detectors deleted with fusion.
 3. Outcomes on the ledger + the AI queue.
 
-### 4.6 Founder forks (decisions only you make)
+### 4.6 Founder forks — DECIDED 2026-08-17
+1. **Study rule (p90 single-component) = "lit".** The stricter draft rule is NOT adopted — it is
+   **pre-registered as a subset test** (below) and measured on the ledger once outcomes accrue.
+2. **Display floor = $-vol quintile ≥ 3 (top 40%)** to start; a query parameter, revisited after a
+   week of lists.
+3. **Shape kernel retired** as a ranking multiplier (Phase 1).
+4. **Fusion gated off now** (`FUSION_ENABLED=0` default; shipped in Phase 0).
+
+#### Pre-registration — "does the strict rule select a stronger subset?" (frozen 2026-08-17, before any outcome exists)
+- **Population:** every (symbol, session) in the options-eligible pool with `abn_lit = 1` under the
+  study rule (range_ratio ≥ p90 within cell, first fire of the day, half-hour grid 10:00–14:00,
+  cell occupancy ≥ 25).
+- **Subset S (the draft rule):** `abn_range_pctile ≥ 99 AND abn_vol_pctile ≥ 95 AND
+  abn_range_ratio ≥ 2.0 AND abn_vol_ratio ≥ 3.0` at the first-fire boundary.
+- **Outcome:** `excess_2h` = forward 2h max |cumulative 5-min log return| on closes ÷ the name's own
+  boundary-matched forward norm from the artifact built ≤ t−1 (the 1.14f/g estimand).
+- **Statistic:** median(excess_2h | S) − median(excess_2h | lit \ S), bootstrap 95% CI over
+  name-days; direction split reported (expected null).
+- **Read:** the strict rule is adopted as the *display* default only if the CI excludes 0 with
+  ≥ 30 sessions and ≥ 500 lit name-days; otherwise p90 stays and S is shown as a filter chip.
+  A null is a result, not a failure — it means the extra strictness buys nothing measurable.
+- Same template, same freeze, for the flow angle later: `flow_min_p ≤ 0.01` vs `≤ 0.05`, and
+  `flow_short_dated_share ≥ 0.5` (the replicated positive) vs below.
+
+*(original fork text kept below for the record)*
+
+### 4.6-orig Founder forks (as posed)
 1. Fire rule: the study's p90 single-component (recommended — it is what is licensed; the list rank
    does the selecting) vs keep the stricter draft (p99∧p95∧floors) as an unregistered choice.
 2. Liquidity floor for display: quintile ≥ 3 (top 40%, recommended start) vs ≥ 4.

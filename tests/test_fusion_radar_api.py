@@ -70,6 +70,7 @@ def test_radar_sorts_by_thesis_z_and_flags_contested(tmp_path: Path, monkeypatch
     _insert_dot(db_path, "bbb2", "ep-bbb", "BBB", direction="bear", raw_value="500000", ts=now_ts)
 
     monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.background_jobs._FUSION_ENABLED", True)  # gated off by default
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get("/api/fusion/radar")
@@ -130,6 +131,7 @@ def test_radar_empty_db_returns_no_rows(tmp_path: Path, monkeypatch) -> None:
     init_fusion_tables(db_path)
     init_options(db_path)
     monkeypatch.setattr("api.fusion_routes.DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr("api.background_jobs._FUSION_ENABLED", True)  # gated off by default
     from api.main import app
 
     response = TestClient(app, base_url="http://127.0.0.1").get("/api/fusion/radar?sessions=3")
@@ -137,3 +139,17 @@ def test_radar_empty_db_returns_no_rows(tmp_path: Path, monkeypatch) -> None:
     body = response.json()
     assert body["rows"] == []
     assert body["sessions"] == 3
+
+
+def test_radar_is_empty_and_flagged_when_fusion_disabled(monkeypatch) -> None:
+    """FUSION_ENABLED=0 (the default since 2026-08-17): no compute-on-read, an
+    explicit ``disabled`` flag so the widget can say why the list is empty."""
+    from fastapi import FastAPI
+
+    from api.fusion_routes import router
+
+    monkeypatch.setattr("api.background_jobs._FUSION_ENABLED", False)
+    app = FastAPI()
+    app.include_router(router)
+    body = TestClient(app).get("/api/fusion/radar").json()
+    assert body["rows"] == [] and body["disabled"] is True

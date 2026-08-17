@@ -317,6 +317,10 @@ def _abnorm_field(row: dict | None) -> dict | None:
     if not row:
         return None
     status = str(row.get("status") or "")
+    # abnormality_state is keyed by symbol and never expires — Friday's rows read
+    # status='live' all weekend. Stale = not live OR not from today's session.
+    session_today = datetime.now(_ET).date().isoformat()
+    stale = status != "live" or str(row.get("session") or "") != session_today
     return {
         "range_ratio": row.get("range_ratio"),
         "vol_ratio": row.get("vol_ratio"),
@@ -326,7 +330,8 @@ def _abnorm_field(row: dict | None) -> dict | None:
         "composite": row.get("composite"),
         "base_state": row.get("base_state"),
         "status": status,
-        "stale": status != "live",
+        "session": row.get("session"),
+        "stale": stale,
         "label": row.get("label"),
         "caveat": row.get("caveat"),
     }

@@ -554,10 +554,15 @@ def recent_events(
     events = [_row_to_event(r) for r in rows]
     if not needs_python_pass:
         return events
-    if universe is not None or order == "unusual":
+    if universe is not None or order in ("unusual", "conviction"):
         _classify_events(events)
     if universe is not None:
         events = [e for e in events if e["underlying_class"] == universe]
+    elif order == "conviction":
+        # The registered root fence applies here too (08-17 audit: 10 of the
+        # top-100 were ETF/index plumbing — the XLV case). Equity by default;
+        # ask for universe=etf/index explicitly to rank those.
+        events = [e for e in events if e["underlying_class"] not in ("index", "etf")]
     if order == "unusual":
         for ev in events:
             ev["unusual_score"] = _unusual_score(ev)

@@ -218,6 +218,8 @@ export function DeskWidget({ config }: WidgetProps) {
           <WidgetLoading rows={3} cols={[1, 4, 1, 1, 1]} className="p-2" />
         ) : error && !data ? (
           <WidgetError message={error} onRetry={() => void load(false)} />
+        ) : data?.disabled ? (
+          <p className={QUIET}>fusion layer is off (FUSION_ENABLED=0)</p>
         ) : rows.length === 0 ? (
           <p className={QUIET}>no warming names in the last {sessions} sessions</p>
         ) : (

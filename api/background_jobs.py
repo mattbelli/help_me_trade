@@ -71,6 +71,11 @@ _NEWS_STREAM_ENABLED = os.environ.get("NEWS_STREAM_ENABLED", "1").strip() not in
     "false",
     "no",
 )
+# Founder decision 2026-08-17 (ATTENTION_JOIN_DESIGN §4.6 fork 4): the fusion layer
+# is OFF by default while the attention list replaces it. The corpus (episodes,
+# dots, dispositions) stays on disk; the six fusion jobs and the radar's
+# compute-on-read simply don't run. Flip with FUSION_ENABLED=1.
+_FUSION_ENABLED = os.environ.get("FUSION_ENABLED", "0").strip() in ("1", "true", "yes")
 logger = logging.getLogger(__name__)
 
 
@@ -214,6 +219,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_intake",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_intake_once,
             interval_s=float(FUSION_POLL_SECONDS),
             market_hours_only=True,
@@ -222,6 +228,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_atr_refresh",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_atr_refresh_once,
             interval_s=300.0,
         )
@@ -229,6 +236,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_levels_refresh",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_levels_refresh_once,
             interval_s=300.0,
         )
@@ -236,6 +244,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_reason",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_reason_once,
             interval_s=120.0,
             market_hours_only=True,
@@ -244,6 +253,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_lifecycle",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_lifecycle_once,
             interval_s=60.0,
             market_hours_only=True,
@@ -252,6 +262,7 @@ def _register_background_jobs() -> None:
     register_job(
         jobs_mod.Job(
             name="fusion_lifecycle_eod",
+            enabled=lambda: _FUSION_ENABLED,
             fn=_fusion_lifecycle_eod_once,
             interval_s=300.0,
         )

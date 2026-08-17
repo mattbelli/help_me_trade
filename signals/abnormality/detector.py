@@ -38,7 +38,7 @@ OPEN = dtime(9, 30)
 
 class _Sym:
     __slots__ = (
-        "m1_minute", "m1_h", "m1_l", "m1_v",
+        "m1_minute", "m1_h", "m1_l", "m1_c", "m1_v",
         "m5_h", "m5_l", "m5_c", "m5_v",
         "primed",
     )
@@ -47,6 +47,7 @@ class _Sym:
         self.m1_minute = -1
         self.m1_h = 0.0
         self.m1_l = 0.0
+        self.m1_c = 0.0
         self.m1_v = 0.0
         n = N_BUCKETS
         self.m5_h = np.full(n, np.nan)
@@ -111,6 +112,25 @@ class AbnormalityDetector:
                 st.primed = True
             self.primed = True
 
+    def seed_prior(self, session: date, fires: dict[str, PriorFire]) -> None:
+        """Rehydrate the per-symbol cooldown from fires already persisted for
+        *session*. The cooldown lived only in process memory (2026-08-17: seven
+        collector restarts → 139 of 276 fires were within-60-min repeats, the
+        exact population 1.14f excluded as pseudo-replicates). Keeps the LATER
+        of DB vs in-memory per symbol."""
+        with self._lock:
+            if self._session is None:
+                # Adopt the session WITHOUT the reset (which would wipe the
+                # primed bars); mirrors what the first print would set.
+                self._session = session
+                self._n_buckets = N_BUCKETS_EARLY if is_early_close(session) else N_BUCKETS
+            elif self._session != session:
+                return
+            for name, fire in fires.items():
+                cur = self._prior.get(name)
+                if cur is None or fire.bucket > cur.bucket:
+                    self._prior[name] = fire
+
     def on_print(self, symbol: str, price: float, size: int, ts_et: datetime) -> None:
         """O(1) hot path — update the current 1-minute bar. Recv-loop safe."""
         if not is_trading_day(ts_et.date()):
@@ -130,12 +150,14 @@ class AbnormalityDetector:
                 st.m1_minute = minutes
                 st.m1_h = price
                 st.m1_l = price
+                st.m1_c = price
                 st.m1_v = float(size)
             else:
                 if price > st.m1_h:
                     st.m1_h = price
                 if price < st.m1_l:
                     st.m1_l = price
+                st.m1_c = price
                 st.m1_v += float(size)
 
     def _fold_minute(self, st: _Sym) -> None:
@@ -154,7 +176,7 @@ class AbnormalityDetector:
             if lo < st.m5_l[bucket]:
                 st.m5_l[bucket] = lo
             st.m5_v[bucket] += v
-        st.m5_c[bucket] = st.m1_h  # last print in this minute is the running close
+        st.m5_c[bucket] = st.m1_c  # last print in this minute is the running close
 
     def maybe_boundary(self, now_et: datetime) -> BoundaryResult | None:
         """Timer path. Returns the result when a new 5-min boundary is crossed."""

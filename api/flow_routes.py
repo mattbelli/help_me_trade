@@ -118,6 +118,13 @@ async def api_options_flow(
         "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
         "count": len(events),
         "events": events,
+        # Survives every transport (honesty red-team rule): the tape is perception.
+        "caveat": (
+            "OPRA tape facts, not a signal. rarity_p = this print vs this name's own "
+            "daily maxima in its right/tenor/moneyness bucket (how quiet the bucket "
+            "usually is); conviction = rarity x shape rank, perception not a forecast; "
+            "no direction, no win%."
+        ),
     }
 
 

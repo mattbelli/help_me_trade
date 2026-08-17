@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from db.abnormality import insert_outcomes, ungraded_events
-from signals.abnormality.baselines import load_baselines
+from signals.abnormality.baselines import load_baselines_before
 from signals.abnormality.outcomes import sweep_session
 from trading.market_calendar import last_closed_session
 
@@ -25,9 +25,11 @@ def main() -> None:
     a = p.parse_args()
     session = date.fromisoformat(a.session) if a.session else last_closed_session()
     db = Path(a.db) if a.db else None
-    bl = load_baselines(Path(a.baselines_dir))
+    # Newest artifact strictly before the graded session: the forward norm must
+    # not contain the session it normalizes (registered no-same-day-leakage rule).
+    bl = load_baselines_before(session, Path(a.baselines_dir))
     if bl is None:
-        raise SystemExit("no baselines artifact")
+        raise SystemExit(f"no baselines artifact built before {session}")
     events = ungraded_events(session.isoformat(), db_path=db)
     if not events:
         print(f"{session}: 0 ungraded events")

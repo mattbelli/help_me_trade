@@ -16,7 +16,7 @@ import argparse
 import json
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -36,9 +36,17 @@ logger = logging.getLogger("flow_rarity_refresh")
 
 
 def _session_open_utc(now: datetime | None = None) -> str:
-    """00:00 ET of the current ET date, as a UTC ISO timestamp."""
+    """00:00 ET of the most recent SESSION date, as a UTC ISO timestamp. The
+    nightly runs at 00:30 ET, so 'today' is the empty overnight — the window
+    must reach back to the session that just closed (08-17 audit: the
+    backfill stamped 0 rows every night)."""
     et = (now or datetime.now(UTC)).astimezone(_ET)
-    start = et.replace(hour=0, minute=0, second=0, microsecond=0)
+    session_day = et.date()
+    if et.hour < 9:  # before the open: the last session was a prior calendar day
+        session_day = session_day - timedelta(days=1)
+    while session_day.weekday() >= 5:
+        session_day = session_day - timedelta(days=1)
+    start = datetime.combine(session_day, datetime.min.time(), tzinfo=_ET)
     return start.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 

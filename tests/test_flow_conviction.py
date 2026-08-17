@@ -148,8 +148,8 @@ def test_order_conviction_ranks_shaped_sweep_over_cluster(tmp_path: Path) -> Non
         {
             "id": "cluster",
             "ts": "2026-08-12T18:00:00Z",
-            "underlying": "SOXL",
-            "occ_symbol": "SOXL260918C00045000",
+            "underlying": "TSLA",
+            "occ_symbol": "TSLA260918C00045000",
             "right": "call",
             "strike": 45.0,
             "expiry": "2026-09-18",
@@ -252,3 +252,43 @@ def test_perception_order_conviction(tmp_path: Path) -> None:
     assert "not a forecast" in RESOURCES["options_flow"]["filters"]["order"].lower()
     assert "will move" not in desc
     assert "smart money" not in desc
+
+
+def test_order_conviction_applies_root_fence_by_default(tmp_path, monkeypatch) -> None:
+    """08-17 audit: 10 of the conviction top-100 were ETF/index plumbing (XLV).
+    Equity by default; universe=etf asks for them explicitly."""
+    from db import options_flow as of
+
+    db = tmp_path / "flow.db"
+    of.init_db(db)
+    for i, (und, occ) in enumerate((("XLV", "XLV260918P00140000"), ("PAAS", "PAAS261017C00060000"))):
+        of.insert_event(
+            {
+                "id": f"e{i}",
+                "ts": "2026-08-17T15:00:00Z",
+                "underlying": und,
+                "occ_symbol": occ,
+                "right": "put" if und == "XLV" else "call",
+                "strike": 140.0 if und == "XLV" else 60.0,
+                "expiry": "2026-09-18",
+                "dte": 32,
+                "event_type": "sweep",
+                "contracts": 100,
+                "premium_usd": 50_000.0,
+                "direction": "buy",
+                "direction_basis": "ask",
+                "reason": "t",
+                "caveat": "t",
+                "detail": {"underlying_price": 150.0 if und == "XLV" else 52.0},
+            },
+            db_path=db,
+        )
+    monkeypatch.setattr(of, "_root_fence", lambda: {("XLV", "*"): "etf", ("PAAS", "*"): "equity"})
+    monkeypatch.setattr(
+        of, "_classify_events",
+        lambda events: [ev.__setitem__("underlying_class", "etf" if ev["underlying"] == "XLV" else "equity") for ev in events],
+    )
+    ranked = of.recent_events(order="conviction", db_path=db)
+    assert [e["underlying"] for e in ranked] == ["PAAS"]
+    both = of.recent_events(order="conviction", universe="etf", db_path=db)
+    assert [e["underlying"] for e in both] == ["XLV"]

@@ -453,3 +453,26 @@ def test_5min_universe_flag_uses_calendar(monkeypatch: pytest.MonkeyPatch):
 
     days = bf.load_calendar_sessions("2026-08-07", "2026-08-10")
     assert [d.isoformat() for d in days] == ["2026-08-07", "2026-08-10"]
+
+
+def test_seed_prior_rehydrates_cooldown_and_keeps_primed_bars():
+    """A restart must not re-fire names that already fired today (first fire per
+    name-day is the study's object). Seeding adopts the session without the
+    reset that would wipe primed bars."""
+    from signals.abnormality.engine import PriorFire
+
+    det = AbnormalityDetector()
+    syms = np.array(["AAA"], dtype="U8")
+    grid = np.full((1, 78), np.nan)
+    det.prime_from_grid(syms, grid, grid, grid, grid)
+    det.seed_prior(date(2026, 8, 17), {"AAA": PriorFire(bucket=20, composite=9.0)})
+    assert det._prior["AAA"].bucket == 20
+    assert det._session == date(2026, 8, 17)
+    assert det._syms["AAA"].primed  # not wiped
+    # In-memory later fire wins over an older DB row; older DB row never regresses it.
+    det._prior["AAA"] = PriorFire(bucket=30, composite=1.0)
+    det.seed_prior(date(2026, 8, 17), {"AAA": PriorFire(bucket=25, composite=50.0)})
+    assert det._prior["AAA"].bucket == 30
+    # A different session is ignored (the reset path owns day rollover).
+    det.seed_prior(date(2026, 8, 18), {"BBB": PriorFire(bucket=1, composite=1.0)})
+    assert "BBB" not in det._prior

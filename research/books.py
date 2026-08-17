@@ -525,9 +525,9 @@ def _market_frame_section(db_path: Path) -> str:
             extra = f" +{len(fires) - 8}" if len(fires) > 8 else ""
             lines.append(
                 f"- abnormality fires today: {len(fires)} ({paired_n} paired) "
-                f"{names}{extra}. Magnitude tell — in-sample fired names moved "
-                "32–43% more than their time-matched norm over 2h; direction was "
-                "a coin flip. Not an edge."
+                f"{names}{extra}. Magnitude tell — in-sample fired names' next-2h "
+                "max move ran ~1.3x their own time-of-day norm (non-fired ~0.94x); "
+                "direction was a coin flip. Own-norm units, not an edge."
             )
         else:
             lines.append(

@@ -41,12 +41,14 @@ log "daily bars --since-last"
 nice -n 10 "$PY" tools/equity_bars_daily_backfill.py --since-last \
   || alarm "daily backfill failed"
 
-log "baselines rebuild"
-nice -n 10 "$PY" tools/abnormality_baselines.py \
-  || alarm "baselines rebuild failed"
-
+# Grade today's fires BEFORE the rebuild: the forward-norm denominator must be
+# built from sessions <= t-1 (the registered no-same-day-leakage rule).
 log "outcome sweep"
 nice -n 10 "$PY" tools/abnormality_outcomes.py \
   || alarm "outcome sweep failed"
+
+log "baselines rebuild"
+nice -n 10 "$PY" tools/abnormality_baselines.py \
+  || alarm "baselines rebuild failed"
 
 log "abnormality nightly complete"

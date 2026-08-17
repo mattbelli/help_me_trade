@@ -384,6 +384,29 @@ class EquityTapeRunner:
         self.abnormality.prime_from_grid(np.array(symbols, dtype="U8"), high, low, close, vol)
         logger.info("abnormality: primed %d symbols for %s", n, today)
 
+    def _seed_prior_from_db(self) -> None:
+        """Rehydrate today's per-symbol fire cooldown from abnormality_events so a
+        restart cannot re-fire names that already fired (first-fire-per-day is
+        the study's object)."""
+        from db.abnormality import events_today
+        from signals.abnormality.engine import PriorFire
+
+        today = datetime.now(_ET).date()
+        try:
+            rows = events_today(today.isoformat())
+        except Exception:
+            logger.exception("abnormality: cooldown seed read failed")
+            return
+        fires: dict[str, PriorFire] = {}
+        for r in rows:
+            name = str(r["symbol"])
+            fire = PriorFire(bucket=int(r["bucket"]), composite=float(r["composite"] or 0.0))
+            if name not in fires or fire.bucket > fires[name].bucket:
+                fires[name] = fire
+        self.abnormality.seed_prior(today, fires)
+        if fires:
+            logger.info("abnormality: cooldown seeded for %d symbols from today's fires", len(fires))
+
     async def abnormality_loop(self) -> None:
         """5-min boundary ticks + pre-open baseline reload. Never on the recv loop."""
         await asyncio.to_thread(self._load_baselines)
@@ -394,6 +417,7 @@ class EquityTapeRunner:
         # universe just to fold a session that's already over.
         if open_min <= now_min < 16 * 60:
             await asyncio.to_thread(self._prime_today)
+            await asyncio.to_thread(self._seed_prior_from_db)
         while self._running:
             await asyncio.sleep(1)
             try:

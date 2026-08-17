@@ -70,6 +70,21 @@ def current_pointer(out_dir: Path) -> Path:
     return out_dir / "current.json"
 
 
+def artifact_sessions(out_dir: Path | None = None) -> list[date]:
+    """Sessions with a baseline artifact on disk, ascending."""
+    d = out_dir or default_dir()
+    return sorted(
+        date.fromisoformat(p.stem[len("baselines-"):]) for p in d.glob("baselines-*.npz")
+    )
+
+
+def load_baselines_before(session: date, out_dir: Path | None = None) -> Baselines | None:
+    """Newest artifact built STRICTLY before *session* — the registered rule that
+    normalizers use sessions <= t-1 (never same-day leakage)."""
+    prior = [a for a in artifact_sessions(out_dir) if a < session]
+    return load_baselines(out_dir, session=prior[-1]) if prior else None
+
+
 def load_baselines(out_dir: Path | None = None, *, session: date | None = None) -> Baselines | None:
     d = out_dir or default_dir()
     if session is None:
@@ -154,6 +169,7 @@ def build_baselines(
     median_rv = np.where(warm, median_rv, np.nan)
     median_wvol = np.where(warm, median_wvol, np.nan)
     median_cum = np.where(warm, median_cum, np.nan)
+    median_fwd = np.where(warm, median_fwd, np.nan)  # the outcome norm needs warmup too
 
     daily_sessions = [s for s in list_sessions(daily_dir) if s <= as_of]
     median_dvol, median_dvol_sh, base_state, base_weeks, vol_trend, d_close = (

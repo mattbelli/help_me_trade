@@ -512,6 +512,21 @@ PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (wa
 timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
 `_build_bars_response` (mind half-days), next UI round.
 
+## ▶ Attention list (#328) — Phase 0 shipped 08-17; Phases 1–3 open
+
+Design + decisions: `References/ATTENTION_JOIN_DESIGN_2026-08-17.md` (§4.6 decided; strict-rule
+subset test PRE-REGISTERED there). Open: (1) **Phase 1** — abnormality fires restricted to the
+options-eligible pool (= flow rarity lookup names), cell occupancy floor 25, p90 single-component
+range rule on the half-hour grid 10:00–14:00 (state stays 5-min), outcome estimand → close-based max
+|cum log return|; flow rarity stamped on the parent order's **largest single print** vs a
+`multileg=0` lookup with prior-close moneyness, calibration on a random cell sample, kernel retired,
+`conviction` renamed; (2) **Phase 2** — `attention_daily` ledger + 60s job + `/api/attention` +
+watchlist "Unusual today" + perception resource; RVOL scanner subsumed; (3) **Phase 3** —
+`attention_outcomes` on every pool name-day + the bounded AI queue; then run the pre-registered
+strict-subset test once ≥30 sessions / ≥500 lit name-days exist. Fusion is OFF (`FUSION_ENABLED=0`);
+delete the fusion attach lanes for both detectors with the fusion code, later, calmly. Watch tonight:
+first `abnormality_outcomes` rows (grader now uses the artifact built strictly before the session).
+
 ## ▶ Chart data — bar authority (#325) + progressive load (#326) shipped 08-17 (BUILD_LOG 08-17)
 
 Open: (0) founder in-browser check of #326 — hard refresh; every timeframe should paint in one
