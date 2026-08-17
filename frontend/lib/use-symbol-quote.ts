@@ -31,6 +31,13 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
   const [marketSession, setMarketSession] = useState<
     WatchlistQuote["market_session"] | null | undefined
   >();
+  // Which symbol the values above belong to. State outlives a symbol switch,
+  // and the new socket needs a round-trip before the first frame lands — in that
+  // window the previous symbol's price would otherwise be reported for the new
+  // one. The chart merges live prices into the forming candle, so a switch from
+  // GLD (~406) to TSLA (~340) painted a 406 wick on every TSLA timeframe
+  // (2026-08-17). Values are only returned while this tag matches the request.
+  const [quoteSymbol, setQuoteSymbol] = useState<string | undefined>();
 
   const normalized = symbol.trim().toUpperCase();
 
@@ -58,6 +65,7 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
           const msg = JSON.parse(event.data) as WsQuoteFrame;
           if (msg.type === "quotes" && msg.quotes?.[normalized]) {
             const quote = msg.quotes[normalized];
+            setQuoteSymbol(normalized);
             setPrice(quote.price);
             setChangePct(quote.change_pct);
             setExtPrice(quote.ext_price);
@@ -66,6 +74,7 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
             setLive(Boolean(msg.live));
           }
           if (msg.type === "quote" && msg.symbol === normalized) {
+            setQuoteSymbol(normalized);
             if (msg.price != null) setPrice(msg.price);
             if (msg.ext_price !== undefined) setExtPrice(msg.ext_price);
             if (msg.ext_change_pct !== undefined) {
@@ -101,5 +110,15 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
     };
   }, [enabled, normalized]);
 
+  if (quoteSymbol !== normalized) {
+    return {
+      price: undefined,
+      live,
+      changePct: undefined,
+      extPrice: undefined,
+      extChangePct: undefined,
+      marketSession: undefined,
+    };
+  }
   return { price, live, changePct, extPrice, extChangePct, marketSession };
 }
