@@ -253,6 +253,8 @@ export interface PendingProposal {
   source?: string | null;
   score?: ProposalScore | null;
   proposal?: Record<string, unknown>;
+  /** A book's order-management verb (move_stop / cancel_entry); null/absent for a trade. */
+  order_action?: string | null;
 }
 
 export interface AlertAction {

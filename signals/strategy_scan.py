@@ -189,7 +189,13 @@ def _pending_exposure(
     cap and a batch-approve would blow through it. Valued at qty x latest close; when
     the symbol's price isn't on hand, falls back to the strategy's per-trade notional.
     """
-    pending = list_pending_proposals(account_id=account_id, db_path=db_path)
+    # Order-change rows (a book moving a stop / pulling an entry) commit no
+    # new capital — leave them out (trading/book_orders.py).
+    pending = [
+        p
+        for p in list_pending_proposals(account_id=account_id, db_path=db_path)
+        if not p.get("order_action")
+    ]
     value = 0.0
     for prop in pending:
         symbol = str(prop.get("symbol", "")).upper()

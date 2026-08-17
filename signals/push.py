@@ -58,6 +58,12 @@ def _proposal_account_label(proposal: dict[str, Any]) -> str | None:
         return None
 
 
+def _proposal_title(proposal: dict[str, Any]) -> str:
+    """'Order change' for a book's move_stop/cancel_entry row, else 'Trade proposal'."""
+    inner = proposal.get("proposal") if isinstance(proposal.get("proposal"), dict) else {}
+    return "Order change" if inner.get("order_action") else "Trade proposal"
+
+
 def _proposal_body(proposal: dict[str, Any], *, label: str | None = None) -> str:
     label = label if label is not None else _proposal_account_label(proposal)
     prefix = f"{label} · " if label else ""
@@ -77,7 +83,7 @@ def _proposal_body(proposal: dict[str, Any], *, label: str | None = None) -> str
 def _build_expo_message(token: str, proposal: dict[str, Any]) -> dict[str, Any]:
     return {
         "to": token,
-        "title": "Trade proposal",
+        "title": _proposal_title(proposal),
         "body": _proposal_body(proposal),
         "data": {
             "type": "trade_proposal",
@@ -240,7 +246,7 @@ def _build_apns_payload(proposal: dict[str, Any]) -> dict[str, Any]:
     label = _proposal_account_label(proposal)
     payload = {
         "aps": {
-            "alert": {"title": "Trade proposal", "body": _proposal_body(proposal, label=label)},
+            "alert": {"title": _proposal_title(proposal), "body": _proposal_body(proposal, label=label)},
             "sound": "default",
             "category": "TRADE_PROPOSAL",
         },
@@ -797,8 +803,12 @@ async def start_proposal_live_activity(
             "stale-date": stale,
             "dismissal-date": dismissal,
             "alert": {
-                "title": "Trade proposal",
-                "body": f"{side} {qty} {symbol} — approve?",
+                "title": _proposal_title(proposal),
+                "body": (
+                    f"{proposal.get('summary')} — approve?"
+                    if _proposal_title(proposal) == "Order change"
+                    else f"{side} {qty} {symbol} — approve?"
+                ),
             },
         }
 

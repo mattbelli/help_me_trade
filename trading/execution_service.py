@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -20,9 +20,11 @@ from db.accounts import get_account
 from db.base import DEFAULT_DB_PATH
 from db.order_executions import (
     create_execution_record,
+    list_open_book_entries,
     list_open_protective_stops,
     update_execution_status,
 )
+from db.paper_orders import set_book_entry_stop_price
 from db.sqlite import get_latest_snapshot, save_snapshot
 from signals.notify import notify
 from trading.models import (
@@ -175,8 +177,13 @@ async def _release_protective_stops(
     *,
     exit_execution_id: str,
     db_path: Path,
+    only_proposal_ids: frozenset[str] | None = None,
 ) -> None:
     """Cancel our resting protective stops for this symbol so an exit can pass.
+
+    ``only_proposal_ids`` narrows the sweep to stops under those ``stop|<entry>``
+    ids (a stop move acts on the entries it was minted for, never on one that
+    appeared since); None keeps the exit path's every-stop-on-the-symbol scope.
 
     Appends to the CALLER's list rather than returning one: a stop is cancelled
     at the broker before its row is written, so an exception in between (the
@@ -197,6 +204,8 @@ async def _release_protective_stops(
         db_path=db_path,
     )
     for row in rows:
+        if only_proposal_ids is not None and row.get("proposal_id") not in only_proposal_ids:
+            continue
         broker_order_id = str(row["broker_order_id"])
         try:
             order = await adapter.aget_order(broker_order_id)
@@ -608,7 +617,12 @@ async def _notify_stops_released(
 
 
 async def _page_stop_gone(
-    stop: _ReleasedStop, *, qty: Decimal, reason: str, db_path: Path
+    stop: _ReleasedStop,
+    *,
+    qty: Decimal,
+    reason: str,
+    db_path: Path,
+    released_for: str = "to place an exit",
 ) -> None:
     """The position is bare and only a human can fix it — page once, loudly."""
     try:
@@ -617,7 +631,7 @@ async def _page_stop_gone(
             title=f"UNPROTECTED position: {stop.symbol}",
             body=(
                 f"{stop.symbol}: the protective stop at {stop.stop_price} was "
-                f"released to place an exit and could not be put back on {qty} "
+                f"released {released_for} and could not be put back on {qty} "
                 f"shares ({reason}). Place a stop manually or flatten."
             ),
             severity="critical",
@@ -629,6 +643,383 @@ async def _page_stop_gone(
         )
     except Exception:
         logger.exception("stop release: failed to page for %s", stop.symbol)
+
+
+# --- Analyst order-management verbs (trading/book_orders.py) ------------------
+#
+# The nightly books can only ask; these run at the founder's approval tap and
+# touch the broker through the same pieces the release path uses, in the same
+# order. Both are paper-only and refuse under the kill switch. Neither is a new
+# way to place an order: the only order either creates goes through submit().
+
+
+def _verb_probe(
+    symbol: str, *, broker: str, account_id: str | None, proposal_id: str
+) -> OrderIntent:
+    """The intent shape the release/refresh helpers key on (symbol, broker,
+    account) — never submitted."""
+    return OrderIntent(
+        proposal_id=proposal_id,
+        session_id=None,
+        symbol=symbol,
+        side="sell",
+        qty=Decimal("1"),
+        order_type="stop",
+        limit_price=None,
+        stop_price=None,
+        time_in_force="gtc",
+        broker=broker,
+        asset_class="us_equity",
+        account_id=account_id,
+    )
+
+
+def _verb_gate(probe: OrderIntent) -> tuple[Any | None, str | None]:
+    """Shared refusals: paper mode, kill switch, paper endpoint. Returns
+    (adapter, None) when clear, (None, reason) when not."""
+    mode = trading_config()["execution_mode"]
+    if mode != "paper":
+        return None, f"order changes are paper-only (mode={mode})"
+    if is_kill_switch_active():
+        return None, "kill switch active"
+    adapter = _adapter_for(probe)
+    if getattr(adapter, "is_paper_endpoint", None) is not True:
+        return None, "resolved adapter is not a paper endpoint"
+    return adapter, None
+
+
+def _snapshot_long(
+    broker: str, account_id: str | None, symbol: str, *, db_path: Path
+) -> tuple[Decimal, Decimal] | None:
+    """(qty, current_price) of the long position in the stored snapshot, or None."""
+    snapshot = get_latest_snapshot(broker, account_id=account_id, db_path=db_path)
+    if snapshot is None:
+        return None
+    for pos in snapshot.get("positions") or []:
+        if str(pos.get("symbol") or "").upper() != symbol or pos.get("side") != "long":
+            continue
+        try:
+            qty = Decimal(str(pos.get("qty")))
+            price = Decimal(str(pos.get("current_price")))
+        except Exception:
+            return None
+        return (qty, price) if qty > 0 and price > 0 else None
+    return None
+
+
+async def move_protective_stops(
+    symbol: str,
+    *,
+    broker: str,
+    account_id: str | None,
+    stop_price: Decimal,
+    proposal_id: str,
+    entry_proposal_ids: frozenset[str],
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Re-trigger the protective stops THIS APP rests for ``entry_proposal_ids``
+    on symbol+account at ``stop_price`` — the analyst's ``move_stop`` verb.
+
+    Built from the release/restore pieces above, in their order: under the
+    submit lock take each targeted stop down (write-ahead row, broker-CONFIRMED
+    cancel), re-poll the broker so the RiskEngine sees the shares uncommitted,
+    then place the new stop through submit() under the SAME ``stop|<entry>``
+    proposal id, so the stop guard keeps recognising the entry as protected. A
+    new stop that fails to place puts the ORIGINAL back; a restore that fails
+    marks the entry's stop row ``error`` (the guard re-arms it from the stored
+    price on its next pass) and pages — the same failure direction as an exit
+    that fell through, plus the automatic retry.
+
+    Only the entries the proposal was minted for are touched: a stop that
+    appeared since (a new entry approved this morning) keeps its own trigger.
+
+    Refuses outright, nothing released, when the trigger is at or above the
+    current price (the broker fires such a stop as a market sell the moment it
+    accepts it — the stop guard's own rule), when the position is not in the
+    snapshot, or when the resting stops cover MORE shares than are held (a
+    stop outlives the position it was sized for after a founder trim; re-placing
+    it would be a resting short-to-open and the restore would fail the same way
+    — adversarial review C1). Both checks repeat against the refreshed snapshot
+    AFTER the release, and the re-place is bounded by what is genuinely
+    uncommitted then. Returns counts, never assumptions:
+    {status, reason?, moved, restored, lost, untouched}.
+    """
+    symbol = symbol.strip().upper()
+    probe = _verb_probe(
+        symbol, broker=broker, account_id=account_id, proposal_id=proposal_id
+    )
+    adapter, refusal = _verb_gate(probe)
+    if refusal is not None:
+        return {"status": "rejected", "reason": refusal}
+    if stop_price <= 0:
+        return {"status": "rejected", "reason": "stop_price must be positive"}
+    stop_pids = frozenset(f"stop|{pid}" for pid in entry_proposal_ids)
+    all_rows = list_open_protective_stops(
+        symbol, broker=broker, account_id=account_id, db_path=db_path
+    )
+    rows = [r for r in all_rows if r.get("proposal_id") in stop_pids]
+    if not rows:
+        return {"status": "nothing_to_move", "reason": "no resting protective stop"}
+
+    released: list[_ReleasedStop] = []
+    lock = _submit_lock()
+    async with lock:
+        # Fresh look BEFORE touching anything: the gates below and the
+        # revalidation after the release both read the stored snapshot.
+        if not await _refresh_snapshot(adapter, probe, db_path=db_path):
+            return {"status": "failed", "reason": "could not refresh the broker snapshot"}
+        long = _snapshot_long(broker, account_id, symbol, db_path=db_path)
+        if long is None:
+            return {"status": "rejected", "reason": "no held position in the snapshot"}
+        held, price = long
+        if price <= stop_price:
+            return {
+                "status": "rejected",
+                "reason": (
+                    f"stop {stop_price} is at or above the market {price} — "
+                    "it would fire as a market sell on accept"
+                ),
+            }
+        # EVERY resting stop on the name, not just the targeted ones: the
+        # re-place is bounded by what is uncommitted after the release, and an
+        # untargeted stop's shares are committed — so a release is fully
+        # undoable only if all stops together fit the position.
+        resting_qty = sum((Decimal(str(r.get("qty") or 0)) for r in all_rows), Decimal("0"))
+        if resting_qty > held:
+            return {
+                "status": "rejected",
+                "reason": (
+                    f"the resting stop covers {resting_qty} shares but only {held} are "
+                    "held — cancelling it could not be undone; fix the stop by hand"
+                ),
+            }
+        await _release_protective_stops(
+            probe,
+            adapter,
+            released,
+            exit_execution_id=proposal_id,
+            db_path=db_path,
+            only_proposal_ids=stop_pids,
+        )
+        if not released:
+            # The release path logged (or paged) exactly why it stopped.
+            return {
+                "status": "nothing_released",
+                "reason": "the resting stop could not be taken down cleanly",
+                "untouched": len(rows),
+            }
+        if await _refresh_snapshot(adapter, probe, db_path=db_path):
+            budget, price = _uncommitted_shares(
+                probe, exit_order_id=None, exit_qty=Decimal("0"), db_path=db_path
+            )
+        else:
+            budget, price = Decimal("0"), Decimal("0")
+    # Lock handed back: _place_stop goes through submit(), which re-takes it.
+    # The position is not double-sellable in the gap — submit writes a pending
+    # row before validating and RiskEngine reserves in-flight sells from those
+    # rows — but it IS momentarily bare, exactly like the restore path in
+    # submit's `finally`.
+
+    moved: list[dict[str, Any]] = []
+    restored: list[dict[str, Any]] = []
+    lost: list[dict[str, Any]] = []
+    for stop in sorted(released, key=lambda s: s.stop_price):
+        allot = min(stop.qty, budget)
+        budget -= max(Decimal("0"), allot)
+        if Decimal("0") < allot < stop.qty:
+            # The market's view of the position shrank between the gate and
+            # the re-poll (a fill on the way out). The shares the new stop
+            # cannot cover are bare and nothing below will cover them — say so
+            # loudly rather than report the smaller stop as a clean move.
+            short = stop.qty - allot
+            await _page_stop_gone(
+                stop,
+                qty=short,
+                reason=f"only {allot} of {stop.qty} shares were uncommitted after the release",
+                released_for=f"to move it to {stop_price}",
+                db_path=db_path,
+            )
+            lost.append({"qty": str(short)})
+        failure: str | None
+        if price <= 0:
+            failure = "could not refresh the broker snapshot after the release"
+        elif allot <= 0:
+            failure = "no uncommitted shares left after the release"
+        elif price <= stop_price:
+            # The market came to the trigger during the round trip; the new
+            # stop would liquidate on acceptance. Fall through to the restore
+            # (the OLD trigger is still below the market by construction).
+            failure = f"{symbol} is at {price}, at or through the new {stop_price} trigger"
+        else:
+            try:
+                execution_id = await _place_stop(
+                    replace(stop, stop_price=stop_price), allot, db_path=db_path
+                )
+                moved.append(
+                    {"execution_id": execution_id, "qty": str(allot), "from": str(stop.stop_price)}
+                )
+                if stop.proposal_id and stop.proposal_id.startswith("stop|"):
+                    set_book_entry_stop_price(
+                        stop.proposal_id[len("stop|"):],
+                        stop_price=str(stop_price),
+                        db_path=db_path,
+                    )
+                continue
+            except Exception as exc:
+                logger.exception("stop move: new stop failed for %s", symbol)
+                failure = str(exc)
+        restore_qty = allot if allot > 0 else stop.qty
+        try:
+            execution_id = await _place_stop(stop, restore_qty, db_path=db_path)
+            restored.append({"execution_id": execution_id, "qty": str(restore_qty)})
+        except Exception as exc:
+            logger.exception("stop move: FAILED to restore stop for %s", symbol)
+            # The write-ahead 'canceled' row would read to the stop guard as
+            # "protected" for good; 'error' puts the entry back in its pool so
+            # it re-arms the STORED (old) price on the next tick.
+            update_execution_status(
+                stop.execution_id,
+                "error",
+                risk_checks_json={
+                    "released_for": proposal_id,
+                    "restore_failed": f"{failure}; restore: {exc}",
+                },
+                db_path=db_path,
+            )
+            await _page_stop_gone(
+                stop,
+                qty=stop.qty,
+                reason=f"move to {stop_price} failed: {failure}; restore failed: {exc}",
+                released_for=f"to move it to {stop_price}",
+                db_path=db_path,
+            )
+            lost.append({"qty": str(stop.qty)})
+
+    if moved and not restored and not lost:
+        status, reason = "moved", None
+    elif moved:
+        status, reason = "partial", f"{len(restored)} restored, {len(lost)} lost"
+    else:
+        status = "failed"
+        reason = (
+            f"new stop refused ({len(restored)} put back at the old price"
+            + (f", {len(lost)} could not be" if lost else "")
+            + ")"
+        )
+    untouched = len(rows) - len(released)
+    covered = sum((Decimal(m["qty"]) for m in moved), Decimal("0"))
+    detail = (
+        (f"; {len(restored)} put back at the old price" if restored else "")
+        + (f"; {len(lost)} could NOT be put back (paged)" if lost else "")
+        + (f"; {untouched} left untouched at the old price" if untouched else "")
+        + "."
+    )
+    try:
+        await notify(
+            kind="execution",
+            title=f"Stop moved — {symbol}" if moved else f"Stop move failed — {symbol}",
+            body=(
+                f"{symbol}: {len(moved)} protective stop(s) covering {covered} shares now "
+                f"trigger at {stop_price}{detail}"
+                if moved
+                else f"{symbol}: the stop could not be moved to {stop_price}{detail}"
+            ),
+            severity="critical" if lost else "info",
+            account_id=account_id,
+            ref_type="proposal",
+            ref_id=proposal_id,
+            push=False,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("stop move: failed to notify for %s", symbol)
+    out: dict[str, Any] = {
+        "status": status,
+        "moved": moved,
+        "restored": restored,
+        "lost": lost,
+        "untouched": untouched,
+    }
+    if reason:
+        out["reason"] = reason
+    return out
+
+
+async def cancel_book_entries(
+    symbol: str,
+    *,
+    broker: str,
+    account_id: str | None,
+    proposal_id: str,
+    execution_ids: frozenset[str],
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Pull the working BUY entries a book placed on symbol+account — the
+    analyst's ``cancel_entry`` verb — restricted to ``execution_ids``, the rows
+    the proposal was minted for (an entry approved since is not its business).
+
+    Only asks the broker to cancel; the execution rows are left ``submitted``
+    on purpose. An entry is not protection, so there is no write-ahead need,
+    and the fill tracker's next reconcile observes the broker's terminal
+    status the ordinary way — recording a partial fill that landed as the
+    cancel went in, so the stop guard then protects those shares.
+    """
+    symbol = symbol.strip().upper()
+    probe = _verb_probe(
+        symbol, broker=broker, account_id=account_id, proposal_id=proposal_id
+    )
+    adapter, refusal = _verb_gate(probe)
+    if refusal is not None:
+        return {"status": "rejected", "reason": refusal}
+    rows = [
+        r
+        for r in list_open_book_entries(
+            symbol, broker=broker, account_id=account_id, db_path=db_path
+        )
+        if r.get("id") in execution_ids
+    ]
+    if not rows:
+        return {"status": "nothing_to_cancel", "reason": "no working book entry"}
+    cancelled: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for row in rows:
+        broker_order_id = str(row["broker_order_id"])
+        try:
+            await adapter.acancel_order(broker_order_id)
+        except Exception as exc:
+            logger.exception("entry cancel: broker refused %s", broker_order_id)
+            failed.append({"execution_id": row["id"], "reason": str(exc)})
+            continue
+        cancelled.append({"execution_id": row["id"], "qty": str(row.get("qty"))})
+    if cancelled and not failed:
+        status, reason = "cancelled", None
+    elif cancelled:
+        status, reason = "partial", f"{len(failed)} refused by the broker"
+    else:
+        status, reason = "failed", failed[0]["reason"]
+    try:
+        await notify(
+            kind="execution",
+            title=f"Entry cancelled — {symbol}" if cancelled else f"Entry cancel failed — {symbol}",
+            body=(
+                f"{symbol}: cancel sent for {len(cancelled)} working book entr"
+                f"{'y' if len(cancelled) == 1 else 'ies'}"
+                + (f"; {len(failed)} refused by the broker" if failed else "")
+                + ". Any shares filled on the way out get their stop from the guard."
+            ),
+            severity="info",
+            account_id=account_id,
+            ref_type="proposal",
+            ref_id=proposal_id,
+            push=False,
+            db_path=db_path,
+        )
+    except Exception:
+        logger.exception("entry cancel: failed to notify for %s", symbol)
+    out: dict[str, Any] = {"status": status, "cancelled": cancelled, "failed": failed}
+    if reason:
+        out["reason"] = reason
+    return out
 
 
 class ExecutionService:

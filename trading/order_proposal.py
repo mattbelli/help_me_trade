@@ -214,8 +214,15 @@ def build_order_proposal_from_args(
     entry_style = str(args.get("entry_style", "immediate")).strip().lower()
     if entry_style not in ("immediate", "moo", "book_limit", "book_ext"):
         return {"error": "entry_style must be immediate, moo, book_limit, or book_ext"}
-    if entry_style != "immediate" and (side != "buy" or opt is not None):
-        return {"error": "book entries are whole-share equity BUYS"}
+    # Book styles are whole-share EQUITY shapes; the standing GTC styles are
+    # buys only (their cap exemptions + overnight eligibility are entry
+    # semantics). A moo SELL is the book's trim — market at the next open,
+    # priced off the reference close after hours like a moo buy
+    # (trading/book_orders.propose_trim).
+    if entry_style != "immediate" and opt is not None:
+        return {"error": "book entries are whole-share equity orders"}
+    if entry_style in ("book_limit", "book_ext") and side != "buy":
+        return {"error": "GTC book entries are BUYS"}
     if entry_style == "moo" and order_type != "market":
         return {"error": "moo entries are market orders (opening auction)"}
 

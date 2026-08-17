@@ -446,7 +446,12 @@ class RiskEngine:
                         ),
                     )
                 checks["sell_position"] = f"pass: closing {qty} of {held} long"
-            elif short_allowed and not is_option and intent.order_type != "stop":
+            elif (
+                short_allowed
+                and not is_option
+                and intent.order_type != "stop"
+                and not intent.book_entry
+            ):
                 # No held long → this OPENS/extends a short. Allowed only because
                 # the toggle is on and we're not live. EQUITY ONLY — options stay
                 # long-only (no naked writing), so the toggle must not enable a
@@ -455,7 +460,12 @@ class RiskEngine:
                 # excluded: a protective stop is strictly reduce-only, and letting
                 # one validate against a flat position would arm a RESTING
                 # short-to-open (adversarial review H1, 2026-07-23) — it must
-                # fail below and let the stop guard retry/page instead.
+                # fail below and let the stop guard retry/page instead. A BOOK
+                # sell (the moo trim, book_entry=True) is reduce-only the same
+                # way: minted at night against a held position, tapped next
+                # morning — if the stop took the position out overnight the
+                # answer is "blocked", never a short the card never described
+                # (order-verbs review, 2026-08-17).
                 is_short_open = True
                 checks["sell_position"] = f"pass: short-to-open {qty} (no held long)"
             else:
@@ -560,6 +570,7 @@ class RiskEngine:
         # breaker, and the founder's approval tap.
         book_uncapped = (
             intent.book_entry
+            and intent.side == "buy"  # a book's moo SELL (trim) is not an entry
             and intent.account_id is not None
             and intent.account_id in _book_account_ids(db_path)
         )

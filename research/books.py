@@ -631,6 +631,16 @@ def _journal_section(book: Book, db_path: Path) -> str:
         lines.append(journal)
     else:
         lines.append("- no desk journal carried from the last cycle")
+    # What the desk did with last cycle's order_changes — a refused verb
+    # (stop above market, nothing to move) must not be re-asked blind.
+    changes = (latest.get("payload") or {}).get("order_changes") or []
+    if changes:
+        lines.append("\n### Your order changes from last cycle\n")
+        for c in changes:
+            lines.append(
+                f"- {c.get('action')} {c.get('symbol')}: {c.get('status')}"
+                + (f" ({c['reason']})" if c.get("reason") else "")
+            )
     return "\n".join(lines)
 
 

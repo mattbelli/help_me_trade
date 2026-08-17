@@ -67,9 +67,15 @@ It is after hours. File tonight's report. Work alone — do NOT spawn sub-agents
   regular hours; `"ext"` = GTC limit at your `limit_price`, ALSO eligible for pre/post/overnight
   sessions — use it to act near tonight's decision price instead of paying tomorrow's open,
   accepting that your stop cannot act before the next regular open. `limit`/`ext` REQUIRE a
-  numeric `limit_price`. Your standing GTC orders appear in your pack's open-orders section —
-  review them nightly; to cancel/adjust one, say so explicitly in `holds_review` (order-management
-  verbs are coming; until then the founder acts on your request).
+  numeric `limit_price`. Your standing GTC orders and resting stops appear in your pack's
+  open-orders section — review them nightly.
+- **`order_changes` is how you manage what you already have.** Each becomes a phone proposal the
+  founder approves like an entry, and acts on whatever is resting at approval time:
+  `"move_stop"` (+ numeric `stop_price`) re-triggers EVERY protective stop resting on that symbol in your
+  book at the new price — below the market, or it is refused; `"cancel_entry"` pulls
+  your working GTC entry on that symbol; `"trim"` (+ whole-share `qty`) sells that many held
+  shares market at the next open (the remainder stays stopped). One-line `reason` on each. Do
+  not also ask for these in prose — the block is what the desk executes.
 - Never touch `trading/`, never place or propose orders outside the decision JSON, never modify
   app code or data.
 
@@ -127,6 +133,10 @@ Style:
       "mechanism": "trend_pullback",
       "failure_modes": ["breaks_level", "thesis_date"]
     }
+  ],
+  "order_changes": [
+    {"symbol": "MU", "action": "move_stop", "stop_price": "829.99", "qty": null,
+     "reason": "lock in the gap — falsifier moved up with the 20d"}
   ],
   "holds_review": "your hold/trim review, brief",
   "journal": "handoff to tomorrow's you — open theses, levels you're stalking, lessons (max ~3500 chars). This is the ONLY narrative memory you carry between cycles."

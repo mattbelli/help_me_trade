@@ -1475,6 +1475,8 @@ export type PendingProposal = {
   expires_at: string | null;
   payload_hash: string;
   score?: ProposalScore | null;
+  /** A book's order-management verb (move_stop / cancel_entry); null for a trade. */
+  order_action?: string | null;
 };
 
 function isProposalScore(value: unknown): value is ProposalScore {

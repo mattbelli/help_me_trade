@@ -678,7 +678,13 @@ async def run_session_node_scan(
         account_id = str(account["id"])
         broker = str(account["broker"]).strip().lower()
 
-        pending = list_pending_proposals(account_id=account_id, db_path=db_path)
+        # Order-change rows (a book moving a stop) are not entries — skip them
+        # for the pending cap and the symbol dedup (trading/book_orders.py).
+        pending = [
+            p
+            for p in list_pending_proposals(account_id=account_id, db_path=db_path)
+            if not p.get("order_action")
+        ]
         max_pending = cfg.get("max_pending_agent_proposals", 3)
         if len(pending) >= max_pending:
             return []

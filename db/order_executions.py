@@ -636,6 +636,47 @@ def list_open_protective_stops(
     return [_row_to_execution(row) for row in rows]
 
 
+def list_open_book_entries(
+    symbol: str,
+    *,
+    broker: str,
+    account_id: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Working BUY entries a BOOK placed for symbol+account (standing GTC limits,
+    or an entry still queued) — what the analyst's ``cancel_entry`` verb may pull.
+
+    Same scoping doctrine as list_open_protective_stops: only rows our chokepoint
+    wrote AND the broker acknowledged (broker_order_id set), on this broker and
+    account, and only for proposals a nightly book minted (source ``book_%``) — a
+    founder's own order in the same account is never cancelled by an analyst.
+    """
+    from db.paper_orders import init_paper_order_tables
+
+    init_execution_tables(db_path)
+    init_paper_order_tables(db_path)
+    account_clause = (
+        " AND e.account_id = ?" if account_id is not None else " AND e.account_id IS NULL"
+    )
+    params: tuple[Any, ...] = (symbol.strip().upper(), broker)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT e.* FROM order_executions AS e
+            JOIN paper_order_proposals AS p ON p.id = e.proposal_id
+            WHERE e.symbol = ? AND e.side = 'buy'
+              AND e.status IN ('submitted', 'partially_filled')
+              AND e.broker_order_id IS NOT NULL AND e.broker = ?{account_clause}
+              AND p.source LIKE 'book_%'
+            ORDER BY e.created_at ASC
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_execution(row) for row in rows]
+
+
 def recent_open_buy_exists(
     symbol: str,
     *,

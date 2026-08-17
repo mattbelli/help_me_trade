@@ -47,8 +47,15 @@ const RESULT_COPY: Record<string, { ok: boolean; message: string }> = {
   not_found: { ok: false, message: 'Proposal no longer exists.' },
 };
 
-function resultCopy(status: string, reason?: string): { ok: boolean; message: string } {
-  const base = RESULT_COPY[status] ?? { ok: false, message: `Server returned “${status}”.` };
+function resultCopy(
+  status: string,
+  reason?: string,
+  orderChange = false,
+): { ok: boolean; message: string } {
+  const base =
+    status === 'executed' && orderChange
+      ? { ok: true, message: 'Approved — order change applied.' }
+      : (RESULT_COPY[status] ?? { ok: false, message: `Server returned “${status}”.` });
   return reason && !base.ok ? { ok: base.ok, message: `${base.message} (${reason})` } : base;
 }
 
@@ -112,6 +119,15 @@ export function ProposalCard({
   }
 
   const isSell = proposal.side?.toLowerCase() === 'sell';
+  // A book's order change (move a stop / cancel an entry) is not a trade: the
+  // summary IS the action, and a Buy/Sell badge would misdescribe it.
+  const orderChange = Boolean(proposal.order_action);
+  const actionLabel =
+    proposal.order_action === 'move_stop'
+      ? 'Move stop'
+      : proposal.order_action === 'cancel_entry'
+        ? 'Cancel entry'
+        : 'Order change';
   const busy =
     phase.kind === 'authing' ||
     phase.kind === 'submitting' ||
@@ -134,7 +150,7 @@ export function ProposalCard({
       try {
         // Always send the CURRENT payload_hash; server re-validates against live state.
         const res = await approve.mutateAsync({ id: proposal.id, payloadHash: proposal.payload_hash });
-        const copy = resultCopy(res.status, res.reason);
+        const copy = resultCopy(res.status, res.reason, orderChange);
         copy.ok ? haptics.success() : haptics.error();
         resolve({ status: res.status, ...copy });
       } catch (err) {
@@ -143,7 +159,7 @@ export function ProposalCard({
         const fromServer = statusFromError(err);
         if (fromServer) {
           haptics.error();
-          resolve({ status: fromServer.status, ...resultCopy(fromServer.status, fromServer.reason) });
+          resolve({ status: fromServer.status, ...resultCopy(fromServer.status, fromServer.reason, orderChange) });
         } else {
           // Connection lost after submit may have succeeded — reconcile via GET, never guess.
           setPhase({ kind: 'reconciling' });
@@ -151,7 +167,7 @@ export function ProposalCard({
             const updated = await getProposal(proposal.id);
             const status = updated.status;
             if (status === 'executed') {
-              const copy = resultCopy('executed');
+              const copy = resultCopy('executed', undefined, orderChange);
               haptics.success();
               resolve({ status, ...copy });
             } else if (status === 'pending_phone') {
@@ -230,7 +246,10 @@ export function ProposalCard({
         {/* Header: side · symbol · account */}
         <Row justify="space-between" align="flex-start">
           <Row gap={spacing.md} align="center">
-            <Badge label={isSell ? 'Sell' : 'Buy'} tone={isSell ? 'negative' : 'positive'} />
+            <Badge
+              label={orderChange ? actionLabel : isSell ? 'Sell' : 'Buy'}
+              tone={orderChange ? 'neutral' : isSell ? 'negative' : 'positive'}
+            />
             <Text variant="title">{proposal.symbol}</Text>
           </Row>
           {proposal.account_label || proposal.account_id ? (
@@ -249,15 +268,18 @@ export function ProposalCard({
           {proposal.summary}
         </Text>
 
-        {/* Sizing strip — derive the order line from limit_price so it's never blank */}
-        <Row justify="space-between">
-          <Detail label="Qty" value={String(proposal.qty)} />
-          <Detail
-            label="Order"
-            value={proposal.limit_price != null ? `Limit · $${proposal.limit_price}` : 'Market'}
-            align="flex-end"
-          />
-        </Row>
+        {/* Sizing strip — derive the order line from limit_price so it's never blank.
+            An order change has no order of its own; the summary said it all. */}
+        {orderChange ? null : (
+          <Row justify="space-between">
+            <Detail label="Qty" value={String(proposal.qty)} />
+            <Detail
+              label="Order"
+              value={proposal.limit_price != null ? `Limit · $${proposal.limit_price}` : 'Market'}
+              align="flex-end"
+            />
+          </Row>
+        )}
 
         <Divider />
         <ScoreMeter score={proposal.score} />

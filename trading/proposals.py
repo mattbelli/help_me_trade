@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +225,49 @@ async def approve_proposal(
     _journal_decision(proposal_id, decision="approved", decided_by=decided_by, db_path=db_path)
 
     stored = row.get("proposal") or {}
+    if stored.get("order_action"):
+        # A book's order-management verb (move_stop / cancel_entry): no order is
+        # built from these fields — the change resolves against what is resting
+        # at the broker RIGHT NOW, and every order it creates still goes through
+        # ExecutionService.submit. Same terminal statuses as a trade approval.
+        from trading.book_orders import apply_order_change
+
+        await _try_end_proposal_live_activity(
+            proposal_id, status="approved", proposal=row, db_path=db_path
+        )
+        try:
+            outcome = await apply_order_change(row, db_path=db_path)
+            crashed = False
+        except Exception as exc:
+            logger.exception("order change %s raised", proposal_id)
+            outcome = {"status": "failed", "reason": str(exc)}
+            crashed = True
+        ok = outcome.get("status") in ("moved", "restamped", "cancelled", "partial")
+        # blocked = the desk refused (nothing to act on, gate, market moved);
+        # failed = it tried and could not (broker/exception) — mirrors the
+        # trade path's RiskRejectedError vs Exception split.
+        if ok:
+            terminal, reason = "executed", None
+        elif crashed or outcome.get("status") == "failed":
+            terminal, reason = "failed", str(outcome.get("reason") or "order change failed")
+        else:
+            terminal, reason = "blocked", str(outcome.get("reason") or outcome.get("status"))
+        transition_proposal_status(
+            proposal_id,
+            expect="approving",
+            to=terminal,
+            last_error=reason,
+            db_path=db_path,
+        )
+        await _try_end_proposal_live_activity(
+            proposal_id,
+            status="executed" if ok else "failed",
+            status_reason=reason,
+            proposal=row,
+            db_path=db_path,
+        )
+        return {"status": terminal, "reason": reason, "outcome": outcome}
+
     intent = order_intent_from_fields(
         stored,
         proposal_id=proposal_id,
@@ -763,10 +807,30 @@ async def create_phone_proposal(
     side = str(intent_fields["side"]).upper()
     qty = intent_fields["qty"]
     symbol = intent_fields["symbol"]
+    await _announce_proposal(
+        row,
+        title=f"Trade proposal: {side} {qty} {symbol}",
+        summary=summary,
+        account_id=account_id,
+        db_path=db_path,
+    )
+    return row
+
+
+async def _announce_proposal(
+    row: dict[str, Any],
+    *,
+    title: str,
+    summary: str,
+    account_id: str | None,
+    db_path: Path,
+) -> None:
+    """Inbox row + phone push + Live Activity for a freshly minted pending
+    proposal — every failure logged, none raised (the row already exists)."""
     try:
         await notify(
             kind="proposal",
-            title=f"Trade proposal: {side} {qty} {symbol}",
+            title=title,
             body=summary,
             severity="info",
             account_id=account_id,
@@ -798,4 +862,68 @@ async def create_phone_proposal(
     except Exception:
         logger.exception("Failed to start live activity for proposal %s", row.get("id"))
 
+
+async def create_order_change_proposal(
+    *,
+    symbol: str,
+    order_action: str,
+    side: str,
+    qty: Decimal,
+    order_type: str,
+    account_id: str,
+    broker: str,
+    summary: str,
+    thesis: str | None,
+    source: str,
+    stop_price: Decimal | None = None,
+    targets: list[str],
+    ttl_seconds: int,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """A pending phone proposal for a book's order-management verb (move_stop /
+    cancel_entry) — same row, same tap, same push as a trade proposal, but at
+    approval it runs trading/book_orders.apply_order_change instead of placing
+    an order from its fields. ``side``/``qty``/``order_type`` describe the
+    order being changed so the phone card reads right; ``order_action`` in the
+    stored payload is what approve_proposal branches on; ``targets`` pins the
+    ids the verb acts on (entry proposal ids for a move, execution ids for a
+    cancel), so an order that appears after the card was minted is never
+    touched by it. All of it is inside payload_hash. Book-minted only."""
+    if not source.startswith("book_"):
+        return {"error": "order changes are reserved for the nightly book driver"}
+    intent_fields: dict[str, Any] = {
+        "symbol": symbol.strip().upper(),
+        "side": side,
+        "qty": str(qty),
+        "order_type": order_type,
+        "limit_price": None,
+        "broker": broker,
+        "asset_class": "us_equity",
+        "occ_symbol": None,
+        "multiplier": "1",
+        "account_id": account_id,
+        "allow_fractional": False,
+        "order_action": order_action,
+        "targets": list(targets),
+    }
+    if stop_price is not None:
+        intent_fields["stop_price"] = str(stop_price)
+    row = create_pending_proposal(
+        proposal={"summary": summary, "order_action": order_action},
+        intent_fields=intent_fields,
+        session_id=None,
+        ttl_seconds=ttl_seconds,
+        summary=summary,
+        source=source,
+        thesis=thesis,
+        account_id=account_id,
+        db_path=db_path,
+    )
+    await _announce_proposal(
+        row,
+        title=f"Order change: {summary}",
+        summary=summary,
+        account_id=account_id,
+        db_path=db_path,
+    )
     return row

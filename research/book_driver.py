@@ -134,9 +134,55 @@ class BookCandidate(BaseModel):
         return reg
 
 
+class BookOrderChange(BaseModel):
+    """An analyst's order-management verb on ITS OWN book — a phone proposal
+    like any entry, resolved against what rests at the broker at approval
+    (trading/book_orders.py)."""
+
+    symbol: str = Field(min_length=1, max_length=12)
+    # "malformed" is never emitted by the analyst: the decision validator
+    # substitutes it for an unparseable item so the refusal reaches the
+    # report + next night's pack instead of vanishing into a log line.
+    action: Literal["move_stop", "cancel_entry", "trim", "malformed"]
+    stop_price: str | None = None  # move_stop: the new trigger
+    qty: int | None = None  # trim: whole shares to sell at the next open
+    reason: str = ""
+
+
 class BookDecision(BaseModel):
     candidates: list[BookCandidate] = Field(default_factory=list)
+    order_changes: list[BookOrderChange] = Field(default_factory=list)
     holds_review: str = ""
+
+    @field_validator("order_changes", mode="before")
+    @classmethod
+    def _drop_malformed_changes(cls, value: Any) -> list[Any]:
+        # A malformed verb is the analyst's unfinished work, not a reason to
+        # re-run the whole night's analysis: drop it (logged) and keep the rest.
+        if not isinstance(value, list):
+            return []
+        kept: list[Any] = []
+        for item in value:
+            if isinstance(item, dict):
+                # The likely slip is a JSON number where the contract says
+                # string — coerce rather than drop.
+                item = dict(item)
+                if isinstance(item.get("stop_price"), int | float):
+                    item["stop_price"] = str(item["stop_price"])
+                if isinstance(item.get("qty"), float) and item["qty"].is_integer():
+                    item["qty"] = int(item["qty"])
+            try:
+                kept.append(BookOrderChange.model_validate(item))
+            except ValidationError:
+                logger.warning("book decision: dropped malformed order change %r", item)
+                kept.append(
+                    BookOrderChange(
+                        symbol=str((item or {}).get("symbol") or "?")[:12] if isinstance(item, dict) else "?",
+                        action="malformed",
+                        reason=str(item)[:200],
+                    )
+                )
+        return kept
     # The analyst's self-maintained desk journal: rewritten every cycle, fed
     # back verbatim in the next night's pack — the book's narrative memory
     # (bounded; lanes + reports remain the mechanical memory).
@@ -204,6 +250,7 @@ _DECISION_CONTRACT = (
     '"entry_high", "stop", "targets", "entry_ref_price", "plan_horizon", '
     '"confidence_label", "advanced", "notional_usd", "entry_type", "limit_price", '
     '"mechanism", "failure_modes"}], '
+    '"order_changes": [{"symbol", "action", "stop_price", "qty", "reason"}], '
     '"holds_review": "...", "journal": "..."}\n'
     "Rules for the block:\n"
     "- List EVERY candidate you seriously weighed, not just what you advance — considered "
@@ -224,9 +271,16 @@ _DECISION_CONTRACT = (
     "eligible for pre/post/overnight sessions — use it to act NEAR tonight's decision "
     "price instead of paying tomorrow's open, accepting that your stop cannot act "
     "before the next regular open. limit/ext REQUIRE a numeric limit_price. Your "
-    "standing GTC orders appear in your pack's open-orders section every night — "
-    "review them; to cancel/adjust one, say so explicitly in holds_review (the desk "
-    "order-management verbs are coming; until then the founder acts on your request).\n"
+    "standing GTC orders and resting stops appear in your pack's open-orders section "
+    "every night — review them.\n"
+    "- order_changes is how you manage what you already have; each becomes a phone "
+    "proposal the founder approves like an entry, and acts on whatever is resting at "
+    "approval time. action \"move_stop\" (+ numeric stop_price) re-triggers EVERY "
+    "protective stop resting on that symbol in your book at the new price — below the market, "
+    "or it is refused; \"cancel_entry\" pulls your working GTC entry on that symbol; "
+    "\"trim\" (+ whole-share qty) sells that many held shares market at the next open "
+    "(the remainder stays stopped). Give a one-line reason on each. Do not also ask "
+    "for these in prose — the block is what the desk executes.\n"
     "- Shorts may appear as candidates for tracking, but must have advanced=false (short "
     "execution is not yet unlocked for this book).\n"
     "- Prices are strings; plan_horizon is trading days like '5d' or '15d' (no intraday).\n"
@@ -544,8 +598,12 @@ async def run_book_cycle(
     )
 
     proposals: list[dict[str, Any]] = []
+    order_changes: list[dict[str, Any]] = []
     if armed and strategy is not None:
         proposals = await _propose_advanced(book_id, strategy, decision, db_path=db_path)
+        order_changes = await _propose_order_changes(
+            book_id, strategy, decision, db_path=db_path
+        )
 
     report = save_report(
         kind,
@@ -568,6 +626,7 @@ async def run_book_cycle(
             "registered": len(registration["registered"]),
             "lane_skipped": registration["skipped"],
             "proposals": proposals,
+            "order_changes": order_changes,
             "holds_review": decision.holds_review,
             # Fed back verbatim in tomorrow's pack — the book's narrative memory.
             "journal": decision.journal,
@@ -586,6 +645,7 @@ async def run_book_cycle(
         "armed": armed,
         "registered": registration["registered"],
         "proposals": proposals,
+        "order_changes": order_changes,
         "report_id": report["id"],
     }
 
@@ -635,8 +695,12 @@ async def submit_session_cycle(
         db_path=db_path,
     )
     proposals: list[dict[str, Any]] = []
+    order_changes: list[dict[str, Any]] = []
     if armed:
         proposals = await _propose_advanced(book_id, strategy, decision, db_path=db_path)
+        order_changes = await _propose_order_changes(
+            book_id, strategy, decision, db_path=db_path
+        )
 
     et_date = now.date().isoformat()
     report = save_report(
@@ -655,6 +719,7 @@ async def submit_session_cycle(
             "registered": len(registration["registered"]),
             "lane_skipped": registration["skipped"],
             "proposals": proposals,
+            "order_changes": order_changes,
             "holds_review": decision.holds_review,
             "journal": decision.journal,
         },
@@ -672,6 +737,7 @@ async def submit_session_cycle(
         "armed": armed,
         "registered": registration["registered"],
         "proposals": proposals,
+        "order_changes": order_changes,
         "report_id": report["id"],
     }
 
@@ -771,6 +837,65 @@ async def _propose_advanced(
             db_path=db_path,
         )
         results.append({"symbol": cand.symbol, "status": outcome.get("status")})
+    return results
+
+
+async def _propose_order_changes(
+    book_id: str,
+    strategy: dict[str, Any],
+    decision: BookDecision,
+    *,
+    db_path: Path,
+) -> list[dict[str, Any]]:
+    """The analyst's order-management verbs → phone proposals (armed books only).
+    Each resolves against the broker at APPROVAL; here we only validate shape
+    (a numeric stop / whole-share qty) and hand off — the same "unfinished work
+    is dropped" doctrine as advanced picks."""
+    from trading.book_orders import propose_cancel_entry, propose_move_stop, propose_trim
+
+    results: list[dict[str, Any]] = []
+    account_id = strategy.get("account_id")
+    source = f"book_{book_id}"
+    for change in decision.order_changes[:10]:
+        symbol = change.symbol.strip().upper()
+        reason = change.reason[:300] or None
+        if change.action == "malformed":
+            results.append(
+                {"symbol": symbol, "action": change.action, "status": "malformed",
+                 "reason": f"did not parse: {change.reason[:120]}"}
+            )
+            continue
+        if change.action == "move_stop":
+            stop = _parse_stop_price(change.stop_price)
+            if stop is None:
+                results.append({"symbol": symbol, "action": change.action, "status": "no_stop"})
+                continue
+            outcome = await propose_move_stop(
+                symbol=symbol, stop_price=stop, account_id=account_id,
+                source=source, reason=reason, db_path=db_path,
+            )
+        elif change.action == "cancel_entry":
+            outcome = await propose_cancel_entry(
+                symbol=symbol, account_id=account_id, source=source,
+                reason=reason, db_path=db_path,
+            )
+        else:  # trim
+            if change.qty is None or change.qty <= 0:
+                results.append({"symbol": symbol, "action": change.action, "status": "no_qty"})
+                continue
+            outcome = await propose_trim(
+                symbol=symbol, qty=Decimal(change.qty), account_id=account_id,
+                source=source, reason=reason, db_path=db_path,
+            )
+        if outcome.get("status") != "proposed":
+            logger.warning(
+                "book %s order change %s %s → %s", book_id, change.action, symbol,
+                outcome.get("reason") or outcome.get("status"),
+            )
+        entry = {"symbol": symbol, "action": change.action, "status": outcome.get("status")}
+        if outcome.get("reason"):
+            entry["reason"] = str(outcome["reason"])[:200]
+        results.append(entry)
     return results
 
 

@@ -603,7 +603,10 @@ async def _scan_generals(
             if committed >= max_concurrent:
                 skipped += 1
                 continue
-            if len(list_pending_proposals(db_path=db_path)) >= max_pending:
+            if (
+                len([p for p in list_pending_proposals(db_path=db_path) if not p.get("order_action")])
+                >= max_pending
+            ):
                 skipped += 1
                 continue
             thesis = (

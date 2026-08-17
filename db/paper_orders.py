@@ -269,6 +269,9 @@ def list_pending_proposals(
                 "expires_at": parsed.get("expires_at"),
                 "payload_hash": parsed.get("payload_hash"),
                 "score": parsed.get("score"),
+                # A book's order-management verb (move_stop / cancel_entry) or
+                # None for a plain order — lets dedup and cards tell them apart.
+                "order_action": parsed["proposal"].get("order_action"),
             }
         )
     return out
@@ -388,6 +391,72 @@ def claim_proposal_for_approval(
     if row["status"] != "pending_phone":
         return "not_pending"
     return "expired"
+
+
+def list_executed_book_entries(
+    symbol: str,
+    *,
+    account_id: str | None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Executed book BUY proposals for symbol+account — the entries whose stored
+    stop_price the stop guard arms from (trading/book_orders move_stop)."""
+    init_paper_order_tables(db_path)
+    account_clause = " AND account_id = ?" if account_id is not None else " AND account_id IS NULL"
+    params: tuple[Any, ...] = (symbol.strip().upper(),)
+    if account_id is not None:
+        params = (*params, account_id)
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM paper_order_proposals
+            WHERE symbol = ? AND side = 'buy' AND status = 'executed'
+              AND source LIKE 'book_%'{account_clause}
+            ORDER BY created_at ASC
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_proposal(r) for r in rows]
+
+
+def set_book_entry_stop_price(
+    proposal_id: str,
+    *,
+    stop_price: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """Rewrite the stored ``stop_price`` on one EXECUTED book BUY proposal.
+
+    The stop guard re-derives a missing/failed stop from this stored price, so
+    after the analyst moves a resting stop the stored price must follow, or a
+    later guard retry would quietly re-arm the OLD trigger. Executed rows only:
+    a still-pending proposal is hashed for the phone tap and must not change
+    under it. Returns True when a row was restamped.
+    """
+    init_paper_order_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT proposal_json FROM paper_order_proposals
+            WHERE id = ? AND side = 'buy' AND status = 'executed'
+              AND source LIKE 'book_%'
+            """,
+            (proposal_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        payload = json.loads(row["proposal_json"] or "{}")
+        if payload.get("stop_price") is None:
+            return False
+        payload["stop_price"] = stop_price
+        if isinstance(payload.get("display"), dict) and "stop_price" in payload["display"]:
+            payload["display"]["stop_price"] = stop_price
+        conn.execute(
+            "UPDATE paper_order_proposals SET proposal_json = ? WHERE id = ?",
+            (canonical_json(payload), proposal_id),
+        )
+        conn.commit()
+    return True
 
 
 def transition_proposal_status(

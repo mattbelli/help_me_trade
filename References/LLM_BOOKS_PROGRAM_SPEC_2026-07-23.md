@@ -47,6 +47,24 @@ waiting on the origins defined in §4.*
 >    labels for the pre-mortem / 5b grade, not scored by the sweeper. **Do not fuse** into
 >    the Decision Engine (valve §2 + sample size). `expected_direction` is the existing
 >    `direction` field — do not add a second one.
+> 7. **ORDER-MANAGEMENT VERBS (2026-08-17, founder: "they should be able to prompt me with any
+>    changes to orders for their book").** The decision block gains `order_changes`:
+>    `move_stop` (+ numeric `stop_price`) · `cancel_entry` · `trim` (+ whole-share `qty`). Each
+>    is a normal phone proposal (`trading/book_orders.py`, same row/tap/push/TTL=next close);
+>    the tap runs `trading/execution_service.move_protective_stops` / `cancel_book_entries`
+>    against what rests at the broker THEN, restricted to the entries/executions the card was
+>    minted for (`targets` in the hashed payload — an entry approved this morning is never
+>    pulled by last night's cancel). A move = release (write-ahead, broker-confirmed cancel) →
+>    re-poll → new stop through `submit()` under the same `stop|<entry>` id, bounded by
+>    uncommitted shares, refused when the trigger is at/above the market or the resting stop
+>    covers more than is held; new-stop failure restores the old, restore failure marks the
+>    row `error` (guard re-arms from the stored price) + pages. An unfilled entry has its
+>    stored stop restamped (status `restamped`), same price gate. `trim` = a moo SELL through
+>    the ordinary approve path (order_proposal now allows moo sells; GTC styles stay buy-only);
+>    the chokepoint's release path takes the stop down and re-stops the remainder. §5.5's
+>    "1 trim" push line is now real. The `holds_review` interim ("founder cancels manually")
+>    is retired from both prompts (pinned by test). Two Opus adversarial reviewers, split
+>    mandates, BLOCK → fixed → re-verified.
 
 ## 1. What this is (and is not)
 

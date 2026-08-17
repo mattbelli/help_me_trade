@@ -273,7 +273,13 @@ async def propose_trade(
             max_pending = cfg.get("max_pending_agent_proposals", 3)
             if len(pending) >= max_pending:
                 return {"status": "max_pending"}
-        if any(p["symbol"].upper() == symbol for p in pending):
+        # Order-change proposals (a book moving a stop / pulling an entry) are
+        # not entries — an add on the same name the same night may sit beside
+        # them (trading/book_orders.py).
+        if any(
+            p["symbol"].upper() == symbol and not p.get("order_action")
+            for p in pending
+        ):
             return {"status": "duplicate"}
 
         built = build_order_proposal_from_args(args, db_path=db_path)

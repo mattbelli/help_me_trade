@@ -46,6 +46,15 @@ export function PendingProposalCard({
   const expiredNotifiedRef = useRef(false);
 
   const side = proposal.side.toUpperCase();
+  // An order change (a book moving a stop / pulling an entry) is not a trade:
+  // the summary IS the action, and BUY/SELL would misdescribe it.
+  const orderChange = Boolean(proposal.order_action);
+  const actionLabel =
+    proposal.order_action === "move_stop"
+      ? "Move stop"
+      : proposal.order_action === "cancel_entry"
+        ? "Cancel entry"
+        : "Order change";
   const approveArmed = armedProposalId === proposal.id;
   const hasExpiry =
     proposal.expires_at != null && Number.isFinite(Date.parse(proposal.expires_at));
@@ -105,11 +114,13 @@ export function PendingProposalCard({
       : null,
   ].filter((detail): detail is string => detail !== null);
   const approveLabel = approveArmed
-    ? `Confirm ${side} ${formatQty(proposal.qty)} ${proposal.symbol}${
-        confirmationDetails.length > 0
-          ? ` · ${confirmationDetails.join(" · ")}`
-          : ""
-      }`
+    ? orderChange
+      ? `Confirm · ${proposal.summary}`
+      : `Confirm ${side} ${formatQty(proposal.qty)} ${proposal.symbol}${
+          confirmationDetails.length > 0
+            ? ` · ${confirmationDetails.join(" · ")}`
+            : ""
+        }`
     : "Approve";
 
   async function handleApprove() {
@@ -119,7 +130,9 @@ export function PendingProposalCard({
       switch (body.status) {
         case "executed":
           showToast(
-            `Approved — ${body.execution_mode === "dry_run" ? "dry run logged" : "order placed"}`,
+            orderChange
+              ? "Approved — order change applied"
+              : `Approved — ${body.execution_mode === "dry_run" ? "dry run logged" : "order placed"}`,
           );
           break;
         case "blocked":
@@ -193,14 +206,23 @@ export function PendingProposalCard({
             />
           </dd>
         </div>
-        <div>
-          <dt className="text-muted-foreground">Side</dt>
-          <dd className="font-medium">{side}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Qty</dt>
-          <dd className="font-medium">{proposal.qty}</dd>
-        </div>
+        {orderChange ? (
+          <div>
+            <dt className="text-muted-foreground">Action</dt>
+            <dd className="font-medium">{actionLabel}</dd>
+          </div>
+        ) : (
+          <>
+            <div>
+              <dt className="text-muted-foreground">Side</dt>
+              <dd className="font-medium">{side}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Qty</dt>
+              <dd className="font-medium">{proposal.qty}</dd>
+            </div>
+          </>
+        )}
       </dl>
 
       {proposal.score ? <ProposalScore score={proposal.score} /> : null}

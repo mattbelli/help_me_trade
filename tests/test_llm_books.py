@@ -251,6 +251,30 @@ def test_report_format_forbids_pasting_the_decision_block_into_prose() -> None:
     assert "Never paste raw JSON" in _CHARTER and "Never paste raw JSON" in fable
 
 
+def test_both_book_prompts_carry_the_same_order_change_contract() -> None:
+    """The order-management verbs (move_stop / cancel_entry / trim) are pinned in
+    BOTH prompts the same way the report format is — a verb one book knows and
+    the other doesn't is a between-books confound, and a claim about what the
+    desk refuses must match the code (trading/book_orders.py)."""
+    from research.book_driver import _DECISION_CONTRACT
+
+    fable = (Path(__file__).resolve().parents[1] / "research/book_prompts/fable.md").read_text()
+    for needle in (
+        "order_changes",
+        "move_stop",
+        "cancel_entry",
+        "trim",
+        "below the market, or it is refused",
+        "the remainder stays stopped",
+        "the block is what the desk executes",
+    ):
+        assert needle in fable, f"missing from fable.md: {needle}"
+        assert needle in _DECISION_CONTRACT, f"missing from _DECISION_CONTRACT: {needle}"
+    # The interim rule ("say so in holds_review, the founder acts") is gone.
+    assert "founder acts on your request" not in fable
+    assert "founder acts on your request" not in _DECISION_CONTRACT
+
+
 def test_origin_law_consistency() -> None:
     """The three modules that name book lanes can never drift apart."""
     assert BOOK_HEADLINE_ORIGINS == {"book:deepseek", "book:fable", "book:panel"}

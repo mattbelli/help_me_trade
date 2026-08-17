@@ -595,9 +595,22 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 - MOO probe outcome — see overdue list.
 - increment 5: shorts unlock (own adversarially-reviewed round; `_propose_advanced` hard-blocks
   shorts until it ships).
-- ⚠ NEXT increment before analysts lean on GTC styles: order-management verbs (cancel/replace for
-  standing GTC entries + resting stops); until then analysts request cancels in `holds_review`,
-  founder acts manually — the nightly pack's open-orders section is the review surface.
+- ⏳ **Order-management verbs SHIPPED 08-17 (BUILD_LOG row; spec amendment 7) — first real cycle
+  unverified.** Watch the first Fable/Deep Seek/Local reports after deploy for an `order_changes`
+  list in the json block (a `malformed` status in the report payload = the model wrote it wrong;
+  the pack echoes last night's outcomes under "Your order changes from last cycle"). Pending on-device check:
+  the **mobile** card (`mobile/src/features/approvals/proposal-card.tsx`) now branches on
+  `order_action` (badge "Move stop"/"Cancel entry", no Qty/Market strip, "order change applied"
+  copy) — edited here but NOT typechecked (no `mobile/node_modules` on serv); confirm on the phone.
+  The Live Activity widget (`mobile/widgets/trade-proposal.tsx`) still composes "BUY 10 AAPL"
+  from side/qty for an order-change row — the server LA alert already says "Order change ·
+  summary"; branch the widget on `order_action` when next in that file. Inherited residual (not
+  new): a cancel that is accepted but never confirmed leaves the stop row `canceled` and the guard
+  blind (same shape the exit path has) — the `error` treatment would fit there too.
+  Known: `cancel_entry` is refused under the kill switch (deny-by-default,
+  though a cancel reduces risk); a crash mid-move leaves the proposal for the orphan reconciler,
+  which reports "failed — re-issue" even if the move landed (a re-issue then re-places the same
+  trigger — one more broker round-trip, harmless).
 - Lab book positions section honest-empty (per-account positions endpoint); session-book research
   depth v2.
 - ⏳ **2026-07-30 tonight: confirm the seats actually USE the perception CLI.** The books were
