@@ -861,7 +861,8 @@ export function NativeChart({
     if (ref > 0 && (tick > ref * 1.5 || tick * 2 < ref)) return;
 
     // The clock crossed into a later bucket, so open the forming bar there
-    // instead of polluting the completed one.
+    // (at the prior close — see rolledOverBar) instead of polluting the
+    // completed one.
     if (steps >= 1) {
       engine.rollover(intervalSec * 1000, tick, steps);
       return;

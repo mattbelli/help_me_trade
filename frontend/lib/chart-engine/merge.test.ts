@@ -134,15 +134,16 @@ describe("rolledOverBar", () => {
     expect(b.time).toBe(3000 + 180_000); // 3 buckets on, not 1
   });
 
-  it("opens a skipped-bucket rollover at the price — the gap is the truth", () => {
-    // Nothing traded in the missing buckets, so prev.close carries no
-    // continuity claim; the first print of this bucket is its open.
+  it("opens a skipped-bucket rollover at prev.close too — vendor lag, not a gap", () => {
+    // Measured 2026-08-17: on liquid names the tail is routinely 2-3 buckets
+    // behind at load, so skipped buckets mean the vendor is late, not that
+    // nothing traded. The candle must still start where the last one ended.
     const b = rolledOverBar(prev, 60_000, 12.4, 2);
     expect(b).toEqual({
       time: 123_000,
-      open: 12.4,
+      open: 12.2,
       high: 12.4,
-      low: 12.4,
+      low: 12.2,
       close: 12.4,
       volume: 0,
     });
