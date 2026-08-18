@@ -15,6 +15,14 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-18 Rust flow collector — SCOPED, awaiting the founder's go (no card yet)
+Scope + staging in `References/FLOW_COLLECTOR_RS_SPEC.md`. If go: **stage 0 first** (Python-only:
+virtual clock through `runner.sweep_loop`, `tools/flow_collector_replay.py` off
+`data/databento/opra_tcbbo/<date>.dbn.zst`, `tools/flow_ab.py`, determinism test) — worth having
+even if the Rust never happens. Side finding to fix regardless: every `serv-deploy.sh` restart
+SIGKILLs `hmt-flow-collector` (8× in RTH 08-17) because `asyncio.run` waits on the `to_thread`
+REST poll at shutdown; bound it or `os._exit` after `runner.stop()`.
+
 ## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
 - ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,
   then `cd desktop && cargo tauri dev` (steps in `desktop/README.md`). First run writes
