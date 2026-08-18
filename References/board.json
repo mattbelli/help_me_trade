@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 332,
+   "id": "finra-short-volume-dix",
+   "title": "FINRA daily short-volume (Reg SHO) — per-symbol buy-pressure proxy + dollar-weighted S&P aggregate (DIX-style)",
+   "lane": "backlog",
+   "type": "feature",
+   "priority": "normal",
+   "owner": "agent",
+   "updated_at": "2026-08-18",
+   "notes": "Founder 08-18 after reading SqueezeMetrics 'Short is Long' (2018): market makers short to fill investor BUYS, so off-exchange short volume ≈ investor buying, non-short ≈ selling. FINRA publishes it FREE daily (Reg SHO daily files, both TRFs + ADF; regShoDaily on api.finra.org / cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt), history to 2010. Paper numbers: 12.7M stock-days 2010-18, >50% short -> +0.118% intraday, <50% -> -0.059%, near-linear 20-60%; dollar-weighted S&P 500 aggregate (their DIX) >=45% -> mean 60d return 5.3% vs 2.8% all days. CAVEATS: intraday result is SAME-DAY (file publishes after close, not tradable); only the 60d DIX claim is forward and modest; 2018 paper, retail internalization since 2020 changed the fill mix — reproduce before believing. NOT covered by anything we hold: signals/finra.py = short INTEREST (positions, twice-monthly), signals/equity_tape.py = individual dark-pool PRINTS off SIP exchange D; SIP carries no short flag, so the FINRA file is the only source. Perception angle per doctrine (no-edge is never a block): 'flow print in XYZ — were investors net buying it off-exchange today / last 5d?' plus a market-wide gauge beside GEX (#303) on the regime read. BUILD: (1) nightly pull -> data/short_volume.db (date,symbol,short_vol,short_exempt,total_vol; sum TRF+ADF, ignore exempt per paper) + one-shot backfill 2010->; (2) per-symbol short ratio + 5d/20d in company info + query('<sym>') + RESOURCES entry; (3) our own dollar-weighted S&P 500 aggregate on market (label perception, not signal); (4) PRE-REGISTERED replication of the paper's two numbers on OUR store incl a 2020-2026 sub-window BEFORE any label stronger than perception. Definition of done = UI + agent surface + doc. Small: ~1 coder-day."
+  },
+  {
    "num": 331,
    "id": "flow-rs-collector",
    "title": "Rust OPRA flow collector (flow_rs) — tape replay harness first, then port spine+detectors to parity",
