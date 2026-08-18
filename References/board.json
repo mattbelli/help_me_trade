@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-17",
+ "updated_at": "2026-08-18",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 329,
+   "id": "equity-rs-collector",
+   "title": "Rust equity tape collector (equity_rs) — record/replay A/B harness + v0 scaffold; port to parity",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "P2",
+   "owner": "founder",
+   "updated_at": "2026-08-18",
+   "notes": "08-18: harness SHIPPED (recorder tap on the live collector via EQUITY_TAPE_RECORD_DIR, Alpaca-protocol replay server w/ virtual-clock frames, Python replay entrypoint, A/B diff tool, determinism test) + collectors/equity_rs v0 scaffold (connect/auth/subscribe/decode/count; builds w/ user-local rustup). Contract: References/EQUITY_COLLECTOR_RS_SPEC.md. Scope = front half (socket→NBBO→block/sweep/velocity/spreads→spot cache→DB→proxy); abnormality + convergence stay Python. Next: first real session recorded 08-18 → founder ports detectors → tools/equity_tape_ab.py IDENTICAL → swap the systemd unit. Founder's Rust side project — pair, don't dispatch."
+  },
   {
    "num": 328,
    "id": "attention-join",

@@ -23,6 +23,8 @@ from typing import Any, Callable
 import msgpack
 import websockets
 
+from signals.equity_stream.recorder import RawFrameRecorder
+
 logger = logging.getLogger(__name__)
 
 STOCKS_WS_URL = "wss://stream.data.alpaca.markets/v2/sip"
@@ -78,7 +80,11 @@ class EquityStream:
         on_quote: Callable[[dict[str, Any], float], None],
         on_daily_bar: Callable[[dict[str, Any]], None] | None = None,
         on_bar: Callable[[dict[str, Any]], None] | None = None,
+        on_clock: Callable[[int], None] | None = None,
+        clock: Callable[[], float] | None = None,
+        recorder: RawFrameRecorder | None = None,
         url: str = STOCKS_WS_URL,
+        reconnect: bool = True,
     ) -> None:
         self._key = key
         self._secret = secret
@@ -87,6 +93,14 @@ class EquityStream:
         self._on_quote = on_quote
         self._on_daily_bar = on_daily_bar
         self._on_bar = on_bar
+        # Replay support: ``clock`` supplies epoch-ms "now" for callbacks (wall
+        # clock live; the replay server's virtual clock under replay), and
+        # ``on_clock`` receives the replay server's {"T":"clock","ns":...}
+        # frames. ``recorder`` taps every raw frame for later replay.
+        self._on_clock = on_clock
+        self._clock = clock or (lambda: time.time() * 1000.0)
+        self._recorder = recorder
+        self._reconnect = reconnect  # False under replay: EOF ends the run
         # Per-symbol upstream channels (trades/quotes are wildcard): the wanted
         # set per channel + a dirty flag the run loop diffs against what's applied.
         self._chan_syms: dict[str, set[str]] = {
@@ -178,7 +192,7 @@ class EquityStream:
                 raise
             except Exception as exc:
                 self._signal(self.on_disconnect)
-                if not self._running:
+                if not self._running or not self._reconnect:
                     break
                 self.reconnects += 1
                 logger.warning(
@@ -231,7 +245,9 @@ class EquityStream:
         return wanted_all
 
     def _dispatch(self, raw: bytes) -> None:
-        now_ms = time.time() * 1000.0
+        if self._recorder is not None:
+            self._recorder.record(raw, time.time_ns())
+        now_ms = self._clock()
         try:
             batch = msgpack.unpackb(raw, raw=False)
         except Exception:
@@ -265,6 +281,12 @@ class EquityStream:
                     self._on_bar(m)
                 except Exception:
                     self._count_callback_error(m)
+            elif t == "clock" and self._on_clock is not None:
+                try:
+                    self._on_clock(int(m["ns"]))
+                except Exception:
+                    self._count_callback_error(m)
+                now_ms = self._clock()
             elif t == "error":
                 self.vendor_errors += 1
                 logger.warning("equity stream vendor error frame: %s", m)

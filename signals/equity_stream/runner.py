@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -32,6 +33,7 @@ from signals.equity_stream.detectors import (
     side_vs_nbbo,
 )
 from signals.equity_stream.proxy import LocalMarketProxy
+from signals.equity_stream.recorder import RawFrameRecorder
 from signals.equity_stream.stream import EquityStream, to_json_msg, ts_to_iso, ts_to_ms
 from signals.equity_tape import TapeDetector
 from trading.market_hours import _ET, _SESSION_OPEN
@@ -39,8 +41,41 @@ from trading.market_hours import _ET, _SESSION_OPEN
 logger = logging.getLogger(__name__)
 
 
+def _replay_median_shares(symbol: str) -> float | None:
+    """Volume-profile floor for replay: same files, no 7-day freshness rule —
+    a recording replayed weeks later must see the profiles it sees today."""
+    from signals.volume_profile import load_profile
+
+    profile = load_profile(symbol, max_age_days=float("inf"))
+    if profile is None:
+        return None
+    try:
+        return float(profile.median_daily_total)
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
 class EquityTapeRunner:
-    def __init__(self, *, key: str, secret: str) -> None:
+    def __init__(
+        self,
+        *,
+        key: str,
+        secret: str,
+        replay: bool = False,
+        url: str | None = None,
+        proxy_port: int | None = None,
+        recorder: RawFrameRecorder | None = None,
+        db_path: Path | None = None,
+    ) -> None:
+        # Replay mode (tools/equity_collector_replay.py): the stream dials a
+        # replay server instead of Alpaca and every clock the detectors see is
+        # the recorded tape's own — carried in-band as {"T":"clock"} frames — so
+        # a session replayed at any speed yields the same events, and a Rust
+        # collector fed the same recording has an exact target to match.
+        self.replay = replay
+        self.recorder = recorder
+        self._db_path = db_path  # replay/tests only; live writes the default DB
+        self._virtual_ms = 0.0
         self.stream = EquityStream(
             key=key,
             secret=secret,
@@ -48,16 +83,28 @@ class EquityTapeRunner:
             on_quote=self._on_quote,
             on_daily_bar=self._on_daily_bar,
             on_bar=self._on_bar,
+            on_clock=self._on_clock if replay else None,
+            clock=self.now_ms if replay else None,
+            recorder=recorder,
+            reconnect=not replay,
+            **({"url": url} if url else {}),
         )
         self.proxy = LocalMarketProxy(
-            on_channel_symbols_change=self.stream.set_channel_symbols
+            on_channel_symbols_change=self.stream.set_channel_symbols,
+            **({"port": proxy_port} if proxy_port else {}),
         )
         # Couple proxy availability to upstream health: while our Alpaca socket
         # is down, the hub must see a refused/dropped connection, not a silent
         # "connected" feed with no data.
         self.stream.on_connect = lambda: self.proxy.set_upstream_healthy(True)
         self.stream.on_disconnect = lambda: self.proxy.set_upstream_healthy(False)
-        self.detector = TapeDetector()
+        if replay:
+            self.detector = TapeDetector(
+                median_shares_loader=_replay_median_shares,
+                clock=lambda: self.now_ms() / 1000.0,
+            )
+        else:
+            self.detector = TapeDetector()
         self.sweeps = SweepAggregator()
         self.velocity = VelocityDetector()
         self.abnormality = AbnormalityDetector()
@@ -75,10 +122,55 @@ class EquityTapeRunner:
         self._key = key
         self._secret = secret
         self._abn_reloaded_session = None
+        self._next_flush_ms: float | None = None
+        self._next_spot_ms: float | None = None
 
     def stop(self) -> None:
         self._running = False
         self.stream.stop()
+
+    # -- clock -----------------------------------------------------------------------
+
+    def now_ms(self) -> float:
+        return self._virtual_ms if self.replay else time.time() * 1000.0
+
+    def _on_clock(self, ns: int) -> None:
+        """Replay only: advance the virtual clock and run whichever periodic
+        jobs have come due — synchronously, on the recv loop, so the result is
+        a pure function of the recording. Deadline rule (mirrored by the Rust
+        collector): first deadline = first clock + interval; when a clock frame
+        reaches a deadline the job runs at that virtual time and the next
+        deadline is that time + interval."""
+        v = ns / 1e6
+        self._virtual_ms = v
+        if self._next_flush_ms is None:
+            self._next_flush_ms = v + FLUSH_INTERVAL_SECONDS * 1000.0
+            self._next_spot_ms = v + SPOT_FLUSH_INTERVAL_SECONDS * 1000.0
+            return
+        if v >= self._next_flush_ms:
+            self._flush_events_sync(v)
+            self._next_flush_ms = v + FLUSH_INTERVAL_SECONDS * 1000.0
+        if v >= self._next_spot_ms:
+            self._write_spots(self._take_spot_dirty(), db_path=self._db_path)
+            self._next_spot_ms = v + SPOT_FLUSH_INTERVAL_SECONDS * 1000.0
+
+    def _gather_events(self, now_ms: float) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        while self.detector.pending:
+            events.append(self.detector.pending.popleft())
+        events.extend(self.sweeps.flush(now_ms))
+        events.extend(self.velocity.flush(now_ms))
+        if self._pending:
+            events.extend(self._pending)
+            self._pending = []
+        return events
+
+    def _flush_events_sync(self, now_ms: float) -> None:
+        from db.equity_tape import insert_event
+
+        for ev in self._gather_events(now_ms):
+            insert_event(ev, self._db_path)
+            self._persisted += 1
 
     # -- hot path (sync, on the stream recv loop) ---------------------------------
 
@@ -194,15 +286,7 @@ class EquityTapeRunner:
         while self._running:
             await asyncio.sleep(FLUSH_INTERVAL_SECONDS)
             try:
-                events: list[dict[str, Any]] = []
-                while self.detector.pending:
-                    events.append(self.detector.pending.popleft())
-                now_ms = time.time() * 1000.0
-                events.extend(self.sweeps.flush(now_ms))
-                events.extend(self.velocity.flush(now_ms))
-                if self._pending:
-                    events.extend(self._pending)
-                    self._pending = []
+                events = self._gather_events(time.time() * 1000.0)
                 for ev in events:
                     await asyncio.to_thread(insert_event, ev)
                 self._persisted += len(events)
@@ -290,12 +374,13 @@ class EquityTapeRunner:
                     f"{s}:{r:.0f}x@{bps:.0f}bps"
                     for s, r, bps in self.spreads.top_wideners(5)
                 )
+                rec = self.recorder
                 logger.info(
                     "equity stream stats: msgs=%d (%.0f/s) t=%d q=%d "
                     "reconnects=%d vendor_errors=%d lag_p50_ms=%.0f lag_p95_ms=%.0f "
                     "| events persisted=%d sweeps=%d velocity=%d spots=%d "
                     "| proxy clients=%d subs t/q/db=%d/%d/%d drops=%d "
-                    "| wideners: %s",
+                    "| wideners: %s%s",
                     total,
                     rate,
                     self.stream.msgs.get("t", 0),
@@ -314,6 +399,11 @@ class EquityTapeRunner:
                     self.proxy.union_size("dailyBars"),
                     self.proxy.total_drops,
                     wideners or "-",
+                    (
+                        f" | rec frames={rec.frames} MB={rec.bytes / 1e6:.0f} drops={rec.drops}"
+                        if rec is not None
+                        else ""
+                    ),
                 )
             except Exception:
                 logger.exception("equity stream: stats failed")

@@ -57,11 +57,16 @@ class TapeDetector:
     def __init__(
         self,
         median_shares_loader: Callable[[str], float | None] | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.pending: collections.deque[dict[str, Any]] = collections.deque(
             maxlen=256
         )
         self._loader = median_shares_loader or _default_median_shares
+        # Seconds clock for the per-(symbol, kind) cooldown — monotonic live,
+        # the virtual tape clock under replay so a fast replay suppresses
+        # exactly what the live session would have.
+        self._clock = clock or time.monotonic
         self._median_cache: dict[str, tuple[float, float | None]] = {}
         self._cooldown: dict[tuple[str, str], float] = {}
 
@@ -120,7 +125,7 @@ class TapeDetector:
         ex = str(exchange or "").strip().upper()
         kind = "dark_pool" if ex == DARK_POOL_EXCHANGE else "equity_block"
 
-        now = time.monotonic()
+        now = self._clock()
         key = (symbol, kind)
         last = self._cooldown.get(key)
         if last is not None and now - last < TAPE_COOLDOWN_SECONDS:

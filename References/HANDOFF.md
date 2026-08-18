@@ -15,6 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-18 Rust equity collector (#329) — recorder ARMED, port is the founder's side project
+- ⏳ **08-18 after close:** verify `data/equity_tape_raw/2026-08-18.mpk.zst` exists and the collector's
+  stats line shows `rec frames=… drops=0` (a `drops>0` = writer thread fell behind at the close burst →
+  raise `RECORD_QUEUE_MAX` or move the tap). Note the file size (spec estimate 6–9 GB/session).
+- ⏳ **once ~3 sessions are captured:** turn the recorder OFF (`EQUITY_TAPE_RECORD_DIR` in `.env` +
+  restart `hmt-equity-collector`) — nothing prunes the directory.
+- ▶ Port: founder writes the detectors in `collectors/equity_rs/` against
+  `References/EQUITY_COLLECTOR_RS_SPEC.md`; done = `tools/equity_tape_ab.py py.db rs.db` IDENTICAL on a
+  full session → swap the systemd unit. Abnormality + convergence sidecar (feed from rows) is a
+  follow-up, not v1.
+
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 
 1. ⏳ **Backfill completion** (launched 08-15 evening, ~1-2h): check `filing_segment_ingest`

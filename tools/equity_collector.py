@@ -29,6 +29,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # config.settings loads .env on import — everything below sees the same
 # environment the API does.
 from config.settings import alpaca_config  # noqa: E402
+from signals.equity_stream.recorder import (  # noqa: E402
+    RawFrameRecorder,
+    default_record_dir,
+)
 from signals.equity_stream.runner import EquityTapeRunner  # noqa: E402
 
 logger = logging.getLogger("equity_collector")
@@ -61,7 +65,15 @@ async def main() -> int:
         logger.error("Alpaca credentials missing — nothing to stream")
         return 2
 
-    runner = EquityTapeRunner(key=key, secret=secret)
+    # EQUITY_TAPE_RECORD_DIR=<dir> taps every raw frame to <dir>/<ET date>.mpk.zst
+    # for tools/equity_tape_replay.py (the Python↔Rust collector A/B harness).
+    recorder: RawFrameRecorder | None = None
+    rec_dir = default_record_dir()
+    if rec_dir is not None:
+        recorder = RawFrameRecorder(rec_dir)
+        recorder.start()
+        logger.info("equity tape recorder ON → %s", rec_dir)
+    runner = EquityTapeRunner(key=key, secret=secret, recorder=recorder)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -100,6 +112,11 @@ async def main() -> int:
             await t
         except (asyncio.CancelledError, Exception):
             pass
+    if recorder is not None:
+        recorder.stop()
+        logger.info(
+            "equity tape recorder: frames=%d drops=%d", recorder.frames, recorder.drops
+        )
     logger.info("equity collector stopped")
     return 0
 

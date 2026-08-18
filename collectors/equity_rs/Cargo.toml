@@ -1,0 +1,19 @@
+[package]
+name = "equity_rs"
+version = "0.1.0"
+edition = "2021"
+description = "help_me_trade equity tape collector (Rust) — Alpaca stocks-v2 wildcard tape"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+rmpv = "1"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
+anyhow = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
