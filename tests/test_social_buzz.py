@@ -14,7 +14,7 @@ from db.social_mentions import (
 )
 from signals.social_buzz import (
     extract_symbols,
-    fetch_reddit_mentions,
+    fetch_reddit_posts,
     reset_dedupe_state_for_tests,
     run_accumulator_cycle,
 )
@@ -93,18 +93,43 @@ def test_get_buzz_baseline_mean_and_ratio(social_db):
     assert buzz["today_total"] == 100
 
 
+def _fake_reddit_posts(*symbols: str):
+    posts = []
+    for i, sym in enumerate(symbols):
+        posts.append(
+            {
+                "post_id": f"t3_fake_{i}_{sym}",
+                "id": f"t3_fake_{i}_{sym}",
+                "source": "reddit",
+                "subreddit": "stocks",
+                "author": "/u/t",
+                "published_at": "2026-07-05T13:00:00+00:00",
+                "bucket": "2026-07-05T09",
+                "title": f"${sym}",
+                "text": f"${sym}",
+                "url": None,
+                "symbols": {sym},
+                "n_symbols": 1,
+                "has_url": 0,
+                "word_count": 1,
+                "dd_flag": 0,
+            }
+        )
+    return posts
+
+
 def test_run_accumulator_cycle_records_both_sources(social_db):
     reset_dedupe_state_for_tests()
 
-    def fake_reddit() -> dict[str, int]:
-        return {"AAPL": 2}
+    def fake_reddit():
+        return _fake_reddit_posts("AAPL", "AAPL")
 
     def fake_stocktwits() -> dict[str, int]:
         return {"AAPL": 1, "MSFT": 1}
 
     fixed_now = datetime(2026, 7, 5, 9, 0, tzinfo=_ET)
     with (
-        patch("signals.social_buzz.fetch_reddit_mentions", fake_reddit),
+        patch("signals.social_buzz.fetch_reddit_posts", fake_reddit),
         patch("signals.social_buzz.fetch_stocktwits_trending", fake_stocktwits),
         patch("signals.social_buzz.et_hour_bucket", return_value="2026-07-05T09"),
     ):
@@ -120,7 +145,7 @@ def test_run_accumulator_cycle_records_both_sources(social_db):
 def test_run_accumulator_cycle_fail_soft_on_fetcher_error(social_db):
     reset_dedupe_state_for_tests()
 
-    def broken_reddit() -> dict[str, int]:
+    def broken_reddit():
         raise RuntimeError("reddit down")
 
     def ok_stocktwits() -> dict[str, int]:
@@ -128,7 +153,7 @@ def test_run_accumulator_cycle_fail_soft_on_fetcher_error(social_db):
 
     fixed_now = datetime(2026, 7, 5, 11, 0, tzinfo=_ET)
     with (
-        patch("signals.social_buzz.fetch_reddit_mentions", broken_reddit),
+        patch("signals.social_buzz.fetch_reddit_posts", broken_reddit),
         patch("signals.social_buzz.fetch_stocktwits_trending", ok_stocktwits),
         patch("signals.social_buzz.et_hour_bucket", return_value="2026-07-05T11"),
     ):
@@ -155,14 +180,14 @@ def test_dedupe_same_post_ids_across_fetch_calls():
         def raise_for_status(self) -> None:
             return None
 
-    with (
-        patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
-    ):
-        first = fetch_reddit_mentions()
-        second = fetch_reddit_mentions()
+    with patch("signals.social_buzz.httpx.get", return_value=FakeResponse()):
+        first = fetch_reddit_posts()
+        second = fetch_reddit_posts()
 
-    assert first == {"TSLA": 1}
-    assert second == {}
+    assert len(first) == 1
+    assert first[0]["post_id"] == "t3_abc123"
+    assert "TSLA" in first[0]["symbols"]
+    assert second == []
 
 
 def test_dedupe_across_two_accumulator_cycles(social_db):
@@ -170,7 +195,9 @@ def test_dedupe_across_two_accumulator_cycles(social_db):
     atom = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<feed xmlns="http://www.w3.org/2005/Atom">'
-        "<entry><id>t3_dedupe1</id><title>$TSLA to the moon</title></entry>"
+        "<entry><id>t3_dedupe1</id>"
+        "<published>2026-07-05T16:00:00+00:00</published>"
+        "<title>$TSLA to the moon</title></entry>"
         "</feed>"
     )
 
@@ -181,11 +208,11 @@ def test_dedupe_across_two_accumulator_cycles(social_db):
         def raise_for_status(self) -> None:
             return None
 
+    # published 16:00 UTC in July = 12:00 ET
     fixed_now = datetime(2026, 7, 5, 12, 0, tzinfo=_ET)
     with (
         patch("signals.social_buzz.httpx.get", return_value=FakeResponse()),
         patch("signals.social_buzz.fetch_stocktwits_trending", lambda: {}),
-        patch("signals.social_buzz.et_hour_bucket", return_value="2026-07-05T12"),
     ):
         run_accumulator_cycle(db_path=social_db)
         run_accumulator_cycle(db_path=social_db)
@@ -195,7 +222,7 @@ def test_dedupe_across_two_accumulator_cycles(social_db):
 
 
 def test_parse_reddit_atom_extracts_ids_and_text() -> None:
-    """RSS path (Reddit 403-blocks .json): Atom entries -> (id, tag-stripped text)."""
+    """RSS path (Reddit 403-blocks .json): Atom entries -> post dicts."""
     from signals.social_buzz import _parse_reddit_atom
 
     xml = (
@@ -208,7 +235,7 @@ def test_parse_reddit_atom_extracts_ids_and_text() -> None:
         "</feed>"
     )
     parsed = _parse_reddit_atom(xml)
-    assert [p[0] for p in parsed] == ["t3_abc", "t3_def"]
-    assert "$TSLA" in parsed[0][1] and "NVDA" in parsed[0][1]
-    assert "<p>" not in parsed[0][1]
+    assert [p["id"] for p in parsed] == ["t3_abc", "t3_def"]
+    assert "$TSLA" in parsed[0]["text"] and "NVDA" in parsed[0]["text"]
+    assert "<p>" not in parsed[0]["text"]
     assert _parse_reddit_atom("not xml at all") == []
