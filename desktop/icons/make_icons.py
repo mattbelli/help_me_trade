@@ -16,7 +16,9 @@ def render(px: int) -> Image.Image:
     s = px / 120.0
     im = Image.new("RGBA", (px, px), BG)
     d = ImageDraw.Draw(im)
-    r = lambda x0, y0, x1, y1: [round(x0 * s), round(y0 * s), round(x1 * s) - 1, round(y1 * s) - 1]
+    def r(x0, y0, x1, y1):
+        return [round(x0 * s), round(y0 * s), round(x1 * s) - 1, round(y1 * s) - 1]
+
     d.rectangle(r(34, 38, 54, 92), fill=HOLLOW)
     d.rectangle(r(39.5, 43.5, 48.5, 86.5), fill=BG)
     d.rectangle(r(66, 26, 86, 80), fill=SOLID)
