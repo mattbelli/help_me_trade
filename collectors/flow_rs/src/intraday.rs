@@ -19,7 +19,11 @@ pub const CAVEAT_DIRECTION: &str = "direction inferred from quote rule (~83% cla
 pub const CAVEAT_UNDETERMINED: &str = "cannot distinguish new position vs close vs hedge vs spread leg; direction undetermined (no quote or midpoint print)";
 
 pub fn caveat_for_direction(d: Dir) -> &'static str {
-    if d != Dir::Undetermined { CAVEAT_DIRECTION } else { CAVEAT_UNDETERMINED }
+    if d != Dir::Undetermined {
+        CAVEAT_DIRECTION
+    } else {
+        CAVEAT_UNDETERMINED
+    }
 }
 
 /// `datetime.fromtimestamp(ts_ms/1000, utc).strftime("%Y-%m-%dT%H:%M:%S") + f".{ts_ms % 1000:03d}Z"`
@@ -48,7 +52,9 @@ pub fn fmt_strike(strike: f64) -> String {
     }
 }
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
 
 pub fn expiry_month(expiry: &str) -> &'static str {
     expiry
@@ -61,7 +67,13 @@ pub fn expiry_month(expiry: &str) -> &'static str {
 
 pub fn right_letter(right: &str) -> &'static str {
     let r = right.trim().to_ascii_lowercase();
-    if r.starts_with('c') { "C" } else if r.starts_with('p') { "P" } else { "?" }
+    if r.starts_with('c') {
+        "C"
+    } else if r.starts_with('p') {
+        "P"
+    } else {
+        "?"
+    }
 }
 
 pub fn classify_direction(price: f64, bid: f64, ask: f64) -> Dir {
@@ -145,7 +157,8 @@ pub fn tag_likely_spreads(batch: &mut [Print]) {
                 }
             }
             for (_, members) in by_size {
-                let mut strikes: Vec<u64> = members.iter().map(|&m| batch[m].strike.to_bits()).collect();
+                let mut strikes: Vec<u64> =
+                    members.iter().map(|&m| batch[m].strike.to_bits()).collect();
                 strikes.sort_unstable();
                 strikes.dedup();
                 if strikes.len() >= SPREAD_CLUSTER_MIN_STRIKES {
@@ -213,7 +226,10 @@ pub fn detect_block(p: &Print, event_date: &str) -> Option<Event> {
         p.direction.as_str(),
     );
     Some(Event {
-        id: format!("of_{}_{}_{}_blk_{}", event_date, p.underlying, p.occ, p.ts_ms),
+        id: format!(
+            "of_{}_{}_{}_blk_{}",
+            event_date, p.underlying, p.occ, p.ts_ms
+        ),
         ts: ts_ms_to_iso(p.ts_ms),
         underlying: p.underlying.clone(),
         occ_symbol: p.occ.clone(),
@@ -228,7 +244,11 @@ pub fn detect_block(p: &Print, event_date: &str) -> Option<Event> {
         direction_basis: p.basis.to_string(),
         mid_side: Some(p.mid_side),
         n_prints: 1,
-        exchanges: if p.exchange.is_empty() { vec![] } else { vec![p.exchange.clone()] },
+        exchanges: if p.exchange.is_empty() {
+            vec![]
+        } else {
+            vec![p.exchange.clone()]
+        },
         reason,
         caveat: caveat_for_direction(p.direction).to_string(),
         detail: None,

@@ -13,6 +13,14 @@ shared .env — the same flag stops the API from starting the pipeline
 in-process. One switch, one OPRA socket, never two (Alpaca 406s the second
 connection).
 
+Rust spine (stage 3, `References/FLOW_COLLECTOR_RS_SPEC.md`): with
+OPTIONS_FLOW_RUST_SPINE=1 this process instead SUPERVISES `collectors/flow_rs`
+(`flow_rs live` owns the Databento socket + detectors + writes) and hosts the
+Python back half beside it — the REST poll lane and the `backhalf` sidecar
+(enrich → rarity → convergence off the rows). Same unit, same interlock, one
+process tree: if either half dies the whole thing exits and systemd restarts
+both. Pairing + the GTH tape are OFF in this mode until stage 2 ports them.
+
 Run: .venv/bin/python tools/flow_collector.py
 """
 
@@ -35,6 +43,10 @@ from signals.universe import flow_watch_symbols_fresh  # noqa: E402
 logger = logging.getLogger("flow_collector")
 
 POLL_SECONDS = max(10, int(os.environ.get("OPTIONS_FLOW_POLL_SECONDS", "30")))
+FLOW_RS_BIN = Path(
+    os.environ.get("FLOW_RS_BIN")
+    or Path(__file__).resolve().parent.parent / "collectors" / "flow_rs" / "target" / "release" / "flow_rs"
+)
 
 
 def _flag(name: str) -> bool:
@@ -86,6 +98,9 @@ async def main() -> int:
             "OPTIONS_FLOW_ENABLED/OPTIONS_FLOW_STREAM_ENABLED not set — nothing to run"
         )
         return 2
+
+    if _flag("OPTIONS_FLOW_RUST_SPINE"):
+        return await _main_rust_spine()
 
     # Pairing (LIVE_FLOW_PAIRING_SPEC_2026-07-28): matcher + Alpaca wildcard
     # codes sidecar. Since 2026-08-03 (Inc 3, first step) it ENRICHES — matched
@@ -216,5 +231,88 @@ async def main() -> int:
     return 0
 
 
+async def _main_rust_spine() -> int:
+    """Supervise `flow_rs live` + host the poll lane and the back-half sidecar."""
+    from db.base import DEFAULT_DB_PATH
+    from signals.options_flow.backhalf import BackHalf
+
+    if not FLOW_RS_BIN.is_file() or not os.access(FLOW_RS_BIN, os.X_OK):
+        logger.error(
+            "OPTIONS_FLOW_RUST_SPINE=1 but %s is missing — build it "
+            "(cd collectors/flow_rs && cargo build --release) or set FLOW_RS_BIN",
+            FLOW_RS_BIN,
+        )
+        return 2
+    if not str(os.environ.get("DATABENTO_API_KEY") or "").strip():
+        logger.error("DATABENTO_API_KEY unset — the Rust spine cannot start")
+        return 2
+    if _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
+        logger.warning(
+            "OPTIONS_FLOW_PAIRING_SHADOW is set but the Rust spine has no pairing "
+            "tee yet (stage 2) — condition codes + the GTH tape are OFF this run"
+        )
+
+    proc = await asyncio.create_subprocess_exec(
+        str(FLOW_RS_BIN), "live", "--db", str(DEFAULT_DB_PATH),
+    )
+    logger.info("flow collector (rust spine): %s live pid=%s db=%s; poll every %ss",
+                FLOW_RS_BIN.name, proc.pid, DEFAULT_DB_PATH, POLL_SECONDS)
+
+    runner = OptionsFlowRunner(watchlist_symbols=watchlist_symbols)
+    backhalf = BackHalf()
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+
+    tasks = [
+        asyncio.create_task(proc.wait(), name="flow-rs-spine"),
+        asyncio.create_task(backhalf.run(), name="flow-backhalf"),
+        asyncio.create_task(_poll_loop(runner), name="flow-poll"),
+    ]
+    stopper = asyncio.create_task(stop.wait(), name="flow-stop")
+    done, _ = await asyncio.wait([*tasks, stopper], return_when=asyncio.FIRST_COMPLETED)
+    if stopper not in done:
+        for t in done:
+            exc = t.exception() if not t.cancelled() else None
+            logger.error(
+                "flow collector (rust spine): %s exited%s — shutting down for systemd restart",
+                t.get_name(),
+                f" (rc={proc.returncode})" if t.get_name() == "flow-rs-spine" else (f" ({exc!r})" if exc else ""),
+            )
+
+    backhalf.stop()
+    stopper.cancel()
+    if proc.returncode is None:
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            proc.kill()
+    for t in tasks:
+        t.cancel()
+    for t in tasks:
+        try:
+            await t
+        except (asyncio.CancelledError, Exception):
+            pass
+    logger.info("flow collector (rust spine) stopped")
+    return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    # Not asyncio.run(): its teardown waits on the default executor, and a
+    # `to_thread` REST poll mid-flight (Alpaca timeouts run to 30s) held that
+    # wait past the deploy script's 6s TERM grace — every restart was a SIGKILL
+    # (measured 08-18), which also threw away the in-memory sweep/gauge state
+    # a clean stop would have flushed. Once main() has returned, every leg is
+    # stopped and the DB handles are closed; the poll thread has nothing left
+    # to write, so exit without waiting for it.
+    _loop = asyncio.new_event_loop()
+    try:
+        _rc = _loop.run_until_complete(main())
+    except BaseException:  # noqa: BLE001 — last-chance log before a hard exit
+        logger.exception("flow collector: main() raised")
+        _rc = 1
+    logging.shutdown()
+    os._exit(_rc)

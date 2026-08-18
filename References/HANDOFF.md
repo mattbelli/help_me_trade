@@ -15,18 +15,25 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-18 Rust flow collector (#331) — stages 0+1 SHIPPED (IDENTICAL on a full day); next = 2/3
-`collectors/flow_rs/` diffs IDENTICAL against Python on the whole 08-17 tape (`tools/flow_ab.sh`).
-Spec: `References/FLOW_COLLECTOR_RS_SPEC.md`. Next, founder's call on order: **stage 2** pairing
-sidecar port (+ Alpaca options-WS raw-frame recorder → two-tape replay) or **stage 3** live
-transport (`databento` crate) + back-half sidecar + systemd swap — stage 3 is what retires the
-Python process; stage 2 is what keeps condition codes on the prints after the swap. Recommend 3
-then 2 only if the swap can run with pairing OFF for a while (it can — codes affect F-2 gates
-and the multileg repair, not the spine). Founder's Rust project — pair, don't dispatch.
-Side finding to fix regardless (independent thread): every `serv-deploy.sh` restart SIGKILLs
-`hmt-flow-collector` (8× in RTH 08-17) — TERM doesn't exit inside the script's 6s; last log lines
-are the poll leg's httpx GETs, i.e. `asyncio.run` waiting on the `to_thread` REST poll at shutdown
-(inferred from the log tail, not stepped through). Bound it or `os._exit` after `runner.stop()`.
+## ▶ 08-18 Rust flow collector (#331) — stages 0+1+3 SHIPPED; shadow RUNNING; flip waits on stage 2
+`collectors/flow_rs/` diffs IDENTICAL against Python on the whole 08-17 tape (`tools/flow_ab.sh`);
+`flow_rs live` (Databento transport) + `signals/options_flow/backhalf.py` + the `OPTIONS_FLOW_RUST_SPINE=1`
+supervisor mode of `tools/flow_collector.py` are built and tested. Spec: `References/FLOW_COLLECTOR_RS_SPEC.md`
+("The live half"). Open:
+- ⏳ **transport A/B, tonight ~22:45 ET (after `opra_tcbbo/2026-08-18` lands ~02:30 UTC):** the shadow unit
+  `hmt-flow-rs-shadow` (transient user unit; `journalctl --user -u hmt-flow-rs-shadow`) has been recording
+  the real 08-18 session to `data/tmp_flow_shadow/2026-08-18.dbn.zst` since 23:50 ET 08-17. Run
+  `flow_rs replay --date 2026-08-18 --tape data/tmp_flow_shadow/2026-08-18.dbn.zst --defs data/databento/opra_defs/2026-08-18.dbn.zst --db <A>`
+  vs the same with `--tape data/databento/opra_tcbbo/2026-08-18.dbn.zst --db <B>`, then `tools/flow_ab.py A B`
+  → IDENTICAL = the socket captured exactly what Databento archived. Also read the shadow's 60 s `dbn live:`
+  lines through the open (mapped count, prints/min, slow=0, reconnects). Then `systemctl --user stop
+  hmt-flow-rs-shadow` and delete `data/tmp_flow_shadow/`.
+- ⏳ **founder: Databento usage page** — 4 short intraday-replay sessions ran 23:30–23:50 ET 08-17 (~5M records
+  total) plus the shadow live session. The live plan is believed flat-rate but this was NEVER verified; if the
+  page shows a charge, say so and no more replay sessions get run.
+- ▶ **stage 2** (pairing sidecar port + GTH tape + Alpaca options-WS raw-frame recorder → two-tape replay) is
+  now the gate on the production flip: live pairing stamps codes the multileg/hygiene/ISO gates read, and the
+  GTH tape lives in the same sidecar. Flip checklist is in the spec. Founder's Rust project — pair, don't dispatch.
 
 ## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
 - ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,

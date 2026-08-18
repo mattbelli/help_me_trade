@@ -39,7 +39,7 @@ pub struct Print {
     pub nbbo: Option<(f64, f64, i64)>,
     // stamped by the sweep cycle
     pub direction: Dir,
-    pub basis: &'static str,   // "dbn_nbbo" | "none"
+    pub basis: &'static str,    // "dbn_nbbo" | "none"
     pub mid_side: &'static str, // buy | sell | unclassified | wide_spread
     pub spread_leg: bool,
     pub likely_spread: bool,
@@ -51,7 +51,12 @@ impl Print {
     }
     /// F-1: cancels / late-OOS / extended-hours codes.
     pub fn hygiene_excluded(&self) -> bool {
-        self.conditions.iter().any(|c| matches!(c.as_str(), "A" | "C" | "E" | "G" | "B" | "D" | "F" | "H" | "v"))
+        self.conditions.iter().any(|c| {
+            matches!(
+                c.as_str(),
+                "A" | "C" | "E" | "G" | "B" | "D" | "F" | "H" | "v"
+            )
+        })
     }
     /// F-2: MLET + combo codes `fghijklmnopqrs`.
     pub fn multileg(&self) -> bool {
@@ -66,7 +71,11 @@ impl Print {
         self.conditions.iter().any(|c| c == "S")
     }
     pub fn right_letter(&self) -> char {
-        if self.right.starts_with('c') { 'c' } else { 'p' }
+        if self.right.starts_with('c') {
+            'c'
+        } else {
+            'p'
+        }
     }
 }
 

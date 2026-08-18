@@ -2,7 +2,9 @@
 //! (per-occ buckets in first-seen order, stable sort by ts_ms on every
 //! `close_ready`, window 500 ms + grace 1000 ms, ≥3 exchanges or split ≥5 prints).
 
-use crate::intraday::{caveat_for_direction, expiry_month, fmt_premium, fmt_strike, right_letter, ts_ms_to_iso, Event};
+use crate::intraday::{
+    caveat_for_direction, expiry_month, fmt_premium, fmt_strike, right_letter, ts_ms_to_iso, Event,
+};
 use crate::print::{is_index_megacap, Dir, Print};
 use crate::pyfmt::{int_commas, py_sum};
 use std::collections::BTreeSet;
@@ -48,7 +50,11 @@ fn cluster_direction(prints: &[&Print], premium: f64) -> (Dir, &'static str) {
 }
 
 fn cluster_event(cluster: &[&Print], event_date: &str) -> Option<Event> {
-    let exchanges: BTreeSet<&str> = cluster.iter().map(|p| p.exchange.as_str()).filter(|e| !e.is_empty()).collect();
+    let exchanges: BTreeSet<&str> = cluster
+        .iter()
+        .map(|p| p.exchange.as_str())
+        .filter(|e| !e.is_empty())
+        .collect();
     let n_prints = cluster.len();
     let is_sweep = exchanges.len() >= SWEEP_MIN_EXCHANGES;
     let is_split = exchanges.len() <= 1 && n_prints >= SPLIT_MIN_PRINTS;
@@ -58,7 +64,11 @@ fn cluster_event(cluster: &[&Print], event_date: &str) -> Option<Event> {
     let first = cluster[0];
     let contracts: i64 = cluster.iter().map(|p| p.size).sum();
     let premium = py_sum(cluster.iter().map(|p| p.premium())); // Python sum() → compensated
-    let floor = if is_index_megacap(&first.underlying) { MIN_PREMIUM_INDEX_USD } else { MIN_PREMIUM_USD };
+    let floor = if is_index_megacap(&first.underlying) {
+        MIN_PREMIUM_INDEX_USD
+    } else {
+        MIN_PREMIUM_USD
+    };
     if premium < floor {
         return None;
     }
@@ -84,7 +94,10 @@ fn cluster_event(cluster: &[&Print], event_date: &str) -> Option<Event> {
         if iso_flagged { ", ISO-flagged" } else { "" },
     );
     Some(Event {
-        id: format!("of_{}_{}_{}_swp_{}", event_date, first.underlying, first.occ, anchor),
+        id: format!(
+            "of_{}_{}_{}_swp_{}",
+            event_date, first.underlying, first.occ, anchor
+        ),
         ts: ts_ms_to_iso(anchor),
         underlying: first.underlying.clone(),
         occ_symbol: first.occ.clone(),

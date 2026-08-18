@@ -19,7 +19,10 @@ pub struct Meta {
 
 /// `raw.replace(" ", "").upper()` — OSI roots never contain a space.
 pub fn occ_from_osi(raw: &str) -> String {
-    raw.chars().filter(|c| *c != ' ').flat_map(|c| c.to_uppercase()).collect()
+    raw.chars()
+        .filter(|c| *c != ' ')
+        .flat_map(|c| c.to_uppercase())
+        .collect()
 }
 
 /// `^([A-Z]{1,6})(\d{6})([CP])(\d{8})$` + date validity + strike > 0, then
@@ -110,11 +113,36 @@ mod tests {
     #[test]
     fn osi() {
         assert_eq!(occ_from_osi("IPI   261218P00050000"), "IPI261218P00050000");
-        let m = meta_from_occ("IPI261218P00050000", NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()).unwrap();
-        assert_eq!((m.underlying.as_str(), m.right, m.strike, m.expiry.as_str(), m.dte), ("IPI", "put", 50.0, "2026-12-18", 123));
-        assert!(meta_from_occ("WOLF1261218P00050000", NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()).is_none());
-        assert!(meta_from_occ("SPY260231C00500000", NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()).is_none());
-        let m = meta_from_occ("SPXW260818C06450500", NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()).unwrap();
+        let m = meta_from_occ(
+            "IPI261218P00050000",
+            NaiveDate::from_ymd_opt(2026, 8, 17).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                m.underlying.as_str(),
+                m.right,
+                m.strike,
+                m.expiry.as_str(),
+                m.dte
+            ),
+            ("IPI", "put", 50.0, "2026-12-18", 123)
+        );
+        assert!(meta_from_occ(
+            "WOLF1261218P00050000",
+            NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()
+        )
+        .is_none());
+        assert!(meta_from_occ(
+            "SPY260231C00500000",
+            NaiveDate::from_ymd_opt(2026, 8, 17).unwrap()
+        )
+        .is_none());
+        let m = meta_from_occ(
+            "SPXW260818C06450500",
+            NaiveDate::from_ymd_opt(2026, 8, 17).unwrap(),
+        )
+        .unwrap();
         assert_eq!(m.strike, 6450.5);
     }
 

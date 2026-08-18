@@ -6,7 +6,11 @@ description = "help_me_trade OPRA options-flow collector (Rust) — Databento tc
 
 [dependencies]
 dbn = { version = "0.66", default-features = true }
-clap = { version = "4", features = ["derive"] }
+databento = { version = "0.58", default-features = false, features = ["live"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net"] }
+time = "0.3"
+zstd = "0.13"
+clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"

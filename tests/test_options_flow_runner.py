@@ -83,6 +83,19 @@ def test_collector_refuses_without_pipeline_flags(monkeypatch) -> None:
     assert asyncio.run(fc.main()) == 2
 
 
+def test_collector_rust_spine_refuses_without_binary(monkeypatch, tmp_path) -> None:
+    """OPTIONS_FLOW_RUST_SPINE=1 supervises collectors/flow_rs; a missing binary
+    is a loud exit (systemd would restart-loop, but the log names the fix)."""
+    import tools.flow_collector as fc
+
+    for k in ("OPTIONS_FLOW_EXTERNAL_COLLECTOR", "OPTIONS_FLOW_ENABLED",
+              "OPTIONS_FLOW_STREAM_ENABLED", "OPTIONS_FLOW_RUST_SPINE"):
+        monkeypatch.setenv(k, "1")
+    monkeypatch.setenv("DATABENTO_API_KEY", "db-test")
+    monkeypatch.setattr(fc, "FLOW_RS_BIN", tmp_path / "flow_rs")
+    assert asyncio.run(fc.main()) == 2
+
+
 def test_collector_watchlist_symbols_uses_flow_list_pinned_first(monkeypatch) -> None:
     # The collector sources the dedicated "flow" list (pinned-first) via the
     # settings-cache-dropping fresh variant — 07-22 flow-list round.

@@ -19,7 +19,11 @@ pub fn fixed(x: f64, nd: usize) -> String {
 pub fn int_commas(n: i64) -> String {
     let s = n.abs().to_string();
     let g = group_thousands(&s);
-    if n < 0 { format!("-{g}") } else { g }
+    if n < 0 {
+        format!("-{g}")
+    } else {
+        g
+    }
 }
 
 fn group_thousands(digits: &str) -> String {
@@ -49,7 +53,11 @@ pub fn py_repr(x: f64) -> String {
         return py_repr_exp(x);
     }
     let s = format!("{x}");
-    if s.contains('.') { s } else { format!("{s}.0") }
+    if s.contains('.') {
+        s
+    } else {
+        format!("{s}.0")
+    }
 }
 
 fn py_repr_exp(x: f64) -> String {
@@ -97,7 +105,14 @@ fn civil(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let (y, m, d) = civil_from_days(days);
-    (y, m, d, (rem / 3600) as u32, ((rem % 3600) / 60) as u32, (rem % 60) as u32)
+    (
+        y,
+        m,
+        d,
+        (rem / 3600) as u32,
+        ((rem % 3600) / 60) as u32,
+        (rem % 60) as u32,
+    )
 }
 
 // Howard Hinnant's days→civil.
@@ -130,9 +145,11 @@ mod tests {
     #[test]
     fn iso() {
         assert_eq!(iso_from_unix(1_755_525_600.0), "2025-08-18T14:00:00+00:00");
-        assert_eq!(iso_from_unix(1_755_525_600.5), "2025-08-18T14:00:00.500000+00:00");
+        assert_eq!(
+            iso_from_unix(1_755_525_600.5),
+            "2025-08-18T14:00:00.500000+00:00"
+        );
     }
-
 }
 
 /// Python `f"{x:g}"` (precision 6): shortest of fixed/exponent with trailing

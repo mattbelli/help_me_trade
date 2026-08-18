@@ -18,12 +18,22 @@ impl Db {
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        for t in ["options_flow_events", "bus_ingest_sequences", "index_pressure_minutes", "index_pressure_days"] {
+        for t in [
+            "options_flow_events",
+            "bus_ingest_sequences",
+            "index_pressure_minutes",
+            "index_pressure_days",
+        ] {
             let ok: Option<i64> = conn
-                .query_row("SELECT 1 FROM sqlite_master WHERE name=?1", [t], |r| r.get(0))
+                .query_row("SELECT 1 FROM sqlite_master WHERE name=?1", [t], |r| {
+                    r.get(0)
+                })
                 .optional()?;
             if ok.is_none() {
-                bail!("table {t} missing in {} — run: .venv/bin/python tools/flow_db_init.py <db>", path.display());
+                bail!(
+                    "table {t} missing in {} — run: .venv/bin/python tools/flow_db_init.py <db>",
+                    path.display()
+                );
             }
         }
         Ok(Self { conn })
@@ -31,22 +41,40 @@ impl Db {
 
     /// Row counts for the summary line (same numbers the Python replay prints).
     pub fn counts(&self) -> Result<(Vec<(String, i64)>, i64)> {
-        let mut stmt = self.conn.prepare("SELECT event_type, COUNT(*) FROM options_flow_events GROUP BY 1 ORDER BY 1")?;
-        let ev = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?.collect::<std::result::Result<Vec<_>, _>>()?;
-        let minutes: i64 = self.conn.query_row("SELECT COUNT(*) FROM index_pressure_minutes", [], |r| r.get(0))?;
+        let mut stmt = self.conn.prepare(
+            "SELECT event_type, COUNT(*) FROM options_flow_events GROUP BY 1 ORDER BY 1",
+        )?;
+        let ev = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let minutes: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM index_pressure_minutes", [], |r| {
+                    r.get(0)
+                })?;
         Ok((ev, minutes))
     }
 
     /// `insert_event` for a batch, one transaction (Python commits per event;
     /// the rows are identical, only the fsync count differs).
-    pub fn insert_events(&mut self, events: &[Event], minutes_into_session: impl Fn(&str) -> Option<i64>) -> Result<()> {
+    pub fn insert_events(
+        &mut self,
+        events: &[Event],
+        minutes_into_session: impl Fn(&str) -> Option<i64>,
+    ) -> Result<()> {
         if events.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for ev in events {
             let existing: Option<Option<i64>> = tx
-                .query_row("SELECT ingest_seq FROM options_flow_events WHERE id = ?1", [&ev.id], |r| r.get(0))
+                .query_row(
+                    "SELECT ingest_seq FROM options_flow_events WHERE id = ?1",
+                    [&ev.id],
+                    |r| r.get(0),
+                )
                 .optional()?;
             let ingest_seq: i64 = match existing {
                 Some(Some(seq)) => seq,
@@ -133,7 +161,11 @@ impl Db {
         Ok(())
     }
 
-    pub fn upsert_minutes(&mut self, rows: &[(String, String, i64, f64, f64, f64, i64, Option<String>)], window: &str) -> Result<()> {
+    pub fn upsert_minutes(
+        &mut self,
+        rows: &[(String, String, i64, f64, f64, f64, i64, Option<String>)],
+        window: &str,
+    ) -> Result<()> {
         if rows.is_empty() {
             return Ok(());
         }
@@ -202,7 +234,16 @@ impl Db {
                 finalized_at = COALESCE(
                     index_pressure_days.finalized_at, excluded.finalized_at
                 )",
-            params![date, window, session_type, minutes_observed, syms, coverage_modes, writer_pid, finalized_at],
+            params![
+                date,
+                window,
+                session_type,
+                minutes_observed,
+                syms,
+                coverage_modes,
+                writer_pid,
+                finalized_at
+            ],
         )?;
         Ok(())
     }

@@ -37,8 +37,8 @@ struct SmallSide {
     buy_prem: f64,
     sell_prem: f64,
     ts_ms: Vec<i64>,
-    sizes: Vec<(i64, i64)>,          // clip size → count, first-seen order
-    contracts: Vec<(String, f64)>,   // occ → prem, first-seen order
+    sizes: Vec<(i64, i64)>,        // clip size → count, first-seen order
+    contracts: Vec<(String, f64)>, // occ → prem, first-seen order
 }
 
 #[derive(Default)]
@@ -68,7 +68,10 @@ pub struct RollingFlow {
 
 impl RollingFlow {
     pub fn new() -> Self {
-        Self { classified_basis: "none", ..Default::default() }
+        Self {
+            classified_basis: "none",
+            ..Default::default()
+        }
     }
 
     pub fn add_print(&mut self, p: &Print) {
@@ -106,7 +109,8 @@ impl RollingFlow {
             None => {
                 sym.buckets.push((minute, Bucket::default()));
                 // _evict: drop minutes < now_minute - WINDOW_BUCKETS - 1 (called only on a new bucket)
-                sym.buckets.retain(|(m, _)| *m >= minute - WINDOW_BUCKETS - 1);
+                sym.buckets
+                    .retain(|(m, _)| *m >= minute - WINDOW_BUCKETS - 1);
                 sym.buckets.iter().position(|(m, _)| *m == minute).unwrap()
             }
         };
@@ -120,11 +124,19 @@ impl RollingFlow {
         match p.direction {
             Dir::Buy => {
                 b.buy += prem;
-                if right == 'c' { b.call_net += prem } else if right == 'p' { b.put_net += prem }
+                if right == 'c' {
+                    b.call_net += prem
+                } else if right == 'p' {
+                    b.put_net += prem
+                }
             }
             Dir::Sell => {
                 b.sell += prem;
-                if right == 'c' { b.call_net -= prem } else if right == 'p' { b.put_net -= prem }
+                if right == 'c' {
+                    b.call_net -= prem
+                } else if right == 'p' {
+                    b.put_net -= prem
+                }
             }
             Dir::Undetermined => {}
         }
@@ -169,7 +181,10 @@ impl RollingFlow {
     }
 
     fn event_date(now_ms: i64) -> String {
-        chrono::DateTime::from_timestamp(now_ms.div_euclid(1000), 0).unwrap().format("%Y-%m-%d").to_string()
+        chrono::DateTime::from_timestamp(now_ms.div_euclid(1000), 0)
+            .unwrap()
+            .format("%Y-%m-%d")
+            .to_string()
     }
 
     pub fn check_bursts(&mut self, now_ms: i64) -> Vec<Event> {
@@ -193,9 +208,15 @@ impl RollingFlow {
             let classified_frac = classified / gross;
             let net = buy - sell;
             let is_index = is_index_megacap(sym_name);
-            let sided_floor = if is_index { BURST_INDEX_MIN_USD } else { BURST_SIDED_MIN_USD };
+            let sided_floor = if is_index {
+                BURST_INDEX_MIN_USD
+            } else {
+                BURST_SIDED_MIN_USD
+            };
             let sided = classified_frac >= BURST_SIDED_MIN_CLASSIFIED && net.abs() >= sided_floor;
-            let unsigned = !is_index && classified_frac < BURST_SIDED_MIN_CLASSIFIED && gross >= BURST_UNSIGNED_MIN_USD;
+            let unsigned = !is_index
+                && classified_frac < BURST_SIDED_MIN_CLASSIFIED
+                && gross >= BURST_UNSIGNED_MIN_USD;
             if !(sided || unsigned) {
                 continue;
             }
@@ -241,7 +262,12 @@ impl RollingFlow {
                 "put_net": round_nd(put_net, 2),
             });
             out.push(Event {
-                id: format!("of_{}_{}_burst_{}", event_date, sym_name, now_ms.div_euclid(BUCKET_MS)),
+                id: format!(
+                    "of_{}_{}_burst_{}",
+                    event_date,
+                    sym_name,
+                    now_ms.div_euclid(BUCKET_MS)
+                ),
                 ts: ts_ms_to_iso(now_ms),
                 underlying: sym_name.clone(),
                 occ_symbol: String::new(),
@@ -274,7 +300,11 @@ impl RollingFlow {
                 continue;
             }
             let is_index = is_index_megacap(sym_name);
-            let floor = if is_index { CLUSTER_INDEX_MIN_AGG_USD } else { CLUSTER_MIN_AGG_USD };
+            let floor = if is_index {
+                CLUSTER_INDEX_MIN_AGG_USD
+            } else {
+                CLUSTER_MIN_AGG_USD
+            };
             for right in ['c', 'p'] {
                 let mut agg = 0.0f64;
                 let mut n = 0i64;
@@ -284,7 +314,9 @@ impl RollingFlow {
                 let mut sizes: Vec<(i64, i64)> = Vec::new();
                 let mut contracts: Vec<(&str, f64)> = Vec::new();
                 for b in &win {
-                    let Some((_, s)) = b.small.iter().find(|(r, _)| *r == right) else { continue };
+                    let Some((_, s)) = b.small.iter().find(|(r, _)| *r == right) else {
+                        continue;
+                    };
                     agg += s.prem;
                     n += s.n;
                     buy_prem += s.buy_prem;
@@ -320,18 +352,27 @@ impl RollingFlow {
                     0.0
                 };
                 let top_contract_share = if !contracts.is_empty() && agg > 0.0 {
-                    contracts.iter().map(|(_, v)| *v).fold(f64::NEG_INFINITY, f64::max) / agg
+                    contracts
+                        .iter()
+                        .map(|(_, v)| *v)
+                        .fold(f64::NEG_INFINITY, f64::max)
+                        / agg
                 } else {
                     0.0
                 };
                 let mut cv: Option<f64> = None;
                 if ts_all.len() >= 3 {
                     ts_all.sort();
-                    let gaps: Vec<i64> = ts_all.windows(2).filter(|w| w[1] > w[0]).map(|w| w[1] - w[0]).collect();
+                    let gaps: Vec<i64> = ts_all
+                        .windows(2)
+                        .filter(|w| w[1] > w[0])
+                        .map(|w| w[1] - w[0])
+                        .collect();
                     if gaps.len() >= 2 {
                         let mean = gaps.iter().sum::<i64>() as f64 / gaps.len() as f64;
                         if mean > 0.0 {
-                            let var = py_sum(gaps.iter().map(|g| (*g as f64 - mean).powf(2.0))) / gaps.len() as f64;
+                            let var = py_sum(gaps.iter().map(|g| (*g as f64 - mean).powf(2.0)))
+                                / gaps.len() as f64;
                             cv = Some(var.sqrt() / mean);
                         }
                     }
@@ -340,7 +381,10 @@ impl RollingFlow {
                 let classified_frac = if agg > 0.0 { classified / agg } else { 0.0 };
                 let net = buy_prem - sell_prem;
                 let (side, basis) = if classified_frac >= 0.5 && net != 0.0 {
-                    (if net > 0.0 { Dir::Buy } else { Dir::Sell }, self.classified_basis)
+                    (
+                        if net > 0.0 { Dir::Buy } else { Dir::Sell },
+                        self.classified_basis,
+                    )
                 } else {
                     (Dir::Undetermined, "none")
                 };
@@ -354,14 +398,25 @@ impl RollingFlow {
                 };
                 let mut reason = format!(
                     "{}: {} of {} in {} prints < {} over {} min",
-                    sym_name, fmt_usd(agg), word, n, fmt_usd(CLUSTER_PRINT_MAX_USD), span_min
+                    sym_name,
+                    fmt_usd(agg),
+                    word,
+                    n,
+                    fmt_usd(CLUSTER_PRINT_MAX_USD),
+                    span_min
                 );
                 if modal_share >= 0.5 {
-                    reason.push_str(&format!(", {}% at one clip size", py_int(modal_share * 100.0)));
+                    reason.push_str(&format!(
+                        ", {}% at one clip size",
+                        py_int(modal_share * 100.0)
+                    ));
                 }
                 let mut caveat = "aggregate of many small prints; cannot distinguish coordinated slicing from a coincident retail crowd".to_string();
                 if side != Dir::Undetermined {
-                    caveat.push_str(&format!("; side classified on {}% of premium", py_int(classified_frac * 100.0)));
+                    caveat.push_str(&format!(
+                        "; side classified on {}% of premium",
+                        py_int(classified_frac * 100.0)
+                    ));
                 } else {
                     caveat.push_str("; aggressor side unknown");
                 }
@@ -377,7 +432,13 @@ impl RollingFlow {
                     "n_contracts": contracts.len(),
                 });
                 out.push(Event {
-                    id: format!("of_{}_{}_{}_cluster_{}", event_date, sym_name, right, now_ms.div_euclid(BUCKET_MS)),
+                    id: format!(
+                        "of_{}_{}_{}_cluster_{}",
+                        event_date,
+                        sym_name,
+                        right,
+                        now_ms.div_euclid(BUCKET_MS)
+                    ),
                     ts: ts_ms_to_iso(now_ms),
                     underlying: sym_name.clone(),
                     occ_symbol: String::new(),
