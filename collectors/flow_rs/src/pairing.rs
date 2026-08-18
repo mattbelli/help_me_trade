@@ -251,6 +251,8 @@ pub struct Pairing {
     a_roots: HashMap<String, u64>,
     d_lags_ms: Vec<f64>,
     a_lags_ms: Vec<f64>,
+    /// (written, dropped_non_session) — mirrored in by the sidecar's housekeeping for the snapshot.
+    pub gth_stats: (u64, u64),
 }
 
 impl Default for Pairing {
@@ -281,6 +283,7 @@ impl Pairing {
             a_roots: HashMap::new(),
             d_lags_ms: Vec::new(),
             a_lags_ms: Vec::new(),
+            gth_stats: (0, 0),
         }
     }
 
@@ -397,6 +400,24 @@ impl Pairing {
         self.attached.clear();
         self.resolved.clear();
         dropped
+    }
+
+    /// Counters for the UI snapshot (no side effects; the lag windows belong to the 60 s line).
+    pub fn snapshot_json(&self, gth: (u64, u64)) -> serde_json::Value {
+        let m = &self.m;
+        let resolved = m.matched + m.tolerance_rejects + m.expired + m.evicted;
+        serde_json::json!({
+            "dbn_seen": self.dbn_seen, "alp_seen": self.alp_seen,
+            "matched": m.matched, "resolved": resolved,
+            "matched_pct": if resolved > 0 { (10000.0 * m.matched as f64 / resolved as f64).round() / 100.0 } else { 0.0 },
+            "enriched": self.enriched, "repairs": self.repairs_queued,
+            "tolerance": m.tolerance_rejects, "expired": m.expired, "evicted": m.evicted,
+            "late_twin": m.cond_after_expiry, "orphans": m.alpaca_orphans,
+            "enrich_buckets": { "le10ms": self.enrich_buckets[0], "le100ms": self.enrich_buckets[1], "le1s": self.enrich_buckets[2], "le10s": self.enrich_buckets[3], "gt10s": self.enrich_buckets[4] },
+            "pending_dbn": m.pending_dbn, "pending_alpaca": m.pending_alpaca, "keys_peak": m.keys_peak,
+            "acked_wide": self.acked_wide, "resets": self.matcher_resets, "reconnects": self.reconnects,
+            "gth_written": gth.0, "gth_dropped": gth.1,
+        })
     }
 
     pub fn stats_line(&mut self, gth: (u64, u64), rss_mb: f64) -> String {

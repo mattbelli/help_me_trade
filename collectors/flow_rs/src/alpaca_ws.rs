@@ -279,6 +279,9 @@ fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_s
     let line = {
         let mut p = pairing.lock().unwrap();
         p.sweep(now);
+        if let Some(g) = gth.as_ref() {
+            p.gth_stats = (g.written, g.dropped_non_session);
+        }
         if stats_due {
             let g = gth.as_ref().map(|g| (g.written, g.dropped_non_session)).unwrap_or((0, 0));
             Some(p.stats_line(g, rss_mb()))

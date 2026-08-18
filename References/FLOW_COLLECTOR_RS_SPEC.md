@@ -212,6 +212,12 @@ freezes the detector code into a second language. The flow science ledger says e
 o-sign Amendment 1 is CLOSED, so the detectors are as stable as they will get; if a new detector
 program opens, build it on the tape (stage 0) first, port second.
 
+## UI snapshot
+`flow_rs live` writes `data/collector_stats/flow.json` every second (`--stats-dir`; `src/stats.rs`, same
+module as equity_rs): prints/min + rate now, wire-lag (arrival − ts_recv) p50/p90/p95/p99 now + ET day,
+per-minute series, control-plane counters, feed_state, and the pairing block (matched %, enrich buckets,
+pending, resets, GTH). `GET /api/collectors/stats` serves it; the toolbar **OPRA** chip renders it.
+
 ## Ops invariants carried over
 - ONE Databento live session; ONE Alpaca options WS per account — `flow_rs` runs **instead of**
   `hmt-flow-collector`, same interlock flag; never both.

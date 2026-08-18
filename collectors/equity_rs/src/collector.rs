@@ -11,6 +11,7 @@ use crate::msg::{as_f64, as_i64, field, str_field, to_json, ts_to_iso, ts_to_ms}
 use crate::proxy::{Proxy, CH_BARS, CH_DAILY, CH_QUOTES, CH_TRADES, CH_UPDATED};
 use crate::pyfmt::py_repr;
 use crate::record::Recorder;
+use crate::stats::{LagHist, MinuteSeries, SnapshotWriter};
 use rmpv::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -49,6 +50,16 @@ pub struct Collector {
     pub reconnects: u64,
     lag_samples: Vec<f64>,
     lag_tick: u64,
+    // UI snapshot (stats.rs): last-second + ET-day latency histograms, per-minute series
+    sec_hist: LagHist,
+    day_hist: LagHist,
+    minutes: MinuteSeries,
+    day: Option<chrono::NaiveDate>,
+    sec_ring: [u64; 60],
+    ring_pos: usize,
+    last_snap_total: u64,
+    started_wall: f64,
+    pub snapshot: Option<SnapshotWriter>,
 }
 
 impl Collector {
@@ -80,6 +91,15 @@ impl Collector {
             reconnects: 0,
             lag_samples: Vec::with_capacity(8192),
             lag_tick: 0,
+            sec_hist: LagHist::default(),
+            day_hist: LagHist::default(),
+            minutes: MinuteSeries::default(),
+            day: None,
+            sec_ring: [0; 60],
+            ring_pos: 0,
+            last_snap_total: 0,
+            started_wall: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0),
+            snapshot: None,
         }
     }
 
@@ -186,10 +206,63 @@ impl Collector {
             return;
         }
         if let Some(ts) = ts_to_ms(field(m, "t")) {
+            let lag = now_ms - ts;
             if self.lag_samples.len() < 8192 {
-                self.lag_samples.push(now_ms - ts);
+                self.lag_samples.push(lag);
             }
+            self.sec_hist.add(lag);
+            self.day_hist.add(lag);
         }
+    }
+
+    /// Once a second (live): the UI snapshot — rates, latency now + today, counters.
+    pub fn write_snapshot(&mut self) {
+        let Some(w) = self.snapshot.as_mut() else { return };
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+        let now_s = now.floor() as i64;
+        let et_day = chrono::TimeZone::timestamp_opt(&chrono_tz::America::New_York, now_s, 0).single().map(|d| chrono::Datelike::num_days_from_ce(&d));
+        let et_day = et_day.map(|n| chrono::NaiveDate::from_num_days_from_ce_opt(n).unwrap());
+        if et_day != self.day {
+            self.day = et_day;
+            self.day_hist.reset();
+            self.minutes.reset();
+        }
+        let total: u64 = self.msgs.values().sum();
+        let this_sec = total.saturating_sub(self.last_snap_total);
+        self.last_snap_total = total;
+        self.sec_ring[self.ring_pos] = this_sec;
+        self.ring_pos = (self.ring_pos + 1) % 60;
+        let rate_60: f64 = self.sec_ring.iter().sum::<u64>() as f64 / 60.0;
+        self.minutes.observe(now_s, this_sec, &self.sec_hist);
+        let by_type: serde_json::Map<String, serde_json::Value> =
+            self.msgs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(*v))).collect();
+        let v = serde_json::json!({
+            "name": "equity",
+            "ts": now,
+            "pid": std::process::id(),
+            "uptime_s": (now - self.started_wall).round(),
+            "connected": self.proxy.upstream_healthy(),
+            "msgs_total": total,
+            "rate_1s": this_sec,
+            "rate_60s": (rate_60 * 10.0).round() / 10.0,
+            "by_type": by_type,
+            "lag_ms": { "now": self.sec_hist.json(), "day": self.day_hist.json() },
+            "minutes": self.minutes.json(),
+            "events": { "persisted": self.persisted, "sweeps": self.sweeps.emitted, "velocity": self.velocity.emitted,
+                        "spots": self.spots_flushed, "bars_rows": self.bars.rows_flushed },
+            "proxy": { "clients": self.proxy.client_count(), "subs_trades": self.proxy.union_size(CH_TRADES),
+                       "subs_quotes": self.proxy.union_size(CH_QUOTES), "subs_daily": self.proxy.union_size(CH_DAILY),
+                       "drops": self.proxy.total_drops.load(std::sync::atomic::Ordering::Relaxed) },
+            "recorder": self.recorder.as_ref().map(|r| serde_json::json!({
+                "frames": r.frames.load(std::sync::atomic::Ordering::Relaxed),
+                "drops": r.drops.load(std::sync::atomic::Ordering::Relaxed) })),
+            "reconnects": self.reconnects,
+            "vendor_errors": self.vendor_errors,
+            "frames": self.frames,
+            "rss_mb": rss_mb(),
+        });
+        w.write(&v);
+        self.sec_hist.reset();
     }
 
     pub fn lag_percentiles(&mut self) -> (f64, f64) {
@@ -369,4 +442,12 @@ impl Collector {
             if wideners.is_empty() { "-".to_string() } else { wideners.join(", ") },
         )
     }
+}
+
+fn rss_mb() -> f64 {
+    std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|s| s.split_whitespace().nth(1).and_then(|p| p.parse::<f64>().ok()))
+        .map(|pages| (pages * 4096.0 / 1e6 * 10.0).round() / 10.0)
+        .unwrap_or(0.0)
 }

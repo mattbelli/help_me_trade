@@ -18,6 +18,7 @@ mod msg;
 mod proxy;
 mod pyfmt;
 mod record;
+mod stats;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
@@ -60,6 +61,9 @@ struct Args {
     /// Our own store for the per-symbol 5-min bars (the abnormality sidecar's input).
     #[arg(long, default_value = "data/equity_bars_5min.db")]
     bars_db: PathBuf,
+    /// UI stats snapshot dir (default: <db dir>/collector_stats) — equity.json every second.
+    #[arg(long)]
+    stats_dir: Option<PathBuf>,
     /// Tee every raw frame to <dir>/<ET date>.mpk.zst (live only; same file
     /// format as the Python recorder). Env EQUITY_TAPE_RECORD_DIR, like Python.
     #[arg(long, env = "EQUITY_TAPE_RECORD_DIR")]
@@ -89,6 +93,13 @@ async fn main() -> Result<()> {
         })
     };
     let mut col = Collector::new(args.replay, args.profile_dir.clone(), proxy.clone(), writer);
+    if !args.replay {
+        let dir = args.stats_dir.clone().unwrap_or_else(|| args.db.parent().map(|d| d.join("collector_stats")).unwrap_or_else(|| PathBuf::from("data/collector_stats")));
+        match stats::SnapshotWriter::new(&dir, "equity") {
+            Ok(w) => col.snapshot = Some(w),
+            Err(e) => eprintln!("stats snapshot: {} unavailable ({e}) — running without", dir.display()),
+        }
+    }
     if let (Some(dir), false) = (&args.record_dir, args.replay) {
         col.recorder = Some(record::Recorder::start(dir.clone()).with_context(|| format!("recorder {}", dir.display()))?);
         eprintln!("equity tape recorder ON → {}", dir.display());
@@ -263,6 +274,7 @@ async fn session(
             _ = bars_tick.tick(), if !args.replay => {
                 let now = col.now_ms();
                 col.flush_bars(now);
+                col.write_snapshot();
             }
             _ = stats_tick.tick() => {
                 eprintln!("{}", col.stats_line(STATS_INTERVAL_S as f64, last_total));

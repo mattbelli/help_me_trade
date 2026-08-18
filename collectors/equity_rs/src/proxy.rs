@@ -92,6 +92,10 @@ impl Proxy {
         self.healthy_tx.send_replace(healthy);
     }
 
+    pub fn upstream_healthy(&self) -> bool {
+        *self.healthy_tx.borrow()
+    }
+
     fn rebuild_unions(&self) {
         let mut unions: Subs = Default::default();
         {

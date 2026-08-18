@@ -43,6 +43,8 @@ pub struct LiveArgs {
     pub record: Option<std::path::PathBuf>,
     /// Condition-code pairing sidecar (Alpaca wildcard trades) — None = codes stay empty.
     pub sidecar: Option<crate::alpaca_ws::SidecarArgs>,
+    /// UI stats snapshot dir (`flow.json` every second); None = off.
+    pub stats_dir: Option<std::path::PathBuf>,
 }
 
 /// Raw-record tee: the session's records in DBN, as the gateway sent them.
@@ -460,6 +462,21 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
     let deadline = args.for_secs.map(|s| t0 + Duration::from_secs(s));
     let mut live = FeedLiveness::new(0.0);
     let mut c = Counters::default();
+    // UI snapshot (stats.rs): wire lag (arrival − ts_recv) now + today, per-minute series
+    let mut snap = args.stats_dir.as_ref().and_then(|d| match crate::stats::SnapshotWriter::new(d, "flow") {
+        Ok(w) => Some(w),
+        Err(e) => { eprintln!("stats snapshot: {} unavailable ({e}) — running without", d.display()); None }
+    });
+    let mut sec_hist = crate::stats::LagHist::default();
+    let mut day_hist = crate::stats::LagHist::default();
+    let mut minutes = crate::stats::MinuteSeries::default();
+    let mut snap_day: Option<chrono::NaiveDate> = None;
+    let mut sec_ring = [0u64; 60];
+    let mut ring_pos = 0usize;
+    let mut last_snap_prints: u64 = 0;
+    let mut lag_tick: u64 = 0;
+    let mut stalled_s: f64;
+    let started_wall = wall();
     let mut exit_code = 0;
     let mut dead: Option<String> = None;
 
@@ -484,11 +501,51 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                         exit_code = 1;
                         break 'main;
                     }
-                    Ok(Some(stalled)) => eprintln!(
+                    Ok(Some(stalled)) => {
+                        stalled_s = stalled;
+                        eprintln!(
                         "dbn live: records flowing but NO prints for {stalled:.0}s during RTH (data_msgs={} unresolved_symbols={} skipped_no_meta={}). The socket is alive and the pipeline is not — check symbology and meta, not the connection.",
                         c.data_msgs, runner.stats.unresolved_symbols, runner.stats.skipped_no_meta
-                    ),
-                    Ok(None) => {}
+                    )},
+                    Ok(None) => { stalled_s = 0.0; }
+                }
+                if let Some(w) = snap.as_mut() {
+                    let now_s = now.floor() as i64;
+                    let et_day = Some(now_et.date_naive());
+                    if et_day != snap_day { snap_day = et_day; day_hist.reset(); minutes.reset(); }
+                    let this_sec = runner.stats.prints.saturating_sub(last_snap_prints);
+                    last_snap_prints = runner.stats.prints;
+                    sec_ring[ring_pos] = this_sec;
+                    ring_pos = (ring_pos + 1) % 60;
+                    let rate_60: u64 = sec_ring.iter().sum();
+                    minutes.observe(now_s, this_sec, &sec_hist);
+                    let pairing = runner.pairing.as_ref().map(|p| { let p = p.lock().unwrap(); p.snapshot_json(p.gth_stats) });
+                    let v = serde_json::json!({
+                        "name": "flow",
+                        "ts": now,
+                        "pid": std::process::id(),
+                        "uptime_s": (now - started_wall).round(),
+                        "connected": c.acks > 0,
+                        "feed_state": if c.acks == 0 { "connecting" } else if stalled_s > 0.0 { "stalled" } else { "live" },
+                        "stalled_s": stalled_s.round(),
+                        "prints_total": runner.stats.prints,
+                        "data_msgs": c.data_msgs,
+                        "rate_1s": this_sec,
+                        "rate_60s": (rate_60 as f64 / 60.0 * 10.0).round() / 10.0,
+                        "prints_per_min": rate_60,
+                        "mapped": runner.mapped(),
+                        "lag_ms": { "now": sec_hist.json(), "day": day_hist.json() },
+                        "minutes": minutes.json(),
+                        "acks": c.acks, "slow": c.slow, "dropped": c.skipped, "unresolved_syms": c.sym_fail,
+                        "no_meta": runner.stats.skipped_no_meta,
+                        "reconnects": c.reconnects, "gap_s": (c.gap_s * 10.0).round() / 10.0,
+                        "flow_events": runner.stats.events_written, "minute_rows": runner.stats.minute_rows_written,
+                        "coded": runner.stats.prints_coded, "repairs": runner.stats.repairs_applied,
+                        "pairing": pairing,
+                        "rss_mb": rss_mb(),
+                    });
+                    w.write(&v);
+                    sec_hist.reset();
                 }
                 if let Some(rate) = live.take_rate(mono) {
                     if open || args.replay_from.is_some() {
@@ -510,6 +567,12 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                         c.data_msgs += 1;
                         if c.data_msgs == 1 {
                             eprintln!("dbn live: first data record ts_recv={} ({})", ts_recv, crate::pyfmt::iso_from_unix(ts_recv as f64 / 1e9));
+                        }
+                        lag_tick += 1;
+                        if lag_tick % 16 == 0 {
+                            let lag = wall() * 1000.0 - ts_recv as f64 / 1e6;
+                            sec_hist.add(lag);
+                            day_hist.add(lag);
                         }
                         let today = today_et(wall().floor() as i64);
                         runner.on_record(instrument_id, ts_event, ts_recv, price, size, publisher_id, bid_px, ask_px, today);
@@ -562,4 +625,12 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
         t0.elapsed().as_secs_f64(), c.data_msgs, runner.stats.prints, runner.mapped(), c.acks, c.slow, c.reconnects, events, minutes, exit_code
     );
     Ok(exit_code)
+}
+
+fn rss_mb() -> f64 {
+    std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|s| s.split_whitespace().nth(1).and_then(|p| p.parse::<f64>().ok()))
+        .map(|pages| (pages * 4096.0 / 1e6 * 10.0).round() / 10.0)
+        .unwrap_or(0.0)
 }

@@ -144,3 +144,6 @@ ones** — the hub must see the outage. (`signals/equity_stream/proxy.py`.)
 - Toolchain: rustup in `~/.cargo` (user-local, no sudo); `cargo build --release` in
   `collectors/equity_rs/`. `target/` is gitignored.
 - Stats line every 60s like the Python one (msgs/s by type, lag p50/p95, events, proxy clients/drops).
+- **UI snapshot (`src/stats.rs`)**: `data/collector_stats/equity.json` every second (`--stats-dir`) — rate,
+  latency p50/p90/p95/p99 now + ET day (log-spaced histogram), per-minute series, counters. Served by
+  `GET /api/collectors/stats`; the toolbar SIP chip's dropdown renders it (`feed-stats-panel.tsx`).

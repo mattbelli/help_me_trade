@@ -8,6 +8,11 @@ import { useSnapshot } from "@/components/providers/snapshot-provider";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { StandInMark } from "@/components/workspace/stand-in-mark";
 import {
+  EquityFeedPanel,
+  FlowFeedPanel,
+  useCollectorStats,
+} from "@/components/workspace/feed-stats-panel";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
@@ -219,6 +224,11 @@ export function WorkspaceToolbar() {
   const [paperMode, setPaperMode] = useState<boolean | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [feedRechecking, setFeedRechecking] = useState(false);
+  const [opraOpen, setOpraOpen] = useState(false);
+  // Live collector stats: polled once a second, only while a feed dropdown is open.
+  const { stats: collectorStats } = useCollectorStats(brokerOpen || opraOpen);
+  const flowSnap = collectorStats?.flow ?? null;
+  const flowLive = !!flowSnap && !flowSnap.stale && flowSnap.connected;
 
   const broker =
     snapshot?.primary_broker ??
@@ -469,7 +479,7 @@ export function WorkspaceToolbar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-64 border-[var(--border)] bg-[var(--panel)] p-3 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
+            className="w-72 border-[var(--border)] bg-[var(--panel)] p-3 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
           >
             {detailsLoading ? (
               <p className="text-[var(--fg-dim)]">Loading…</p>
@@ -579,8 +589,38 @@ export function WorkspaceToolbar() {
                       : "No snapshot yet"}
                   </dd>
                 </div>
+                <div className="border-t border-[var(--border)] pt-2">
+                  <EquityFeedPanel snap={collectorStats?.equity ?? null} />
+                </div>
               </dl>
             )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu open={opraOpen} onOpenChange={setOpraOpen}>
+          <DropdownMenuTrigger
+            className="inline-flex cursor-pointer items-center gap-2 rounded px-2.5 py-[5px] outline-none transition-colors hover:bg-[var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
+            title="Databento OPRA · options flow collector (Rust)"
+          >
+            <span
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                flowLive
+                  ? "bg-[var(--c-green-bg)] shadow-[0_0_8px_var(--c-green-bg)]"
+                  : collectorStats
+                    ? "bg-[var(--c-red)]"
+                    : "bg-[var(--fg-faint)]",
+              )}
+            />
+            <span className="font-mono text-[length:var(--fs-body)] font-bold tracking-[0.08em] text-[var(--c-accent)] uppercase">
+              OPRA
+            </span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-72 border-[var(--border)] bg-[var(--panel)] p-3 font-mono text-[length:var(--fs-body)] text-foreground shadow-[var(--panel-shadow)]"
+          >
+            <FlowFeedPanel snap={flowSnap} />
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

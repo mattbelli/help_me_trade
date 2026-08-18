@@ -17,6 +17,7 @@ mod rolling;
 mod pairing;
 mod record;
 mod runner;
+mod stats;
 mod sweeps;
 
 use anyhow::{Context, Result};
@@ -78,6 +79,9 @@ struct LiveCli {
     alpaca_key: String,
     #[arg(long, env = "APCA_API_SECRET_KEY", default_value = "", hide_env_values = true)]
     alpaca_secret: String,
+    /// UI stats snapshot dir (default: <db dir>/collector_stats) — flow.json every second.
+    #[arg(long)]
+    stats_dir: Option<PathBuf>,
     /// GTH tape dir (overnight index prints off the Alpaca lane; default <db dir>/gth_tape)
     #[arg(long)]
     gth_dir: Option<PathBuf>,
@@ -180,6 +184,9 @@ fn main() -> Result<()> {
                     for_secs: args.for_secs,
                     record: args.record,
                     sidecar,
+                    stats_dir: Some(args.stats_dir.clone().unwrap_or_else(|| {
+                        args.db.parent().map(|d| d.join("collector_stats")).unwrap_or_else(|| PathBuf::from("data/collector_stats"))
+                    })),
                 },
             )?;
             std::process::exit(code);

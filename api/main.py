@@ -33,6 +33,7 @@ from api.auth import (
 )
 from api.background_jobs import _NEWS_STREAM_ENABLED, _register_background_jobs
 from api.bars_routes import router as bars_router
+from api.collector_routes import router as collector_router
 from api.device_routes import router as device_router
 from api.earnings_jobs import _earnings_refresh_loop, _earnings_release_loop
 from api.fill_orphan_routes import router as fill_orphan_router
@@ -328,6 +329,7 @@ app.include_router(reports_router)
 app.include_router(bars_router)
 app.include_router(scanner_router)
 app.include_router(flow_router)
+app.include_router(collector_router)
 app.include_router(watchlist_router)
 
 app.add_middleware(SecurityMiddleware)

@@ -2433,3 +2433,108 @@ export async function fetchLabJobs(): Promise<LabJobHealth[]> {
   const body = (await res.json()) as { jobs?: LabJobHealth[] };
   return body.jobs ?? [];
 }
+
+// --- collector stats (the toolbar feed panels) ---------------------------------------------
+
+export type CollectorLag = {
+  n: number;
+  p50: number | null;
+  p90: number | null;
+  p95: number | null;
+  p99: number | null;
+  max: number | null;
+};
+
+/** One Rust collector's 1 s snapshot (`data/collector_stats/<name>.json`). */
+export type CollectorSnapshot = {
+  name: "equity" | "flow";
+  ts: number;
+  age_s: number | null;
+  stale: boolean;
+  pid: number;
+  uptime_s: number;
+  connected: boolean;
+  rate_1s: number;
+  rate_60s: number;
+  lag_ms: { now: CollectorLag; day: CollectorLag };
+  /** [epoch_min, msgs/s, lag p95 ms|null] per closed minute of the ET day */
+  minutes: [number, number, number | null][];
+  reconnects: number;
+  rss_mb: number;
+  // equity
+  msgs_total?: number;
+  by_type?: Record<string, number>;
+  events?: {
+    persisted: number;
+    sweeps: number;
+    velocity: number;
+    spots: number;
+    bars_rows: number;
+  };
+  proxy?: {
+    clients: number;
+    subs_trades: number;
+    subs_quotes: number;
+    subs_daily: number;
+    drops: number;
+  };
+  recorder?: { frames: number; drops: number } | null;
+  vendor_errors?: number;
+  // flow
+  feed_state?: string;
+  stalled_s?: number;
+  prints_total?: number;
+  data_msgs?: number;
+  prints_per_min?: number;
+  mapped?: number;
+  acks?: number;
+  slow?: number;
+  dropped?: number;
+  unresolved_syms?: number;
+  no_meta?: number;
+  gap_s?: number;
+  flow_events?: number;
+  minute_rows?: number;
+  coded?: number;
+  repairs?: number;
+  pairing?: {
+    dbn_seen: number;
+    alp_seen: number;
+    matched: number;
+    resolved: number;
+    matched_pct: number;
+    enriched: number;
+    repairs: number;
+    tolerance: number;
+    expired: number;
+    evicted: number;
+    late_twin: number;
+    orphans: number;
+    enrich_buckets: {
+      le10ms: number;
+      le100ms: number;
+      le1s: number;
+      le10s: number;
+      gt10s: number;
+    };
+    pending_dbn: number;
+    pending_alpaca: number;
+    keys_peak: number;
+    acked_wide: boolean;
+    resets: number;
+    reconnects: number;
+    gth_written: number;
+    gth_dropped: number;
+  } | null;
+};
+
+export type CollectorStats = {
+  equity: CollectorSnapshot | null;
+  flow: CollectorSnapshot | null;
+};
+
+export async function fetchCollectorStats(): Promise<CollectorStats> {
+  const res = await apiFetch(`${API_BASE}/api/collectors/stats`);
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
