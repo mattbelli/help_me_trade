@@ -124,6 +124,9 @@ ones** — the hub must see the outage. (`signals/equity_stream/proxy.py`.)
 ## Ops
 - One stocks socket per account (Alpaca 406s the second): the Rust collector runs **instead of**
   `hmt-equity-collector`, behind the same `EQUITY_TAPE_EXTERNAL_COLLECTOR=1` interlock. Never both.
+  **LIVE since 2026-08-18 10:33 ET:** `EQUITY_RUST_COLLECTOR=1` in `.env` makes `tools/equity_collector.py`
+  exec the binary (creds via env; no unit edit, no sudo). Rollback = flag `0` + restart. The Python-only legs
+  (abnormality + convergence, raw-frame recorder) are OFF in this mode until the row-fed sidecar.
 - Systemd unit mirrors the Python one (`WorkingDirectory` = repo, `Restart=always`).
 - Toolchain: rustup in `~/.cargo` (user-local, no sudo); `cargo build --release` in
   `collectors/equity_rs/`. `target/` is gitignored.

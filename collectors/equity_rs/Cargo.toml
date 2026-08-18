@@ -7,6 +7,9 @@ description = "help_me_trade equity tape collector (Rust) — Alpaca stocks-v2 w
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync", "net"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# wss:// live: pick the TLS crypto provider explicitly (rustls 0.23 panics at
+# connect time when none is installed — the replay harness is plain ws://).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 futures-util = "0.3"
 rmpv = "1"
 serde_json = "1"

@@ -64,6 +64,9 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    // wss:// (Alpaca live) needs a process-level TLS crypto provider; without
+    // this rustls 0.23 panics on the first TLS handshake (replay is plain ws://).
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let writer = db::Writer::open(&args.db)?;
     let (chan_tx, chan_rx) = mpsc::unbounded_channel::<ChanSyms>();
     let proxy = Proxy::new(chan_tx);

@@ -15,11 +15,14 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-18 Rust flow collector (#331) — stages 0+1+3 SHIPPED; shadow RUNNING; flip waits on stage 2
-`collectors/flow_rs/` diffs IDENTICAL against Python on the whole 08-17 tape (`tools/flow_ab.sh`);
-`flow_rs live` (Databento transport) + `signals/options_flow/backhalf.py` + the `OPTIONS_FLOW_RUST_SPINE=1`
-supervisor mode of `tools/flow_collector.py` are built and tested. Spec: `References/FLOW_COLLECTOR_RS_SPEC.md`
-("The live half"). Open:
+## ▶ 08-18 Rust flow collector (#331) — **LIVE IN PRODUCTION since 10:31 ET 08-18** (founder called the flip ahead of stage 2)
+`hmt-flow-collector` runs `OPTIONS_FLOW_RUST_SPINE=1` (flag in `.env`): `flow_rs live` owns the Databento
+socket + detectors + writes, `backhalf.py` + the poll lane run beside it. Rollback = flag `0` + kill MainPID.
+**OFF until stage 2:** condition codes (pairing shadow was 87.1% matched at stop) + the GTH tape. Spec:
+`References/FLOW_COLLECTOR_RS_SPEC.md`. Watch: the 60 s `dbn live:` line (`slow=0 reconnects=0`), the
+`options_flow backhalf:` line, `detail`/`rarity_p` filling on new sweeps; `minute_rows` only moves inside
+the open/close gauge windows (by design). ⚠️ The Python spine ignored SIGTERM at the flip (poll lane kept
+running after "flow collector stopped") — needed SIGKILL; pre-existing, only matters for rollback. Open:
 - ⏳ **transport A/B, tonight ~22:45 ET (after `opra_tcbbo/2026-08-18` lands ~02:30 UTC):** the shadow unit
   `hmt-flow-rs-shadow` (transient user unit; `journalctl --user -u hmt-flow-rs-shadow`) has been recording
   the real 08-18 session to `data/tmp_flow_shadow/2026-08-18.dbn.zst` since 23:50 ET 08-17. Run
@@ -28,12 +31,11 @@ supervisor mode of `tools/flow_collector.py` are built and tested. Spec: `Refere
   → IDENTICAL = the socket captured exactly what Databento archived. Also read the shadow's 60 s `dbn live:`
   lines through the open (mapped count, prints/min, slow=0, reconnects). Then `systemctl --user stop
   hmt-flow-rs-shadow` and delete `data/tmp_flow_shadow/`.
-- ⏳ **founder: Databento usage page** — 4 short intraday-replay sessions ran 23:30–23:50 ET 08-17 (~5M records
-  total) plus the shadow live session. The live plan is believed flat-rate but this was NEVER verified; if the
-  page shows a charge, say so and no more replay sessions get run.
-- ▶ **stage 2** (pairing sidecar port + GTH tape + Alpaca options-WS raw-frame recorder → two-tape replay) is
-  now the gate on the production flip: live pairing stamps codes the multileg/hygiene/ISO gates read, and the
-  GTH tape lives in the same sidecar. Flip checklist is in the spec. Founder's Rust project — pair, don't dispatch.
+- ✅ 08-18 founder checked the Databento usage page: **no charges** for the 4 intraday-replay sessions + the
+  shadow live session — the live plan is flat-rate (now VERIFIED, not assumed).
+- ▶ **stage 2** (pairing sidecar port + GTH tape + Alpaca options-WS raw-frame recorder → two-tape replay) —
+  no longer gates the flip (it happened); it's what brings condition codes + the GTH tape BACK. Founder's Rust
+  project — pair, don't dispatch.
 
 ## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
 - ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,
@@ -46,19 +48,20 @@ supervisor mode of `tools/flow_collector.py` are built and tested. Spec: `Refere
   build from the same tree when wanted. Follow-ups only if a trigger bites: pop-out widget windows (needs a
   widget-only route), signing.
 
-## ▶ 08-18 Rust equity collector (#329) — recorder ARMED, port is the founder's side project
-- ⏳ **08-18 after close:** verify `data/equity_tape_raw/2026-08-18.mpk.zst` exists and the collector's
-  stats line shows `rec frames=… drops=0` (a `drops>0` = writer thread fell behind at the close burst →
-  raise `RECORD_QUEUE_MAX` or move the tap). Note the file size (spec estimate 6–9 GB/session).
-- ⏳ **once ~3 sessions are captured:** turn the recorder OFF (`EQUITY_TAPE_RECORD_DIR` in `.env` +
-  restart `hmt-equity-collector`) — nothing prunes the directory.
-- ⏳ **08-18 ~09:45 ET:** first REAL A/B — `tools/equity_ab.sh data/equity_tape_raw/2026-08-18.mpk.zst
-  --start 09:30 --end 09:40` (reader tolerates the still-writing file). Expect IDENTICAL; any diff is a
-  parity bug to fix in `collectors/equity_rs/` (spec has the rules). Then the full session after close,
-  and note Rust vs Python msgs/s + RSS on the real tape (the synthetic number is server-capped).
-- ▶ After a full-session IDENTICAL: swap the unit (`hmt-equity-collector` → `equity_rs --db data/trading.db`,
-  same interlock, one socket) with the Python collector kept as the rollback; then the abnormality +
-  convergence sidecar (feed from rows) so those two Python legs keep running off the Rust rows.
+## ▶ 08-18 Rust equity collector (#329) — **LIVE IN PRODUCTION since 10:33 ET 08-18**
+`hmt-equity-collector` runs `EQUITY_RUST_COLLECTOR=1` (flag in `.env`): `tools/equity_collector.py` execs
+`collectors/equity_rs/target/release/equity_rs` (same unit/interlock/proxy :8767, creds via env). First live
+kink, fixed in the same hour: `wss://` panicked — rustls 0.23 had no crypto provider (the replay harness is
+plain `ws://`); `main.rs` now installs the `ring` provider. First hour live: 26.7k msgs/s, lag p95 48 ms,
+`proxy clients=1`, 20 MB RSS at ~10 % CPU (Python peaked at 3.2 GB). Rollback = flag `0` + kill MainPID.
+**OFF until the row-fed sidecar (next build):** the abnormality engine + convergence watch (Python-only legs
+of the old runner) and the raw-frame recorder — the 08-18 tape ends 10:31 ET (7.65 M frames, `drops=0`,
+2.46 GB on disk). Watch: the 60 s stats line through the 16:00 close burst (`vendor_errors`, `drops`, lag).
+- ▶ **Next build: the abnormality + convergence sidecar** fed from `equity_tape_events` rows (the flow
+  `backhalf.py` is the template) so those two Python legs come back beside the Rust collector. Then a
+  `--record` tee in `equity_rs` if we want more tapes (or flip back to Python for one session).
+- ⏳ **after close 08-18:** partial-session A/B on the tape we have — `tools/equity_ab.sh
+  data/equity_tape_raw/2026-08-18.mpk.zst --start 09:30 --end 10:30` — plus Rust vs Python msgs/s + RSS.
 
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 

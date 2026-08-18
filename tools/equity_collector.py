@@ -12,6 +12,13 @@ shared .env — the same flag points the API's hub at the local proxy instead of
 upstream and stands down its in-process tape flush. One switch, one stocks
 socket, never two (Alpaca 406s the second connection).
 
+EQUITY_RUST_COLLECTOR=1 → this process EXECS `collectors/equity_rs` (the Rust
+port, IDENTICAL on the recorded-tape A/B) in its place: same unit, same
+interlock, same DB + proxy port, systemd's MainPID becomes the binary. The
+abnormality + convergence legs (Python-only) are OFF in this mode until the
+row-fed sidecar exists; the raw-frame recorder is Python-only too. Rollback =
+drop the flag + restart.
+
 Run: .venv/bin/python tools/equity_collector.py
 """
 
@@ -64,6 +71,25 @@ async def main() -> int:
     if not key or not secret:
         logger.error("Alpaca credentials missing — nothing to stream")
         return 2
+
+    if _flag("EQUITY_RUST_COLLECTOR"):
+        rs_bin = Path(
+            os.environ.get("EQUITY_RS_BIN")
+            or Path(__file__).resolve().parent.parent
+            / "collectors/equity_rs/target/release/equity_rs"
+        )
+        if not rs_bin.is_file():
+            logger.error(
+                "EQUITY_RUST_COLLECTOR=1 but %s is missing — build it "
+                "(cd collectors/equity_rs && cargo build --release) or set EQUITY_RS_BIN",
+                rs_bin,
+            )
+            return 2
+        logger.info("EQUITY_RUST_COLLECTOR=1 → exec %s (Python legs OFF)", rs_bin)
+        # creds via env (the binary reads APCA_API_KEY_ID/_SECRET_KEY) — never argv
+        os.environ["APCA_API_KEY_ID"] = key
+        os.environ["APCA_API_SECRET_KEY"] = secret
+        os.execv(str(rs_bin), [str(rs_bin)])
 
     # EQUITY_TAPE_RECORD_DIR=<dir> taps every raw frame to <dir>/<ET date>.mpk.zst
     # for tools/equity_tape_replay.py (the Python↔Rust collector A/B harness).
