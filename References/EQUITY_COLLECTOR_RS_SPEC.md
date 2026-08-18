@@ -125,8 +125,21 @@ ones** — the hub must see the outage. (`signals/equity_stream/proxy.py`.)
 - One stocks socket per account (Alpaca 406s the second): the Rust collector runs **instead of**
   `hmt-equity-collector`, behind the same `EQUITY_TAPE_EXTERNAL_COLLECTOR=1` interlock. Never both.
   **LIVE since 2026-08-18 10:33 ET:** `EQUITY_RUST_COLLECTOR=1` in `.env` makes `tools/equity_collector.py`
-  exec the binary (creds via env; no unit edit, no sudo). Rollback = flag `0` + restart. The Python-only legs
-  (abnormality + convergence, raw-frame recorder) are OFF in this mode until the row-fed sidecar.
+  supervise the binary as a child (creds via env; no unit edit, no sudo) and run the Python sidecar
+  (`signals/equity_stream/sidecar.py`) beside it: convergence off `equity_tape_events` rows (ingest_seq
+  cursor), abnormality off the 5-min bars the binary writes. Rollback = flag `0` + restart.
+- **5-min bars (`src/bars.rs`) — Rust owns `data/equity_bars_5min.db`** (`--bars-db`): the hot half of the
+  abnormality detector (prints → 1-min → 5-min per symbol, buckets 0–77 from 09:30 ET). At every 5-min
+  boundary +2 s it folds the in-progress minutes (fold-then-reset — Python's detector double-counted a
+  folded minute) and upserts the completed buckets (`bucket < current`, incl. re-emitted stragglers), then
+  advances `equity_bars_5min_flush.through_bucket` — the sidecar waits on that marker, loads the session
+  grid, merges the REST prime under it (buckets before a mid-session start), primes the detector and runs the
+  same boundary. Verified 08-18 vs an independent recount from the tape (SPY bucket 0 h/l/c/v exact).
+  Rows kept 30 days; the whole universe's intraday 5-min bars are queryable there (`db/equity_bars_5min.py`).
+- **Raw-frame tee (`src/record.rs`)**: `EQUITY_TAPE_RECORD_DIR` (or `--record-dir`) writes the same
+  `<ET date>.mpk.zst` the Python recorder did (append across restarts, drop-and-count on overflow), so
+  `tools/equity_ab.sh` replays a Rust-recorded session unchanged. ~10–15 GB per full session — unset the env
+  when tapes aren't wanted. `tools/equity_ab.sh` passes a scratch `--bars-db` (never the production store).
 - Systemd unit mirrors the Python one (`WorkingDirectory` = repo, `Restart=always`).
 - Toolchain: rustup in `~/.cargo` (user-local, no sudo); `cargo build --release` in
   `collectors/equity_rs/`. `target/` is gitignored.

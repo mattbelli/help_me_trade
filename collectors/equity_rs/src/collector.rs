@@ -1,6 +1,7 @@
 //! The runner: wildcard stream → NBBO → detectors → DB + proxy. Port of
 //! `signals/equity_stream/runner.py` (hot path + flush semantics + replay clock).
 
+use crate::bars::BarGrid;
 use crate::db::{Cmd, Writer};
 use crate::detect::{
     is_excluded_condition, side_vs_nbbo, Event, Nbbo, SpreadStats, SweepAggregator, TapeDetector,
@@ -9,6 +10,7 @@ use crate::detect::{
 use crate::msg::{as_f64, as_i64, field, str_field, to_json, ts_to_iso, ts_to_ms};
 use crate::proxy::{Proxy, CH_BARS, CH_DAILY, CH_QUOTES, CH_TRADES, CH_UPDATED};
 use crate::pyfmt::py_repr;
+use crate::record::Recorder;
 use rmpv::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -31,6 +33,8 @@ pub struct Collector {
     pub sweeps: SweepAggregator,
     pub velocity: VelocityDetector,
     pub spreads: SpreadStats,
+    pub bars: BarGrid,
+    pub recorder: Option<Recorder>,
     pub proxy: Arc<Proxy>,
     pub db: Option<Writer>,
     next_flush_ms: Option<f64>,
@@ -61,6 +65,8 @@ impl Collector {
             sweeps: SweepAggregator::default(),
             velocity: VelocityDetector::default(),
             spreads: SpreadStats::default(),
+            bars: BarGrid::default(),
+            recorder: None,
             proxy,
             db: Some(db),
             next_flush_ms: None,
@@ -113,12 +119,16 @@ impl Collector {
             self.flush_spots();
             self.next_spot_ms = Some(v + SPOT_FLUSH_INTERVAL_MS);
         }
+        self.flush_bars(v);
     }
 
     // -- frame dispatch (one msgpack array per frame) ---------------------------------------
 
     pub fn on_frame(&mut self, raw: &[u8]) {
         self.frames += 1;
+        if let Some(rec) = &self.recorder {
+            rec.record(raw);
+        }
         let mut now_ms = self.now_ms();
         let batch = match rmpv::decode::read_value(&mut &raw[..]) {
             Ok(Value::Array(items)) => items,
@@ -243,6 +253,9 @@ impl Collector {
             let prev = self.last_price.get(symbol).copied();
             let (now_s, mono_s) = (self.cooldown_s(), self.mono_s());
             self.tape.on_print(symbol, price_f, size, exchange_raw, &conditions, &iso, trade_id, prev, now_s, mono_s);
+            if let Some(t_ms) = ts_to_ms(field(m, "t")) {
+                self.bars.on_print(symbol, price_f, size, t_ms);
+            }
 
             if conditions.iter().any(|c| c == "F") {
                 let ex = if exchange_raw.is_empty() { "?" } else { exchange_raw };
@@ -310,6 +323,15 @@ impl Collector {
         }
     }
 
+    /// Timer path: hand the completed 5-min buckets to the writer at each boundary.
+    pub fn flush_bars(&mut self, now_ms: f64) {
+        if let Some(flush) = self.bars.maybe_flush(now_ms) {
+            if let Some(db) = &self.db {
+                db.send(Cmd::Bars(flush));
+            }
+        }
+    }
+
     pub fn stats_line(&mut self, interval_s: f64, last_total: &mut u64) -> String {
         let total: u64 = self.msgs.values().sum();
         let rate = (total - *last_total) as f64 / interval_s;
@@ -323,7 +345,7 @@ impl Collector {
             .collect();
         format!(
             "equity stream stats: msgs={} ({:.0}/s) t={} q={} reconnects={} vendor_errors={} lag_p50_ms={:.0} lag_p95_ms={:.0} \
-             | events persisted={} sweeps={} velocity={} spots={} | proxy clients={} subs t/q/db={}/{}/{} drops={} | wideners: {}",
+             | events persisted={} sweeps={} velocity={} spots={} bars={} | proxy clients={} subs t/q/db={}/{}/{} drops={} | rec frames={} drops={} | wideners: {}",
             total,
             rate,
             self.msgs.get("t").copied().unwrap_or(0),
@@ -336,11 +358,14 @@ impl Collector {
             self.sweeps.emitted,
             self.velocity.emitted,
             self.spots_flushed,
+            self.bars.rows_flushed,
             self.proxy.client_count(),
             self.proxy.union_size(CH_TRADES),
             self.proxy.union_size(CH_QUOTES),
             self.proxy.union_size(CH_DAILY),
             self.proxy.total_drops.load(std::sync::atomic::Ordering::Relaxed),
+            self.recorder.as_ref().map(|r| r.frames.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0),
+            self.recorder.as_ref().map(|r| r.drops.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0),
             if wideners.is_empty() { "-".to_string() } else { wideners.join(", ") },
         )
     }

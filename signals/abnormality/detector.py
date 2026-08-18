@@ -178,6 +178,23 @@ class AbnormalityDetector:
             st.m5_v[bucket] += v
         st.m5_c[bucket] = st.m1_c  # last print in this minute is the running close
 
+    def boundary_due(self, now_et: datetime) -> int | None:
+        """The 5-min bucket `maybe_boundary(now_et)` would evaluate, or None —
+        the same gate, without side effects (the sidecar peeks before loading
+        the grid)."""
+        if self._session is None or now_et.date() != self._session:
+            return None
+        minutes = (now_et.hour * 60 + now_et.minute) - (OPEN.hour * 60 + OPEN.minute)
+        bucket = minutes // 5
+        if (
+            minutes < WINDOW_BARS * 5
+            or now_et.second < 2
+            or bucket == self._last_boundary
+            or bucket >= self._n_buckets
+        ):
+            return None
+        return bucket
+
     def maybe_boundary(self, now_et: datetime) -> BoundaryResult | None:
         """Timer path. Returns the result when a new 5-min boundary is crossed."""
         if self._session is None or now_et.date() != self._session:
@@ -221,6 +238,10 @@ class AbnormalityDetector:
                 st = self._syms[name]
                 if st.m1_minute >= 0:
                     self._fold_minute(st)
+                    # Folded now → reset, or the next print in this minute folds
+                    # it AGAIN (its volume double-counted). Later prints of the
+                    # same minute start a fresh 1-min bar that folds on its own.
+                    st.m1_minute = -1
                 high[i] = st.m5_h
                 low[i] = st.m5_l
                 close[i] = st.m5_c

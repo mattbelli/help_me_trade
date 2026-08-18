@@ -10,12 +10,14 @@
 //! Live:    equity_rs --db data/trading.db            (keys: APCA_API_KEY_ID / _SECRET_KEY)
 //! Replay:  equity_rs --replay --url ws://127.0.0.1:8770 --db /tmp/rs.db --proxy-port 8769
 
+mod bars;
 mod collector;
 mod db;
 mod detect;
 mod msg;
 mod proxy;
 mod pyfmt;
+mod record;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
@@ -55,6 +57,13 @@ struct Args {
     proxy_port: u16,
     #[arg(long, default_value = "data/volume_profiles")]
     profile_dir: PathBuf,
+    /// Our own store for the per-symbol 5-min bars (the abnormality sidecar's input).
+    #[arg(long, default_value = "data/equity_bars_5min.db")]
+    bars_db: PathBuf,
+    /// Tee every raw frame to <dir>/<ET date>.mpk.zst (live only; same file
+    /// format as the Python recorder). Env EQUITY_TAPE_RECORD_DIR, like Python.
+    #[arg(long, env = "EQUITY_TAPE_RECORD_DIR")]
+    record_dir: Option<PathBuf>,
     /// Replay mode: virtual clock from {"T":"clock"} frames, no reconnect, no
     /// profile-age rule; exits at end of tape with a summary line.
     #[arg(long)]
@@ -67,7 +76,7 @@ async fn main() -> Result<()> {
     // wss:// (Alpaca live) needs a process-level TLS crypto provider; without
     // this rustls 0.23 panics on the first TLS handshake (replay is plain ws://).
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let writer = db::Writer::open(&args.db)?;
+    let writer = db::Writer::open(&args.db, &args.bars_db)?;
     let (chan_tx, chan_rx) = mpsc::unbounded_channel::<ChanSyms>();
     let proxy = Proxy::new(chan_tx);
     let proxy_task = {
@@ -80,6 +89,10 @@ async fn main() -> Result<()> {
         })
     };
     let mut col = Collector::new(args.replay, args.profile_dir.clone(), proxy.clone(), writer);
+    if let (Some(dir), false) = (&args.record_dir, args.replay) {
+        col.recorder = Some(record::Recorder::start(dir.clone()).with_context(|| format!("recorder {}", dir.display()))?);
+        eprintln!("equity tape recorder ON → {}", dir.display());
+    }
     let started = Instant::now();
 
     let result = run(&args, &mut col, chan_rx).await;
@@ -89,6 +102,10 @@ async fn main() -> Result<()> {
     let db_errors = col.db.as_ref().map(|w| w.errors.clone());
     if let Some(w) = col.db.take() {
         w.shutdown();
+    }
+    if let Some(rec) = col.recorder.take() {
+        let (frames, drops) = rec.stop();
+        eprintln!("equity tape recorder: frames={frames} drops={drops}");
     }
     let total: u64 = col.msgs.values().sum();
     let secs = started.elapsed().as_secs_f64();
@@ -204,9 +221,11 @@ async fn session(
     let mut flush_tick = tokio::time::interval(Duration::from_millis(collector::FLUSH_INTERVAL_MS as u64));
     let mut spot_tick = tokio::time::interval(Duration::from_millis(collector::SPOT_FLUSH_INTERVAL_MS as u64));
     let mut stats_tick = tokio::time::interval(Duration::from_secs(STATS_INTERVAL_S));
+    let mut bars_tick = tokio::time::interval(Duration::from_secs(1));
     flush_tick.tick().await;
     spot_tick.tick().await;
     stats_tick.tick().await;
+    bars_tick.tick().await;
     loop {
         tokio::select! {
             biased;
@@ -241,6 +260,10 @@ async fn session(
                 col.flush_events(now);
             }
             _ = spot_tick.tick(), if !args.replay => col.flush_spots(),
+            _ = bars_tick.tick(), if !args.replay => {
+                let now = col.now_ms();
+                col.flush_bars(now);
+            }
             _ = stats_tick.tick() => {
                 eprintln!("{}", col.stats_line(STATS_INTERVAL_S as f64, last_total));
             }

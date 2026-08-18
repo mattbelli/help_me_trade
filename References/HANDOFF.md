@@ -48,20 +48,22 @@ running after "flow collector stopped") — needed SIGKILL; pre-existing, only m
   build from the same tree when wanted. Follow-ups only if a trigger bites: pop-out widget windows (needs a
   widget-only route), signing.
 
-## ▶ 08-18 Rust equity collector (#329) — **LIVE IN PRODUCTION since 10:33 ET 08-18**
-`hmt-equity-collector` runs `EQUITY_RUST_COLLECTOR=1` (flag in `.env`): `tools/equity_collector.py` execs
-`collectors/equity_rs/target/release/equity_rs` (same unit/interlock/proxy :8767, creds via env). First live
-kink, fixed in the same hour: `wss://` panicked — rustls 0.23 had no crypto provider (the replay harness is
-plain `ws://`); `main.rs` now installs the `ring` provider. First hour live: 26.7k msgs/s, lag p95 48 ms,
-`proxy clients=1`, 20 MB RSS at ~10 % CPU (Python peaked at 3.2 GB). Rollback = flag `0` + kill MainPID.
-**OFF until the row-fed sidecar (next build):** the abnormality engine + convergence watch (Python-only legs
-of the old runner) and the raw-frame recorder — the 08-18 tape ends 10:31 ET (7.65 M frames, `drops=0`,
-2.46 GB on disk). Watch: the 60 s stats line through the 16:00 close burst (`vendor_errors`, `drops`, lag).
-- ▶ **Next build: the abnormality + convergence sidecar** fed from `equity_tape_events` rows (the flow
-  `backhalf.py` is the template) so those two Python legs come back beside the Rust collector. Then a
-  `--record` tee in `equity_rs` if we want more tapes (or flip back to Python for one session).
-- ⏳ **after close 08-18:** partial-session A/B on the tape we have — `tools/equity_ab.sh
-  data/equity_tape_raw/2026-08-18.mpk.zst --start 09:30 --end 10:30` — plus Rust vs Python msgs/s + RSS.
+## ▶ 08-18 Rust equity collector (#329) — **LIVE IN PRODUCTION since 10:33 ET 08-18; sidecar + bars + tee since 11:23 ET**
+`hmt-equity-collector` runs `EQUITY_RUST_COLLECTOR=1` (flag in `.env`): `tools/equity_collector.py`
+supervises `collectors/equity_rs/target/release/equity_rs` (same unit/interlock/proxy :8767, creds via env)
+and runs `signals/equity_stream/sidecar.py` beside it — convergence off `equity_tape_events` rows,
+abnormality off the 5-min bars the binary writes to `data/equity_bars_5min.db` (spec `References/
+EQUITY_COLLECTOR_RS_SPEC.md` → Ops; BUILD_LOG 08-18 row). Rollback = flag `0` + kill MainPID. Watch: the
+60 s stats line (`vendor_errors`, `drops`, lag, `bars=` growing ~10k per 5 min, `rec frames/drops`), and the
+sidecar's `abnormality: bucket N symbols=… fires=…` line right after each :x5:02 boundary ("waiting for the
+collector's bars" that never resolves = the Rust side stopped writing).
+- ⏳ **after close 08-18:** read both halves through the 16:00 burst; partial-session A/B —
+  `tools/equity_ab.sh data/equity_tape_raw/2026-08-18.mpk.zst --start 09:30 --end 10:30` (the tape has a
+  10:31–11:23 hole from the flip; from 11:23 the Rust tee appends). Rust vs Python msgs/s + RSS.
+- ⚠️ `EQUITY_TAPE_RECORD_DIR` is still set in `.env` → the Rust tee records every session (~10–15 GB/day;
+  349 GB free 08-18). Unset it once we have the tapes we want.
+- ▶ Nothing else owed on the equity side; abnormality output should be checked once against the Python
+  era (`abnormality_state` rows per boundary, fires/day vs the 184/day draft-rule replay) after a full session.
 
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 

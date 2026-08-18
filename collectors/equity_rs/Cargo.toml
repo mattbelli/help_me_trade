@@ -17,6 +17,8 @@ clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"
+chrono-tz = "0.10"
+zstd = "0.13"
 
 [profile.release]
 lto = "thin"

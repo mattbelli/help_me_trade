@@ -2,6 +2,7 @@
 //! mirror `db/equity_tape.py::insert_event` and `db/fusion.py::put_spots`
 //! exactly; the schema is owned by Python (`tools/equity_db_init.py`).
 
+use crate::bars::BarFlush;
 use crate::detect::Event;
 use crate::pyfmt::now_iso;
 use anyhow::{bail, Context, Result};
@@ -13,8 +14,28 @@ use std::thread::JoinHandle;
 pub enum Cmd {
     Events(Vec<Event>),
     Spots(Vec<(String, String, String)>),
+    Bars(BarFlush),
     Shutdown(Sender<()>),
 }
+
+/// The 5-min bar store is ours (Rust owns this schema; Python only reads it —
+/// `db/equity_bars_5min.py`). Its own file: ~10k symbols × 78 buckets a day is
+/// too much churn for trading.db.
+const BARS_DDL: &str = "
+CREATE TABLE IF NOT EXISTS equity_bars_5min (
+    session TEXT NOT NULL,
+    symbol  TEXT NOT NULL,
+    bucket  INTEGER NOT NULL,
+    high REAL, low REAL, close REAL, volume REAL,
+    PRIMARY KEY (session, symbol, bucket)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS equity_bars_5min_flush (
+    session TEXT PRIMARY KEY,
+    through_bucket INTEGER NOT NULL,
+    ts TEXT NOT NULL
+);
+";
+const BARS_KEEP_DAYS: i64 = 30;
 
 pub struct Writer {
     tx: SyncSender<Cmd>,
@@ -23,7 +44,7 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn open(path: &Path) -> Result<Self> {
+    pub fn open(path: &Path, bars_path: &Path) -> Result<Self> {
         let conn = Connection::open(path).with_context(|| format!("open {}", path.display()))?;
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
@@ -44,12 +65,21 @@ impl Writer {
 ",
             [],
         )?;
+        let bars = Connection::open(bars_path).with_context(|| format!("open {}", bars_path.display()))?;
+        bars.busy_timeout(std::time::Duration::from_secs(30))?;
+        bars.pragma_update(None, "journal_mode", "WAL")?;
+        bars.pragma_update(None, "synchronous", "NORMAL")?;
+        bars.execute_batch(BARS_DDL)?;
+        bars.execute(
+            "DELETE FROM equity_bars_5min WHERE session < date('now', ?1)",
+            [format!("-{BARS_KEEP_DAYS} days")],
+        )?;
         let (tx, rx) = mpsc::sync_channel::<Cmd>(4096);
         let errors = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let errs = errors.clone();
         let handle = std::thread::Builder::new()
             .name("equity-db-writer".into())
-            .spawn(move || run(conn, rx, errs))?;
+            .spawn(move || run(conn, bars, rx, errs))?;
         Ok(Self { tx, handle: Some(handle), errors })
     }
 
@@ -68,7 +98,12 @@ impl Writer {
     }
 }
 
-fn run(mut conn: Connection, rx: Receiver<Cmd>, errors: std::sync::Arc<std::sync::atomic::AtomicU64>) {
+fn run(
+    mut conn: Connection,
+    mut bars: Connection,
+    rx: Receiver<Cmd>,
+    errors: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) {
     while let Ok(cmd) = rx.recv() {
         match cmd {
             Cmd::Events(events) => {
@@ -83,6 +118,12 @@ fn run(mut conn: Connection, rx: Receiver<Cmd>, errors: std::sync::Arc<std::sync
                 if let Err(e) = put_spots(&mut conn, &rows) {
                     errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     eprintln!("db: put_spots ({} rows) failed: {e:#}", rows.len());
+                }
+            }
+            Cmd::Bars(flush) => {
+                if let Err(e) = put_bars(&mut bars, &flush) {
+                    errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    eprintln!("db: put_bars ({} rows) failed: {e:#}", flush.rows.len());
                 }
             }
             Cmd::Shutdown(ack) => {
@@ -174,6 +215,31 @@ fn put_spots(conn: &mut Connection, rows: &[(String, String, String)]) -> Result
             stmt.execute(params![s, p, t, now])?;
         }
     }
+    tx.commit()?;
+    Ok(())
+}
+
+/// One transaction per boundary: upsert the completed buckets, then advance the
+/// per-session marker the sidecar waits on (rows first, marker last).
+fn put_bars(conn: &mut Connection, flush: &BarFlush) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO equity_bars_5min(session, symbol, bucket, high, low, close, volume)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(session, symbol, bucket) DO UPDATE SET
+                 high = excluded.high, low = excluded.low,
+                 close = excluded.close, volume = excluded.volume",
+        )?;
+        for r in &flush.rows {
+            stmt.execute(params![flush.session, r.symbol, r.bucket, r.high, r.low, r.close, r.volume])?;
+        }
+    }
+    tx.execute(
+        "INSERT INTO equity_bars_5min_flush(session, through_bucket, ts) VALUES (?1, ?2, ?3)
+         ON CONFLICT(session) DO UPDATE SET through_bucket = excluded.through_bucket, ts = excluded.ts",
+        params![flush.session, flush.through_bucket, now_iso()],
+    )?;
     tx.commit()?;
     Ok(())
 }

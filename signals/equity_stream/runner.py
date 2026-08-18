@@ -16,8 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from brokers.market_stream import TRADE_EXCLUDE_CONDITIONS
 from signals.abnormality.detector import AbnormalityDetector
 from signals.equity_stream.constants import (
@@ -432,47 +430,20 @@ class EquityTapeRunner:
 
     def _prime_today(self) -> None:
         """Bounded bulk fetch of today's 5-min bars so mid-session restart isn't blind."""
-        from signals.abnormality.constants import N_BUCKETS
-        from signals.abnormality.store import timestamps_to_buckets
-        from tools.equity_bars_5min_backfill import fetch_session
+        from signals.abnormality.prime import fetch_today_grid
 
         bl = self.abnormality._baselines
         if bl is None:
             return
         today = datetime.now(_ET).date()
-        headers = {
-            "APCA-API-KEY-ID": self._key,
-            "APCA-API-SECRET-KEY": self._secret,
-        }
         symbols = [str(s) for s in bl.symbols]
         try:
-            per_sym, _n = fetch_session(today, symbols, headers)
+            g = fetch_today_grid(today, symbols, self._key, self._secret)
         except Exception:
             logger.exception("abnormality: prime fetch failed")
             return
-        n = len(symbols)
-        idx = {s: i for i, s in enumerate(symbols)}
-        high = np.full((n, N_BUCKETS), np.nan)
-        low = np.full((n, N_BUCKETS), np.nan)
-        close = np.full((n, N_BUCKETS), np.nan)
-        vol = np.full((n, N_BUCKETS), np.nan)
-        for sym, parts in per_sym.items():
-            i = idx.get(sym)
-            if i is None:
-                continue
-            t = np.concatenate([p[0] for p in parts])
-            h = np.concatenate([p[2] for p in parts])
-            lo = np.concatenate([p[3] for p in parts])
-            c = np.concatenate([p[4] for p in parts])
-            v = np.concatenate([p[5] for p in parts]).astype(np.float64)
-            buckets = timestamps_to_buckets(t, today)
-            ok = (buckets >= 0) & (buckets < N_BUCKETS)
-            high[i, buckets[ok]] = h[ok]
-            low[i, buckets[ok]] = lo[ok]
-            close[i, buckets[ok]] = c[ok]
-            vol[i, buckets[ok]] = v[ok]
-        self.abnormality.prime_from_grid(np.array(symbols, dtype="U8"), high, low, close, vol)
-        logger.info("abnormality: primed %d symbols for %s", n, today)
+        self.abnormality.prime_from_grid(g.symbols, g.high, g.low, g.close, g.volume)
+        logger.info("abnormality: primed %d symbols for %s", len(symbols), today)
 
     def _seed_prior_from_db(self) -> None:
         """Rehydrate today's per-symbol fire cooldown from abnormality_events so a
