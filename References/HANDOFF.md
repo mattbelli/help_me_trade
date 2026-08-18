@@ -15,11 +15,14 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-18 Rust flow collector (#331) — stage 0 harness SHIPPED; stage 1 = the Rust port
-Spec + the ★ clock rules a port must follow: `References/FLOW_COLLECTOR_RS_SPEC.md`. Next:
-`collectors/flow_rs/` (databento `dbn` crate reads `opra_tcbbo/<date>.dbn.zst` + `opra_defs/`,
-same clock rule, same rows) → `tools/flow_ab.py py/ rs/` IDENTICAL on a full session → stage 2
-pairing → stage 3 back-half sidecar + systemd swap. Founder's Rust project — pair, don't dispatch.
+## ▶ 08-18 Rust flow collector (#331) — stages 0+1 SHIPPED (IDENTICAL on a full day); next = 2/3
+`collectors/flow_rs/` diffs IDENTICAL against Python on the whole 08-17 tape (`tools/flow_ab.sh`).
+Spec: `References/FLOW_COLLECTOR_RS_SPEC.md`. Next, founder's call on order: **stage 2** pairing
+sidecar port (+ Alpaca options-WS raw-frame recorder → two-tape replay) or **stage 3** live
+transport (`databento` crate) + back-half sidecar + systemd swap — stage 3 is what retires the
+Python process; stage 2 is what keeps condition codes on the prints after the swap. Recommend 3
+then 2 only if the swap can run with pairing OFF for a while (it can — codes affect F-2 gates
+and the multileg repair, not the spine). Founder's Rust project — pair, don't dispatch.
 Side finding to fix regardless (independent thread): every `serv-deploy.sh` restart SIGKILLs
 `hmt-flow-collector` (8× in RTH 08-17) — TERM doesn't exit inside the script's 6s; last log lines
 are the poll leg's httpx GETs, i.e. `asyncio.run` waiting on the `to_thread` REST poll at shutdown

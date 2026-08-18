@@ -1,0 +1,18 @@
+[package]
+name = "flow_rs"
+version = "0.1.0"
+edition = "2021"
+description = "help_me_trade OPRA options-flow collector (Rust) — Databento tcbbo spine + detectors"
+
+[dependencies]
+dbn = { version = "0.66", default-features = true }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = "0.4"
+chrono-tz = "0.10"
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

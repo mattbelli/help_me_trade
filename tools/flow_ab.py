@@ -4,9 +4,11 @@
 Each side is the sandbox directory of a `tools/flow_collector_replay.py` run
 (the --db file's directory). Compared:
   * ``options_flow_events`` by id — every content column except the ones the
-    replay does not own or that are write-order/wall-clock: ``detail`` (Alpaca
-    enrichment, off), ``rarity_*`` (nightly lookup, absent), ``ingest_seq``,
-    ``created_at``. JSON columns (``exchanges``) compare structurally.
+    replay does not own or that are write-order/wall-clock: ``rarity_*``
+    (nightly lookup, absent), ``ingest_seq``, ``created_at``. ``detail`` is
+    compared for ``flow_burst`` / ``flow_cluster`` only (tape-derived there;
+    Alpaca enrichment — off in replay — everywhere else). JSON columns
+    (``exchanges``, ``detail``) compare structurally.
   * ``index_pressure_minutes`` by (underlying, date, window, minute), all
     columns but ``updated_at``; ``index_pressure_days`` by (date, window):
     session_type / minutes_observed / syms / coverage_modes / finalized (bool).
@@ -30,8 +32,9 @@ EVENT_COLS = (
     "event_type", "contracts", "premium_usd", "vol_oi_ratio", "vol_zscore",
     "direction", "direction_basis", "spread_flag", "n_prints", "exchanges",
     "reason", "caveat", "ret_1d", "ret_5d", "coverage", "minutes_into_session",
-    "mid_side",
+    "mid_side", "detail",
 )
+DETAIL_TYPES = frozenset({"flow_burst", "flow_cluster"})
 MINUTE_COLS = ("bull_usd", "bear_usd", "unclassified_usd", "n_prints", "coverage")
 DAY_COLS = ("session_type", "minutes_observed", "syms", "coverage_modes")
 
@@ -47,7 +50,7 @@ def _has(con: sqlite3.Connection, table: str) -> bool:
 
 
 def _norm(col: str, v):
-    if col == "exchanges" and isinstance(v, str):
+    if col in ("exchanges", "detail") and isinstance(v, str):
         try:
             return json.loads(v)
         except ValueError:
@@ -60,10 +63,13 @@ def _events(db: Path) -> dict[str, dict]:
     try:
         if not _has(con, "options_flow_events"):
             return {}
-        return {
-            r["id"]: {c: _norm(c, r[c]) for c in EVENT_COLS}
-            for r in con.execute(f"SELECT id, {', '.join(EVENT_COLS)} FROM options_flow_events")
-        }
+        out = {}
+        for r in con.execute(f"SELECT id, {', '.join(EVENT_COLS)} FROM options_flow_events"):
+            row = {c: _norm(c, r[c]) for c in EVENT_COLS}
+            if r["event_type"] not in DETAIL_TYPES:
+                row["detail"] = None
+            out[r["id"]] = row
+        return out
     finally:
         con.close()
 

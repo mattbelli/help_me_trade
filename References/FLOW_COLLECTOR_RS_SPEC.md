@@ -1,8 +1,10 @@
 # flow_rs — Rust OPRA flow collector: the scope
 
-*Status 2026-08-18: **stage 0 BUILT** (card #331) — the Python replay harness below is
-shipped and two full-session replays of 2026-08-17 diff IDENTICAL; `collectors/flow_rs/` not
-started. Successor to the equity port
+*Status 2026-08-18: **stage 1 BUILT — `collectors/flow_rs/` is IDENTICAL to the Python
+collector on the full 2026-08-17 session** (card #331; 13,109 events incl. rolling `detail`,
+770 gauge minutes, 2.77M print-lab rows; Rust 24.5 s / 188 MB vs Python 240 s / 460 MB).
+Stage 0 (the Python replay harness) shipped the same day. Not yet: pairing (stage 2), the
+live Databento transport + back-half sidecar + systemd swap (stage 3). Successor to the equity port
 (`References/EQUITY_COLLECTOR_RS_SPEC.md`, card #329) — same recipe: a tape on disk,
 a deterministic replay, an A/B that prints IDENTICAL, then a one-process-for-one-process
 systemd swap. Founder's Rust project — pair on it, don't dispatch it away.*
@@ -61,9 +63,31 @@ exits instantly by construction.
   poller and the daily report do; verify the fusion consumers).
 - hot-lane merge / watchlist only feed the poll lane; the spine is whole-market and unfiltered.
 
-## The harness (Python side — BUILT 08-18)
-**Run the A/B:** `.venv/bin/python tools/flow_collector_replay.py 2026-08-17 --db /tmp/hmt_flow_ab/py/trading.db`
-(`--start 09:30 --end 09:40` for a slice), the same for the other side, then
+## The port (`collectors/flow_rs/`, ~1,500 lines — BUILT 08-18)
+**Run the A/B:** `tools/flow_ab.sh 2026-08-17 [--start 09:30 --end 09:40] [--early-close]` (Rust,
+then Python, then `tools/flow_ab.py` → `IDENTICAL`/`DIFFERENT`; sandboxes under `/tmp/hmt_flow_ab/{rs,py}`).
+**Build:** `cd collectors/flow_rs && cargo build --release` (`cargo test` = formatting/OCC/clock unit
+tests). **Scratch DB:** `.venv/bin/python tools/flow_db_init.py <db>` (schema stays Python's).
+Modules: `main.rs` (args, the clock rule, symbology load), `runner.rs` (`_on_record` →
+`normalize_print`, one `sweep_loop` cycle per virtual second, print-lab writer, gauge flush),
+`intraday.rs` (`tag_likely_spreads`, DIR-1, midpoint, `detect_block`, the `reason` formatting),
+`sweeps.rs`, `rolling.rs`, `gauge.rs`, `occ.rs` (OSI→OCC, `parse_occ_symbol`, DTE, the
+`ts_recv→ts_ms` round trip), `db.rs` (the exact `insert_event` / `upsert_minutes` / `record_day`
+SQL), `pyfmt.rs` (CPython-identical `round`, `:.nf`, `:g`, `:,`, `isoformat`, **and `sum()`** — a
+copy of equity_rs's plus the flow additions; fold into a shared crate when a third port appears).
+Parity traps that actually bit (all fixed, all now pinned by the full-day A/B):
+`sum()` in CPython ≥ 3.12 is **Neumaier-compensated** — a plain `+=` fold differed in the last
+ulp on 22 of 872 sweep premiums (`py_sum` now used exactly where the Python calls `sum(...)`,
+NOT for its manual `+=` loops); dict iteration order = insertion order everywhere floats are
+summed (rolling buckets, small-print sides, sweep buckets are `Vec`s, never `HashMap`s); the
+`ts_recv → ts_ms` path (`fromtimestamp(ns/1e9).isoformat()` → `fromisoformat().timestamp()*1000`
+→ `int`) is reproduced step by step, not "ns // 1e6"; `f"{strike:g}"` for fractional strikes.
+Rust never sees the market calendar — the tape date is a session by construction and half days
+come in as `--early-close`.
+
+### The harness (Python side — BUILT 08-18)
+**Run the Python side alone:** `.venv/bin/python tools/flow_collector_replay.py 2026-08-17 --db /tmp/hmt_flow_ab/py/trading.db`
+(`--start 09:30 --end 09:40` for a slice), then
 `.venv/bin/python tools/flow_ab.py /tmp/hmt_flow_ab/py /tmp/hmt_flow_ab/rs` → `IDENTICAL`/`DIFFERENT`.
 Measured: 09:30–09:40 slice = 634k records in 17s (~37k rec/s Python), full 08-17 session
 (10.6M records → 13,109 events) = 4 min at ~44k rec/s, two runs IDENTICAL; determinism pinned by `tests/test_flow_tape_replay.py` (synthetic DBN
@@ -117,9 +141,9 @@ deterministic end-to-end replay against it — every detector change is untestab
 | stage | work | size |
 |---|---|---|
 | 0 | virtual clock + replay tool + A/B diff + determinism test (Python) — **DONE 08-18** (~430 lines incl. tests) | ~400 lines, 1 session |
-| 1 | Rust spine + detectors + DB writes; A/B IDENTICAL on a full historical day, pairing off | ~2,000–2,500 lines, 2–3 sessions |
+| 1 | Rust spine + detectors + DB writes; A/B IDENTICAL on a full historical day, pairing off — **DONE 08-18** (~1,500 lines, 1 session; the file replay needs no transport code) | ~2,000–2,500 lines, 2–3 sessions |
 | 2 | pairing sidecar port + Alpaca-tape recorder + two-tape replay; parity on codes/repairs | ~800 lines, 1 session |
-| 3 | Python back-half sidecar (enrich/rarity/convergence off rows) + systemd swap under the `OPTIONS_FLOW_EXTERNAL_COLLECTOR` interlock; poll lane keeps running in Python (own small unit or inside the sidecar) | ~250 lines, 1 session |
+| 3 | **live transport** in Rust (`databento` crate `LiveClient`, `FeedLiveness`, control-plane counters, reconnect, stats line — none of it exercised by the file replay) + Python back-half sidecar (enrich/rarity/convergence off rows) + systemd swap under the `OPTIONS_FLOW_EXTERNAL_COLLECTOR` interlock; poll lane keeps running in Python (own small unit or inside the sidecar). Transport A/B = one Databento live-replay session (Ops invariants) | ~600 Rust + ~250 Python lines, 1–2 sessions |
 
 Equity was ~1,600 Rust lines in ~2 sessions; this is ~2× that. **What it buys, measured:** ~300 MB
 RSS back, instant clean exit on deploy (no more mid-session SIGKILL), lower CPU on a base that is
