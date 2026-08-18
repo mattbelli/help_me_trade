@@ -129,9 +129,16 @@ class RawFrameRecorder:
 
 
 def read_frames(path: Path) -> Iterator[tuple[int, bytes]]:
-    """Yield ``(recv_ns, frame_bytes)`` from a recording, across zstd frames."""
+    """Yield ``(recv_ns, frame_bytes)`` from a recording, across zstd frames.
+
+    Tolerates a file that is still being written (the live collector's current
+    session): the trailing partial zstd frame / partial msgpack item is treated
+    as end-of-tape, so the morning's first N minutes can be replayed at 9:40."""
     with open(path, "rb") as fh:
         reader = zstandard.ZstdDecompressor().stream_reader(fh, read_across_frames=True)
         unpacker = msgpack.Unpacker(reader, raw=False, use_list=True)
-        for item in unpacker:
-            yield int(item[0]), item[1]
+        try:
+            for item in unpacker:
+                yield int(item[0]), item[1]
+        except (zstandard.ZstdError, msgpack.exceptions.ExtraData, ValueError) as exc:
+            logger.info("recording %s: truncated tail (%s) — treating as end of tape", path, exc)

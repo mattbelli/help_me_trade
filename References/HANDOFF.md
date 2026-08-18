@@ -21,10 +21,13 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
   raise `RECORD_QUEUE_MAX` or move the tap). Note the file size (spec estimate 6–9 GB/session).
 - ⏳ **once ~3 sessions are captured:** turn the recorder OFF (`EQUITY_TAPE_RECORD_DIR` in `.env` +
   restart `hmt-equity-collector`) — nothing prunes the directory.
-- ▶ Port: founder writes the detectors in `collectors/equity_rs/` against
-  `References/EQUITY_COLLECTOR_RS_SPEC.md`; done = `tools/equity_tape_ab.py py.db rs.db` IDENTICAL on a
-  full session → swap the systemd unit. Abnormality + convergence sidecar (feed from rows) is a
-  follow-up, not v1.
+- ⏳ **08-18 ~09:45 ET:** first REAL A/B — `tools/equity_ab.sh data/equity_tape_raw/2026-08-18.mpk.zst
+  --start 09:30 --end 09:40` (reader tolerates the still-writing file). Expect IDENTICAL; any diff is a
+  parity bug to fix in `collectors/equity_rs/` (spec has the rules). Then the full session after close,
+  and note Rust vs Python msgs/s + RSS on the real tape (the synthetic number is server-capped).
+- ▶ After a full-session IDENTICAL: swap the unit (`hmt-equity-collector` → `equity_rs --db data/trading.db`,
+  same interlock, one socket) with the Python collector kept as the rollback; then the abnormality +
+  convergence sidecar (feed from rows) so those two Python legs keep running off the Rust rows.
 
 ## ▶ 08-15 Per-filing segment ingest (#317) — backfill launched; three verifies owed
 

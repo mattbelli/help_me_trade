@@ -1,8 +1,19 @@
 # equity_rs — Rust equity tape collector: the contract
 
-*Status: v0 scaffold shipped 2026-08-18 (`collectors/equity_rs/`), harness live. This doc is the
-target the Rust port must hit to replace `tools/equity_collector.py`; the A/B harness decides
-when it does. Founder's Rust side project — pair on it, don't dispatch it away.*
+*Status 2026-08-18: **PORT BUILT** (`collectors/equity_rs/`, ~1,600 lines) — full front half
+(decode → NBBO → blocks/dark pool + ISO sweeps + velocity + spread stats → events + spots →
+proxy) and **IDENTICAL** to the Python collector on every synthetic A/B (all four event types,
+36k-case CPython formatting parity). Open: the A/B on the first REAL recorded session (08-18),
+then the systemd swap. Founder's Rust side project — pair on it, don't dispatch it away.*
+
+**Run the A/B:** `tools/equity_ab.sh data/equity_tape_raw/<date>.mpk.zst [--start 09:30 --end 09:40]`
+(replay server + both collectors + diff; scratch DBs in `/tmp/hmt_equity_ab`).
+**Build:** `cd collectors/equity_rs && cargo build --release` (`cargo test` = formatting unit tests;
+`.venv/bin/python tools/equity_rs_fmt_cases.py | cargo run -q --release --example fmtcheck` = 36k
+CPython parity cases). Modules: `main.rs` (args, live/replay loops, reconnect, diff-subscribe),
+`collector.rs` (hot path, clocks, flush deadlines), `detect.rs` (the four detectors + Event),
+`db.rs` (writer thread, exact SQL), `proxy.rs` (hub proxy), `msg.rs` (msgpack fields, timestamps,
+JSON), `pyfmt.rs` (CPython-identical rounding/commas/repr/isoformat/floordiv).
 
 ## Why / scope
 The Python equity collector (`signals/equity_stream/`, ~1,400 lines) owns the Alpaca stocks-v2
@@ -31,7 +42,7 @@ recorded session, and the proxy serves the API hub the same frames. Then swap th
 | `tools/equity_tape_replay.py FILE --speed {0,1,N} [--start HH:MM --end HH:MM]` | serves the file over the **exact Alpaca protocol** (msgpack hello → auth → subscription ack → frames byte-for-byte). Adds `[{"T":"clock","ns":recv_ns}]` frames every `--clock-every-ms` (100) of recorded time + one at `last+60s`, then closes. Each client gets its own replay. |
 | `tools/equity_collector_replay.py --db X` | the Python collector on the replay server: virtual clock, scratch DB, no convergence/abnormality/broker, proxy on :8768. Prints msgs/s + counts at EOF. |
 | `tools/equity_tape_ab.py A.db B.db` | diffs `equity_tape_events` (by id, all content columns; JSON compared structurally) + `fusion_spot_cache` (symbol → price, ts). Exit 0 = IDENTICAL. |
-| Rust: `cargo run --release -- --url ws://127.0.0.1:8770` | today: connect/auth/subscribe/decode/count; understands clock frames. |
+| Rust: `equity_rs --replay --url ws://127.0.0.1:8770 --db X --proxy-port 8769` | the port; `--db` needs the Python schema (`tools/equity_db_init.py X` for a scratch DB). |
 
 Determinism is pinned by `tests/test_equity_tape_replay.py` (two Python replays of one tape ⇒
 identical DBs). The Rust collector inherits that only if it follows the clock rules below.

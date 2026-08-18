@@ -1,30 +1,40 @@
-//! equity_rs — the Rust equity tape collector for help_me_trade (v0 scaffold).
+//! equity_rs — the Rust equity tape collector for help_me_trade.
 //!
-//! What this does today: dial an Alpaca stocks-v2 (or replay-server) websocket,
-//! run the msgpack handshake (hello → auth → subscribe trades[*]+quotes[*]),
-//! decode every frame, and print throughput + delivery-lag stats. It also
-//! understands the replay server's `{"T":"clock","ns":..}` frames — the
-//! virtual clock every detector must run on under replay.
+//! Owns the Alpaca stocks-v2 wildcard socket (every US trade + quote), runs the
+//! tape detectors (blocks / dark pool, ISO sweeps, print velocity, spread
+//! stats), persists `equity_tape_events` + `fusion_spot_cache` to trading.db,
+//! and serves the local proxy the API hub dials. Contract + parity rules:
+//! References/EQUITY_COLLECTOR_RS_SPEC.md. Runs INSTEAD of hmt-equity-collector
+//! (one stocks socket per account) — never both.
 //!
-//! What it does NOT do yet (the port, per References/EQUITY_COLLECTOR_RS_SPEC.md):
-//! NBBO book, block/dark-pool + ISO-sweep + velocity detectors, spot cache,
-//! SQLite writes, and the local proxy the API hub dials.
-//!
-//! Run against a replay:  cargo run --release -- --url ws://127.0.0.1:8770
-//! Run live (one socket per account! stop hmt-equity-collector first):
-//!   cargo run --release   # keys from APCA_API_KEY_ID / APCA_API_SECRET_KEY
+//! Live:    equity_rs --db data/trading.db            (keys: APCA_API_KEY_ID / _SECRET_KEY)
+//! Replay:  equity_rs --replay --url ws://127.0.0.1:8770 --db /tmp/rs.db --proxy-port 8769
+
+mod collector;
+mod db;
+mod detect;
+mod msg;
+mod proxy;
+mod pyfmt;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
+use collector::Collector;
 use futures_util::{SinkExt, StreamExt};
+use msg::{map, pack, str_field};
+use proxy::{ChanSyms, Proxy, CHANNELS, PER_SYMBOL_CHANNELS};
 use rmpv::Value;
-use std::collections::BTreeMap;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 
 const STOCKS_WS_URL: &str = "wss://stream.data.alpaca.markets/v2/sip";
-const STATS_EVERY: Duration = Duration::from_secs(5);
+const RECONNECT_BASE_SEC: f64 = 1.0;
+const RECONNECT_MAX_SEC: f64 = 30.0;
+const STATS_INTERVAL_S: u64 = 60;
 
 #[derive(Parser, Debug)]
 #[command(about = "help_me_trade equity tape collector (Rust)")]
@@ -36,83 +46,126 @@ struct Args {
     key: String,
     #[arg(long, env = "APCA_API_SECRET_KEY", default_value = "replay", hide_env_values = true)]
     secret: String,
-}
-
-/// Wall clock live; the replay server's clock frames under replay.
-struct Clock {
-    virtual_ms: Option<f64>,
-}
-
-impl Clock {
-    fn now_ms(&self) -> f64 {
-        match self.virtual_ms {
-            Some(v) => v,
-            None => SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs_f64() * 1000.0)
-                .unwrap_or(0.0),
-        }
-    }
-}
-
-/// msgpack ext -1 (Timestamp) → epoch ms. Alpaca sends the 64-bit form
-/// (34-bit seconds + 30-bit nanos) for stream timestamps; handle all three.
-fn ts_to_ms(v: &Value) -> Option<f64> {
-    match v {
-        Value::Ext(-1, bytes) => match bytes.len() {
-            4 => {
-                let s = u32::from_be_bytes(bytes[..4].try_into().ok()?);
-                Some(s as f64 * 1000.0)
-            }
-            8 => {
-                let raw = u64::from_be_bytes(bytes[..8].try_into().ok()?);
-                let nanos = (raw >> 34) as f64;
-                let secs = (raw & 0x3_ffff_ffff) as f64;
-                Some(secs * 1000.0 + nanos / 1e6)
-            }
-            12 => {
-                let nanos = u32::from_be_bytes(bytes[..4].try_into().ok()?) as f64;
-                let secs = i64::from_be_bytes(bytes[4..12].try_into().ok()?) as f64;
-                Some(secs * 1000.0 + nanos / 1e6)
-            }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn field<'a>(m: &'a Value, key: &str) -> Option<&'a Value> {
-    m.as_map()?
-        .iter()
-        .find(|(k, _)| k.as_str() == Some(key))
-        .map(|(_, v)| v)
-}
-
-fn pack(v: &Value) -> Vec<u8> {
-    let mut buf = Vec::new();
-    rmpv::encode::write_value(&mut buf, v).expect("msgpack encode");
-    buf
-}
-
-fn map(pairs: Vec<(&str, Value)>) -> Value {
-    Value::Map(pairs.into_iter().map(|(k, v)| (Value::from(k), v)).collect())
+    /// trading.db (schema owned by Python; tools/equity_db_init.py for a scratch DB)
+    #[arg(long, default_value = "data/trading.db")]
+    db: PathBuf,
+    #[arg(long, default_value = "127.0.0.1")]
+    proxy_host: String,
+    #[arg(long, default_value_t = 8767)]
+    proxy_port: u16,
+    #[arg(long, default_value = "data/volume_profiles")]
+    profile_dir: PathBuf,
+    /// Replay mode: virtual clock from {"T":"clock"} frames, no reconnect, no
+    /// profile-age rule; exits at end of tape with a summary line.
+    #[arg(long)]
+    replay: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let writer = db::Writer::open(&args.db)?;
+    let (chan_tx, chan_rx) = mpsc::unbounded_channel::<ChanSyms>();
+    let proxy = Proxy::new(chan_tx);
+    let proxy_task = {
+        let p = proxy.clone();
+        let (h, port) = (args.proxy_host.clone(), args.proxy_port);
+        tokio::spawn(async move {
+            if let Err(e) = p.serve(&h, port).await {
+                eprintln!("proxy died: {e:#}");
+            }
+        })
+    };
+    let mut col = Collector::new(args.replay, args.profile_dir.clone(), proxy.clone(), writer);
+    let started = Instant::now();
+
+    let result = run(&args, &mut col, chan_rx).await;
+    proxy_task.abort();
+
+    // Drain the DB queue before reporting; the summary must reflect what's on disk.
+    let db_errors = col.db.as_ref().map(|w| w.errors.clone());
+    if let Some(w) = col.db.take() {
+        w.shutdown();
+    }
+    let total: u64 = col.msgs.values().sum();
+    let secs = started.elapsed().as_secs_f64();
+    eprintln!(
+        "{}: msgs={} t={} q={} in {:.1}s ({:.0} msgs/s) | events={} sweeps={} velocity={} spots={} callback_errors={} db_errors={}",
+        if args.replay { "replay finished" } else { "collector stopped" },
+        total,
+        col.msgs.get("t").copied().unwrap_or(0),
+        col.msgs.get("q").copied().unwrap_or(0),
+        secs,
+        total as f64 / secs.max(1e-9),
+        col.persisted,
+        col.sweeps.emitted,
+        col.velocity.emitted,
+        col.spots_flushed,
+        col.callback_errors,
+        db_errors.map(|e| e.load(std::sync::atomic::Ordering::Relaxed)).unwrap_or(0),
+    );
+    result
+}
+
+async fn run(args: &Args, col: &mut Collector, mut chan_rx: mpsc::UnboundedReceiver<ChanSyms>) -> Result<()> {
+    let mut wanted: [HashSet<String>; 5] = Default::default();
+    let mut backoff = RECONNECT_BASE_SEC;
+    let mut last_total: u64 = 0;
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    loop {
+        match session(args, col, &mut chan_rx, &mut wanted, &mut last_total, &mut sigterm).await {
+            Ok(SessionEnd::Stop) => return Ok(()),
+            Ok(SessionEnd::Closed) => {
+                col.proxy.set_upstream_healthy(false);
+                if args.replay {
+                    return Ok(());
+                }
+                eprintln!("equity stream closed; reconnecting in {backoff:.0}s");
+            }
+            Err(e) => {
+                col.proxy.set_upstream_healthy(false);
+                if args.replay {
+                    return Err(e);
+                }
+                eprintln!("equity stream error ({e:#}); reconnecting in {backoff:.0}s");
+            }
+        }
+        col.reconnects += 1;
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs_f64(backoff)) => {}
+            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = sigterm.recv() => return Ok(()),
+        }
+        backoff = (backoff * 2.0).min(RECONNECT_MAX_SEC);
+        // A successful handshake resets backoff inside session().
+        if backoff >= RECONNECT_MAX_SEC {
+            backoff = RECONNECT_MAX_SEC;
+        }
+    }
+}
+
+enum SessionEnd {
+    Stop,
+    Closed,
+}
+
+async fn session(
+    args: &Args,
+    col: &mut Collector,
+    chan_rx: &mut mpsc::UnboundedReceiver<ChanSyms>,
+    wanted: &mut [HashSet<String>; 5],
+    last_total: &mut u64,
+    sigterm: &mut tokio::signal::unix::Signal,
+) -> Result<SessionEnd> {
     let mut req = args.url.as_str().into_client_request()?;
     // Alpaca negotiates frame encoding off this header; without it frames are JSON.
-    req.headers_mut()
-        .insert("Content-Type", "application/msgpack".parse()?);
-    let (ws, _) = tokio_tungstenite::connect_async(req)
-        .await
-        .with_context(|| format!("connect {}", args.url))?;
+    req.headers_mut().insert("Content-Type", "application/msgpack".parse()?);
+    let (ws, _) = tokio_tungstenite::connect_async(req).await.with_context(|| format!("connect {}", args.url))?;
     let (mut tx, mut rx) = ws.split();
 
-    // --- handshake: hello → auth → subscribe ---------------------------------------
+    // --- handshake: hello → auth → subscribe -----------------------------------------
     let hello = next_batch(&mut rx).await?;
-    if !hello.iter().any(|m| field(m, "T").and_then(Value::as_str) == Some("success")) {
+    if !hello.iter().any(|m| str_field(m, "T") == Some("success")) {
         bail!("unexpected hello: {hello:?}");
     }
     tx.send(Message::Binary(pack(&map(vec![
@@ -122,104 +175,80 @@ async fn main() -> Result<()> {
     ]))))
     .await?;
     let auth = next_batch(&mut rx).await?;
-    if !auth.iter().any(|m| field(m, "msg").and_then(Value::as_str) == Some("authenticated")) {
+    if !auth.iter().any(|m| str_field(m, "T") == Some("success") && str_field(m, "msg") == Some("authenticated")) {
         bail!("auth failed: {auth:?}");
     }
-    tx.send(Message::Binary(pack(&map(vec![
+    let mut sub: Vec<(&str, Value)> = vec![
         ("action", "subscribe".into()),
         ("trades", Value::Array(vec!["*".into()])),
         ("quotes", Value::Array(vec!["*".into()])),
-    ]))))
-    .await?;
-    eprintln!("connected {} — trades[*] quotes[*]", args.url);
-
-    // --- hot loop --------------------------------------------------------------------
-    let mut clock = Clock { virtual_ms: None };
-    let mut counts: BTreeMap<String, u64> = BTreeMap::new();
-    let mut lag_samples: Vec<f64> = Vec::with_capacity(8192);
-    let mut frames: u64 = 0;
-    let mut bytes: u64 = 0;
-    let started = Instant::now();
-    let mut last_stats = Instant::now();
-    let mut last_total: u64 = 0;
-
-    while let Some(msg) = rx.next().await {
-        let raw = match msg? {
-            Message::Binary(b) => b,
-            Message::Close(_) => break,
-            Message::Text(t) => t.into_bytes(), // replay/hub JSON — not expected here
-            _ => continue,
-        };
-        frames += 1;
-        bytes += raw.len() as u64;
-        let batch = match rmpv::decode::read_value(&mut raw.as_slice()) {
-            Ok(Value::Array(items)) => items,
-            Ok(_) | Err(_) => {
-                *counts.entry("undecodable".into()).or_default() += 1;
-                continue;
-            }
-        };
-        for m in &batch {
-            let t = field(m, "T").and_then(Value::as_str).unwrap_or("?");
-            *counts.entry(t.to_string()).or_default() += 1;
-            match t {
-                "clock" => {
-                    if let Some(ns) = field(m, "ns").and_then(Value::as_i64) {
-                        clock.virtual_ms = Some(ns as f64 / 1e6);
-                        // TODO(port): run due flushes here (2s events, 30s spots).
-                    }
-                }
-                "t" | "q" => {
-                    // TODO(port): NBBO update / detectors go here.
-                    if lag_samples.len() < 8192 && frames % 16 == 0 {
-                        if let Some(ts) = field(m, "t").and_then(ts_to_ms) {
-                            lag_samples.push(clock.now_ms() - ts);
-                        }
-                    }
-                }
-                "error" => eprintln!("vendor error frame: {m:?}"),
-                "subscription" => eprintln!("subscription ack: {m:?}"),
-                _ => {}
-            }
-        }
-        if last_stats.elapsed() >= STATS_EVERY {
-            let total: u64 = counts.values().sum();
-            let secs = last_stats.elapsed().as_secs_f64();
-            lag_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let pct = |p: f64| -> f64 {
-                if lag_samples.is_empty() {
-                    f64::NAN
-                } else {
-                    lag_samples[((lag_samples.len() - 1) as f64 * p) as usize]
-                }
-            };
-            eprintln!(
-                "stats: msgs={} ({:.0}/s) t={} q={} frames={} MB={:.1} lag_p50_ms={:.0} lag_p95_ms={:.0} vclock={}",
-                total,
-                (total - last_total) as f64 / secs,
-                counts.get("t").copied().unwrap_or(0),
-                counts.get("q").copied().unwrap_or(0),
-                frames,
-                bytes as f64 / 1e6,
-                pct(0.5),
-                pct(0.95),
-                clock.virtual_ms.map(|v| format!("{v:.0}")).unwrap_or_else(|| "wall".into()),
-            );
-            lag_samples.clear();
-            last_total = total;
-            last_stats = Instant::now();
+    ];
+    for ch in PER_SYMBOL_CHANNELS {
+        if !wanted[ch].is_empty() {
+            sub.push((CHANNELS[ch], sym_array(&wanted[ch])));
         }
     }
-    let total: u64 = counts.values().sum();
-    let secs = started.elapsed().as_secs_f64();
+    tx.send(Message::Binary(pack(&map(sub)))).await?;
+    let mut applied: [HashSet<String>; 5] = wanted.clone();
     eprintln!(
-        "done: msgs={} in {:.1}s ({:.0} msgs/s) by type {:?}",
-        total,
-        secs,
-        total as f64 / secs.max(1e-9),
-        counts
+        "equity stream connected: trades[*] quotes[*] dailyBars={} bars={}",
+        applied[proxy::CH_DAILY].len(),
+        applied[proxy::CH_BARS].len()
     );
-    Ok(())
+    col.proxy.set_upstream_healthy(true);
+
+    // --- loop ------------------------------------------------------------------------------
+    let mut flush_tick = tokio::time::interval(Duration::from_millis(collector::FLUSH_INTERVAL_MS as u64));
+    let mut spot_tick = tokio::time::interval(Duration::from_millis(collector::SPOT_FLUSH_INTERVAL_MS as u64));
+    let mut stats_tick = tokio::time::interval(Duration::from_secs(STATS_INTERVAL_S));
+    flush_tick.tick().await;
+    spot_tick.tick().await;
+    stats_tick.tick().await;
+    loop {
+        tokio::select! {
+            biased;
+            _ = tokio::signal::ctrl_c() => return Ok(SessionEnd::Stop),
+            _ = sigterm.recv() => return Ok(SessionEnd::Stop),
+            Some(cs) = chan_rx.recv() => {
+                wanted[cs.channel] = cs.symbols;
+                // Diff-subscribe per-symbol channels upstream (EquityStream._apply_channel_diffs).
+                let mut unsub: Vec<(&str, Value)> = vec![("action", "unsubscribe".into())];
+                let mut subs: Vec<(&str, Value)> = vec![("action", "subscribe".into())];
+                for ch in PER_SYMBOL_CHANNELS {
+                    let gone: HashSet<String> = applied[ch].difference(&wanted[ch]).cloned().collect();
+                    let new: HashSet<String> = wanted[ch].difference(&applied[ch]).cloned().collect();
+                    if !gone.is_empty() { unsub.push((CHANNELS[ch], sym_array(&gone))); }
+                    if !new.is_empty() { subs.push((CHANNELS[ch], sym_array(&new))); }
+                    applied[ch] = wanted[ch].clone();
+                }
+                if unsub.len() > 1 { tx.send(Message::Binary(pack(&map(unsub)))).await?; }
+                if subs.len() > 1 { tx.send(Message::Binary(pack(&map(subs)))).await?; }
+            }
+            msg = rx.next() => {
+                let Some(msg) = msg else { return Ok(SessionEnd::Closed) };
+                match msg? {
+                    Message::Binary(b) => col.on_frame(&b),
+                    Message::Text(t) => col.on_frame(t.as_bytes()), // never expected (msgpack negotiated)
+                    Message::Close(_) => return Ok(SessionEnd::Closed),
+                    _ => {}
+                }
+            }
+            _ = flush_tick.tick(), if !args.replay => {
+                let now = col.now_ms();
+                col.flush_events(now);
+            }
+            _ = spot_tick.tick(), if !args.replay => col.flush_spots(),
+            _ = stats_tick.tick() => {
+                eprintln!("{}", col.stats_line(STATS_INTERVAL_S as f64, last_total));
+            }
+        }
+    }
+}
+
+fn sym_array(set: &HashSet<String>) -> Value {
+    let mut v: Vec<&String> = set.iter().collect();
+    v.sort();
+    Value::Array(v.into_iter().map(|s| Value::from(s.as_str())).collect())
 }
 
 async fn next_batch<S>(rx: &mut S) -> Result<Vec<Value>>
