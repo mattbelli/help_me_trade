@@ -101,5 +101,13 @@ program opens, build it on the tape (stage 0) first, port second.
 ## Ops invariants carried over
 - ONE Databento live session; ONE Alpaca options WS per account — `flow_rs` runs **instead of**
   `hmt-flow-collector`, same interlock flag; never both.
-- Never a metered Databento live *replay* (`start=`) for the A/B — the on-disk file is the tape.
+- **Two replays, two jobs.** The on-disk DBN file is the *iteration* tape (free, any day,
+  deterministic — but it bypasses the gateway entirely). Databento's **live intraday replay**
+  (`subscribe(start=<ts>)`, ≤~24h back; already wired as `DatabentoFlowStream(replay_from=…)`,
+  see `tools/dbn_live_probe.py`) is the *transport* A/B: both collectors on the same `start=`
+  see the same records THROUGH the real gateway — symbol mappings, heartbeats, ack, slow-reader
+  codes — which the file can never exercise. One live-replay session per candidate build, not per
+  iteration: it is metered (verify how our plan bills it on the usage page after the first small
+  run — never assume), reaches only ~24h back, and is only comparable once the clocks are virtual
+  (stage 0), since records arrive at gateway speed while the wall clock walks.
 - Rust writes rows only; `db/options_flow.init_db` owns DDL; `data/trading.db` WAL, busy 30s.
