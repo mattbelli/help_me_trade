@@ -172,6 +172,12 @@ fn parse_hotkey(name: &str, raw: &str) -> Result<Shortcut, String> {
 
 fn main() {
     tauri::Builder::default()
+        // Must be the first plugin. Relaunching (Start Menu while the app sits
+        // in the tray) would otherwise panic: the first instance already holds
+        // the global hotkeys. A second launch shows the first window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main(app);
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
