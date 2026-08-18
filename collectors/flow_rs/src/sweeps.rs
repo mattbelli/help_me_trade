@@ -124,6 +124,9 @@ pub struct SweepBuffer {
     /// occ → prints, in first-seen occ order (Python dict semantics).
     by_occ: Vec<(String, Vec<Print>)>,
     index: std::collections::HashMap<String, usize>,
+    /// (print_id, event id) for every print an emitted sweep was built from —
+    /// the late-enrichment repair backref (Python: `p["_event_id"] = ev["id"]`).
+    pub backrefs: Vec<(u64, String)>,
 }
 
 impl SweepBuffer {
@@ -151,6 +154,20 @@ impl SweepBuffer {
         }
     }
 
+    /// Late codes for prints already drained into the buffer (they still decide
+    /// sweep eligibility until the cluster closes — Python stamped the shared dicts).
+    pub fn stamp_conditions(&mut self, codes: &std::collections::HashMap<u64, String>) {
+        for (_, bucket) in self.by_occ.iter_mut() {
+            for p in bucket.iter_mut() {
+                if p.print_id != 0 {
+                    if let Some(c) = codes.get(&p.print_id) {
+                        p.conditions = if c.is_empty() { Vec::new() } else { vec![c.clone()] };
+                    }
+                }
+            }
+        }
+    }
+
     pub fn close_ready(&mut self, now_ms: i64, event_date: &str) -> Vec<Event> {
         let mut events = Vec::new();
         let mut kept: Vec<(String, Vec<Print>)> = Vec::with_capacity(self.by_occ.len());
@@ -169,6 +186,7 @@ impl SweepBuffer {
                 if now_ms - anchor > SWEEP_WINDOW_MS + SWEEP_CLOSE_GRACE_MS {
                     if !cluster.is_empty() {
                         if let Some(ev) = cluster_event(&cluster, event_date) {
+                            self.backrefs.extend(cluster.iter().filter(|p| p.print_id != 0).map(|p| (p.print_id, ev.id.clone())));
                             events.push(ev);
                         }
                     }

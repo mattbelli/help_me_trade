@@ -33,6 +33,8 @@ pub struct Stats {
     pub cycles: u64,
     pub events_written: u64,
     pub minute_rows_written: u64,
+    pub prints_coded: u64,
+    pub repairs_applied: u64,
 }
 
 pub struct Runner {
@@ -53,6 +55,10 @@ pub struct Runner {
     db: Db,
     pid: i64,
     pub stats: Stats,
+    /// Live only: the condition-code pairing shared with the Alpaca sidecar.
+    pub pairing: Option<std::sync::Arc<std::sync::Mutex<crate::pairing::Pairing>>>,
+    /// print_id → event id backrefs for blocks emitted this cycle (sweeps keep theirs in the buffer).
+    block_backrefs: Vec<(u64, String)>,
 }
 
 fn et_of(secs: i64) -> chrono::DateTime<chrono_tz::Tz> {
@@ -83,6 +89,8 @@ impl Runner {
             lab_dir,
             lab: None,
             db,
+            pairing: None,
+            block_backrefs: Vec::new(),
             pid: std::process::id() as i64,
             stats: Stats {
                 records: 0,
@@ -92,6 +100,8 @@ impl Runner {
                 cycles: 0,
                 events_written: 0,
                 minute_rows_written: 0,
+                prints_coded: 0,
+                repairs_applied: 0,
             },
         }
     }
@@ -111,6 +121,7 @@ impl Runner {
     pub fn on_record(
         &mut self,
         instrument_id: u32,
+        ts_event: u64,
         ts_recv: u64,
         price: i64,
         size: u32,
@@ -125,6 +136,17 @@ impl Runner {
             return;
         };
         let occ = occ_from_osi(raw);
+        // Pairing tee — after symbology, BEFORE the meta gate (the whole-market
+        // population the batch join labels). ts_event = the OPRA participant
+        // stamp both tapes share.
+        let print_id = match &self.pairing {
+            Some(p) => p
+                .lock()
+                .unwrap()
+                .on_dbn(&occ, price, size, ts_event as i64, crate::alpaca_ws::now_ns())
+                .unwrap_or(0),
+            None => 0,
+        };
         let Some(meta) = meta_from_occ(&occ, today) else {
             self.stats.skipped_no_meta += 1;
             return;
@@ -144,6 +166,7 @@ impl Runner {
             None
         };
         self.pending.push(Print {
+            print_id,
             occ: meta.occ,
             underlying: meta.underlying,
             right: meta.right,
@@ -186,6 +209,28 @@ impl Runner {
         if !trading_day {
             batch.clear();
         }
+        if let Some(pairing) = self.pairing.clone() {
+            let (repairs, codes) = {
+                let mut p = pairing.lock().unwrap();
+                (p.drain_repairs(), p.take_resolved())
+            };
+            // Late-enrichment repairs FIRST each cycle: anything queued during
+            // cycle N was inserted by N's end, so this never races an insert.
+            if !repairs.is_empty() {
+                let n = self.db.flag_events_spread(&repairs)?;
+                self.stats.repairs_applied += n as u64;
+                eprintln!("options_flow pairing repair: {} late MULTILEG codes → {n} event rows flagged spread", repairs.len());
+            }
+            if !codes.is_empty() {
+                for p in batch.iter_mut() {
+                    if let Some(c) = codes.get(&p.print_id) {
+                        p.conditions = if c.is_empty() { Vec::new() } else { vec![c.clone()] };
+                        self.stats.prints_coded += 1;
+                    }
+                }
+                self.buffer.stamp_conditions(&codes);
+            }
+        }
         let today_et = now_et.format("%Y-%m-%d").to_string();
         if self.buffer_day != today_et {
             self.buffer = SweepBuffer::new();
@@ -220,6 +265,9 @@ impl Runner {
                     }
                 }
                 if let Some(blk) = detect_block(p, &today_et) {
+                    if p.print_id != 0 {
+                        self.block_backrefs.push((p.print_id, blk.id.clone()));
+                    }
                     block_events.push(blk);
                 }
                 if lab_open {
@@ -346,6 +394,16 @@ impl Runner {
 
         let mut events = block_events;
         events.extend(self.buffer.close_ready(now_ms, &today_et));
+        if let Some(pairing) = &self.pairing {
+            let mut refs = std::mem::take(&mut self.block_backrefs);
+            refs.append(&mut self.buffer.backrefs);
+            if !refs.is_empty() {
+                pairing.lock().unwrap().attach_events(refs, crate::alpaca_ws::now_ns());
+            }
+        } else {
+            self.block_backrefs.clear();
+            self.buffer.backrefs.clear();
+        }
         if events.is_empty() {
             return Ok(());
         }

@@ -15,14 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-18 Rust flow collector (#331) — **LIVE IN PRODUCTION since 10:31 ET 08-18** (founder called the flip ahead of stage 2)
-`hmt-flow-collector` runs `OPTIONS_FLOW_RUST_SPINE=1` (flag in `.env`): `flow_rs live` owns the Databento
-socket + detectors + writes, `backhalf.py` + the poll lane run beside it. Rollback = flag `0` + kill MainPID.
-**OFF until stage 2:** condition codes (pairing shadow was 87.1% matched at stop) + the GTH tape. Spec:
-`References/FLOW_COLLECTOR_RS_SPEC.md`. Watch: the 60 s `dbn live:` line (`slow=0 reconnects=0`), the
-`options_flow backhalf:` line, `detail`/`rarity_p` filling on new sweeps; `minute_rows` only moves inside
-the open/close gauge windows (by design). ⚠️ The Python spine ignored SIGTERM at the flip (poll lane kept
-running after "flow collector stopped") — needed SIGKILL; pre-existing, only matters for rollback. Open:
+## ▶ 08-18 Rust flow collector (#331) — **LIVE IN PRODUCTION since 10:31 ET 08-18; pairing (stage 2) LIVE since 11:40 ET**
+`hmt-flow-collector` runs `OPTIONS_FLOW_RUST_SPINE=1` (flag in `.env`): `flow_rs live --pairing` owns the
+Databento socket + detectors + writes AND the Alpaca wildcard-trades sidecar (condition codes stamped
+before the drain, late MULTILEG repairs, GTH tape → `data/gth_tape/`); `backhalf.py` + the poll lane run
+beside it. Rollback = flag `0` + kill MainPID. Spec: `References/FLOW_COLLECTOR_RS_SPEC.md`. Watch: the
+60 s `dbn live:` line (`slow=0 reconnects=0`, `coded=` ≈ 90 % of `prints=`), the 60 s `pairing:` line
+(`matched` % — 92.3 % first minute vs 87.1 % Python era; `resets` per Alpaca reconnect; `gth_w` moving
+overnight), the `options_flow backhalf:` line, `detail`/`rarity_p` filling on new sweeps; `minute_rows`
+only moves inside the open/close gauge windows (by design). ⚠️ The Python spine ignored SIGTERM at the
+flip (poll lane kept running after "flow collector stopped") — needed SIGKILL; pre-existing, only matters
+for rollback. Open:
 - ⏳ **transport A/B, tonight ~22:45 ET (after `opra_tcbbo/2026-08-18` lands ~02:30 UTC):** the shadow unit
   `hmt-flow-rs-shadow` (transient user unit; `journalctl --user -u hmt-flow-rs-shadow`) has been recording
   the real 08-18 session to `data/tmp_flow_shadow/2026-08-18.dbn.zst` since 23:50 ET 08-17. Run
@@ -33,9 +36,11 @@ running after "flow collector stopped") — needed SIGKILL; pre-existing, only m
   hmt-flow-rs-shadow` and delete `data/tmp_flow_shadow/`.
 - ✅ 08-18 founder checked the Databento usage page: **no charges** for the 4 intraday-replay sessions + the
   shadow live session — the live plan is flat-rate (now VERIFIED, not assumed).
-- ▶ **stage 2** (pairing sidecar port + GTH tape + Alpaca options-WS raw-frame recorder → two-tape replay) —
-  no longer gates the flip (it happened); it's what brings condition codes + the GTH tape BACK. Founder's Rust
-  project — pair, don't dispatch.
+- ⏳ **first GTH night on the Rust lane (08-18→08-19):** `data/gth_tape/2026-08-19.jsonl` should fill from
+  20:15 ET (`gth_w` on the pairing line); the 09:16 ET `gth_morning` line reads it unchanged.
+- ▶ **stage 2 remainder — two-tape replay:** `--record-alpaca-dir` tees the sidecar's raw frames (same
+  format as the equity tape); `flow_rs replay` does not merge an Alpaca tape yet, so pairing parity is
+  measured live (the `pairing:` line), not by A/B. Founder's Rust project — pair, don't dispatch.
 
 ## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
 - ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,

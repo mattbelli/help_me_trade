@@ -161,6 +161,20 @@ impl Db {
         Ok(())
     }
 
+    /// `db/options_flow.flag_events_spread`: the late-enrichment repair —
+    /// spread_flag=1 on already-written events. Idempotent; rows changed.
+    pub fn flag_events_spread(&mut self, ids: &[String]) -> Result<usize> {
+        let mut changed = 0;
+        for chunk in ids.chunks(500) {
+            let marks = vec!["?"; chunk.len()].join(",");
+            let sql = format!(
+                "UPDATE options_flow_events SET spread_flag = 1 WHERE id IN ({marks}) AND (spread_flag IS NULL OR spread_flag = 0)"
+            );
+            changed += self.conn.execute(&sql, rusqlite::params_from_iter(chunk.iter()))?;
+        }
+        Ok(changed)
+    }
+
     pub fn upsert_minutes(
         &mut self,
         rows: &[(String, String, i64, f64, f64, f64, i64, Option<String>)],

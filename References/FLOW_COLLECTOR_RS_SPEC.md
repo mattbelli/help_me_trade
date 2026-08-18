@@ -6,10 +6,15 @@ Python collector on the full 2026-08-17 session (card #331; 13,109 events incl. 
 has the **live Databento transport** (`flow_rs live`: `databento` crate, liveness clocks,
 reconnect, stats line, `--record` raw-tape tee) plus the Python back half
 (`signals/options_flow/backhalf.py` sidecar; `tools/flow_collector.py` supervises the binary under
-`OPTIONS_FLOW_RUST_SPINE=1` — no unit change). **The production flip WAITS on stage 2:** live
-pairing (`OPTIONS_FLOW_PAIRING_SHADOW=1`) stamps condition codes onto the spine's prints in memory
-and the multileg/hygiene/ISO gates read them, and the same sidecar persists the GTH tape — a
-Rust spine without the pairing port would silently drop both. Successor to the equity port
+`OPTIONS_FLOW_RUST_SPINE=1` — no unit change). **LIVE IN PRODUCTION since 10:31 ET 08-18; stage 2
+(pairing) LIVE since 11:40 ET 08-18:** `flow_rs live --pairing` runs the Alpaca wildcard-trades
+sidecar in-process (`src/pairing.rs` = the `StreamingCondMatcher` port + the stamp/repair state,
+`src/alpaca_ws.rs` = the WS client + `GthTape` + optional raw tee) — codes stamped onto the pending
+batch and the sweep buffer at the top of each 1 s cycle, late MULTILEG codes → `spread_flag=1`
+repairs, matcher reset per Alpaca reconnect, GTH prints → `data/gth_tape/`. First live minute:
+92.3 % of prints matched (Python era: 87.1 %), 94.5 % of matches ≤100 ms, 91 % of prints coded
+before the drain. Still owed from stage 2: the **two-tape replay** (Alpaca frames are recordable
+via `--record-alpaca-dir`; the replay command does not consume them yet). Successor to the equity port
 (`References/EQUITY_COLLECTOR_RS_SPEC.md`, card #329) — same recipe: a tape on disk,
 a deterministic replay, an A/B that prints IDENTICAL, then a one-process-for-one-process
 systemd swap. Founder's Rust project — pair on it, don't dispatch it away.*
@@ -196,7 +201,7 @@ deterministic end-to-end replay against it — every detector change is untestab
 |---|---|---|
 | 0 | virtual clock + replay tool + A/B diff + determinism test (Python) — **DONE 08-18** (~430 lines incl. tests) | ~400 lines, 1 session |
 | 1 | Rust spine + detectors + DB writes; A/B IDENTICAL on a full historical day, pairing off — **DONE 08-18** (~1,500 lines, 1 session; the file replay needs no transport code) | ~2,000–2,500 lines, 2–3 sessions |
-| 2 | pairing sidecar port + Alpaca-tape recorder + two-tape replay; parity on codes/repairs | ~800 lines, 1 session |
+| 2 | pairing sidecar port + Alpaca-tape recorder + two-tape replay; parity on codes/repairs — **BUILT 08-18** (matcher + pairing state + Alpaca WS + GTH tape + raw tee ≈ 800 Rust lines incl. tests; live 11:40 ET). Two-tape replay NOT built (recording is; the replay merge is the remaining piece) | ~800 lines, 1 session |
 | 3 | **live transport** in Rust (`databento` crate `LiveClient`, `FeedLiveness`, control-plane counters, reconnect, stats line, `--record` tee) + Python back-half sidecar (enrich/rarity/convergence off rows) + supervisor mode of `tools/flow_collector.py` under `OPTIONS_FLOW_RUST_SPINE=1` (same unit, same interlock); poll lane stays Python — **BUILT 08-18** (~560 Rust + ~330 Python lines incl. tests, 1 session). Transport A/B = shadow recording vs archive (above); production flip waits on stage 2 | ~600 Rust + ~250 Python lines, 1–2 sessions |
 
 Equity was ~1,600 Rust lines in ~2 sessions; this is ~2× that. **What it buys, measured:** ~300 MB

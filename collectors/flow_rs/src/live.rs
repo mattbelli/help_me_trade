@@ -41,6 +41,8 @@ pub struct LiveArgs {
     /// zstd DBN file — Databento's own format, so `flow_rs replay --tape <it>`
     /// against the archived session is the completeness proof.
     pub record: Option<std::path::PathBuf>,
+    /// Condition-code pairing sidecar (Alpaca wildcard trades) — None = codes stay empty.
+    pub sidecar: Option<crate::alpaca_ws::SidecarArgs>,
 }
 
 /// Raw-record tee: the session's records in DBN, as the gateway sent them.
@@ -80,6 +82,7 @@ impl Recorder {
 enum Msg {
     Print {
         instrument_id: u32,
+        ts_event: u64,
         ts_recv: u64,
         price: i64,
         size: u32,
@@ -359,6 +362,7 @@ fn classify(rec: dbn::RecordRef<'_>) -> Option<Msg> {
         let lvl = &m.levels[0];
         return Some(Msg::Print {
             instrument_id: m.hd.instrument_id,
+            ts_event: m.hd.ts_event,
             ts_recv: m.ts_recv,
             price: m.price,
             size: m.size,
@@ -436,6 +440,16 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
         tx,
     ));
 
+    // Pairing sidecar: a task the spine never waits on; the runner tees every
+    // print into the shared matcher and pulls resolved codes each cycle.
+    let mut sidecar_task = None;
+    if let Some(sc) = args.sidecar {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let pairing = std::sync::Arc::new(std::sync::Mutex::new(crate::pairing::Pairing::new()));
+        runner.pairing = Some(pairing.clone());
+        sidecar_task = Some(tokio::spawn(crate::alpaca_ws::run(pairing, sc)));
+    }
+
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -479,9 +493,10 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                 if let Some(rate) = live.take_rate(mono) {
                     if open || args.replay_from.is_some() {
                         eprintln!(
-                            "dbn live: {rate:.1} prints/min (data_msgs={} prints={} mapped={} acks={} slow={} dropped={} unresolved_syms={} no_meta={} reconnects={} gap_s={:.1} events={} minute_rows={})",
+                            "dbn live: {rate:.1} prints/min (data_msgs={} prints={} mapped={} acks={} slow={} dropped={} unresolved_syms={} no_meta={} reconnects={} gap_s={:.1} events={} minute_rows={} coded={} repairs={})",
                             c.data_msgs, runner.stats.prints, runner.mapped(), c.acks, c.slow, c.skipped, c.sym_fail,
-                            runner.stats.skipped_no_meta, c.reconnects, c.gap_s, runner.stats.events_written, runner.stats.minute_rows_written
+                            runner.stats.skipped_no_meta, c.reconnects, c.gap_s, runner.stats.events_written, runner.stats.minute_rows_written,
+                            runner.stats.prints_coded, runner.stats.repairs_applied
                         );
                     }
                 }
@@ -491,13 +506,13 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
             }
             m = rx.recv() => {
                 match m {
-                    Some(Msg::Print { instrument_id, ts_recv, price, size, publisher_id, bid_px, ask_px }) => {
+                    Some(Msg::Print { instrument_id, ts_event, ts_recv, price, size, publisher_id, bid_px, ask_px }) => {
                         c.data_msgs += 1;
                         if c.data_msgs == 1 {
                             eprintln!("dbn live: first data record ts_recv={} ({})", ts_recv, crate::pyfmt::iso_from_unix(ts_recv as f64 / 1e9));
                         }
                         let today = today_et(wall().floor() as i64);
-                        runner.on_record(instrument_id, ts_recv, price, size, publisher_id, bid_px, ask_px, today);
+                        runner.on_record(instrument_id, ts_event, ts_recv, price, size, publisher_id, bid_px, ask_px, today);
                     }
                     Some(Msg::Map { instrument_id, raw_symbol }) => runner.map_symbol(instrument_id, &raw_symbol),
                     Some(Msg::Ack) => c.acks += 1,
@@ -534,6 +549,13 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
         }
     }
     transport_task.abort();
+    if let Some(p) = &runner.pairing {
+        p.lock().unwrap().stopping = true;
+    }
+    if let Some(t) = sidecar_task {
+        // lets the sidecar flush the GTH tape + recorder (its sweep tick sees `stopping`)
+        let _ = tokio::time::timeout(Duration::from_secs(3), t).await;
+    }
     let (events, minutes) = runner.finish()?;
     eprintln!(
         "dbn live: stopped after {:.0}s — data_msgs={} prints={} mapped={} acks={} slow={} reconnects={} | events={:?} index_pressure_minutes={} (exit {})",

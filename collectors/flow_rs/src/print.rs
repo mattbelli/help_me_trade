@@ -1,9 +1,9 @@
 //! The normalized print — `intraday.normalize_print` shape plus the fields the
 //! sweep cycle stamps (`direction`, `direction_basis`, `mid_side`, spread tags).
-//! Condition codes are always empty on this lane until the pairing sidecar
-//! (stage 2) stamps them, so the hygiene / multileg / ISO gates are constant
-//! false here — kept as explicit fields so stage 2 is a data change, not a
-//! logic change.
+//! Condition codes arrive from the pairing sidecar (`pairing.rs`, live only):
+//! the runner stamps `conditions` from `Pairing::take_resolved()` at the top of
+//! each cycle, keyed by `print_id`. Under replay (no Alpaca tape) they stay
+//! empty and the hygiene / multileg / ISO gates are constant false.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
@@ -24,6 +24,8 @@ impl Dir {
 
 #[derive(Clone, Debug)]
 pub struct Print {
+    /// Pairing id (arrival ns, strictly increasing); 0 when pairing is off.
+    pub print_id: u64,
     pub occ: String,
     pub underlying: String,
     pub right: &'static str, // "call" | "put"

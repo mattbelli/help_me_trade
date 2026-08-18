@@ -8,11 +8,14 @@ mod calendar;
 mod db;
 mod gauge;
 mod intraday;
+mod alpaca_ws;
 mod live;
 mod occ;
 mod print;
 mod pyfmt;
 mod rolling;
+mod pairing;
+mod record;
 mod runner;
 mod sweeps;
 
@@ -66,6 +69,21 @@ struct LiveCli {
     /// print-lab JSONL dir (default: <db dir>/research/print_lab)
     #[arg(long)]
     lab_dir: Option<PathBuf>,
+    /// Condition-code pairing: run the Alpaca OPRA wildcard-trades sidecar
+    /// (creds $APCA_API_KEY_ID / $APCA_API_SECRET_KEY) and stamp codes onto the
+    /// spine's prints (`OPTIONS_FLOW_PAIRING_SHADOW=1` in the Python collector).
+    #[arg(long)]
+    pairing: bool,
+    #[arg(long, env = "APCA_API_KEY_ID", default_value = "", hide_env_values = true)]
+    alpaca_key: String,
+    #[arg(long, env = "APCA_API_SECRET_KEY", default_value = "", hide_env_values = true)]
+    alpaca_secret: String,
+    /// GTH tape dir (overnight index prints off the Alpaca lane; default <db dir>/gth_tape)
+    #[arg(long)]
+    gth_dir: Option<PathBuf>,
+    /// Tee the Alpaca sidecar's raw frames to <dir>/<ET date>.mpk.zst (two-tape replay input)
+    #[arg(long)]
+    record_alpaca_dir: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -137,6 +155,23 @@ fn main() -> Result<()> {
             let lab_dir = lab_dir_for(&args.db, args.lab_dir.clone());
             let db = db::Db::open(&args.db)?;
             let mut runner = runner::Runner::new(HashMap::with_capacity(2_200_000), db, lab_dir);
+            let sidecar = if args.pairing {
+                if args.alpaca_key.is_empty() || args.alpaca_secret.is_empty() {
+                    anyhow::bail!("--pairing needs APCA_API_KEY_ID / APCA_API_SECRET_KEY");
+                }
+                let gth_dir = args.gth_dir.clone().unwrap_or_else(|| {
+                    args.db.parent().map(|d| d.join("gth_tape")).unwrap_or_else(|| PathBuf::from("data/gth_tape"))
+                });
+                Some(alpaca_ws::SidecarArgs {
+                    key: args.alpaca_key,
+                    secret: args.alpaca_secret,
+                    url: alpaca_ws::OPRA_WS_URL.to_string(),
+                    gth_dir: Some(gth_dir),
+                    record_dir: args.record_alpaca_dir,
+                })
+            } else {
+                None
+            };
             let code = live::run(
                 &mut runner,
                 live::LiveArgs {
@@ -144,6 +179,7 @@ fn main() -> Result<()> {
                     replay_from,
                     for_secs: args.for_secs,
                     record: args.record,
+                    sidecar,
                 },
             )?;
             std::process::exit(code);
@@ -215,6 +251,7 @@ fn replay(args: ReplayArgs) -> Result<()> {
         let lvl = &m.levels[0];
         runner.on_record(
             m.hd.instrument_id,
+            m.hd.ts_event,
             ts,
             m.price,
             m.size,
