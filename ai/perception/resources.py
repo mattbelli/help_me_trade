@@ -1522,6 +1522,35 @@ def _summarize_abnormality(filters: dict[str, Any], *, db_path: Path) -> dict[st
     }
 
 
+def _read_social(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    """Reddit/StockTwits attention — perception only, never a forecast."""
+    from db.social_mentions import (
+        get_buzz,
+        get_trending,
+        recent_posts_for_symbol,
+        user_overlap_neighbors,
+    )
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    overlap = filters.get("overlap")
+    if isinstance(overlap, str):
+        overlap = overlap.strip().lower() in {"1", "true", "yes"}
+    else:
+        overlap = bool(overlap)
+    limit = min(max(int(filters.get("limit") or 20), 1), 20)
+
+    if overlap and symbol:
+        return user_overlap_neighbors(symbol, db_path=db_path)
+    if symbol:
+        buzz = get_buzz(symbol, db_path=db_path)
+        posts = recent_posts_for_symbol(symbol, limit=limit, db_path=db_path)
+        return [
+            {"row_kind": "buzz", **buzz},
+            *({"row_kind": "post", **p} for p in posts),
+        ]
+    return get_trending(db_path=db_path, limit=limit)
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -1944,6 +1973,19 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_abnormality,
         "summarize": _summarize_abnormality,
+    },
+    "social": {
+        "description": (
+            "Reddit + StockTwits attention — mention counts, recent post titles, "
+            "optional author-overlap neighbors. Perception / attention only — "
+            "not a forecast, not a win%. Titles + flags only; no post bodies."
+        ),
+        "filters": {
+            "symbol": "optional ticker — buzz + recent posts",
+            "overlap": "optional bool — with symbol, author-overlap neighbors",
+            "limit": "optional — posts/trending cap, default 20",
+        },
+        "read": _read_social,
     },
     "gex": {
         "description": (

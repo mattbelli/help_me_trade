@@ -2,21 +2,23 @@
 
 Buckets use America/New_York hour labels (``YYYY-MM-DDTHH``) so "10x normal for
 this time of day" matches how traders think about the session, not UTC midnight.
+Also persists Reddit posts (title-level) for published-hour rollups + overlap.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from db.base import DEFAULT_DB_PATH
+from db.base import DEFAULT_DB_PATH, now_iso
 from db.base import connect as _connect
 from trading.market_hours import _ET
 
 SOURCES = frozenset({"reddit", "stocktwits"})
 _BASELINE_LOOKBACK_DAYS = 14
 _MIN_BASELINE_DAYS = 3
+_OVERLAP_CAP = 20
 
 
 def et_hour_bucket(when: datetime | None = None) -> str:
@@ -41,9 +43,274 @@ def init_social_mentions_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
                 ON social_mentions(bucket);
             CREATE INDEX IF NOT EXISTS idx_social_mentions_symbol_bucket
                 ON social_mentions(symbol, bucket);
+
+            CREATE TABLE IF NOT EXISTS social_posts (
+                post_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                subreddit TEXT,
+                author TEXT,
+                published_at TEXT NOT NULL,
+                bucket TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                url TEXT,
+                n_symbols INTEGER NOT NULL,
+                has_url INTEGER NOT NULL DEFAULT 0,
+                word_count INTEGER NOT NULL DEFAULT 0,
+                dd_flag INTEGER NOT NULL DEFAULT 0,
+                fetched_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_social_posts_author
+                ON social_posts(author);
+            CREATE INDEX IF NOT EXISTS idx_social_posts_bucket
+                ON social_posts(bucket);
+            CREATE INDEX IF NOT EXISTS idx_social_posts_published
+                ON social_posts(published_at);
+
+            CREATE TABLE IF NOT EXISTS social_post_symbols (
+                post_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                PRIMARY KEY (post_id, symbol)
+            );
+            CREATE INDEX IF NOT EXISTS idx_social_post_symbols_symbol
+                ON social_post_symbols(symbol);
             """
         )
         conn.commit()
+
+
+def record_reddit_posts(
+    posts: list[dict[str, Any]],
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """INSERT OR IGNORE Reddit posts + symbol links. Returns newly inserted rows.
+
+    Existing ``post_id`` rows are skipped entirely (durable dedupe). Each returned
+    dict keeps the caller's ``symbols`` set/list for mention rollup.
+    """
+    init_social_mentions_tables(db_path)
+    if not posts:
+        return []
+
+    fetched_at = now_iso()
+    newly: list[dict[str, Any]] = []
+    with _connect(db_path) as conn:
+        for post in posts:
+            post_id = str(post.get("post_id") or post.get("id") or "").strip()
+            if not post_id:
+                continue
+            symbols_raw = post.get("symbols") or []
+            symbols = sorted(
+                {
+                    str(s).strip().upper()
+                    for s in symbols_raw
+                    if isinstance(s, str) and str(s).strip()
+                }
+            )
+            author_raw = post.get("author")
+            author = (
+                str(author_raw).strip()
+                if author_raw is not None and str(author_raw).strip()
+                else None
+            )
+            published_at = str(post.get("published_at") or "").strip() or fetched_at
+            bucket = str(post.get("bucket") or "").strip() or et_hour_bucket()
+            title = str(post.get("title") or "")
+            url = post.get("url")
+            url_s = str(url).strip() if url is not None and str(url).strip() else None
+            subreddit = post.get("subreddit")
+            sub_s = (
+                str(subreddit).strip()
+                if subreddit is not None and str(subreddit).strip()
+                else None
+            )
+            n_symbols = int(post.get("n_symbols") if "n_symbols" in post else len(symbols))
+            has_url = 1 if int(post.get("has_url") or 0) else 0
+            word_count = max(0, int(post.get("word_count") or 0))
+            dd_flag = 1 if int(post.get("dd_flag") or 0) else 0
+
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO social_posts (
+                    post_id, source, subreddit, author, published_at, bucket,
+                    title, url, n_symbols, has_url, word_count, dd_flag, fetched_at
+                ) VALUES (?, 'reddit', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    post_id,
+                    sub_s,
+                    author,
+                    published_at,
+                    bucket,
+                    title,
+                    url_s,
+                    n_symbols,
+                    has_url,
+                    word_count,
+                    dd_flag,
+                    fetched_at,
+                ),
+            )
+            if cur.rowcount != 1:
+                continue
+            for sym in symbols:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO social_post_symbols (post_id, symbol)
+                    VALUES (?, ?)
+                    """,
+                    (post_id, sym),
+                )
+            newly.append(
+                {
+                    **post,
+                    "post_id": post_id,
+                    "author": author,
+                    "published_at": published_at,
+                    "bucket": bucket,
+                    "title": title,
+                    "url": url_s,
+                    "subreddit": sub_s,
+                    "n_symbols": n_symbols,
+                    "has_url": has_url,
+                    "word_count": word_count,
+                    "dd_flag": dd_flag,
+                    "symbols": symbols,
+                    "fetched_at": fetched_at,
+                }
+            )
+        conn.commit()
+    return newly
+
+
+def recent_posts_for_symbol(
+    symbol: str,
+    *,
+    limit: int = 20,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Recent Reddit post previews for a symbol (no bodies)."""
+    init_social_mentions_tables(db_path)
+    sym = str(symbol).strip().upper()
+    if not sym:
+        return []
+    cap = max(1, min(int(limit), 20))
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT p.title, p.author, p.subreddit, p.published_at,
+                   p.n_symbols, p.dd_flag, p.has_url, p.post_id, p.url
+            FROM social_posts p
+            JOIN social_post_symbols s ON s.post_id = p.post_id
+            WHERE s.symbol = ?
+            ORDER BY p.published_at DESC
+            LIMIT ?
+            """,
+            (sym, cap),
+        ).fetchall()
+    return [
+        {
+            "post_id": str(r["post_id"]),
+            "title": str(r["title"] or ""),
+            "author": r["author"],
+            "subreddit": r["subreddit"],
+            "published_at": str(r["published_at"]),
+            "n_symbols": int(r["n_symbols"]),
+            "dd_flag": int(r["dd_flag"]),
+            "has_url": int(r["has_url"]),
+            "url": r["url"],
+        }
+        for r in rows
+    ]
+
+
+def user_overlap_neighbors(
+    symbol: str,
+    *,
+    lookback_days: int = 30,
+    min_frac: float = 0.20,
+    min_authors: int = 5,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> list[dict[str, Any]]:
+    """Oxford-style author overlap on single-ticker posts (perception only).
+
+    Link A–B when ≥``min_frac`` of authors who single-ticker-posted A also
+    single-ticker-posted B. Gate on ``min_authors`` distinct authors for A —
+    do not invent Oxford's 150-mention floor.
+    """
+    init_social_mentions_tables(db_path)
+    sym = str(symbol).strip().upper()
+    if not sym:
+        return []
+    lookback = max(1, int(lookback_days))
+    frac_floor = float(min_frac)
+    author_floor = max(1, int(min_authors))
+    # RSS stamps are UTC (`...+00:00`). Compare in the same form so lookback
+    # is not scrambled by ET-offset vs UTC lexicographic order.
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback)).strftime(
+        "%Y-%m-%dT%H:%M:%S+00:00"
+    )
+
+    with _connect(db_path) as conn:
+        author_rows = conn.execute(
+            """
+            SELECT DISTINCT p.author AS author
+            FROM social_posts p
+            JOIN social_post_symbols s ON s.post_id = p.post_id
+            WHERE s.symbol = ?
+              AND p.n_symbols = 1
+              AND p.author IS NOT NULL
+              AND p.published_at >= ?
+            """,
+            (sym, cutoff),
+        ).fetchall()
+        authors_of_query = len(author_rows)
+        if authors_of_query < author_floor:
+            return []
+
+        rows = conn.execute(
+            """
+            WITH query_authors AS (
+                SELECT DISTINCT p.author AS author
+                FROM social_posts p
+                JOIN social_post_symbols s ON s.post_id = p.post_id
+                WHERE s.symbol = ?
+                  AND p.n_symbols = 1
+                  AND p.author IS NOT NULL
+                  AND p.published_at >= ?
+            )
+            SELECT
+                s2.symbol AS symbol,
+                COUNT(DISTINCT p2.author) AS shared_authors
+            FROM social_posts p2
+            JOIN social_post_symbols s2 ON s2.post_id = p2.post_id
+            JOIN query_authors qa ON qa.author = p2.author
+            WHERE p2.n_symbols = 1
+              AND p2.author IS NOT NULL
+              AND p2.published_at >= ?
+              AND s2.symbol != ?
+            GROUP BY s2.symbol
+            HAVING shared_authors >= 2
+            """,
+            (sym, cutoff, cutoff, sym),
+        ).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        shared = int(row["shared_authors"])
+        frac = shared / authors_of_query
+        if frac < frac_floor:
+            continue
+        out.append(
+            {
+                "symbol": str(row["symbol"]),
+                "shared_authors": shared,
+                "authors_of_query": authors_of_query,
+                "frac": frac,
+            }
+        )
+    out.sort(key=lambda r: (-float(r["frac"]), str(r["symbol"])))
+    return out[:_OVERLAP_CAP]
 
 
 def record_mentions(
