@@ -15,6 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
+- ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,
+  then `cd desktop && cargo tauri dev` (steps in `desktop/README.md`). First run writes
+  `%APPDATA%\trade.helpme.desktop\config.json` → paste serv's `API_TOKEN` (normal, not admin) as `api_token`,
+  restart, press `Ctrl+Shift+K` with the window unfocused → expect the "Kill switch ARMED" toast and the cockpit
+  flipping; disarm from the cockpit. Anything that fails compiles/runs → paste the error here; the Rust was only
+  type-checked against the Windows target from serv, never executed.
+- ▶ then `cargo tauri build` (installer in `desktop/target/release/bundle/`), replace the Edge PWA with it; Mac
+  build from the same tree when wanted. Follow-ups only if a trigger bites: pop-out widget windows (needs a
+  widget-only route), signing.
+
 ## ▶ 08-18 Rust equity collector (#329) — recorder ARMED, port is the founder's side project
 - ⏳ **08-18 after close:** verify `data/equity_tape_raw/2026-08-18.mpk.zst` exists and the collector's
   stats line shows `rec frames=… drops=0` (a `drops>0` = writer thread fell behind at the close burst →

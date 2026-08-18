@@ -48,6 +48,9 @@ proposals ✅ (the headline unlock) → bounded auto-execute (in progress, hard-
 | **Mobile web** | `components/workspace/mobile-workspace.tsx` — 4-tab bottom-nav surface, NOT the grid | Phone ≠ desktop grid; widgets never overlap |
 | **API clients** | `lib/api.ts` (main, 1.7k lines) + `journal/performance/reports/scans/strategies/ticker-info/trades-api.ts` | |
 
+**Desktop shell (`desktop/`)**: Tauri 2 thin window on the serv cockpit (remote URL, no IPC) + global kill-switch
+hotkey / always-on-top / tray — Rust only, built per-OS on the PC/Mac (`desktop/README.md`).
+
 **Phone app (`mobile/`)**: Expo/RN — `src/features/approvals/` (proposal card), `src/push/` (lock-screen
 approve w/ biometric, Live Activities, APNs), `src/api/chat-stream.ts` (SSE from `mobile_agent.py`).
 

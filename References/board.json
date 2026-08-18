@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 330,
+   "id": "tauri-desktop-shell",
+   "title": "Tauri desktop shell (desktop/) — thin window on the serv cockpit + global kill-switch hotkey; first PC build",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "medium",
+   "owner": "founder",
+   "updated_at": "2026-08-18",
+   "notes": "08-18: v0 WRITTEN (desktop/, Tauri 2, ~250 lines Rust): window loads https://serv…:4443 (remote, no IPC), global Ctrl+Shift+K → POST /api/kill-switch active=true (arm only; disarm stays admin-gated in the cockpit), Ctrl+Shift+P always-on-top, tray (show/pin/ARM/quit; close→tray), config.json template on first run (api_token or HMT_API_TOKEN). Type-checked clean on the x86_64-pc-windows-msvc target from serv (llvm-rc stub); NOT yet run — Tauri builds per-OS. NEXT (founder, on the PC): VS Build Tools + rustup + cargo tauri-cli, `cd desktop && cargo tauri dev`, drop API_TOKEN into %APPDATA%\\trade.helpme.desktop\\config.json, press the hotkey, see 'Kill switch ARMED' + the cockpit flip; then `cargo tauri build`. Mac build later from the same tree."
+  },
+  {
    "num": 329,
    "id": "equity-rs-collector",
    "title": "Rust equity tape collector (equity_rs) — record/replay A/B harness + v0 scaffold; port to parity",
