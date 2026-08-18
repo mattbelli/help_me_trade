@@ -1,6 +1,8 @@
 # flow_rs — Rust OPRA flow collector: the scope
 
-*Status 2026-08-18: **SCOPED, not started.** Successor to the equity port
+*Status 2026-08-18: **stage 0 BUILT** (card #331) — the Python replay harness below is
+shipped and two full-session replays of 2026-08-17 diff IDENTICAL; `collectors/flow_rs/` not
+started. Successor to the equity port
 (`References/EQUITY_COLLECTOR_RS_SPEC.md`, card #329) — same recipe: a tape on disk,
 a deterministic replay, an A/B that prints IDENTICAL, then a one-process-for-one-process
 systemd swap. Founder's Rust project — pair on it, don't dispatch it away.*
@@ -59,25 +61,54 @@ exits instantly by construction.
   poller and the daily report do; verify the fusion consumers).
 - hot-lane merge / watchlist only feed the poll lane; the spine is whole-market and unfiltered.
 
-## The harness (Python side, built FIRST — valuable on its own)
+## The harness (Python side — BUILT 08-18)
+**Run the A/B:** `.venv/bin/python tools/flow_collector_replay.py 2026-08-17 --db /tmp/hmt_flow_ab/py/trading.db`
+(`--start 09:30 --end 09:40` for a slice), the same for the other side, then
+`.venv/bin/python tools/flow_ab.py /tmp/hmt_flow_ab/py /tmp/hmt_flow_ab/rs` → `IDENTICAL`/`DIFFERENT`.
+Measured: 09:30–09:40 slice = 634k records in 17s (~37k rec/s Python), full 08-17 session
+(10.6M records → 13,109 events) = 4 min at ~44k rec/s, two runs IDENTICAL; determinism pinned by `tests/test_flow_tape_replay.py` (synthetic DBN
+tape built with `databento_dbn` record constructors — no data/ dependency).
+
 Unlike equity there is **no recorder to build: the tape already exists.**
 `data/databento/opra_tcbbo/<date>.dbn.zst` (≈300 MB/day, whole market, pulled nightly ~02:30 UTC
 by `tools/nightly_flow_capture.sh` → `tools/opra_tcbbo_backfill.py`, 275 sessions back to 2025-07-28) is the same `tcbbo` records the
 live gateway sends, with the symbology in the file's metadata. Today the flow collector has NO
 deterministic end-to-end replay against it — every detector change is untestable on the tape.
-1. **Virtual clock through `sweep_loop`** (~10 wall-clock sites: `time.time()` for `close_ready` /
-   rolling 60s / gauge 10s, `datetime.now(_ET)` for the day + gauge minutes + print-lab window,
-   `is_trading_day(now)`, `stream.acked_market_wide`). Inject a `clock` callable; live = wall.
-2. `tools/flow_collector_replay.py FILE [--start HH:MM --end HH:MM] --db X`: iterate DBN records
-   in `ts_recv` order, resolve symbols from the file, call `DatabentoFlowStream._on_record`, tick
-   the virtual clock from `ts_recv` (drain every 1s of tape time), scratch DB, poll/convergence/
-   enrichment/broker/pushes OFF, pairing OFF (phase 1). Rust reads the same file
-   (`dbn` crate) under the same clock rules — no replay *server* needed at all.
-3. `tools/flow_ab.py A.db B.db`: diff `options_flow_events` by id (all content columns except
-   `detail`/`rarity_*`/`ingest_seq`/`created_at`; JSON compared structurally), `index_pressure`
-   minute rows, and the print-lab files. Exit 0 = IDENTICAL. Pin determinism first (two Python
-   replays identical — expect to find nondeterminism: `time.time_ns()` print ids in pairing,
-   rarity cache staleness, `datetime.now` day rollover).
+1. **Virtual clock through `sweep_loop`** — `OptionsFlowRunner(clock=, sleep=, enrich=)`:
+   every "now" the consumer reads (`time.time()` for `close_ready` / rolling 60s / gauge 10s;
+   `datetime.now(_ET)` for the day, gauge minutes, print-lab window, `meta_for` DTE,
+   `on_prints`' trading-day gate) goes through `clock()`; the 1s cadence through `sleep()`;
+   `enrich=False` = no broker (no Alpaca snapshots, no convergence). Live = wall clock, unchanged.
+2. `tools/flow_collector_replay.py DATE --db X [--start HH:MM --end HH:MM]`: symbology from
+   `data/databento/opra_defs/<date>.dbn.zst` (**the ALL_SYMBOLS tcbbo file carries NO
+   mappings** — `metadata.mappings` is empty; the definition snapshot is the resolver, same as
+   the corpus rollup), records straight into `DatabentoFlowStream._on_record` (a
+   `SimpleNamespace(symbology_map=…)` stands in for the live client), the real `sweep_loop`
+   driven by the clock rules below, sandbox = the `--db` directory (`TRADING_DB_PATH`, so events,
+   `index_pressure_*` AND the print-lab JSONL land under `<dir>/research/print_lab/`, never in
+   `data/`). OFF: poll lane, broker/enrichment (`detail` NULL), convergence/pushes, pairing
+   sidecar (phase 2), rarity (no lookup table in the sandbox → NULL). Rust reads the same two
+   files (`dbn` crate) under the same rules — no replay *server* at all.
+   **★ Clock rules (the contract a port must follow to diff IDENTICAL):**
+   * tape time `T` is whole seconds; `T0 = floor(first record's ts_recv / 1e9) + 1`;
+   * each cycle: T += 1 (first cycle T = T0) → ingest records **in file order** while
+     `ts_recv < T·1e9` (the file is NOT strictly ts_recv-ordered — 23k of 10.6M records on 08-17
+     go backwards, up to 198s; a backwards record is ingested at once, a forward one waits for its
+     second) → drain pending prints into `collected_prints` → one sweep cycle with every
+     "now" == T (`int(T*1000)` for the ms clocks, `datetime.fromtimestamp(T, ET)` for the day);
+   * end of tape: `END_GRACE_S = 120` more cycles with no new records (open clusters close,
+     the last rolling check fires), then stop;
+   * `--start/--end` clip by ts_recv time-of-day (ET) before any of the above.
+   Live-vs-replay is NOT expected to match (live batches split at different instants and
+   `tag_likely_spreads` is per-batch — 08-17 09:30–09:40: live 532 sweeps / 147 blocks, replay
+   502 / 144, same first events); replay-vs-replay and Python-vs-Rust must.
+3. `tools/flow_ab.py DIR_A DIR_B`: `options_flow_events` by id (all content columns except
+   `detail`/`rarity_*`/`ingest_seq`/`created_at`; `exchanges` compared structurally),
+   `index_pressure_minutes` (all but `updated_at`) + `index_pressure_days` (session_type,
+   minutes_observed, syms, coverage_modes, finalized-or-not), print-lab JSONL (same files, same
+   line count, each line structurally equal — Rust must emit the same rows, not the same bytes).
+   Exit 0 = IDENTICAL. Two Python replays of 08-17 were IDENTICAL first try (872 events on the
+   09:30–09:40 slice, 632,658 lab rows).
 4. **Pairing parity (phase 2):** tap the sidecar's Alpaca frames with `signals/equity_stream/
    recorder.RawFrameRecorder` (already generic bytes+ns) → a second tape; the replay merges both
    by arrival ns. Codes exist only live, so phase 1's A/B runs with pairing OFF on both sides.
@@ -85,7 +116,7 @@ deterministic end-to-end replay against it — every detector change is untestab
 ## Stages + honest sizing
 | stage | work | size |
 |---|---|---|
-| 0 | virtual clock + replay tool + A/B diff + determinism test (Python) | ~400 lines, 1 session |
+| 0 | virtual clock + replay tool + A/B diff + determinism test (Python) — **DONE 08-18** (~430 lines incl. tests) | ~400 lines, 1 session |
 | 1 | Rust spine + detectors + DB writes; A/B IDENTICAL on a full historical day, pairing off | ~2,000–2,500 lines, 2–3 sessions |
 | 2 | pairing sidecar port + Alpaca-tape recorder + two-tape replay; parity on codes/repairs | ~800 lines, 1 session |
 | 3 | Python back-half sidecar (enrich/rarity/convergence off rows) + systemd swap under the `OPTIONS_FLOW_EXTERNAL_COLLECTOR` interlock; poll lane keeps running in Python (own small unit or inside the sidecar) | ~250 lines, 1 session |

@@ -27,7 +27,7 @@ import asyncio
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from brokers.factory import get_broker
@@ -230,8 +230,21 @@ class OptionsFlowRunner:
                  raw_print_tee: Callable[[str, int, int, int], int | None] | None = None,
                  print_attach_tee: Callable[[int, dict], None] | None = None,
                  pairing_repairs: Callable[[], list[str]] | None = None,
+                 clock: Callable[[], float] = time.time,
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+                 enrich: bool = True,
                  ) -> None:
         self._watchlist_symbols = watchlist_symbols
+        # Virtual-clock seams for the tape replay (tools/flow_collector_replay.py):
+        # every "now" the sweep consumer reads goes through `clock` (epoch
+        # seconds), and its 1s cadence through `sleep`, so a recorded session
+        # replays deterministically and a port can be diffed against it
+        # (References/FLOW_COLLECTOR_RS_SPEC.md). Live = wall clock, unchanged.
+        # `enrich=False` skips the broker (Alpaca snapshots + convergence) —
+        # replay writes rows only.
+        self._clock = clock
+        self._sleep = sleep
+        self._enrich = enrich
         # Pairing tees (databento lane only): every symbology-resolved print,
         # pre-meta-gate, feeds the matcher via `raw_print_tee`; the normalized
         # dict is then registered via `print_attach_tee` so the matcher can
@@ -247,6 +260,9 @@ class OptionsFlowRunner:
         self.stream = None  # DatabentoFlowStream | None — set while stream_run is live
         self._intraday_warned = False
 
+    def _now_et(self) -> datetime:
+        return datetime.fromtimestamp(self._clock(), _ET)
+
     # --- stream callbacks (wired into DatabentoFlowStream by stream_run) ---
 
     def meta_for(self, occ: str) -> dict | None:
@@ -256,7 +272,7 @@ class OptionsFlowRunner:
         meta = _default_state.active.get(sym)
         if meta is not None:
             return meta
-        today_et = datetime.now(_ET).date().isoformat()
+        today_et = self._now_et().date().isoformat()
         return _meta_from_occ(sym, "", today_et)
 
     def on_prints(self, batch: list[dict]) -> None:
@@ -271,7 +287,7 @@ class OptionsFlowRunner:
         # detector downstream (blocks, bursts, clusters, sweeps, print lab,
         # gauges) starves. The gauge flush has carried its own copy of this
         # guard since Sat 07-18 falsely finalized a day row.
-        if not is_trading_day(datetime.now(_ET).date()):
+        if not is_trading_day(self._now_et().date()):
             return
         # deque(maxlen) drops oldest SILENTLY on overflow — count it (audit F7a).
         # ⚠️ The margin depends entirely on which provider is feeding this. The
@@ -421,7 +437,7 @@ class OptionsFlowRunner:
         stale_ms = QUOTE_STALE_FOR_DIR1_SECONDS * 1000
 
         while True:
-            await asyncio.sleep(1.0)
+            await self._sleep(1.0)
             try:
                 stream = self.stream
                 if stream is None:
@@ -448,7 +464,7 @@ class OptionsFlowRunner:
                 while stream.collected_prints:
                     batch.append(stream.collected_prints.popleft())
 
-                now_et = datetime.now(_ET)
+                now_et = self._now_et()
                 today_et = now_et.date().isoformat()
                 if buffer_day != today_et:
                     buffer = SweepBuffer()
@@ -557,7 +573,7 @@ class OptionsFlowRunner:
                             gauge.add_print(p, mode=mode)
 
                 # burst/cluster checks step once a minute (1-min bucket granularity)
-                now_mono = time.time()
+                now_mono = self._clock()
                 if now_mono - rolling_last_check >= 60.0:
                     rolling_last_check = now_mono
                     now_ms = int(now_mono * 1000)
@@ -655,16 +671,17 @@ class OptionsFlowRunner:
                             )
 
                 events = block_events + buffer.close_ready(
-                    int(time.time() * 1000), today_et
+                    int(now_mono * 1000), today_et
                 )
                 if not events:
                     continue
 
-                try:
-                    broker = get_broker("alpaca")
-                except Exception:
-                    logger.warning("options_flow sweeps: Alpaca broker unavailable")
-                    broker = None
+                broker = None
+                if self._enrich:
+                    try:
+                        broker = get_broker("alpaca")
+                    except Exception:
+                        logger.warning("options_flow sweeps: Alpaca broker unavailable")
 
                 if broker is not None:
                     await enrich_sweep_events(events, broker)

@@ -15,13 +15,15 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-18 Rust flow collector — SCOPED, awaiting the founder's go (no card yet)
-Scope + staging in `References/FLOW_COLLECTOR_RS_SPEC.md`. If go: **stage 0 first** (Python-only:
-virtual clock through `runner.sweep_loop`, `tools/flow_collector_replay.py` off
-`data/databento/opra_tcbbo/<date>.dbn.zst`, `tools/flow_ab.py`, determinism test) — worth having
-even if the Rust never happens. Side finding to fix regardless: every `serv-deploy.sh` restart
-SIGKILLs `hmt-flow-collector` (8× in RTH 08-17) because `asyncio.run` waits on the `to_thread`
-REST poll at shutdown; bound it or `os._exit` after `runner.stop()`.
+## ▶ 08-18 Rust flow collector (#331) — stage 0 harness SHIPPED; stage 1 = the Rust port
+Spec + the ★ clock rules a port must follow: `References/FLOW_COLLECTOR_RS_SPEC.md`. Next:
+`collectors/flow_rs/` (databento `dbn` crate reads `opra_tcbbo/<date>.dbn.zst` + `opra_defs/`,
+same clock rule, same rows) → `tools/flow_ab.py py/ rs/` IDENTICAL on a full session → stage 2
+pairing → stage 3 back-half sidecar + systemd swap. Founder's Rust project — pair, don't dispatch.
+Side finding to fix regardless (independent thread): every `serv-deploy.sh` restart SIGKILLs
+`hmt-flow-collector` (8× in RTH 08-17) — TERM doesn't exit inside the script's 6s; last log lines
+are the poll leg's httpx GETs, i.e. `asyncio.run` waiting on the `to_thread` REST poll at shutdown
+(inferred from the log tail, not stepped through). Bound it or `os._exit` after `runner.stop()`.
 
 ## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
 - ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,

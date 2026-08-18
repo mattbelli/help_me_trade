@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 331,
+   "id": "flow-rs-collector",
+   "title": "Rust OPRA flow collector (flow_rs) — tape replay harness first, then port spine+detectors to parity",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "P2",
+   "owner": "founder",
+   "updated_at": "2026-08-18",
+   "notes": "08-18: GO. Stage 0 SHIPPED (Python): virtual clock + sleep seam through OptionsFlowRunner.sweep_loop/meta_for/on_prints (clock/sleep/enrich kwargs; live unchanged), tools/flow_collector_replay.py (DBN tcbbo file + defs symbology → same _on_record + sweep_loop, scratch sandbox, poll/broker/convergence/pairing OFF), tools/flow_ab.py (events / index_pressure minutes+days / print-lab JSONL; exit 0 = IDENTICAL), tests/test_flow_tape_replay.py (synthetic DBN tape built with databento_dbn; two replays IDENTICAL). 08-17 09:30-09:40 slice: 634k rec in 17s, 872 events, two runs IDENTICAL. Spec + clock rules: References/FLOW_COLLECTOR_RS_SPEC.md. Next: stage 1 = collectors/flow_rs (databento Rust crate reads the same file under the same clock rule) → flow_ab IDENTICAL on a full day → stage 2 pairing → stage 3 sidecar + systemd swap. Founder's Rust project — pair, don't dispatch."
+  },
+  {
    "num": 330,
    "id": "tauri-desktop-shell",
    "title": "Tauri desktop shell (desktop/) — thin window on the serv cockpit + global kill-switch hotkey; first PC build",
