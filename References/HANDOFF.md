@@ -42,16 +42,13 @@ for rollback. Open:
   format as the equity tape); `flow_rs replay` does not merge an Alpaca tape yet, so pairing parity is
   measured live (the `pairing:` line), not by A/B. Founder's Rust project — pair, don't dispatch.
 
-## ▶ 08-18 Tauri desktop shell (#330) — written + type-checked, first run is the founder's (PC)
-- ⏳ **founder, on the PC:** VS Build Tools (C++ workload) + rustup + `cargo install tauri-cli --version "^2" --locked`,
-  then `cd desktop && cargo tauri dev` (steps in `desktop/README.md`). First run writes
-  `%APPDATA%\trade.helpme.desktop\config.json` → paste serv's `API_TOKEN` (normal, not admin) as `api_token`,
-  restart, press `Ctrl+Shift+K` with the window unfocused → expect the "Kill switch ARMED" toast and the cockpit
-  flipping; disarm from the cockpit. Anything that fails compiles/runs → paste the error here; the Rust was only
-  type-checked against the Windows target from serv, never executed.
-- ▶ then `cargo tauri build` (installer in `desktop/target/release/bundle/`), replace the Edge PWA with it; Mac
-  build from the same tree when wanted. Follow-ups only if a trigger bites: pop-out widget windows (needs a
-  widget-only route), signing.
+## ▶ 08-18 Tauri desktop shell (#330) — BUILT + INSTALLED on the PC (see BUILD_LOG 08-18); two opens
+- ⏳ **founder: one live fire of the kill hotkey.** Everything short of arming is verified (token auths against
+  serv, pin hotkey fires globally) — deliberately did NOT arm from the agent session since disarm is admin-gated.
+  Press `Ctrl+Shift+K` once with the window unfocused → expect "Kill switch ARMED" toast + the cockpit flipping;
+  disarm from the cockpit. Then retire the Edge PWA in favor of the installed app (Start Menu → help_me_trade).
+- ▶ Mac build later from the same tree (`desktop/README.md`). Follow-ups only if a trigger bites: pop-out
+  widget windows (needs a widget-only route), signing.
 
 ## ▶ 08-18 Rust equity collector (#329) — **LIVE IN PRODUCTION since 10:33 ET 08-18; sidecar + bars + tee since 11:23 ET**
 `hmt-equity-collector` runs `EQUITY_RUST_COLLECTOR=1` (flag in `.env`): `tools/equity_collector.py`
