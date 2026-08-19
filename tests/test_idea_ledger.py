@@ -245,3 +245,44 @@ def test_init_idea_outcomes_tables_reruns_after_file_recreated(tmp_path) -> None
         assert conn.execute(
             "SELECT 1 FROM sqlite_master WHERE name = 'idea_outcomes'"
         ).fetchone()
+
+
+def test_register_idea_survives_lock_burst(tmp_path: Path, monkeypatch) -> None:
+    """Card #223: a 'database is locked' on the first write attempt must NOT drop
+    the idea — the write retries and the row lands. Non-lock errors still raise."""
+    import sqlite3
+
+    import db.idea_outcomes as mod
+
+    db_path = tmp_path / "ledger.db"
+    init_idea_outcomes_tables(db_path)
+    monkeypatch.setattr(mod, "_LOCK_RETRY_SLEEPS", (0.0, 0.0))
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+
+    real_connect = mod._connect
+    calls = {"n": 0}
+
+    def flaky_connect(path):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real_connect(path)
+
+    monkeypatch.setattr(mod, "_connect", flaky_connect)
+    idea_id = _register(db_path, origin="canary", symbol="SPY", as_of="2026-07-23T15:11:00+00:00")
+    assert idea_id is not None
+    assert calls["n"] == 2
+    rows = list_ledger_rows(db_path=db_path)["rows"]
+    assert [r["symbol"] for r in rows] == ["SPY"]
+
+    # A non-lock OperationalError is not retried.
+    def broken_connect(path):
+        raise sqlite3.OperationalError("no such table: nope")
+
+    monkeypatch.setattr(mod, "_connect", broken_connect)
+    try:
+        _register(db_path, origin="canary", symbol="QQQ", as_of="2026-07-23T15:12:00+00:00")
+    except sqlite3.OperationalError as exc:
+        assert "no such table" in str(exc)
+    else:
+        raise AssertionError("non-lock error should propagate")

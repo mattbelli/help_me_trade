@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -327,6 +329,35 @@ def _insert_idea(
     )
 
 
+# Lock burst resilience (card #223): a writer holding the DB past the 5s
+# busy_timeout (bulk bar refresh, collectors) used to kill the INSERT outright
+# and the idea was silently gone from the calibration ledger. Each attempt still
+# rides the busy handler; the pause between them is deliberately short — this
+# runs inline in sync callers, so it must not stall them beyond the burst itself.
+_LOCK_RETRY_SLEEPS = (0.25, 0.5)
+
+
+def _is_locked(exc: sqlite3.OperationalError) -> bool:
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def _write_with_lock_retry(fn, *, what: str):
+    """Run ``fn()`` (a single write transaction), retrying on a locked db."""
+    for attempt, pause in enumerate(_LOCK_RETRY_SLEEPS):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            if not _is_locked(exc):
+                raise
+            logger.warning(
+                "%s hit a locked db — retry %d/%d in %.2fs",
+                what, attempt + 1, len(_LOCK_RETRY_SLEEPS), pause,
+            )
+            time.sleep(pause)
+    return fn()
+
+
 def _to_et(as_of_iso: str) -> datetime:
     """Parse an ISO timestamp to ET. Naive inputs are assumed UTC (now_iso emits
     UTC) — attaching ET to a naive evening-UTC stamp would shift the idea into
@@ -460,62 +491,66 @@ def register_ideas(
     if not ideas:
         return 0
 
-    inserted = 0
     now = _now()
     open_placeholders = ",".join("?" * len(OPEN_STATUSES))
-    with _connect(db_path) as conn:
-        for idx, idea in enumerate(ideas):
-            if not isinstance(idea, dict):
-                continue
-            symbol = str(idea.get("symbol", "")).strip().upper()
-            entry_zone = idea.get("entry_zone")
-            if not symbol or not isinstance(entry_zone, dict):
-                continue
-            entry_low = str(entry_zone.get("low", "")).strip()
-            entry_high = str(entry_zone.get("high", "")).strip()
-            stop = str(idea.get("stop", "")).strip()
-            targets = idea.get("targets")
-            if not entry_low or not entry_high or not stop or not isinstance(targets, list):
-                continue
 
-            as_of = str(idea.get("as_of") or now).strip() or now
-            targets_json = json.dumps([str(t) for t in targets])
-            origin = str(idea.get("origin", "structure")).strip() or "structure"
-            veto_reason = str(idea.get("veto_reason", "")).strip()
+    def _write() -> int:
+        inserted = 0
+        with _connect(db_path) as conn:
+            for idx, idea in enumerate(ideas):
+                if not isinstance(idea, dict):
+                    continue
+                symbol = str(idea.get("symbol", "")).strip().upper()
+                entry_zone = idea.get("entry_zone")
+                if not symbol or not isinstance(entry_zone, dict):
+                    continue
+                entry_low = str(entry_zone.get("low", "")).strip()
+                entry_high = str(entry_zone.get("high", "")).strip()
+                stop = str(idea.get("stop", "")).strip()
+                targets = idea.get("targets")
+                if not entry_low or not entry_high or not stop or not isinstance(targets, list):
+                    continue
 
-            dup = conn.execute(
-                f"""
-                SELECT 1 FROM idea_outcomes
-                WHERE status IN ({open_placeholders})
-                  AND symbol = ? AND entry_low = ? AND entry_high = ?
-                  AND stop = ? AND origin = ?
-                LIMIT 1
-                """,
-                (*OPEN_STATUSES, symbol, entry_low, entry_high, stop, origin),
-            ).fetchone()
-            if dup is not None:
-                continue
+                as_of = str(idea.get("as_of") or now).strip() or now
+                targets_json = json.dumps([str(t) for t in targets])
+                origin = str(idea.get("origin", "structure")).strip() or "structure"
+                veto_reason = str(idea.get("veto_reason", "")).strip()
 
-            cur = _insert_idea(
-                conn,
-                {
-                    "artifact_id": int(artifact_id),
-                    "idea_index": int(idx),
-                    "symbol": symbol,
-                    "as_of": as_of,
-                    "entry_low": entry_low,
-                    "entry_high": entry_high,
-                    "stop": stop,
-                    "targets_json": targets_json,
-                    "status": "pending",
-                    "origin": origin,
-                    "veto_reason": veto_reason,
-                    "updated_at": now,
-                },
-            )
-            inserted += int(cur.rowcount or 0)
-        conn.commit()
-    return inserted
+                dup = conn.execute(
+                    f"""
+                    SELECT 1 FROM idea_outcomes
+                    WHERE status IN ({open_placeholders})
+                      AND symbol = ? AND entry_low = ? AND entry_high = ?
+                      AND stop = ? AND origin = ?
+                    LIMIT 1
+                    """,
+                    (*OPEN_STATUSES, symbol, entry_low, entry_high, stop, origin),
+                ).fetchone()
+                if dup is not None:
+                    continue
+
+                cur = _insert_idea(
+                    conn,
+                    {
+                        "artifact_id": int(artifact_id),
+                        "idea_index": int(idx),
+                        "symbol": symbol,
+                        "as_of": as_of,
+                        "entry_low": entry_low,
+                        "entry_high": entry_high,
+                        "stop": stop,
+                        "targets_json": targets_json,
+                        "status": "pending",
+                        "origin": origin,
+                        "veto_reason": veto_reason,
+                        "updated_at": now,
+                    },
+                )
+                inserted += int(cur.rowcount or 0)
+            conn.commit()
+        return inserted
+
+    return _write_with_lock_retry(_write, what="register_ideas")
 
 
 def register_idea(
@@ -665,27 +700,30 @@ def register_idea(
         "updated_at": now,
     }
 
-    with _connect(db_path) as conn:
-        # The legacy UNIQUE(artifact_id, idea_index) predates this path and would
-        # otherwise shadow the dedup_key guard for a fixed idea_index=0, so
-        # self-allocate a non-colliding index (starts at 0 for the first row).
-        # The dedup_key partial-unique index remains the real open-row wall —
-        # INSERT OR IGNORE fires on it for a true duplicate. The MAX+1 subquery
-        # runs inside the INSERT under the write lock, so it stays race-safe.
-        cur = _insert_idea(
-            conn,
-            values,
-            raw_columns={
-                "idea_index": (
-                    "(SELECT COALESCE(MAX(idea_index) + 1, 0) "
-                    "FROM idea_outcomes WHERE artifact_id = 0)"
-                )
-            },
-        )
-        conn.commit()
-        if int(cur.rowcount or 0) == 0:
-            return None  # deduped by the open-row wall
-        return int(cur.lastrowid)
+    def _write() -> int | None:
+        with _connect(db_path) as conn:
+            # The legacy UNIQUE(artifact_id, idea_index) predates this path and would
+            # otherwise shadow the dedup_key guard for a fixed idea_index=0, so
+            # self-allocate a non-colliding index (starts at 0 for the first row).
+            # The dedup_key partial-unique index remains the real open-row wall —
+            # INSERT OR IGNORE fires on it for a true duplicate. The MAX+1 subquery
+            # runs inside the INSERT under the write lock, so it stays race-safe.
+            cur = _insert_idea(
+                conn,
+                values,
+                raw_columns={
+                    "idea_index": (
+                        "(SELECT COALESCE(MAX(idea_index) + 1, 0) "
+                        "FROM idea_outcomes WHERE artifact_id = 0)"
+                    )
+                },
+            )
+            conn.commit()
+            if int(cur.rowcount or 0) == 0:
+                return None  # deduped by the open-row wall
+            return int(cur.lastrowid)
+
+    return _write_with_lock_retry(_write, what=f"register_idea {origin} {symbol}")
 
 
 def find_ideas_by_episode(
