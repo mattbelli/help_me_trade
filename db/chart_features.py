@@ -146,6 +146,20 @@ def delete_chart_layout(chart_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+# Bumped by every in-process price_alerts mutation so api.alert_checker's
+# per-print cache knows to reload (a TTL covers writers in other processes).
+_alerts_rev = 0
+
+
+def alerts_revision() -> int:
+    return _alerts_rev
+
+
+def _bump_alerts_rev() -> None:
+    global _alerts_rev
+    _alerts_rev += 1
+
+
 def list_price_alerts(*, symbol: str | None = None, active_only: bool = True) -> list[dict]:
     init_chart_features()
     query = "SELECT * FROM price_alerts WHERE 1=1"
@@ -184,6 +198,7 @@ def create_price_alert(
             (sym, price, direction, note, 1 if repeat else 0, now),
         )
         conn.commit()
+        _bump_alerts_rev()
         row_id = int(cursor.lastrowid)
         row = conn.execute(
             "SELECT * FROM price_alerts WHERE id = ?", (row_id,)
@@ -196,6 +211,7 @@ def delete_price_alert(alert_id: int) -> bool:
     with _connect() as conn:
         cursor = conn.execute("DELETE FROM price_alerts WHERE id = ?", (alert_id,))
         conn.commit()
+    _bump_alerts_rev()
     return cursor.rowcount > 0
 
 
@@ -232,6 +248,7 @@ def update_price_alert(
             (*params, alert_id),
         )
         conn.commit()
+        _bump_alerts_rev()
         if cursor.rowcount == 0:
             return None
         row = conn.execute(
@@ -265,6 +282,7 @@ def mark_alert_triggered(
                 (now, fire_price, alert_id),
             )
             conn.commit()
+            _bump_alerts_rev()
             return True
         cursor = conn.execute(
             "UPDATE price_alerts SET triggered = 1, last_triggered_at = ? "
@@ -272,7 +290,8 @@ def mark_alert_triggered(
             (now, alert_id),
         )
         conn.commit()
-        return cursor.rowcount == 1
+    _bump_alerts_rev()
+    return cursor.rowcount == 1
 
 
 def rearm_repeat_alert(alert_id: int) -> None:
@@ -289,6 +308,7 @@ def rearm_repeat_alert(alert_id: int) -> None:
             (alert_id,),
         )
         conn.commit()
+    _bump_alerts_rev()
 
 
 def _parse_drawing_row(row) -> dict:

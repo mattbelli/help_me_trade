@@ -634,11 +634,11 @@ class BaseMarketHub:
         try:
             from api.alert_checker import check_alerts
 
-            triggered = await asyncio.to_thread(
-                check_alerts,
-                {symbol: current},
-                prev_quotes={symbol: prev},
-            )
+            # Inline, not to_thread: this runs per admitted print (27k/s peaks
+            # at the close). check_alerts is a cached dict lookup that only
+            # touches SQLite when an alert actually fires; the thread hop +
+            # per-call DB read it replaced dropped 70% of the close tape.
+            triggered = check_alerts({symbol: current}, prev_quotes={symbol: prev})
         except Exception as exc:
             logger.warning("Price alert check failed: %s", exc)
             return

@@ -2,13 +2,42 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 from db.chart_features import (
+    alerts_revision,
     list_price_alerts,
     mark_alert_triggered,
     rearm_repeat_alert,
 )
+
+# check_alerts runs on EVERY admitted print (thousands/s into the close), so it
+# must not touch SQLite per call: re-reading price_alerts each time cost ~2 ms a
+# print and made the hub drop 70% of the 15:50-16:00 tape (replay, 2026-08-18).
+# The active set lives here keyed by symbol; it reloads when an alert mutates in
+# this process (db.chart_features revision) or after the TTL (other writers).
+_CACHE_TTL_S = 5.0
+_cache: dict[str, list[dict]] = {}
+_cache_rev = -1
+_cache_at = 0.0
+
+
+def invalidate_alert_cache() -> None:
+    global _cache_rev
+    _cache_rev = -1
+
+
+def _active_by_symbol() -> dict[str, list[dict]]:
+    global _cache, _cache_rev, _cache_at
+    now = time.monotonic()
+    rev = alerts_revision()
+    if rev != _cache_rev or now - _cache_at > _CACHE_TTL_S:
+        by: dict[str, list[dict]] = {}
+        for alert in list_price_alerts(active_only=True):
+            by.setdefault(str(alert["symbol"]).upper(), []).append(alert)
+        _cache, _cache_rev, _cache_at = by, rev, now
+    return _cache
 
 # Persistent (repeat) alerts re-arm after each crossing. Cross-detection means
 # they only fire on an actual cross, but that isn't enough: a price dithering
@@ -64,51 +93,48 @@ def check_alerts(
     One-shot alerts are marked triggered (leave the active list). Persistent
     (repeat) alerts stay active and re-arm, debounced by a short cooldown.
     """
-    alerts = list_price_alerts(active_only=True)
+    by_symbol = _active_by_symbol()
     triggered: list[dict] = []
     now = datetime.now(UTC)
 
-    for alert in alerts:
-        sym = str(alert["symbol"]).upper()
-        current = quotes.get(sym)
-        if current is None:
+    for sym, current in quotes.items():
+        alerts = by_symbol.get(str(sym).upper())
+        if not alerts or current is None:
             continue
         prev = prev_quotes.get(sym)
         if prev is None:
             continue
-        target = float(alert["price"])
-        direction = str(alert.get("direction", "cross"))
-        alert_id = int(alert["id"])
-        is_repeat = bool(alert.get("repeat"))
-
-        if is_repeat:
-            # Hysteresis: while disarmed (last_fire_price set), only re-arm once
-            # price has moved a band away — evaluated every tick, independent of
-            # cross direction, so a directional alert's retreat still re-arms it.
-            fire_price = alert.get("last_fire_price")
-            if fire_price is not None:
-                if _left_band(prev, current, float(fire_price), target):
-                    rearm_repeat_alert(alert_id)
-                else:
-                    continue  # still parked at the level → suppress
-            if not _crossed(prev, current, target, direction):
-                continue
-            if _within_cooldown(alert.get("last_triggered_at"), now):
-                continue
-            mark_alert_triggered(alert_id, repeat=True, fire_price=current)
-        else:
-            if not _crossed(prev, current, target, direction):
-                continue
-            # One-shot: only the writer that flips triggered 0->1 fires, so two
-            # concurrent evaluations can't both notify.
-            if not mark_alert_triggered(alert_id, repeat=False):
-                continue
-
-        triggered.append(
-            {
-                **alert,
-                "trigger_price": current,
-            }
-        )
-
+        for alert in alerts:
+            if _evaluate(alert, prev, current, now):
+                triggered.append({**alert, "trigger_price": current})
     return triggered
+
+
+def _evaluate(alert: dict, prev: float, current: float, now: datetime) -> bool:
+    """One alert vs one (prev, current) move; marks the DB when it fires."""
+    target = float(alert["price"])
+    direction = str(alert.get("direction", "cross"))
+    alert_id = int(alert["id"])
+    is_repeat = bool(alert.get("repeat"))
+
+    if is_repeat:
+        # Hysteresis: while disarmed (last_fire_price set), only re-arm once
+        # price has moved a band away — evaluated every tick, independent of
+        # cross direction, so a directional alert's retreat still re-arms it.
+        fire_price = alert.get("last_fire_price")
+        if fire_price is not None:
+            if _left_band(prev, current, float(fire_price), target):
+                rearm_repeat_alert(alert_id)
+            else:
+                return False  # still parked at the level → suppress
+        if not _crossed(prev, current, target, direction):
+            return False
+        if _within_cooldown(alert.get("last_triggered_at"), now):
+            return False
+        mark_alert_triggered(alert_id, repeat=True, fire_price=current)
+        return True
+    if not _crossed(prev, current, target, direction):
+        return False
+    # One-shot: only the writer that flips triggered 0->1 fires, so two
+    # concurrent evaluations can't both notify.
+    return mark_alert_triggered(alert_id, repeat=False)

@@ -164,3 +164,5 @@ def _age_last_triggered(alert_id: int, *, seconds: int) -> None:
             (past, alert_id),
         )
         conn.commit()
+    # Raw SQL bypasses the db-layer revision bump the checker's cache keys on.
+    alert_checker.invalidate_alert_cache()

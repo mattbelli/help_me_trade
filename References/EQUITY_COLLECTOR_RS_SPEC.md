@@ -43,6 +43,7 @@ recorded session, and the proxy serves the API hub the same frames. Then swap th
 | `tools/equity_collector_replay.py --db X` | the Python collector on the replay server: virtual clock, scratch DB, no convergence/abnormality/broker, proxy on :8768. Prints msgs/s + counts at EOF. |
 | `tools/equity_tape_ab.py A.db B.db` | diffs `equity_tape_events` (by id, all content columns; JSON compared structurally) + `fusion_spot_cache` (symbol → price, ts). Exit 0 = IDENTICAL. |
 | Rust: `equity_rs --replay --url ws://127.0.0.1:8770 --db X --proxy-port 8769` | the port; `--db` needs the Python schema (`tools/equity_db_init.py X` for a scratch DB). |
+| `tools/hub_replay_harness.py {count,real,noalert}` against a replay `equity_rs` proxy | the HUB side: the real `brokers/market_stream.py` hub as a proxy client (`real`), the same with the alert check stubbed (`noalert`), and a bare counter (`count`); `msgs(real) < msgs(count)` = hub-side drops. Found + verified the 08-19 alert-cache fix (BUILD_LOG 2026-08-19). |
 
 Determinism is pinned by `tests/test_equity_tape_replay.py` (two Python replays of one tape ⇒
 identical DBs). The Rust collector inherits that only if it follows the clock rules below.

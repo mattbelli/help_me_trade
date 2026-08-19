@@ -591,12 +591,12 @@ only past ~6 years of /ES weekly, unfixed; (0d) `/ES` 4H frames roll into UTC-fl
 `applyBarFrame` while Schwab stamps 4H session-anchored (18:00 ET) — pre-existing #325 seam,
 check the forming /ES 4H candle lands on the right stamp; (1) founder in-browser check of #325 —
 candles start where the last one ended on every timeframe/load, forming bar updates ~10Hz,
-ETH-off hides pre/post frames; (2) MEASURED, not fixed:
-SIP prints reach the hub 1-7s late under load (uvicorn ~220% CPU post-restart — now ~106% after #327; re-measure the lag) — bucketing is by
-trade time so nothing mislabels, but the forming candle updates late; find where the seconds go
-(proxy queue vs `_on_trade` work per print) — related and ALSO pre-existing: the hub's socket to the
-proxy logs `keepalive ping timeout` + reconnect every ~5 min (129 since 08-14; the hub loop stalls
->20s), each reconnect = a few seconds of dropped prints; (3) `test_bars_routes`-level test for
+ETH-off hides pre/post frames; (2) the hub-side drops are FIXED (BUILD_LOG 2026-08-19, card #333: the per-print alert
+check re-read SQLite; now an in-memory cache — 0 drops on the replayed 08-18 close) but two checks are
+owed: (a) the live `proxy drops` counter on the equity collector (`/api/collectors/stats` → SIP panel)
+should stay flat through the 15:50–16:00 ET burst on the first close after deploy; (b) the hub's socket
+to the proxy logged `keepalive ping timeout` + reconnect every ~5 min (129 since 08-14; loop stalls
+>20s) — probably the same starvation, re-count after a session and if it persists it's its own bug; (3) `test_bars_routes`-level test for
 `_splice_live_tail` (unit-tested via `splice_vendor_tail` only).
 
 ## ▶ Per-symbol vol model — shipped disabled; ARMING is the open thread

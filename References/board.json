@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-18",
+ "updated_at": "2026-08-19",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 333,
+   "id": "hub-alert-cache-close-drops",
+   "title": "Backend hub dropped 70% of the close tape — per-print price-alert check re-read SQLite; in-memory alert cache",
+   "lane": "done",
+   "type": "fix",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-08-19",
+   "notes": "08-19: equity collector proxy drops 99k→1.14M 15:50–16:00 ET on 08-18 = the uvicorn hub's queue overflowing. Replay of the recorded tape (tools/hub_replay_harness.py, 150-symbol prod set): real hub got 635k of 2.12M msgs (70% dropped, 91% busy) — _check_price_alerts did asyncio.to_thread(list_price_alerts) per print (2.04 ms × 262k). Fix: api/alert_checker cache keyed by symbol, reload on db.chart_features.alerts_revision() bump or 5 s TTL; called inline. After: 2.12M received, 0 dropped, 5% busy, 3 µs/check. Follow-up: watch the live proxy-drops counter through the first close after deploy; re-count the hub's keepalive-timeout reconnects."
+  },
   {
    "num": 332,
    "id": "finra-short-volume-dix",
