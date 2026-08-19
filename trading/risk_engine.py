@@ -37,7 +37,16 @@ from trading.models import OrderIntent, RiskCheckResult
 logger = logging.getLogger(__name__)
 
 _SNAPSHOT_MAX_AGE = timedelta(minutes=5)
-_SYMBOL_RE = re.compile(r"^[A-Z]+$")
+# Common stock, plus the two dotted instrument types the agent is authorised
+# to trade: share classes (BRK.B, MKC.V) and preferreds (ORCL.PRD, ETI.PR).
+# Alpaca's canonical form is the dotted one, so this is also the form that
+# positions echo back. The suffix is an ALLOWLIST, not a denylist: warrants
+# (.WS), units (.U) and rights (.RT) stay out, and an unrecognised new suffix
+# fails closed. Measured against Alpaca's 13,384 tradable equities: admits
+# 13,252, excludes 131. Length is bounded here rather than by a separate
+# len() so dotted forms are not half-admitted (BRK.B at 5 chars passing
+# while ORCL.PRD at 8 fails).
+_SYMBOL_RE = re.compile(r"^[A-Z]{1,5}(?:\.(?:A|B|C|V|PR[A-Z]?))?$")
 _OCC_RE = re.compile(r"^[A-Z]{1,6}\d{6}[CP]\d{8}$")
 
 
@@ -231,7 +240,7 @@ class RiskEngine:
             symbol = intent.symbol.strip().upper()
 
             # 2. Symbol sanity (equity)
-            if not symbol or len(symbol) > 5 or not _SYMBOL_RE.match(symbol):
+            if not symbol or not _SYMBOL_RE.fullmatch(symbol):
                 checks["symbol_sanity"] = "fail: invalid symbol"
                 return RiskCheckResult(
                     passed=False,

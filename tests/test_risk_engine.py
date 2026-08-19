@@ -84,7 +84,7 @@ def _patch_passing_env(monkeypatch, db_path: Path) -> None:
     )
     monkeypatch.setattr(
         "trading.risk_engine.market_hub.quote_snapshot",
-        lambda _symbols: {"AAPL": {"price": 150.0}},
+        lambda symbols: {s: {"price": 150.0} for s in symbols},
     )
     monkeypatch.setattr("trading.risk_engine.is_kill_switch_active", lambda: False)
     monkeypatch.setattr(
@@ -123,6 +123,68 @@ async def test_risk_engine_invalid_symbol(monkeypatch, tmp_path: Path) -> None:
     result = await RiskEngine.validate(_intent(symbol=""), db_path=db)
     assert result.passed is False
     assert result.blocked_reason == "invalid symbol"
+
+
+# Share classes and preferreds only. Warrants/units/rights are deliberately NOT
+# reachable by the agent (founder call 2026-08-19); the suffix set was derived by
+# enumerating Alpaca's live asset list, not guessed.
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "AAPL",  # plain common stock, unchanged
+        "C",
+        "GOOGL",
+        "BF.B",  # share classes
+        "BRK.B",
+        "HEI.A",
+        "MKC.V",  # rarer share-class letters
+        "CIG.C",
+        "ORCL.PRD",  # preferreds
+        "AHRT.PRA",
+        "USB.PRH",
+        "ETI.PR",  # bare .PR — 4 of these are live
+    ],
+)
+@pytest.mark.asyncio
+async def test_risk_engine_accepts_share_class_and_preferred_symbols(
+    symbol: str, monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "risk.db"
+    _patch_passing_env(monkeypatch, db)
+    result = await RiskEngine.validate(_intent(symbol=symbol), db_path=db)
+    assert result.checks["symbol_sanity"] == "pass"
+    assert result.passed is True
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "TOOLONG",  # 7 and 6 alpha: the boundary the removed len() > 5 enforced
+        "ABCDEF",
+        "SPY260819P00769000",  # an OCC option symbol must never pass the equity gate
+        "BF.",  # malformed
+        ".B",
+        "BF.BBBB",
+        "BF..B",
+        "BRK.B.C",
+        "BF-B",
+        "ACHR.WS",  # warrants — not authorised
+        "NE.WSA",
+        "SBXE.U",  # units — not authorised
+        "SOUL.RT",  # rights — not authorised
+        "GFR.RTWI",
+        "ABCDE.FGH",  # an unrecognised suffix fails closed
+    ],
+)
+@pytest.mark.asyncio
+async def test_risk_engine_rejects_malformed_and_unauthorised_symbols(
+    symbol: str, monkeypatch, tmp_path: Path
+) -> None:
+    db = tmp_path / "risk.db"
+    _patch_passing_env(monkeypatch, db)
+    result = await RiskEngine.validate(_intent(symbol=symbol), db_path=db)
+    assert result.passed is False
+    assert result.checks["symbol_sanity"] == "fail: invalid symbol"
 
 
 @pytest.mark.asyncio

@@ -53,6 +53,11 @@ def _fake_assets_payload() -> list[dict]:
             "tradable": True,
             "attributes": ["overnight_tradable", "has_options"],
         },
+        {
+            "symbol": "BRK.B",
+            "tradable": True,
+            "attributes": ["overnight_tradable"],
+        },
     ]
 
 
@@ -63,7 +68,7 @@ def test_overnight_cache_from_assets_parse() -> None:
     tradable = adapter._cache_tradable_symbols(now, _fake_assets_payload())
 
     assert tradable == ["AAPL", "GOOG", "MSFT", "NVDA"]
-    assert adapter.overnight_tradable_symbols() == {"AAPL", "NVDA", "TSLA"}
+    assert adapter.overnight_tradable_symbols() == {"AAPL", "NVDA", "TSLA", "BRK.B"}
 
 
 @pytest.mark.asyncio
@@ -74,5 +79,15 @@ async def test_aovernight_tradable_symbols_uses_cache() -> None:
 
     result = await adapter.aovernight_tradable_symbols()
 
-    assert result == {"AAPL", "NVDA", "TSLA"}
+    assert result == {"AAPL", "NVDA", "TSLA", "BRK.B"}
     assert "MSFT" not in result
+
+
+def test_dotted_symbols_reach_overnight_set_but_not_the_search_list() -> None:
+    """The `.isalpha()` filter is a search-list rule, not an overnight rule."""
+    adapter = _adapter()
+
+    tradable = adapter._cache_tradable_symbols(time.time(), _fake_assets_payload())
+
+    assert "BRK.B" not in tradable
+    assert "BRK.B" in adapter.overnight_tradable_symbols()

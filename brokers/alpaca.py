@@ -1005,9 +1005,12 @@ class AlpacaAdapter:
             if not isinstance(item, dict):
                 continue
             sym = str(item.get("symbol", ""))
-            if not sym.isalpha():
+            if not sym:
                 continue
-            if item.get("tradable"):
+            # `.isalpha()` gates the search list only. Skipping the whole item
+            # also dropped dotted names (BRK.B, BF.B) from the overnight set,
+            # so the badge claimed they were not overnight-tradable when they are.
+            if item.get("tradable") and sym.isalpha():
                 symbols.append(sym)
             attrs = item.get("attributes") or []
             if (
@@ -1511,7 +1514,13 @@ class AlpacaAdapter:
             return False
         try:
             data = self._get(f"/v2/assets/{sym}")
-            return bool(isinstance(data, dict) and data.get("tradable"))
+            if not isinstance(data, dict) or not data.get("tradable"):
+                return False
+            # Alpaca aliases undotted forms server-side (BRKB resolves to BRK.B).
+            # Accepting the alias would book the position under a symbol the
+            # broker does not hold, and the exit engine would never find it to
+            # close. Require the name we asked for to be the canonical one.
+            return str(data.get("symbol", "")).upper() == sym
         except AlpacaError:
             return False
 
