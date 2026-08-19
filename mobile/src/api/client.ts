@@ -18,6 +18,8 @@ export interface ApiFetchOptions {
   body?: unknown;
   /** Override the token read from secure storage. */
   token?: string;
+  /** Extra request headers (e.g. the approval-signature trio). */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
@@ -32,7 +34,7 @@ export async function apiFetch<T>(
   const token = opts?.token ?? (await getToken());
   const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(opts?.headers ?? {}) };
   if (token) {
     headers['X-API-Token'] = token;
   }

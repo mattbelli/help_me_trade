@@ -22,6 +22,7 @@ import {
   getSnapshot,
   getWatchlistMarket,
   getWatchlists,
+  listApprovalDevices,
   rejectProposal,
   searchSymbols,
   getSettings,
@@ -232,6 +233,14 @@ export function usePendingProposals() {
     enabled,
     refetchInterval: 10_000,
     staleTime: 8_000,
+  });
+}
+
+export function useApprovalDevices() {
+  return useQuery({
+    queryKey: ['approval-devices'],
+    queryFn: listApprovalDevices,
+    ...useAuthenticated(),
   });
 }
 

@@ -147,6 +147,12 @@ export function PendingProposalCard({
         case "hash_mismatch":
           showToast("Proposal changed — refresh", "error");
           break;
+        case "forbidden":
+          showToast(
+            "Approve from your phone, or enter the admin token in Settings → Execution / Risk",
+            "error",
+          );
+          break;
         default:
           showToast("Approve failed", "error");
       }

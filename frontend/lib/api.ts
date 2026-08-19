@@ -1515,15 +1515,28 @@ export async function fetchPendingProposals(): Promise<PendingProposal[]> {
   return data.proposals ?? [];
 }
 
+/** Desk approvals ride the ADMIN token (Settings → Execution / Risk stores it
+ *  for the session). Once a phone is enrolled the shared API token can no
+ *  longer approve — the server answers 403 and we surface that as `forbidden`. */
 export async function approveProposal(
   id: string,
   payloadHash: string,
 ): Promise<{ status: string; [k: string]: unknown }> {
-  const res = await apiFetch(`${API_BASE}/api/proposals/${id}/approve`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload_hash: payloadHash }),
-  });
+  const adminToken =
+    typeof window !== "undefined"
+      ? (sessionStorage.getItem("hmt-admin-token") ?? "")
+      : "";
+  const res = await apiFetch(
+    `${API_BASE}/api/proposals/${id}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ payload_hash: payloadHash }),
+    },
+    20_000,
+    adminToken,
+  );
+  if (res.status === 403) return { status: "forbidden" };
   return res.json();
 }
 

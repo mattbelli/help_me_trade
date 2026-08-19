@@ -18,7 +18,7 @@ import { useEffect, useRef } from 'react';
 
 import { ApiError } from '@/api/client';
 import { queryClient } from '@/api/query-client';
-import { approveProposal, rejectProposal } from '@/api/endpoints';
+import { ApprovalSigningError, approveProposal, rejectProposal } from '@/api/endpoints';
 import { useAuth } from '@/auth/auth-context';
 import { symbolRoute } from '@/lib/symbol-route';
 
@@ -97,11 +97,16 @@ async function handleApprove(data: ProposalPushData): Promise<void> {
       res.status === 'executed' ? 'Order sent to the broker.' : `Server: ${res.status}`,
     );
   } catch (err) {
-    const status =
-      err instanceof ApiError && err.body && typeof err.body === 'object' && 'status' in err.body
-        ? String((err.body as { status: unknown }).status)
-        : 'failed';
-    await notifyOutcome('Not executed', status === 'failed' ? 'Network error — trade not sent.' : `Blocked: ${status}`);
+    const body = err instanceof ApiError && err.body && typeof err.body === 'object' ? (err.body as Record<string, unknown>) : null;
+    const message =
+      err instanceof ApprovalSigningError
+        ? err.message
+        : body && 'status' in body
+          ? `Blocked: ${String(body.status)}`
+          : err instanceof ApiError && (err.status === 403 || err.status === 429)
+            ? `${typeof body?.detail === 'string' ? body.detail : 'Approval refused'} — Settings → Approval device.`
+            : 'Network error — trade not sent.';
+    await notifyOutcome('Not executed', message);
   } finally {
     done();
     refreshProposals();

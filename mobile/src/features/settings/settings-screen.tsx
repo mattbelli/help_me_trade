@@ -1,10 +1,13 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
+import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
 
 import { tradeProposalActivity } from '../../../widgets/trade-proposal';
 
-import { useHealth } from '@/api/queries';
+import { enrollApprovalDevice } from '@/api/endpoints';
+import { useApprovalDevices, useHealth } from '@/api/queries';
+import { getApprovalIdentity } from '@/auth/approval-key';
 import { useAuth } from '@/auth/auth-context';
 import { Button, Card, Eyebrow, PageHeading, Row, Screen, SettingsRow, Skeleton, Stack, Text } from '@/components/ui';
 import { API_BASE_URL, APP_VERSION } from '@/config';
@@ -135,6 +138,8 @@ export function SettingsScreen() {
             </Stack>
           </Card>
 
+          <ApprovalDeviceCard />
+
           <Card>
             <Stack gap={spacing.sm}>
               <Eyebrow>price alerts</Eyebrow>
@@ -163,6 +168,83 @@ export function SettingsScreen() {
 
 function Header() {
   return <PageHeading title="settings" />;
+}
+
+/**
+ * The phone's approval identity. Approving a trade is signed with a key that
+ * lives only in this phone's keychain; serv honours it once the public half is
+ * enrolled (admin token, typed once here, never stored). Until a device is
+ * enrolled serv still accepts the shared token — enrolling closes that path.
+ */
+function ApprovalDeviceCard() {
+  const devices = useApprovalDevices();
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void getApprovalIdentity().then((id) => setDeviceId(id.deviceId));
+  }, []);
+
+  const mine = devices.data?.devices.find((d) => d.device_id === deviceId);
+  const state = !deviceId || devices.isLoading
+    ? 'loading'
+    : mine && !mine.revoked_at
+      ? 'enrolled'
+      : mine
+        ? 'revoked'
+        : 'not enrolled';
+
+  const enroll = () => {
+    Alert.prompt(
+      'Enroll this phone',
+      'Enter the admin token once. After this, only enrolled phones (or the admin token on the desk) can approve trades.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Enroll',
+          onPress: (adminToken?: string) => {
+            const token = (adminToken ?? '').trim();
+            if (!token) return;
+            setBusy(true);
+            void enrollApprovalDevice(token, Device.deviceName ?? 'iPhone')
+              .then(() => devices.refetch())
+              .catch((err: unknown) =>
+                Alert.alert('Enrollment failed', err instanceof Error ? err.message : String(err)),
+              )
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+      'secure-text',
+    );
+  };
+
+  return (
+    <Card>
+      <Stack gap={spacing.md}>
+        <Eyebrow>approval device</Eyebrow>
+        <Stack gap={2}>
+          <Text variant="bodyStrong">
+            {state === 'enrolled'
+              ? `Enrolled · ${mine?.label || 'this phone'}`
+              : state === 'revoked'
+                ? 'Revoked — re-enroll to approve again'
+                : state === 'loading'
+                  ? '…'
+                  : 'Not enrolled'}
+          </Text>
+          <Text variant="caption" color="textMuted">
+            {state === 'enrolled'
+              ? 'Trade approvals are signed by a key that lives only in this phone. A new phone (or a restore) must re-enroll.'
+              : 'Approvals from this phone are refused until it is enrolled.'}
+          </Text>
+        </Stack>
+        {state !== 'enrolled' && state !== 'loading' ? (
+          <Button label={busy ? 'Enrolling…' : 'Enroll this phone'} onPress={enroll} disabled={busy} />
+        ) : null}
+      </Stack>
+    </Card>
+  );
 }
 
 function stripScheme(url: string): string {

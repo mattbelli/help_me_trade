@@ -1,3 +1,4 @@
+import { getApprovalIdentity, signApproval } from '@/auth/approval-key';
 import { APP_VERSION } from '@/config';
 
 import { apiFetch } from './client';
@@ -130,19 +131,63 @@ export interface ApproveProposalResult {
   reason?: string;
 }
 
-export function approveProposal(
+/** Approve = the phone SIGNS the proposal with its device key (see
+ *  auth/approval-key.ts). serv refuses the bare API token once a device is
+ *  enrolled, so an un-enrolled phone gets a 403 — surface it, never retry bare. */
+export class ApprovalSigningError extends Error {
+  constructor(cause: unknown) {
+    super(`This phone couldn't sign the approval: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'ApprovalSigningError';
+  }
+}
+
+export async function approveProposal(
   id: string,
   payloadHash: string,
   signal?: AbortSignal,
 ): Promise<ApproveProposalResult> {
+  let headers: Record<string, string>;
+  try {
+    headers = await signApproval(id, payloadHash);
+  } catch (err) {
+    // A keychain/crypto fault is NOT a network error — callers must not reconcile.
+    throw new ApprovalSigningError(err);
+  }
   return apiFetch<ApproveProposalResult>(
     `/api/proposals/${encodeURIComponent(id)}/approve`,
     {
       method: 'POST',
       body: { payload_hash: payloadHash },
+      headers,
       signal,
     },
   );
+}
+
+export interface ApprovalDevice {
+  device_id: string;
+  public_key: string;
+  label: string;
+  enrolled_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+}
+
+export function listApprovalDevices(): Promise<{ devices: ApprovalDevice[] }> {
+  return apiFetch<{ devices: ApprovalDevice[] }>('/api/approval-devices');
+}
+
+/** Enroll THIS phone's public key. Needs the admin token (sent once, never stored). */
+export async function enrollApprovalDevice(
+  adminToken: string,
+  label: string,
+): Promise<{ status: string; device_id: string }> {
+  const { deviceId, publicKey } = await getApprovalIdentity();
+  return apiFetch<{ status: string; device_id: string }>('/api/approval-devices', {
+    method: 'POST',
+    token: adminToken,
+    body: { device_id: deviceId, public_key: publicKey, label },
+  });
 }
 
 export function rejectProposal(id: string, signal?: AbortSignal): Promise<{ status: string }> {

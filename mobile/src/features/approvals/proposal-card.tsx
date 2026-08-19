@@ -20,7 +20,7 @@ import { View } from 'react-native';
 import Animated, { FadeIn, Layout } from 'react-native-reanimated';
 
 import { ApiError } from '@/api/client';
-import { getProposal } from '@/api/endpoints';
+import { ApprovalSigningError, getProposal } from '@/api/endpoints';
 import { useApproveProposal, useRejectProposal } from '@/api/queries';
 import type { PendingProposal } from '@/api/types';
 import { Badge, Button, Card, Divider, Row, Stack, Text } from '@/components/ui';
@@ -57,6 +57,16 @@ function resultCopy(
       ? { ok: true, message: 'Approved — order change applied.' }
       : (RESULT_COPY[status] ?? { ok: false, message: `Server returned “${status}”.` });
   return reason && !base.ok ? { ok: base.ok, message: `${base.message} (${reason})` } : base;
+}
+
+/** The `detail` string FastAPI puts on 4xx refusals (403/429 from the approval gate). */
+function detailFromError(err: ApiError): string | null {
+  const body = err.body;
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const detail = (body as { detail: unknown }).detail;
+    return typeof detail === 'string' ? detail : null;
+  }
+  return null;
 }
 
 /** Pull a server status/reason out of a thrown ApiError body (409s land here). */
@@ -160,6 +170,18 @@ export function ProposalCard({
         if (fromServer) {
           haptics.error();
           resolve({ status: fromServer.status, ...resultCopy(fromServer.status, fromServer.reason, orderChange) });
+        } else if (err instanceof ApprovalSigningError) {
+          haptics.error();
+          resolve({ status: 'signing_failed', ok: false, message: err.message });
+        } else if (err instanceof ApiError && (err.status === 403 || err.status === 429)) {
+          // serv refused the approval authority itself (not enrolled / revoked /
+          // bad clock / throttled) — its `detail` says which; never call it a network error.
+          haptics.error();
+          resolve({
+            status: err.status === 429 ? 'throttled' : 'forbidden',
+            ok: false,
+            message: `${detailFromError(err) ?? 'Approval refused by the server'} — Settings → Approval device.`,
+          });
         } else {
           // Connection lost after submit may have succeeded — reconcile via GET, never guess.
           setPhase({ kind: 'reconciling' });

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body
+import base64
+import binascii
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 import db.base as db_base
+from api.auth import verify_admin_token
+from db.approval_devices import enroll_device, list_devices, revoke_device
 from db.device_tokens import (
     deactivate_device_token,
     list_active_device_tokens,
@@ -89,3 +95,53 @@ def api_register_live_activity(body: dict = Body(...)):
     if bound_proposal_id is None:
         return {"ok": False, "reason": "no pending start for device"}
     return {"ok": True, "bound": "latest", "proposal_id": bound_proposal_id}
+
+
+# --- Approval devices: the phones whose Ed25519 key may approve a proposal ---
+# Enroll + revoke are risk-control changes → ADMIN_TOKEN only (the phone asks
+# for it once, sends it, never stores it). See api/approval_auth.py.
+
+
+@router.post("/approval-devices")
+def api_enroll_approval_device(request: Request, body: dict = Body(...)):
+    try:
+        verify_admin_token(request)
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    device_id = str(body.get("device_id", "")).strip()
+    public_key = str(body.get("public_key", "")).strip()
+    label = str(body.get("label", "")).strip()[:64]
+    if not device_id or not public_key:
+        return JSONResponse(
+            {"error": "device_id and public_key are required"}, status_code=400
+        )
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key, validate=True))
+    except (ValueError, binascii.Error):
+        return JSONResponse(
+            {"error": "public_key must be a base64 raw 32-byte Ed25519 key"},
+            status_code=400,
+        )
+    enroll_device(
+        device_id=device_id,
+        public_key=public_key,
+        label=label,
+        db_path=db_base.DEFAULT_DB_PATH,
+    )
+    return {"status": "enrolled", "device_id": device_id}
+
+
+@router.get("/approval-devices")
+def api_list_approval_devices():
+    return {"devices": list_devices(db_path=db_base.DEFAULT_DB_PATH)}
+
+
+@router.post("/approval-devices/{device_id}/revoke")
+def api_revoke_approval_device(request: Request, device_id: str):
+    try:
+        verify_admin_token(request)
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    if not revoke_device(device_id.strip(), db_path=db_base.DEFAULT_DB_PATH):
+        return JSONResponse({"error": "Not found or already revoked"}, status_code=404)
+    return {"status": "revoked", "device_id": device_id}

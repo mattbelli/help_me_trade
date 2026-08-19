@@ -8,7 +8,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ai.chat.agent import ChatRunResult, finalize_chat_turn
@@ -263,7 +263,10 @@ def api_get_proposal(proposal_id: str):
 
 
 @router.post("/proposals/{proposal_id}/approve")
-async def api_approve_proposal(proposal_id: str, body: dict | None = Body(None)):
+async def api_approve_proposal(
+    request: Request, proposal_id: str, body: dict | None = Body(None)
+):
+    from api.approval_auth import authorize_approval
     from trading.proposals import approve_proposal
 
     # payload_hash is REQUIRED: it binds the approval to the exact terms the
@@ -280,7 +283,16 @@ async def api_approve_proposal(proposal_id: str, body: dict | None = Body(None))
             {"error": "payload_hash is required"}, status_code=400
         )
 
-    outcome = await approve_proposal(proposal_id.strip(), expected_hash=expected_hash)
+    # WHO is approving — enrolled-device signature, admin token, or (until the
+    # first device enrolls) the shared token. Raises 403/429; never falls through.
+    try:
+        decided_by = authorize_approval(request, proposal_id.strip(), expected_hash)
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    outcome = await approve_proposal(
+        proposal_id.strip(), expected_hash=expected_hash, decided_by=decided_by
+    )
     status = outcome.get("status")
 
     if status == "not_found":

@@ -15,6 +15,33 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-19 Phone approval bound to the device (#107) — server SHIPPED, phone REBUILD owed
+
+- **⏳ Rebuild the iOS app on the Mac** (`expo-crypto` is a new NATIVE dep → `expo run:ios`, not a Metro
+  refresh; also `@noble/ed25519` + `@noble/hashes`, pure JS). Until then nothing changes: the server still
+  accepts the shared token for approvals because NO device has ever been enrolled (the ratchet).
+- **⏳ Then enroll: phone → Settings → "Enroll this phone"** (asks for the admin token ONCE, never stores it).
+  The FIRST enrollment closes the shared-token approval path permanently — from then on only an enrolled
+  phone's signature or the ADMIN token (web cockpit: Settings → Execution / Risk stores it for the session)
+  can approve. Verify: approve one real proposal from the phone → `decision_journal.decided_by` =
+  `device:<iPhone name>`; `journalctl -u hmt-backend | grep "approval signature"` stays empty.
+- **⏳ After the card reads "Enrolled": add `APPROVAL_REQUIRE_DEVICE=1` to serv's `.env` + restart.** It pins
+  the legacy path shut independent of the DB (reviewer: a fresh/restored `trading.db` has no
+  `approval_devices` rows and would silently reopen shared-token approvals). Order matters — set it first and
+  the only remaining approval path is the admin token.
+- **Web cockpit note:** the admin token lives in `sessionStorage` (per-tab) — after enrollment, a new tab
+  needs it retyped in Settings → Execution / Risk before desk approvals work; the card's 403 toast says so.
+- **Two Opus adversarial passes folded (08-19):** no bypass found; fixed = limiter keyed by client address
+  (device ids are readable with the shared token), bounded limiter memory, admin token read live, legacy
+  approvals journaled as `shared-token` (not `phone`); phone = Hermes has NO `btoa` (→ `base64-js`),
+  single-flight key creation, signing/refusal errors no longer masquerade as "network error", server
+  `detail` surfaced. Cross-side vector (Python ⇄ compiled TS) is byte-identical and pinned in the test.
+- **Design + files:** `api/approval_auth.py` (authority order, signature verify, 10/min failed-sig limiter,
+  ±5 min timestamp), `db/approval_devices.py`, `/api/approval-devices` (enroll/revoke = admin),
+  `mobile/src/auth/approval-key.ts` (message format must stay in lockstep with the server),
+  `tests/test_approval_auth.py`. Full fix later = Secure-Enclave-backed key (needs a native module); this
+  round's key is Keychain this-device-only, which already defeats "whoever holds the token can approve".
+
 ## ▶ 08-18 Rust flow collector (#331) — **LIVE IN PRODUCTION since 10:31 ET 08-18; pairing (stage 2) LIVE since 11:40 ET**
 `hmt-flow-collector` runs `OPTIONS_FLOW_RUST_SPINE=1` (flag in `.env`): `flow_rs live --pairing` owns the
 Databento socket + detectors + writes AND the Alpaca wildcard-trades sidecar (condition codes stamped
