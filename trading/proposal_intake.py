@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -320,7 +321,10 @@ async def propose_trade(
         if "error" in row:
             return {"status": "invalid", "reason": row["error"]}
 
-        _register_idea_shadow(
+        # Off the loop: the ledger write rides a SQLite busy wait (+ the #223
+        # lock retry) — inline it stalled every request during a lock burst.
+        await asyncio.to_thread(
+            _register_idea_shadow,
             candidate,
             entry_ref_price=sized.get("price"),
             user_action="skipped",
@@ -385,7 +389,8 @@ async def auto_execute_entry(
             db_path=db_path,
         )
         result = await ExecutionService.submit(intent, db_path=db_path)
-        _register_idea_shadow(
+        await asyncio.to_thread(
+            _register_idea_shadow,
             candidate,
             entry_ref_price=sized.get("price"),
             user_action="auto",
