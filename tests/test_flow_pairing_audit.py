@@ -201,3 +201,22 @@ class TestIntraday:
     def test_sidecar_starved_alarms(self):
         alarms = intraday_alarms(self._window(15.0, alp_ratio=0.3))
         assert any("starv" in a.lower() for a in alarms)
+
+
+def test_parse_flow_rs_line_format() -> None:
+    """flow_rs (production spine since 08-18) logs `pairing: dbn=1234 …` — no
+    'shadow', no thousands separators, no logger prefix. Verbatim from journald."""
+    line = (
+        "2026-08-19T04:30:19+00:00 serv python[1283130]: pairing: dbn=4451631 "
+        "alp=4439079 matched=4392918 (98.7% of 4451631 resolved) enriched=4392918 "
+        "att_pend=0 repairs=3 tol=26711 expired=32002 evicted=0 late_twin=18 "
+        "orphans=18541 | enrich ≤10ms=2955861(67.3%) ≤100ms=1368413(31.2%) | "
+        "wire_lag_ms d p50=NaN p95=NaN a p50=15 p95=17 | pending d=0 a=891 "
+        "keys_peak=280270 | roots d=3990 a=3988 idx_d/a: SPX=19729/19925 | "
+        "top_a=SPXW=629294 | gth_w=16097 gth_drop=0 | acked_wide=true resets=0 "
+        "reconnects=0 rss=447MB"
+    )
+    (s,) = parse_stats_lines(line)
+    assert (s.pid, s.dbn, s.alp, s.matched, s.resolved) == (
+        1283130, 4451631, 4439079, 4392918, 4451631)
+    assert s.a_p50 == 15.0 and s.resets == 0

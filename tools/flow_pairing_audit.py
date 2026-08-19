@@ -68,9 +68,13 @@ ACTIVE_DBN_PER_MIN = 1_000
 INTRADAY_MIN_ACTIVE = 12          # winter cron lands 15 min after the bell
 STARVED_ALP_RATIO = 0.5           # Fri 08-07 open ran ~0.33; healthy ~1.0
 
+# Two emitters, one line grammar: the Python collector logged "pairing shadow:
+# dbn=1,234 …"; flow_rs (production spine since 2026-08-18 12:00 ET) logs
+# "pairing: dbn=1234 …" with the same fields. Missing the second one made the
+# 08-18 audit see only the pre-cutover hour and page a bogus 87% (#331).
 STATS_RE = re.compile(
     r"(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:[+-]\d{2}:?\d{2}|Z)?"
-    r".*?python\[(?P<pid>\d+)\].*?pairing shadow(?: FINAL)?: "
+    r".*?python\[(?P<pid>\d+)\].*?pairing(?: shadow)?(?: FINAL)?: "
     r"dbn=(?P<dbn>[\d,]+) alp=(?P<alp>[\d,]+) "
     r"matched=(?P<matched>[\d,]+) \([\d.]+% of (?P<resolved>[\d,]+) resolved\)"
     r".*? a p50=(?P<a_p50>-?\d+) "
