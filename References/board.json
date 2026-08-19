@@ -10,6 +10,28 @@
  ],
  "cards": [
   {
+   "num": 336,
+   "id": "no-fractionable-pre-check-before-the-chokepoint-",
+   "title": "No fractionable pre-check before the chokepoint submits a fractional order",
+   "lane": "backlog",
+   "type": "bug",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-19",
+   "notes": "Opened 2026-08-19 out of #334. grep -rni fractionable across the repo = 3 wire-format comments only; NOTHING checks Alpaca's per-asset fractionable flag before an order goes out. Strategies that size by percent-of-equity produce fractional qty as a matter of course (the real BF.B entry that landed 08-19 was qty=357.179434988), so for any non-fractionable name that is a clean local rejection turned into an Alpaca 400 plus a broker-side retry loop.\n\nScope grew with #334: 253 of the newly-admitted dotted names are non-fractionable. BF.B itself is fractionable=True (VERIFIED against live Alpaca 08-19), so the motivating case is unaffected and nothing is on fire.\n\nFails closed either way — this is about failing closed LOCALLY and legibly instead of at the broker. Deliverable: cache the fractionable flag alongside the tradable lookup the risk engine already does per symbol (trading/risk_engine.py:262 calls broker.symbol_exists, which fetches the whole asset record and currently throws the rest away — same record, no extra request), and reject with a specific reason rather than 'invalid symbol'."
+  },
+  {
+   "num": 335,
+   "id": "dotted-symbols-are-second-class-on-every-data-su",
+   "title": "Dotted symbols are second-class on every data surface (Schwab slash form, symbol search, U8 headroom)",
+   "lane": "backlog",
+   "type": "bug",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-19",
+   "notes": "Opened 2026-08-19 out of #334, which made dotted tickers TRADABLE but left them under-served by the data layer. Three concrete deliverables:\n\n(1) SCHWAB SLASH FORM. Schwab writes dotted tickers with a slash (BF/B, BRK/B) and NO BF/B -> BF.B conversion exists anywhere in the repo (swept). Consequence: regular_last, fundamentals and the quote-backed fields are blank for every dotted symbol on ALL surfaces — UI cards AND the agent perception layer — so the risk engine silently degrades to the <=5-min-stale bar-close fallback at trading/risk_engine.py:963-976 when pricing them. Fail-soft, never wrong-instrument, but it is a real pricing haircut on 389 newly-reachable names. Fix = one symbol-form adapter at the Schwab seam, wired BOTH ways (UI surface AND agent surface AND the doc that names it).\n\n(2) SYMBOL SEARCH EXCLUDES DOTTED NAMES. brokers/alpaca.py _cache_tradable_symbols still gates the search list on sym.isalpha() (kept deliberately narrow in #334 — that round only fixed the overnight set, which the same gate was wrongly skipping). So the founder cannot type BRK.B into the symbol picker for a name the agent can now trade. Same .isalpha() clone lives at tools/equity_bars_5min_backfill.py:413 and should be settled in the same pass.\n\n(3) U8 HEADROOM IS ZERO. The perception layer stores symbols in numpy U8 fixed-width arrays. The widened pattern allows 9 chars; the longest name that exists live today is exactly 8. Not broken, but one new AHRT.PRAX-shaped listing truncates silently — the worst failure mode, because a truncated symbol is still a valid-looking symbol. Either widen the dtype or assert the bound where the arrays are built."
+  },
+  {
    "num": 334,
    "id": "risk-engine-rejected-dotted-tickers-brk-b-bf-b-o",
    "title": "Risk engine rejected dotted tickers (BRK.B, BF.B, ORCL.PRD) as malformed",
