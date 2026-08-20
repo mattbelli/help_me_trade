@@ -751,11 +751,13 @@ Shipped in card #338 (see BUILD_LOG for the full round). Open threads only:
   during 2026; when it goes, `hmt-offsite-backup` fails LOUDLY (ntfy + the USB job's
   36h cross-canary), so this is scheduled work, not an emergency.
   https://rclone.org/drive/#making-your-own-client-id
-- **⏳ Founder: crypt password + salt into the password manager.** They exist only in
-  `~/.config/rclone/rclone.conf` on serv and in the USB config tarball — both die with
-  the box. Without them the off-site copy is undecryptable in exactly the disaster it
-  exists for. (They were pasted into a Claude Code transcript on 08-20; rotating the
-  `gdrive-crypt` remote is cheap until blobs accumulate, then it means re-pushing.)
+- ✅ **DONE 08-20: crypt password + salt are in Bitwarden**, off the box. Recovery
+  path if that is ever lost too: `rclone reveal` un-obscures both straight out of
+  `~/.config/rclone/rclone.conf` (obscuring is reversible, not a hash), and that file
+  rides the USB config tarball — so the keys survive losing serv OR the drive, just
+  not both. Standing option, not a task: the pair was pasted into a Claude Code
+  transcript on 08-20, so re-generating the `gdrive-crypt` remote is cheap while only
+  a few blobs exist; founder chose to keep them.
 - **⏳ Optional third leg: serv → omarchy push.** Blocked on sshd not listening on the
   Omarchy desktop (port 22 times out); enabling it needs sudo at his own terminal.
   Lower value now that the encrypted Drive push covers the off-site tier.
