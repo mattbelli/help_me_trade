@@ -17,6 +17,7 @@ import pytest
 from test_stop_release import (
     _ACCOUNT,
     _env,
+    _LaggingListBroker,
     _record_book_entry,
     _record_stop_execution,
     _stop_order,
@@ -90,6 +91,27 @@ async def test_move_stop_cancels_the_old_and_places_the_new_under_the_entry_id(
     # And the entry's stored plan follows, so a guard retry never re-arms 140.
     stored = paper_orders_mod.get_proposal(entry_pid, db_path=db)["proposal"]
     assert stored["stop_price"] == "145"
+
+
+@pytest.mark.asyncio
+async def test_move_stop_survives_a_broker_order_list_that_lags_the_cancel(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Reproduction of GOOGL 2026-08-18/19/20: cancel confirmed per-order, but
+    the open-orders list still listed the old stop as ``new`` at the re-poll, so
+    the move found 0 uncommitted shares, never tried the new stop, and the
+    restore was refused too — the guard re-armed the OLD trigger every night."""
+    db = tmp_path / "exec.db"
+    broker = _LaggingListBroker([_stop_order()])
+    _env(monkeypatch, db, broker)
+    entry_pid = _record_book_entry(db)
+    _record_stop_execution(db, proposal_id=f"stop|{entry_pid}")
+
+    out = await _move(db, "145", entry_pid)
+
+    assert out["status"] == "moved", out
+    assert [s.stop_price for s in _stops_placed(broker)] == ["145"]
+    assert not out["lost"] and not out["restored"]
 
 
 @pytest.mark.asyncio

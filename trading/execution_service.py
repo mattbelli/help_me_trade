@@ -111,6 +111,14 @@ class _ReleasedStop:
     stop_price: Decimal
     broker: str
     account_id: str | None
+    # The broker's id for the cancelled order, so the re-poll can drop it if the
+    # broker's order LIST has not caught up with its own cancel yet.
+    broker_order_id: str
+
+
+def _gone_ids(released: list[_ReleasedStop]) -> frozenset[str]:
+    """Broker ids of the stops a release has confirmed cancelled."""
+    return frozenset(s.broker_order_id for s in released)
 
 
 def _release_is_warranted(
@@ -244,6 +252,7 @@ async def _release_protective_stops(
             stop_price=Decimal(str(order.stop_price)),
             broker=str(row["broker"]),
             account_id=row.get("account_id"),
+            broker_order_id=broker_order_id,
         )
         # Write-ahead: mark the row dead BEFORE asking the broker to kill it. A
         # crash or a failed write after a successful DELETE would otherwise leave
@@ -286,7 +295,11 @@ async def _release_protective_stops(
 
 
 async def _refresh_snapshot(
-    adapter: Any, intent: OrderIntent, *, db_path: Path
+    adapter: Any,
+    intent: OrderIntent,
+    *,
+    db_path: Path,
+    gone_order_ids: frozenset[str] = frozenset(),
 ) -> bool:
     """Re-poll the broker and store it, so revalidation sees the cancelled stops.
 
@@ -294,6 +307,25 @@ async def _refresh_snapshot(
     exit is rejected, and the stops go back. The account-identity check mirrors
     the poll loop (api/main.py:_poll_account): a snapshot saved under the wrong
     account would gate every later order there against somebody else's portfolio.
+
+    ``gone_order_ids`` are orders the broker has CONFIRMED cancelled, one by one,
+    through its per-order read (`_confirm_cancelled`). Alpaca's open-orders LIST
+    lags that read, intermittently: measured 2026-08-18/19/20 (GOOGL, GLD, MU
+    across two accounts; MU 08-19 happened to land), two list reads 455 ms apart
+    both still carried a stop the per-order read had already reported
+    ``canceled``, and it was gone by the next poll 9 s later — so "sleep and
+    re-poll" is not a fix. RiskEngine and `_uncommitted_shares` counted the dead
+    stop as a pending sell, found zero uncommitted shares, and refused BOTH the
+    moved stop and the restore (the guard then re-armed the old trigger). An
+    order we hold a confirmed cancel for is dropped from the snapshot: the
+    per-order read is the stronger truth, and a snapshot that echoes the list's
+    lag gates the next order against shares that are genuinely free.
+
+    Residual (narrow, fails toward a page + guard re-arm, never an oversell): the
+    poll loop writes snapshots without the submit lock, so a poll that lands
+    inside the lag window AFTER this refresh and BEFORE the re-place validates
+    can put the phantom back. Closing it means threading known-dead ids into
+    RiskEngine.validate — not done.
     """
     try:
         # Stamped BEFORE the fetch: see save_snapshot's captured_at note.
@@ -302,6 +334,15 @@ async def _refresh_snapshot(
     except Exception:
         logger.exception("stop release: snapshot refresh failed")
         return False
+    if gone_order_ids:
+        lagging = [o for o in orders if str(o.id) in gone_order_ids]
+        if lagging:
+            logger.warning(
+                "stop release: broker order list still shows %d confirmed-cancelled "
+                "order(s) for %s (%s) — dropped from the refreshed snapshot",
+                len(lagging), intent.symbol, ", ".join(str(o.id) for o in lagging),
+            )
+            orders = [o for o in orders if str(o.id) not in gone_order_ids]
     account_row = (
         get_account(intent.account_id, db_path=db_path)
         if intent.account_id is not None
@@ -808,7 +849,9 @@ async def move_protective_stops(
                 "reason": "the resting stop could not be taken down cleanly",
                 "untouched": len(rows),
             }
-        if await _refresh_snapshot(adapter, probe, db_path=db_path):
+        if await _refresh_snapshot(
+            adapter, probe, db_path=db_path, gone_order_ids=_gone_ids(released)
+        ):
             budget, price = _uncommitted_shares(
                 probe, exit_order_id=None, exit_qty=Decimal("0"), db_path=db_path
             )
@@ -1106,7 +1149,10 @@ class ExecutionService:
                         db_path=db_path,
                     )
                     if released and await _refresh_snapshot(
-                        release_adapter, intent, db_path=db_path
+                        release_adapter,
+                        intent,
+                        db_path=db_path,
+                        gone_order_ids=_gone_ids(released),
                     ):
                         risk = await RiskEngine.validate(
                             intent,
@@ -1268,7 +1314,10 @@ class ExecutionService:
                         # bounded by what is genuinely uncommitted rather than by
                         # our own bookkeeping (adversarial review C1/C2).
                         refreshed = await _refresh_snapshot(
-                            release_adapter, intent, db_path=db_path
+                            release_adapter,
+                            intent,
+                            db_path=db_path,
+                            gone_order_ids=_gone_ids(released),
                         )
                         budget, price = (
                             _uncommitted_shares(

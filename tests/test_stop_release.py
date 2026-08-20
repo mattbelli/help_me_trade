@@ -155,6 +155,19 @@ class _StubBroker(AlpacaAdapter):
         return self.book.get(order_id) if order_id else None
 
 
+class _LaggingListBroker(_StubBroker):
+    """Alpaca as measured 2026-08-18/19/20: the per-order read reports a cancel
+    the moment it lands, but the open-orders LIST keeps echoing the dead stop as
+    ``new`` for a while afterwards."""
+
+    def _open_orders(self) -> list[Order]:
+        return [
+            Order(**{**o.__dict__, "status": "new"}) if o.status == "canceled" else o
+            for o in self.book.values()
+            if o.status in _OPEN_STATUSES or o.status == "canceled"
+        ]
+
+
 def _env(
     monkeypatch,
     db_path: Path,
@@ -294,6 +307,46 @@ async def test_full_exit_releases_the_stop_and_leaves_nothing_stopped(
         == "canceled"
     )
 
+
+@pytest.mark.asyncio
+async def test_a_lagging_order_list_does_not_block_the_exit_after_the_release(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The broker confirmed the cancel order-by-order, but its open-orders list
+    still shows the stop: the re-poll must not count a dead stop as a pending
+    sell, or the exit is refused AND the restore is refused (GOOGL, three nights
+    running)."""
+    db = tmp_path / "exec.db"
+    broker = _LaggingListBroker([_stop_order()])
+    _env(monkeypatch, db, broker)
+    _record_stop_execution(db)
+
+    result = await ExecutionService.submit(_sell(), db_path=db)
+
+    assert result.status == "submitted"
+    assert broker.canceled == ["broker-stop-1"]
+    assert [req.order_type for req in broker.placed] == ["market"]
+    # And the snapshot left behind does not carry the phantom either.
+    snap = sqlite_mod.get_latest_snapshot("alpaca", account_id=None, db_path=db)
+    assert "broker-stop-1" not in [o["id"] for o in snap["open_orders"]]
+
+
+@pytest.mark.asyncio
+async def test_a_lagging_order_list_does_not_shrink_the_restop_after_a_trim(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Same lag, partial exit: the re-stop budget comes from _uncommitted_shares,
+    which must not subtract the dead stop either — 50 held, 20 sold, 30 re-stopped."""
+    db = tmp_path / "exec.db"
+    broker = _LaggingListBroker([_stop_order()])
+    _env(monkeypatch, db, broker)
+    _record_stop_execution(db)
+
+    await ExecutionService.submit(_sell(qty=Decimal("20")), db_path=db)
+
+    stops = [req for req in broker.placed if req.order_type == "stop"]
+    assert [s.qty for s in stops] == ["30"]
+    assert stops[0].stop_price == "140.0"
 
 @pytest.mark.asyncio
 async def test_trim_restops_the_shares_it_did_not_sell(

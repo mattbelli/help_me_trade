@@ -674,10 +674,12 @@ Spec `LLM_BOOKS_PROGRAM_SPEC_2026-07-23.md` (header amendments override body). O
 - MOO probe outcome — see overdue list.
 - increment 5: shorts unlock (own adversarially-reviewed round; `_propose_advanced` hard-blocks
   shorts until it ships).
-- ⏳ **Order-management verbs SHIPPED 08-17 (BUILD_LOG row; spec amendment 7) — first real cycle
-  unverified.** Watch the first Fable/Deep Seek/Local reports after deploy for an `order_changes`
-  list in the json block (a `malformed` status in the report payload = the model wrote it wrong;
-  the pack echoes last night's outcomes under "Your order changes from last cycle"). Pending on-device check:
+- ⏳ **Order-management verbs SHIPPED 08-17 (BUILD_LOG row; spec amendment 7) — the books DO emit
+  `order_changes` (Deep Seek proposed GOOGL move_stop 08-18/19/20), but every tap FAILED until the 08-20
+  fix (BUILD_LOG 08-20: Alpaca's order LIST lags its per-order read after a cancel; the post-release
+  re-poll now drops confirmed-cancelled ids). First move_stop that actually LANDS is still unverified —
+  the next tap should end `moved`, and the backend log should show the `broker order list still shows`
+  WARNING on a move whose list lagged (the lag being handled — a clean move logs nothing). Pending on-device check:
   the **mobile** card (`mobile/src/features/approvals/proposal-card.tsx`) now branches on
   `order_action` (badge "Move stop"/"Cancel entry", no Qty/Market strip, "order change applied"
   copy) — edited here but NOT typechecked (no `mobile/node_modules` on serv); confirm on the phone.
