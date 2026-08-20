@@ -33,14 +33,14 @@ def test_concurrent_patch_cannot_clobber_armed_kill_switch(
     Reproduces the read-modify-write race: thread A is stalled mid-RMW (inside
     save) while thread B arms the kill switch. Before the fix (lock released
     between load and save) A's stale save clobbered B's arm back to False;
-    now the whole RMW is held under the reentrant lock so B blocks until A
-    finishes and its arm survives.
+    now the whole RMW is serialized (_patch_lock + the cross-process flock —
+    neither is reentrant) so B blocks until A finishes and its arm survives.
     """
     settings_path = tmp_path / "settings.json"
     monkeypatch.setattr(settings_mod, "SETTINGS_PATH", settings_path)
     settings_mod.clear_settings_cache()
 
-    real_save = settings_mod.save_settings
+    real_save = settings_mod._write_settings_file
     a_in_save = threading.Event()
     release_a = threading.Event()
     saves = {"n": 0}
@@ -52,7 +52,7 @@ def test_concurrent_patch_cannot_clobber_armed_kill_switch(
             release_a.wait(timeout=5)
         real_save(payload)
 
-    monkeypatch.setattr(settings_mod, "save_settings", blocking_save)
+    monkeypatch.setattr(settings_mod, "_write_settings_file", blocking_save)
 
     def thread_a() -> None:
         settings_mod.apply_settings_patch({"trading": {"max_open_orders": 7}})

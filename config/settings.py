@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import copy
+import fcntl
 import json
 import logging
 import os
 import re
 import tempfile
 import threading
+import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -38,15 +42,60 @@ SECRET_KEYS = frozenset(
 load_dotenv(ROOT / ".env")
 
 _settings_lock = threading.Lock()
-# Serializes apply_settings_patch's whole read-modify-write so two concurrent
-# PUTs can't lost-update a breaker-armed kill_switch_active/entries_halted back
-# to False. Deliberately DISTINCT from _settings_lock (which is held only
-# briefly by load/save): a patch can run a slow AI model-list probe while it
-# holds this lock, and that must never block the fast is_kill_switch_active /
+# Serializes every _mutate_settings read-modify-write within this process so two
+# concurrent PUTs can't lost-update a breaker-armed kill_switch_active/
+# entries_halted back to False (cross-process, _file_lock does the same job).
+# Deliberately DISTINCT from _settings_lock (which is held only briefly by
+# load/save): a patch can run a slow AI model-list probe while it holds this
+# lock, and that must never block the fast is_kill_switch_active /
 # is_entries_halted readers (they gate every order) — they only touch
 # _settings_lock.
 _patch_lock = threading.Lock()
 _settings_cache: dict[str, Any] | None = None
+# True when the LAST _build_settings() found settings.json present but
+# unreadable (I/O error, bad JSON, non-object). Breaker readers fail CLOSED on
+# it; writers refuse to use that defaults-only build as a base — persisting
+# defaults over a corrupt file would silently disarm the breakers.
+_file_parse_failed = False
+# Re-entry tripwire: a mutate callback that writes settings again would
+# self-deadlock on _patch_lock / a second flock fd. Fail loudly instead.
+_in_mutate = threading.local()
+
+# A wedged foreign lock holder must degrade into a loud error, not freeze every
+# writer (and an async caller's event loop) forever. Normal holds are sub-ms.
+_FILE_LOCK_TIMEOUT_SEC = 15.0
+
+
+@contextmanager
+def _file_lock() -> Iterator[None]:
+    """Cross-PROCESS write lock (flock on settings.json.lock, in gitignored data/).
+
+    _settings_lock/_patch_lock only serialize threads inside ONE process, but the
+    backend, flow collector, report jobs, and scripts are separate processes that
+    all write settings.json. #242's data loss (options_flow.provider silently
+    deleted by a watchlist save) needs writers to take turns at the OS level.
+    """
+    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Computed at call time: tests repoint SETTINGS_PATH to a tmp file.
+    lock_path = SETTINGS_PATH.with_name(SETTINGS_PATH.name + ".lock")
+    with open(lock_path, "w", encoding="utf-8") as handle:
+        deadline = time.monotonic() + _FILE_LOCK_TIMEOUT_SEC
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        "settings write lock held by another process for "
+                        f">{_FILE_LOCK_TIMEOUT_SEC:.0f}s — refusing to wait longer"
+                    ) from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "primary_broker": "alpaca",
@@ -246,17 +295,57 @@ def clear_settings_cache() -> None:
 
 
 def _build_settings() -> dict[str, Any]:
+    global _file_parse_failed
     effective = _deep_merge(DEFAULT_SETTINGS, _env_defaults())
 
     if SETTINGS_PATH.exists():
         try:
             saved = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(saved, dict):
-                effective = _deep_merge(effective, saved)
-        except (OSError, json.JSONDecodeError):
-            pass
+            if not isinstance(saved, dict):
+                raise ValueError("settings.json is not a JSON object")
+            effective = _deep_merge(effective, saved)
+            _file_parse_failed = False
+        except (OSError, ValueError) as exc:  # JSONDecodeError is a ValueError
+            # Reads degrade to defaults (as always), but the flag makes breaker
+            # readers fail CLOSED and writers refuse this build as their base.
+            _file_parse_failed = True
+            logger.error("settings.json exists but is unreadable: %s", exc)
+    else:
+        _file_parse_failed = False
 
     return effective
+
+
+def _build_settings_for_write() -> dict[str, Any]:
+    """Fresh effective settings as the BASE of a read-modify-write.
+
+    A file that exists but can't be read must never be treated as empty here:
+    writing the resulting defaults would disarm kill_switch/entries_halted and
+    wipe every key. Fall back to this process's warm cache (the write then
+    repairs the file — the pre-#242 behavior), and with no cache refuse to
+    write at all.
+    """
+    effective = _deep_merge(DEFAULT_SETTINGS, _env_defaults())
+    if not SETTINGS_PATH.exists():
+        return effective
+    try:
+        saved = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(saved, dict):
+            raise ValueError("settings.json is not a JSON object")
+    except (OSError, ValueError) as exc:
+        with _settings_lock:
+            cache = copy.deepcopy(_settings_cache)
+        if cache is not None:
+            logger.error(
+                "settings.json unreadable (%s) — writing from the in-process "
+                "cache to repair it",
+                exc,
+            )
+            return cache
+        raise RuntimeError(
+            f"refusing to overwrite unreadable settings.json with defaults: {exc}"
+        ) from exc
+    return _deep_merge(effective, saved)
 
 
 def load_settings() -> dict[str, Any]:
@@ -280,7 +369,8 @@ def reload_settings() -> None:
         _settings_cache = None
 
 
-def save_settings(settings: dict[str, Any]) -> None:
+def _write_settings_file(settings: dict[str, Any]) -> None:
+    """Atomic write + in-process cache refresh. Callers hold _file_lock()."""
     global _settings_cache
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(settings, indent=2, sort_keys=True) + "\n"
@@ -293,7 +383,17 @@ def save_settings(settings: dict[str, Any]) -> None:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(content)
+                handle.flush()
+                # Durability: without fsync a power cut can persist the rename
+                # but not the data — a zero-length settings.json (serv has no
+                # UPS, and a corrupt file is the #242-review CRITICAL trigger).
+                os.fsync(handle.fileno())
             os.replace(tmp_path, SETTINGS_PATH)
+            dir_fd = os.open(SETTINGS_PATH.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         except Exception:
             try:
                 os.unlink(tmp_path)
@@ -301,6 +401,35 @@ def save_settings(settings: dict[str, Any]) -> None:
                 pass
             raise
         _settings_cache = copy.deepcopy(settings)
+
+
+def _mutate_settings(mutate: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """The one safe read-modify-write: FRESH file read -> delta -> write, locked.
+
+    Under the cross-process file lock, rebuilds effective settings from the file
+    as it is RIGHT NOW (never from this process's cache — a cache built before
+    another process's write would silently delete that writer's keys, #242),
+    applies the caller's delta in place, and writes atomically. _patch_lock is
+    kept so two threads in this process serialize before touching the file lock;
+    fast readers (kill switch / entries halted) only touch _settings_lock and
+    never wait on writers. Returns the written effective settings (captured
+    inside the lock, so a caller never sees a concurrent writer's state).
+    """
+    if getattr(_in_mutate, "active", False):
+        raise RuntimeError(
+            "re-entrant settings write — a mutate callback must not call "
+            "apply_settings_patch/watchlist/chart-layout savers (self-deadlock)"
+        )
+    _in_mutate.active = True
+    try:
+        with _patch_lock:
+            with _file_lock():
+                current = _build_settings_for_write()
+                mutate(current)
+                _write_settings_file(current)
+                return copy.deepcopy(current)
+    finally:
+        _in_mutate.active = False
 
 
 def _mask_value(key: str, value: Any) -> Any:
@@ -333,39 +462,61 @@ def apply_settings_patch(patch: dict[str, Any]) -> dict[str, Any]:
     this function remains callable internally (e.g. the risk-engine hard-trip
     arming entries_halted).
 
-    The whole read-modify-write runs under _patch_lock so a concurrent PUT
-    can't lost-update a breaker-armed flag mid-merge. _patch_lock is separate
-    from _settings_lock, so a slow AI model-list probe in here never stalls the
-    fast kill-switch/entries-halted readers.
+    The whole read-modify-write runs via _mutate_settings: fresh file read under
+    the cross-process file lock, so a concurrent writer (or a stale in-process
+    cache) can't lost-update someone else's keys or a breaker-armed flag. The
+    slow AI model-list probe runs BEFORE the locks (_probe_default_llm) — the
+    fast kill-switch/entries-halted readers touch just _settings_lock.
     """
-    with _patch_lock:
-        return _apply_settings_patch_locked(patch)
+    default_llm_override = _probe_default_llm(patch)
+    return _mutate_settings(
+        lambda current: _apply_patch(current, patch, default_llm_override)
+    )
 
 
-def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
-    current = load_settings()
+def _probe_default_llm(patch: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve the post-patch default LLM BEFORE any locks are taken.
 
-    # Only persist user-editable fields from file (not env-only fallbacks)
-    if SETTINGS_PATH.exists():
-        try:
-            on_disk = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-            if isinstance(on_disk, dict):
-                current = _deep_merge(current, on_disk)
-        except (OSError, json.JSONDecodeError):
-            pass
+    maybe_upgrade_default_llm can probe provider model-list HTTP APIs for tens
+    of seconds; holding the cross-process file lock across that would block
+    every other settings writer (and time some out). Runs on an unlocked fresh
+    snapshot — a concurrent ai edit in that window just re-resolves next patch.
+    """
+    if "ai" not in patch or not isinstance(patch["ai"], dict):
+        return None
+    from ai.llm.config import maybe_upgrade_default_llm
 
-    def merge_section(
-        target: dict, source: dict | None, *, secret_keys: frozenset[str]
-    ) -> None:
-        if not isinstance(source, dict):
-            return
-        for key, value in source.items():
-            if key in secret_keys and (not value or _is_masked(value)):
-                continue
-            if isinstance(value, dict) and isinstance(target.get(key), dict):
-                merge_section(target[key], value, secret_keys=secret_keys)
-            else:
-                target[key] = value
+    try:
+        preview = _build_settings_for_write()
+    except RuntimeError:
+        return None  # the locked write will surface the real error
+    ai = preview.get("ai")
+    ai = copy.deepcopy(ai) if isinstance(ai, dict) else {}
+    _merge_section(ai, patch["ai"], secret_keys=SECRET_KEYS)
+    default_llm = maybe_upgrade_default_llm(ai).get("default_llm")
+    return default_llm if isinstance(default_llm, dict) else None
+
+
+def _merge_section(
+    target: dict, source: dict | None, *, secret_keys: frozenset[str]
+) -> None:
+    if not isinstance(source, dict):
+        return
+    for key, value in source.items():
+        if key in secret_keys and (not value or _is_masked(value)):
+            continue
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _merge_section(target[key], value, secret_keys=secret_keys)
+        else:
+            target[key] = value
+
+
+def _apply_patch(
+    current: dict[str, Any],
+    patch: dict[str, Any],
+    default_llm_override: dict[str, Any] | None = None,
+) -> None:
+    """Apply patch onto current (the fresh effective settings) in place."""
 
     if "primary_broker" in patch and patch["primary_broker"] in ("alpaca", "schwab"):
         current["primary_broker"] = patch["primary_broker"]
@@ -374,17 +525,19 @@ def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
         for name, broker_patch in patch["brokers"].items():
             if name not in current["brokers"] or not isinstance(broker_patch, dict):
                 continue
-            merge_section(
+            _merge_section(
                 current["brokers"][name],
                 broker_patch,
                 secret_keys=SECRET_KEYS,
             )
 
     if "ai" in patch and isinstance(patch["ai"], dict):
-        merge_section(current["ai"], patch["ai"], secret_keys=SECRET_KEYS)
-        from ai.llm.config import maybe_upgrade_default_llm, sync_default_llm_fields
+        _merge_section(current["ai"], patch["ai"], secret_keys=SECRET_KEYS)
+        from ai.llm.config import sync_default_llm_fields
 
-        current["ai"] = maybe_upgrade_default_llm(current["ai"])
+        if default_llm_override is not None:
+            # Resolved by _probe_default_llm outside the locks.
+            current["ai"]["default_llm"] = default_llm_override
         current["ai"] = sync_default_llm_fields(current["ai"])
         provider = str(current["ai"].get("provider", "")).strip().lower()
         if provider not in VALID_PROVIDERS or provider == "mock":
@@ -434,7 +587,8 @@ def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
 
     if "watchlist" in patch and isinstance(patch["watchlist"], list):
         current["watchlist"] = normalize_watchlist(patch["watchlist"])
-        state = get_watchlists_state()
+        # From the fresh `current`, not the process cache (same staleness trap).
+        state = _watchlists_state_from(current)
         lists = []
         for item in state["lists"]:
             if item["id"] == state["active_id"]:
@@ -521,9 +675,6 @@ def _apply_settings_patch_locked(patch: dict[str, Any]) -> dict[str, Any]:
                 current["trading"]["max_pending_agent_proposals"] = max(
                     0, min(50, int(value))
                 )
-
-    save_settings(current)
-    return load_settings()
 
 
 def normalize_watchlist(symbols: list[str]) -> list[str]:
@@ -664,7 +815,10 @@ def _normalize_single_watchlist(entry: dict) -> dict:
 
 
 def get_watchlists_state() -> dict:
-    settings = load_settings()
+    return _watchlists_state_from(load_settings())
+
+
+def _watchlists_state_from(settings: dict) -> dict:
     raw = settings.get("watchlists")
     if isinstance(raw, dict):
         return normalize_watchlists_state(raw)
@@ -679,14 +833,28 @@ def get_watchlists_state() -> dict:
     }
 
 
-def _save_watchlists_state(state: dict) -> dict:
-    normalized = normalize_watchlists_state(state)
-    current = load_settings()
-    current["watchlists"] = normalized
-    active = _find_watchlist(normalized, normalized["active_id"])
-    current["watchlist"] = active["symbols"] if active else []
-    save_settings(current)
-    return normalized
+def _update_watchlists_state(transform: Callable[[dict], dict]) -> dict:
+    """Read-modify-write of the watchlists subtree against the FRESH file state.
+
+    transform receives the state as it is on disk RIGHT NOW (inside the write
+    lock) and returns the new state. Deriving state from get_watchlists_state()
+    (the cache) outside the lock would wholesale-replace the subtree and delete
+    lists another process added — the same lost update #242 is about, one key
+    down. Validation errors raised inside transform abort before any write.
+    """
+    box: dict[str, dict] = {}
+
+    def mutate(current: dict[str, Any]) -> None:
+        normalized = normalize_watchlists_state(
+            transform(_watchlists_state_from(current))
+        )
+        current["watchlists"] = normalized
+        active = _find_watchlist(normalized, normalized["active_id"])
+        current["watchlist"] = active["symbols"] if active else []
+        box["state"] = normalized
+
+    _mutate_settings(mutate)
+    return box["state"]
 
 
 def _find_watchlist(state: dict, list_id: str) -> dict | None:
@@ -707,24 +875,27 @@ def get_watchlist() -> list[str]:
 
 
 def save_watchlist(symbols: list[str]) -> list[str]:
-    state = get_watchlists_state()
-    active_id = state["active_id"]
-    lists = []
-    for item in state["lists"]:
-        if item["id"] == active_id:
-            lists.append({**item, "symbols": normalize_watchlist(symbols)})
-        else:
-            lists.append(item)
-    saved = _save_watchlists_state({**state, "lists": lists})
+    clean = normalize_watchlist(symbols)
+
+    def transform(state: dict) -> dict:
+        lists = [
+            {**item, "symbols": clean} if item["id"] == state["active_id"] else item
+            for item in state["lists"]
+        ]
+        return {**state, "lists": lists}
+
+    saved = _update_watchlists_state(transform)
     active = _find_watchlist(saved, saved["active_id"])
     return list(active["symbols"]) if active else []
 
 
 def set_active_watchlist(list_id: str) -> dict:
-    state = get_watchlists_state()
-    if not _find_watchlist(state, list_id):
-        raise ValueError(f"Unknown watchlist {list_id!r}")
-    return _save_watchlists_state({**state, "active_id": list_id})
+    def transform(state: dict) -> dict:
+        if not _find_watchlist(state, list_id):
+            raise ValueError(f"Unknown watchlist {list_id!r}")
+        return {**state, "active_id": list_id}
+
+    return _update_watchlists_state(transform)
 
 
 def create_watchlist(
@@ -733,27 +904,29 @@ def create_watchlist(
     settings: dict | None = None,
 ) -> dict:
     clean_name = name.strip() or "New list"
-    state = get_watchlists_state()
-    base_id = _slug_watchlist_id(clean_name)
-    list_id = base_id
-    existing_ids = {item["id"] for item in state["lists"]}
-    if list_id in existing_ids:
-        list_id = f"{base_id}-{uuid.uuid4().hex[:6]}"
-    new_list = {
-        "id": list_id,
-        "name": clean_name,
-        "symbols": normalize_watchlist(symbols or []),
-    }
+    clean_symbols = normalize_watchlist(symbols or [])
     clean_settings = normalize_watchlist_settings(settings)
-    if clean_settings is not None:
-        new_list["settings"] = clean_settings
-    return _save_watchlists_state(
-        {
+
+    def transform(state: dict) -> dict:
+        base_id = _slug_watchlist_id(clean_name)
+        list_id = base_id
+        existing_ids = {item["id"] for item in state["lists"]}
+        if list_id in existing_ids:
+            list_id = f"{base_id}-{uuid.uuid4().hex[:6]}"
+        new_list = {
+            "id": list_id,
+            "name": clean_name,
+            "symbols": clean_symbols,
+        }
+        if clean_settings is not None:
+            new_list["settings"] = clean_settings
+        return {
             **state,
             "active_id": list_id,
             "lists": [*state["lists"], new_list],
         }
-    )
+
+    return _update_watchlists_state(transform)
 
 
 def update_watchlist(
@@ -765,103 +938,115 @@ def update_watchlist(
     max_slots: int | None = None,
     pinned: list[str] | None = None,
 ) -> dict:
-    state = get_watchlists_state()
-    if not _find_watchlist(state, list_id):
-        raise ValueError(f"Unknown watchlist {list_id!r}")
+    def transform(state: dict) -> dict:
+        if not _find_watchlist(state, list_id):
+            raise ValueError(f"Unknown watchlist {list_id!r}")
 
-    lists = []
-    for item in state["lists"]:
-        if item["id"] != list_id:
-            lists.append(item)
-            continue
-        updated = dict(item)
-        if name is not None:
-            updated["name"] = name.strip() or item["name"]
-        if symbols is not None:
-            updated["symbols"] = normalize_watchlist(symbols)
-        if settings is not None:
-            clean = normalize_watchlist_settings(settings)
-            if clean is not None:
-                updated["settings"] = clean
-            else:
-                updated.pop("settings", None)
-        if max_slots is not None:
-            if int(max_slots) > 0:
-                updated["max_slots"] = min(500, int(max_slots))
-            else:
-                updated.pop("max_slots", None)  # 0 clears the cap
-        if pinned is not None:
-            updated["pinned"] = normalize_watchlist(pinned)
-        if symbols is not None or max_slots is not None or pinned is not None:
-            err = watchlist_capacity_error(_normalize_single_watchlist(updated))
-            if err:
-                raise ValueError(err)
-        lists.append(updated)
+        lists = []
+        for item in state["lists"]:
+            if item["id"] != list_id:
+                lists.append(item)
+                continue
+            updated = dict(item)
+            if name is not None:
+                updated["name"] = name.strip() or item["name"]
+            if symbols is not None:
+                updated["symbols"] = normalize_watchlist(symbols)
+            if settings is not None:
+                clean = normalize_watchlist_settings(settings)
+                if clean is not None:
+                    updated["settings"] = clean
+                else:
+                    updated.pop("settings", None)
+            if max_slots is not None:
+                if int(max_slots) > 0:
+                    updated["max_slots"] = min(500, int(max_slots))
+                else:
+                    updated.pop("max_slots", None)  # 0 clears the cap
+            if pinned is not None:
+                updated["pinned"] = normalize_watchlist(pinned)
+            if symbols is not None or max_slots is not None or pinned is not None:
+                err = watchlist_capacity_error(_normalize_single_watchlist(updated))
+                if err:
+                    raise ValueError(err)
+            lists.append(updated)
 
-    return _save_watchlists_state({**state, "lists": lists})
+        return {**state, "lists": lists}
+
+    return _update_watchlists_state(transform)
 
 
 def delete_watchlist(list_id: str) -> dict:
-    state = get_watchlists_state()
-    if len(state["lists"]) <= 1:
-        raise ValueError("Cannot delete the last watchlist")
-    if not _find_watchlist(state, list_id):
-        raise ValueError(f"Unknown watchlist {list_id!r}")
+    def transform(state: dict) -> dict:
+        if len(state["lists"]) <= 1:
+            raise ValueError("Cannot delete the last watchlist")
+        if not _find_watchlist(state, list_id):
+            raise ValueError(f"Unknown watchlist {list_id!r}")
 
-    lists = [item for item in state["lists"] if item["id"] != list_id]
-    active_id = state["active_id"]
-    if active_id == list_id:
-        active_id = lists[0]["id"]
-    return _save_watchlists_state({"active_id": active_id, "lists": lists})
+        lists = [item for item in state["lists"] if item["id"] != list_id]
+        active_id = state["active_id"]
+        if active_id == list_id:
+            active_id = lists[0]["id"]
+        return {"active_id": active_id, "lists": lists}
+
+    return _update_watchlists_state(transform)
 
 
 def add_watchlist_symbol(symbol: str, *, list_id: str | None = None) -> list[str]:
     sym = symbol.strip().upper()
     if not sym:
         raise ValueError("symbol is required")
-    state = get_watchlists_state()
-    target_id = list_id or state["active_id"]
-    lists = []
     updated_symbols: list[str] = []
-    for item in state["lists"]:
-        if item["id"] != target_id:
-            lists.append(item)
-            continue
-        symbols = list(item["symbols"])
-        added = sym not in symbols
-        if added:
-            symbols.append(sym)
-        candidate = {**item, "symbols": symbols}
-        if added:  # re-adding a member is a no-op, never a capacity error
-            err = watchlist_capacity_error(_normalize_single_watchlist(candidate))
-            if err:
-                raise ValueError(err)
-        updated_symbols = symbols
-        lists.append(candidate)
-    if not updated_symbols:
-        raise ValueError(f"Unknown watchlist {target_id!r}")
-    _save_watchlists_state({**state, "lists": lists})
+
+    def transform(state: dict) -> dict:
+        target_id = list_id or state["active_id"]
+        lists = []
+        found = False
+        for item in state["lists"]:
+            if item["id"] != target_id:
+                lists.append(item)
+                continue
+            found = True
+            symbols = list(item["symbols"])
+            added = sym not in symbols
+            if added:
+                symbols.append(sym)
+            candidate = {**item, "symbols": symbols}
+            if added:  # re-adding a member is a no-op, never a capacity error
+                err = watchlist_capacity_error(_normalize_single_watchlist(candidate))
+                if err:
+                    raise ValueError(err)
+            updated_symbols[:] = symbols
+            lists.append(candidate)
+        if not found:
+            raise ValueError(f"Unknown watchlist {target_id!r}")
+        return {**state, "lists": lists}
+
+    _update_watchlists_state(transform)
     return updated_symbols
 
 
 def remove_watchlist_symbol(symbol: str, *, list_id: str | None = None) -> list[str]:
     sym = symbol.strip().upper()
-    state = get_watchlists_state()
-    target_id = list_id or state["active_id"]
-    lists = []
     updated_symbols: list[str] = []
-    found = False
-    for item in state["lists"]:
-        if item["id"] != target_id:
-            lists.append(item)
-            continue
-        found = True
-        symbols = [s for s in item["symbols"] if s != sym]
-        updated_symbols = symbols
-        lists.append({**item, "symbols": symbols})
-    if not found:
-        raise ValueError(f"Unknown watchlist {target_id!r}")
-    _save_watchlists_state({**state, "lists": lists})
+
+    def transform(state: dict) -> dict:
+        target_id = list_id or state["active_id"]
+        lists = []
+        found = False
+        for item in state["lists"]:
+            if item["id"] != target_id:
+                lists.append(item)
+                continue
+            found = True
+            symbols = [s for s in item["symbols"] if s != sym]
+            updated_symbols[:] = symbols
+            lists.append({**item, "symbols": symbols})
+        if not found:
+            raise ValueError(f"Unknown watchlist {target_id!r}")
+        return {**state, "lists": lists}
+
+    _update_watchlists_state(transform)
     return updated_symbols
 
 
@@ -873,9 +1058,10 @@ def get_chart_layout() -> list[dict]:
 
 
 def save_chart_layout(layout: list[dict]) -> list[dict]:
-    current = load_settings()
-    current["chart_layout"] = layout
-    save_settings(current)
+    def mutate(current: dict[str, Any]) -> None:
+        current["chart_layout"] = layout
+
+    _mutate_settings(mutate)
     return layout
 
 
@@ -1148,7 +1334,14 @@ def is_paper_trading() -> bool:
 
 def is_kill_switch_active() -> bool:
     with _settings_lock:
-        settings = _settings_cache if _settings_cache is not None else _build_settings()
+        if _settings_cache is not None:
+            settings = _settings_cache
+        else:
+            settings = _build_settings()
+            if _file_parse_failed:
+                # File present but unreadable and no warm cache: the real flag
+                # state is unknowable — fail CLOSED, never "defaults say False".
+                return True
         cfg = settings.get("trading", {})
         defaults = DEFAULT_SETTINGS["trading"]
         return bool(cfg.get("kill_switch_active", defaults["kill_switch_active"]))
@@ -1169,9 +1362,13 @@ def is_entries_halted() -> bool:
     """
     try:
         with _settings_lock:
-            settings = (
-                _settings_cache if _settings_cache is not None else _build_settings()
-            )
+            if _settings_cache is not None:
+                settings = _settings_cache
+            else:
+                settings = _build_settings()
+                if _file_parse_failed:
+                    # Unreadable file, cold cache: deny-by-default.
+                    return True
         cfg = settings.get("trading")
         if not isinstance(cfg, dict):
             return True

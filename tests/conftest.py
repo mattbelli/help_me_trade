@@ -66,8 +66,11 @@ import pathlib  # noqa: E402
 
 from config import settings as _settings_mod  # noqa: E402
 
+# UID+PID-scoped: settings writes take a flock on SETTINGS_PATH + ".lock", so a
+# shared static name would serialize (or PermissionError, cross-UID) every
+# pytest run on the box through one /tmp inode.
 _settings_mod.SETTINGS_PATH = pathlib.Path(tempfile.gettempdir()) / (
-    "hmt_pytest_settings_missing.json"
+    f"hmt_pytest_settings_missing_{os.getuid()}_{os.getpid()}.json"
 )
 try:
     _settings_mod.SETTINGS_PATH.unlink()

@@ -53,7 +53,10 @@ _ET = ZoneInfo("America/New_York")
 _NOW = datetime(2026, 7, 3, 17, 30, tzinfo=_ET)
 _EVAL_DATE = "2026-07-03"
 # Exit-throttle markers are stamped with the REAL clock — those tests eval "today" ET.
-_TODAY_ET = datetime.now(_ET).date().isoformat()
+def _today_et() -> str:
+    # Per-CALL, not module-import: a suite straddling midnight ET otherwise
+    # disagrees with the real-clock pending_exit marker stamp (08-20 flake).
+    return datetime.now(_ET).date().isoformat()
 
 
 def _bars(closes: list[float], *, end: str = _EVAL_DATE, lows: list[float] | None = None):
@@ -619,7 +622,7 @@ def test_vol_event_term_flip_time_cap_exit(db: Path, exit_env) -> None:
     pid = _open_vol_position(db, entry_days_ago=45, ctx={"trigger_id": "term_flip"})
 
     acted = asyncio.run(
-        _vol_event_exits(strategy, _bars([100.0] * 40), _TODAY_ET, [], db_path=db)
+        _vol_event_exits(strategy, _bars([100.0] * 40), _today_et(), [], db_path=db)
     )
     assert len(acted) == 1 and acted[0]["reason"].startswith("time_cap_21")
     call = exit_env["proposals"][0]
@@ -633,7 +636,7 @@ def test_vol_event_term_flip_time_cap_exit(db: Path, exit_env) -> None:
 
     # same-day re-run must not double-propose (marker throttle)
     acted2 = asyncio.run(
-        _vol_event_exits(strategy, _bars([100.0] * 40), _TODAY_ET, [], db_path=db)
+        _vol_event_exits(strategy, _bars([100.0] * 40), _today_et(), [], db_path=db)
     )
     assert acted2 == [] and len(exit_env["proposals"]) == 1
 

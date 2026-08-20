@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-19",
+ "updated_at": "2026-08-20",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 337,
+   "id": "move-sync-settings-writes-off-the-event-loop-asy",
+   "title": "Move sync settings writes off the event loop (asyncio.to_thread at the 4 async call sites)",
+   "lane": "next",
+   "type": "build",
+   "priority": "low",
+   "owner": "agent",
+   "updated_at": "2026-08-20",
+   "notes": "From the #242 review (F3): api/main.py api_settings_put / api_kill_switch / api_entries_halt and trading/risk_engine.py hard-trip call the sync apply_settings_patch directly from async defs — the flock wait (bounded 15s) + write run ON the event loop. Pre-existing (was _patch_lock before), precedent #223 (proposal_intake to_thread). Wrap the 4 call sites in await asyncio.to_thread(...); ordering unchanged (awaited in place). Touches trading/risk_engine.py → two-Opus split-mandate review rule applies."
+  },
   {
    "num": 336,
    "id": "no-fractionable-pre-check-before-the-chokepoint-",
@@ -953,13 +964,13 @@
    "num": 242,
    "id": "settings-lost-update-stale-cache",
    "title": "Settings writes are last-writer-wins from per-process caches -- a stale cache silently deletes other writers' keys",
-   "lane": "next",
+   "lane": "done",
    "type": "build",
    "priority": "high",
    "owner": "agent",
    "created_at": "2026-07-27",
-   "updated_at": "2026-07-27",
-   "notes": "Found 2026-07-27, live data loss: options_flow.provider=databento (armed ~13:15) vanished from settings.json at 14:54 -- the backend's _settings_cache was built before the arming, and a phone watchlist edit (PUT through the backend) called save_settings(current) from that stale cache, rewriting the file WITHOUT the key. The collector then restarted onto the Alpaca lane silently. Mechanism: config/settings.py caches effective settings per process; save_settings writes the whole cached dict; any process whose cache predates another writer's key drops that key on its next save. reload_settings() exists but nothing calls it on cross-process writes. FIX SKETCH: save paths must read-modify-write against the FILE under the lock (re-read settings.json, deep-merge the delta, write), not dump the process cache; alternatively a version/mtime check that reloads before save. Recovered same day: key re-armed + backend restarted so its cache carries it. ⚠️ Until fixed, ANY settings edit from a process started before an out-of-band settings change can repeat this."
+   "updated_at": "2026-08-20",
+   "notes": "Found 2026-07-27, live data loss: options_flow.provider=databento (armed ~13:15) vanished from settings.json at 14:54 -- the backend's _settings_cache was built before the arming, and a phone watchlist edit (PUT through the backend) called save_settings(current) from that stale cache, rewriting the file WITHOUT the key. The collector then restarted onto the Alpaca lane silently. Mechanism: config/settings.py caches effective settings per process; save_settings writes the whole cached dict; any process whose cache predates another writer's key drops that key on its next save. reload_settings() exists but nothing calls it on cross-process writes. FIX SKETCH: save paths must read-modify-write against the FILE under the lock (re-read settings.json, deep-merge the delta, write), not dump the process cache; alternatively a version/mtime check that reloads before save. Recovered same day: key re-armed + backend restarted so its cache carries it. ⚠️ Until fixed, ANY settings edit from a process started before an out-of-band settings change can repeat this.\n2026-08-19: 08-19 BUILT (pending reviews + full suite): every settings write now read-modify-writes against the FILE under a cross-process flock (data/settings.json.lock). New _mutate_settings(mutate) funnel in config/settings.py: _patch_lock + _file_lock -> fresh _build_settings() -> apply delta -> atomic write + cache refresh. apply_settings_patch, _save_watchlists_state, save_chart_layout all routed through it; patch's legacy watchlist branch now derives state from the FRESH read (_watchlists_state_from), not the cache. save_settings kept as an explicit raw overwrite (flock-wrapped, docstring warning). tests/test_settings_lost_update.py (6) reproduces the 07-27 incident: 3/6 fail on the old code. Fast kill-switch readers unchanged (only _settings_lock).\n2026-08-20: 08-20 reviews DONE (two Opus, split mandates: concurrency-attack / caller-regression). Both caught the same CRITICAL in my first cut: corrupt/unreadable settings.json would have become 'defaults' as the write base and the next write would have PERSISTED defaults — disarming both breakers. Folded: corrupt-file write base falls back to warm cache (repairs the file) / refuses with no cache; breaker readers fail CLOSED on corrupt+cold-cache; fsync file+dir (no UPS); AI model probe moved BEFORE the locks; 15s bounded flock wait; re-entry tripwire; return captured in-lock; watchlist subtree RMW moved INSIDE the lock (all 7 mutators via _update_watchlists_state); save_settings deleted (orphan); conftest settings path UID+PID-scoped. 12 regression tests incl. a real two-process flock test. FOLLOW-UP (small, needs the trading/ review rule): api/main.py kill-switch/entries-halt/settings PUT + trading/risk_engine.py hard-trip call the sync writer on the event loop — pre-existing, now bounded at 15s; wrap in asyncio.to_thread."
   },
   {
    "num": 241,
@@ -1316,11 +1327,11 @@
    "num": 107,
    "id": "mobile-approval-device-auth",
    "title": "Bind proposal approval to a device, not one shared token (mobile S1)",
-   "lane": "in_progress",
+   "lane": "founder",
    "type": "safety",
    "priority": "high",
    "updated_at": "2026-08-19",
-   "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token — anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock).\n2026-08-19: 2026-08-19 BUILT (server + web + phone code; phone REBUILD owed on the Mac — expo-crypto is a native dep). Design: per-device Ed25519 key minted ON the phone (expo-crypto RNG), stored Keychain this-device-only; approve = signature over hmt-approve\\n{proposal_id}\\n{payload_hash}\\n{ts} in X-Approval-* headers; serv verifies vs enrolled public key (api/approval_auth.py, db/approval_devices.py; enroll/revoke = ADMIN_TOKEN only, /api/approval-devices). Authority order: device sig > admin token (desk/web, from sessionStorage hmt-admin-token) > legacy shared token ONLY until the first device is ever enrolled (ratchet; revoke never reopens it). Failed-sig limiter 10/min per device; ±5-min timestamp window; approver identity lands in decided_by (device:<label> / admin / phone). tests/test_approval_auth.py (14). NEXT: Mac rebuild → Settings → 'Enroll this phone' (admin token once) → verify a real approval journals decided_by=device:…; then the shared-token path is closed for good.\n2026-08-19: 08-19 two Opus adversarial passes: NO bypass; folded = IP-keyed limiter, bounded memory, live admin-token read, 'shared-token' journal label, APPROVAL_REQUIRE_DEVICE env pin (.env.example), phone btoa→base64-js, single-flight key mint, honest error surfacing. Cross-side vector pinned."
+   "notes": "mobile-approval audit S1: approval authorizes on payload_hash + ONE static token — anyone holding it can approve trades, biometrics are client-side theater to the server. #34 covered settings/kill-switch, NOT approval. Interim: separate approve-scope token, header-only, rate-limited, approver identity logged; full fix = per-device key (Secure Enclave signature). This is the mission-critical path (phone approval unlock).\n2026-08-19: 2026-08-19 BUILT (server + web + phone code; phone REBUILD owed on the Mac — expo-crypto is a native dep). Design: per-device Ed25519 key minted ON the phone (expo-crypto RNG), stored Keychain this-device-only; approve = signature over hmt-approve\\n{proposal_id}\\n{payload_hash}\\n{ts} in X-Approval-* headers; serv verifies vs enrolled public key (api/approval_auth.py, db/approval_devices.py; enroll/revoke = ADMIN_TOKEN only, /api/approval-devices). Authority order: device sig > admin token (desk/web, from sessionStorage hmt-admin-token) > legacy shared token ONLY until the first device is ever enrolled (ratchet; revoke never reopens it). Failed-sig limiter 10/min per device; ±5-min timestamp window; approver identity lands in decided_by (device:<label> / admin / phone). tests/test_approval_auth.py (14). NEXT: Mac rebuild → Settings → 'Enroll this phone' (admin token once) → verify a real approval journals decided_by=device:…; then the shared-token path is closed for good.\n2026-08-19: 08-19 two Opus adversarial passes: NO bypass; folded = IP-keyed limiter, bounded memory, live admin-token read, 'shared-token' journal label, APPROVAL_REQUIRE_DEVICE env pin (.env.example), phone btoa→base64-js, single-flight key mint, honest error surfacing. Cross-side vector pinned.\n2026-08-19: 08-19: moved to founder lane — server side is DONE+pushed; waiting on: (1) Mac rebuild expo run:ios (expo-crypto is native), (2) Settings → Enroll this phone (admin token once), (3) AFTER 'Enrolled' shows: APPROVAL_REQUIRE_DEVICE=1 in serv .env + restart. Order matters — env pin first would lock approvals to admin-token-only."
   },
   {
    "num": 104,
