@@ -35,12 +35,16 @@ find "$DEST" -maxdepth 1 -name 'trading-*.db' -mtime +14 -delete
 find "$DEST" -maxdepth 1 -name 'hmt-config-*.tar.gz' -mtime +14 -delete
 
 # --- OFF-BOX COPY ---------------------------------------------------------------
-# mattpc pulls this directory nightly at 03:30 over Tailscale (Task Scheduler
-# "HMT backup pull" runs deploy/pull-backups.ps1) — that pull is the off-box
-# copy. It writes $DEST/last_pull on success; if that file goes stale the pull
-# is dead and we are back to "backups never leave the box". If it ever stops,
-# uncomment a push instead:
-# rsync -a "$DEST/trading-$STAMP.db" "$DEST/hmt-config-$STAMP.tar.gz" mbelli@<tailnet-host>:/path/to/hmt-backups/
+# RETIRED 2026-08-20: mattpc used to PULL this directory nightly at 03:30 over
+# Tailscale (Task Scheduler -> deploy/pull-backups.ps1). Dual-booting that box into
+# Omarchy for three days killed the pull silently — last_pull froze at 2026-08-18
+# and nothing noticed, because a job that pages only on its own failure cannot
+# report its own absence. A backup that depends on the other machine being awake,
+# and on which OS it booted, is not a backup.
+# The off-box copy is now a PUSH from serv, which is always on:
+#   tools/ledger_core_backup.sh  (hmt-offsite-backup.timer, 03:15 UTC)
+# It reads the snapshot this script writes, so THIS job staying healthy is its
+# precondition — hence the 30h freshness guard on the source at the top of it.
 # ----------------------------------------------------------------------------------
 
 echo "$(date -Is) backup OK -> $DEST/trading-$STAMP.db (integrity ok) + hmt-config-$STAMP.tar.gz"

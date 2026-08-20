@@ -140,14 +140,19 @@ def newest_backup_age_s() -> float | None:
     return time.time() - newest_mtime
 
 
-def off_box_pull_age_s() -> float | None:
-    """Seconds since mattpc last confirmed an off-box pull.
+def off_site_push_age_s() -> float | None:
+    """Seconds since serv last confirmed an off-site push.
 
-    None means the marker is absent — never pulled, or the leg is gone. That is
+    Was `off_box_pull_age_s` reading `last_pull` — mattpc PULLING the backup dir.
+    Retired 2026-08-20: dual-booting that box into Omarchy stopped the pull for
+    three days and only this watchdog noticed. serv now PUSHES an encrypted
+    ledger core to Drive (tools/ledger_core_backup.sh) and stamps `last_offsite`.
+
+    None means the marker is absent — never pushed, or the leg is gone. That is
     a real staleness signal, NOT "nothing to check": callers fail CLOSED on it.
     """
     try:
-        return time.time() - (BACKUP_DIR / "last_pull").stat().st_mtime
+        return time.time() - (BACKUP_DIR / "last_offsite").stat().st_mtime
     except OSError:
         return None
 
@@ -199,48 +204,60 @@ async def _watchdog_once() -> None:
         )
         _watchdog_stale_last_date[job.name] = today_et
 
+    # Fail CLOSED on None. None means the backup dir is missing/unreadable or
+    # holds no trading-*.db at all — strictly WORSE than a stale backup, and the
+    # old `is not None and ...` guard stayed silent for exactly that case.
     backup_age = newest_backup_age_s()
-    if backup_age is not None and backup_age > 26 * 3600:
+    if backup_age is None or backup_age > 26 * 3600:
         global _watchdog_backup_last_date
         if _watchdog_backup_last_date != today_et:
+            if backup_age is None:
+                title = "Nightly ledger backup cannot be read"
+                body = (
+                    f"No readable trading-*.db under {BACKUP_DIR}. The backup "
+                    "may never have run, or the directory is gone."
+                )
+            else:
+                title = "Nightly ledger backup is stale"
+                body = f"Newest backup is {backup_age / 3600:.1f}h old."
             await notify(
                 severity="critical",
                 kind="job_watchdog",
-                title="Nightly ledger backup is stale",
-                body=f"Newest backup is {backup_age / 3600:.1f}h old.",
+                title=title,
+                body=body,
                 group_key="backup_stale",
             )
             _watchdog_backup_last_date = today_et
 
-    # The off-box leg: mattpc pulls the backup dir nightly and touches
-    # last_pull. Fail CLOSED — a missing marker is the dead-pull case we are
-    # watching for, not "nothing to check". warning, not critical: local
-    # backups still exist and pass integrity_check, so this is a degraded DR
-    # guarantee rather than an emergency.
-    pull_age = off_box_pull_age_s()
-    if pull_age is None or pull_age > 48 * 3600:
+    # The off-site leg: serv pushes an encrypted ledger core to Drive nightly
+    # and stamps last_offsite. Fail CLOSED — a missing marker is the dead-leg
+    # case we are watching for, not "nothing to check". warning, not critical:
+    # local + USB copies still exist and pass integrity_check, so this is a
+    # degraded DR guarantee rather than an emergency.
+    push_age = off_site_push_age_s()
+    if push_age is None or push_age > 48 * 3600:
         global _watchdog_off_box_last_date
         if _watchdog_off_box_last_date != today_et:
-            if pull_age is None:
-                title = "Off-box backup pull has not reported"
+            if push_age is None:
+                title = "Off-site backup push has not reported"
                 body = (
-                    "No pull marker on serv: mattpc has never confirmed an "
-                    "off-box copy, or the pull task is gone. Backups may not be "
-                    "leaving the box. Local snapshots are unaffected."
+                    "No last_offsite marker on serv: the encrypted push has "
+                    "never succeeded, or the timer is gone. Backups may not be "
+                    "leaving the box. Local + USB copies are unaffected."
                 )
             else:
-                title = "Off-box backup pull is stale"
+                title = "Off-site backup push is stale"
                 body = (
-                    f"Off-box pull last confirmed {pull_age / 3600:.1f}h ago "
-                    "(threshold 48h — two nights missed). Local snapshots are "
-                    "unaffected."
+                    f"Off-site push last confirmed {push_age / 3600:.1f}h ago "
+                    "(threshold 48h — two nights missed). Local + USB copies "
+                    "are unaffected."
                 )
             await notify(
                 severity="warning",
                 kind="job_watchdog",
                 title=title,
                 body=body,
-                group_key="off_box_pull_stale",
+                group_key="off_site_push_stale",
             )
             _watchdog_off_box_last_date = today_et
 

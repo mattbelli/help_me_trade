@@ -396,8 +396,8 @@ stop (233.00 / 314.90), and both were locked at `available` 0.
 Trigger (instrumented): db_error-attributed dropped sweeps, `database is locked`, or sustained
 multi-second slow-txn queuing → execute `References/POSTGRES_MIGRATION_2026-07-27.md` as written
 (§12 Round 0 first), no re-litigating. Card `postgres-migration-decision` (backlog). Open:
-- Pull forward regardless: backup watchdog fails OPEN on unreadable backup age
-  (`api/jobs.py:189-190` — must fail closed) + `.env` chmod 600.
+- Pull forward regardless: ~~backup watchdog fails OPEN on unreadable backup age~~
+  DONE 08-20 (card #338, BUILD_LOG) — now fails closed. Still open here: `.env` chmod 600.
 - When triggered: open the `daily_bars` schema-leak and `rule_events` FK-orphan pre-cutover cards.
 
 ## ▶ Whole-market flow corpus — v6 landed; discovery + live builds open
@@ -743,3 +743,19 @@ path out-of-process — resolve against the old rung-3 note at design time.
 don't delay the open fill; then fix the amc `td==1` docstring (order fills via next-cycle retries
 after the open, not after-close queueing — RiskEngine's no-live-quote gate rejects after-close).
 Sibling unguarded fallbacks tracked on `data-correctness-m-tail`.
+
+## ▶ 2026-08-20 Backup/DR — restored, two follow-ups on the founder
+
+Shipped in card #338 (see BUILD_LOG for the full round). Open threads only:
+- **⏳ Founder: own Google OAuth client_id.** rclone's shared client_id is retired
+  during 2026; when it goes, `hmt-offsite-backup` fails LOUDLY (ntfy + the USB job's
+  36h cross-canary), so this is scheduled work, not an emergency.
+  https://rclone.org/drive/#making-your-own-client-id
+- **⏳ Founder: crypt password + salt into the password manager.** They exist only in
+  `~/.config/rclone/rclone.conf` on serv and in the USB config tarball — both die with
+  the box. Without them the off-site copy is undecryptable in exactly the disaster it
+  exists for. (They were pasted into a Claude Code transcript on 08-20; rotating the
+  `gdrive-crypt` remote is cheap until blobs accumulate, then it means re-pushing.)
+- **⏳ Optional third leg: serv → omarchy push.** Blocked on sshd not listening on the
+  Omarchy desktop (port 22 times out); enabling it needs sudo at his own terminal.
+  Lower value now that the encrypted Drive push covers the off-site tier.

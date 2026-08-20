@@ -49,7 +49,7 @@ from api.jobs import (
     jobs_health,
     mark_alive,
     newest_backup_age_s,
-    off_box_pull_age_s,
+    off_site_push_age_s,
     start_all,
 )
 from api.journal_routes import router as journal_router
@@ -362,7 +362,7 @@ def health() -> dict[str, int | str | float | bool | list | None]:
         "jobs": jobs_health(),
         "db_size_bytes": db_size_bytes,
         "newest_backup_age_s": newest_backup_age_s(),
-        "off_box_pull_age_s": off_box_pull_age_s(),
+        "off_site_push_age_s": off_site_push_age_s(),
         # Both safety states, reported independently. kill_switch = total freeze
         # (human-only); entries_halted = HALT (blocks exposure-increasing orders,
         # exits still flow; armed by the daily-loss breaker or a human).

@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 338,
+   "id": "off-site-ledger-backup-serv-pushes-an-encrypted-",
+   "title": "Off-site ledger backup: serv PUSHES an encrypted core to Drive; USB stops silently skipping trading.db",
+   "lane": "done",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-20",
+   "notes": "Trigger: three days dual-booted into Omarchy killed the mattpc PULL (last_pull froze 08-18). Found two silent failures, not one. (1) serv_external_backup.sh deferred any DB >3GB to Sundays with a bare `continue` that logged NOTHING — trading.db crossed 3GB on 08-05, so the ledger silently dropped to weekly and the log never said a word; newest USB copy was 08-16. Cadence now keys off VALUE not size (WEEKLY_DBS=flow_corpus,oi_walls only), deferrals are logged, retention is GFS 7-daily+5-Sunday (tested: 40 fake copies -> 11 survivors; dry-run against the real drive deleted nothing). (2) A nightly job cannot report its own absence — each job now pages if the other's success stamp goes >36h stale. New tools/ledger_core_backup.sh dumps all tables except ~38 re-downloadable bulk ones (1.19GB kept / 3.0GB dropped -> 162MB tar), REPLAYS the dump into a throwaway DB + integrity_check + order_executions row-match before shipping, pushes via rclone crypt (Google stores opaque names AND contents). Verified end-to-end: downloaded from Drive, restored 1.4GB, all 12 critical tables row-exact vs snapshot. Timer 03:15 UTC, USB 09:15 UTC, linger=yes. FOLLOW-UP: rclone's shared Google client_id is retired during 2026 — needs his own OAuth client (fails loud, not silent). Optional third leg: serv->omarchy push needs sshd on the desktop (sudo, his terminal)."
+  },
+  {
    "num": 337,
    "id": "move-sync-settings-writes-off-the-event-loop-asy",
    "title": "Move sync settings writes off the event loop (asyncio.to_thread at the 4 async call sites)",
