@@ -111,6 +111,12 @@ def _is_future(sym: str) -> bool:
     return classify_symbol(sym) == "future"
 
 
+def _is_crypto(sym: str) -> bool:
+    from brokers.symbol_class import classify_symbol
+
+    return classify_symbol(sym) == "crypto"
+
+
 @router.get("/api/bars")
 async def api_bars(
     symbol: str,
@@ -256,7 +262,14 @@ def _build_bars_response(
         "bars": sanitize_bar_dicts(sym, bar_dicts),
         "has_more": has_more,
     }
-    if ext and timeframe not in _NON_INTRADAY_TIMEFRAMES and _overnight_delayed_flag():
+    # Crypto trades 24/7 with no session tiers — the overnight-delay badge is an
+    # equity/Blue-Ocean concept and would be a lie on a BTC/USD chart.
+    if (
+        ext
+        and timeframe not in _NON_INTRADAY_TIMEFRAMES
+        and not _is_crypto(sym)
+        and _overnight_delayed_flag()
+    ):
         response["overnight_delayed"] = True
     return response
 

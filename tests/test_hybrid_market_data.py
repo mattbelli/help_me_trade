@@ -18,6 +18,9 @@ class _FakeChild:
         self.batch_calls: list[list[str]] = []
         self.single_calls: list[str] = []
         self.quote_calls: list[list[str]] = []
+        self.crypto_batch_calls: list[list[str]] = []
+        self.crypto_range_calls: list[str] = []
+        self.crypto_latest_calls: list[str] = []
         self.ext_quote_calls: list[list[str]] = []
         self.ext_not_before: list[object] = []
 
@@ -28,6 +31,18 @@ class _FakeChild:
     async def aget_stock_bars_batch(self, symbols, *, timeframe="1Day", days=12):
         self.batch_calls.append(list(symbols))
         return {s: [f"{self.name}:{s}"] for s in symbols}
+
+    async def aget_crypto_bars_range(self, symbol, *, timeframe="1Day", start=None, end=None):
+        self.crypto_range_calls.append(symbol)
+        return [f"{self.name}:crypto:{symbol}"]
+
+    async def aget_crypto_bars_latest(self, symbol, *, timeframe="1Day", limit=300, before=None):
+        self.crypto_latest_calls.append(symbol)
+        return [f"{self.name}:crypto:{symbol}"], True
+
+    async def aget_crypto_bars_batch(self, symbols, *, timeframe="1Day", days=12):
+        self.crypto_batch_calls.append(list(symbols))
+        return {s: [f"{self.name}:crypto:{s}"] for s in symbols}
 
     async def aget_ext_quotes(self, symbols, *, feed=None, not_before=None):
         self.ext_quote_calls.append((list(symbols), feed))
@@ -159,24 +174,80 @@ async def test_batch_faults_isolate_partial_serve() -> None:
 
 
 @pytest.mark.asyncio
-async def test_batch_skips_crypto_option_never_hits_stock_endpoint() -> None:
-    # crypto/option have no REST bar endpoint yet — they must be surfaced as a gap,
-    # NOT silently forwarded to the Alpaca stock endpoint (which returns empty).
+async def test_batch_partitions_crypto_to_its_own_endpoint() -> None:
+    # A slashed pair 400s the stock endpoint, so crypto goes to the Alpaca child's
+    # crypto batch — never its stock batch. Options are still a documented gap.
     hybrid, alpaca, schwab = _hybrid()
     out = await hybrid.aget_stock_bars_batch(
-        ["AAPL", "BTC/USD", "AAPL240119C00190000", "/ESU25"]
+        ["AAPL", "BTC/USD", "ETH/USD", "AAPL240119C00190000", "/ESU25"]
     )
-    assert alpaca.batch_calls == [["AAPL"]]  # only the equity, never the crypto/option
+    assert alpaca.batch_calls == [["AAPL"]]  # stock endpoint: equity only
+    assert alpaca.crypto_batch_calls == [["BTC/USD", "ETH/USD"]]
     assert schwab.batch_calls == [["/ESU25"]]
-    assert set(out) == {"AAPL", "/ESU25"}
+    assert set(out) == {"AAPL", "BTC/USD", "ETH/USD", "/ESU25"}
+    assert out["BTC/USD"] == ["alpaca:crypto:BTC/USD"]
+    assert "AAPL240119C00190000" not in out
 
 
 @pytest.mark.asyncio
-async def test_single_crypto_returns_empty_without_touching_children() -> None:
+async def test_crypto_batch_leg_faults_isolate() -> None:
     hybrid, alpaca, schwab = _hybrid()
-    assert await hybrid.aget_stock_bars("BTC/USD") == []
-    assert alpaca.single_calls == []
+
+    async def _boom(symbols, *, timeframe="1Day", days=12):
+        raise BrokerError("crypto endpoint down")
+
+    alpaca.aget_crypto_bars_batch = _boom  # type: ignore[method-assign]
+    out = await hybrid.aget_stock_bars_batch(["AAPL", "BTC/USD"])
+    assert set(out) == {"AAPL"}  # equities still served
+
+
+@pytest.mark.asyncio
+async def test_single_crypto_routes_to_alpaca_crypto_bars() -> None:
+    hybrid, alpaca, schwab = _hybrid()
+    assert await hybrid.aget_stock_bars("BTC/USD") == ["alpaca:crypto:BTC/USD"]
+    assert alpaca.crypto_range_calls == ["BTC/USD"]
+    assert alpaca.single_calls == []  # never the stock endpoint
     assert schwab.single_calls == []
+
+
+@pytest.mark.asyncio
+async def test_crypto_range_and_latest_route_to_crypto_methods() -> None:
+    from datetime import UTC, datetime
+
+    hybrid, alpaca, schwab = _hybrid()
+    bars = await hybrid.aget_stock_bars_range(
+        "BTC/USD",
+        timeframe="1Min",
+        start=datetime(2026, 8, 20, tzinfo=UTC),
+        end=datetime(2026, 8, 21, tzinfo=UTC),
+        extended_hours=True,
+    )
+    assert bars == ["alpaca:crypto:BTC/USD"]
+    latest, has_more = await hybrid.aget_stock_bars_latest(
+        "BTC/USD", timeframe="1Min", limit=50, extended_hours=True
+    )
+    assert latest == ["alpaca:crypto:BTC/USD"] and has_more is True
+    assert alpaca.crypto_range_calls == ["BTC/USD"]
+    assert alpaca.crypto_latest_calls == ["BTC/USD"]
+    assert alpaca.single_calls == []
+
+
+@pytest.mark.asyncio
+async def test_options_still_return_empty_without_touching_children() -> None:
+    hybrid, alpaca, schwab = _hybrid()
+    occ = "AAPL240119C00190000"
+    assert await hybrid.aget_stock_bars(occ) == []
+    assert await hybrid.aget_stock_bars_latest(occ) == ([], False)
+    assert alpaca.single_calls == [] and alpaca.crypto_range_calls == []
+    assert schwab.single_calls == []
+
+
+@pytest.mark.asyncio
+async def test_quotes_drop_crypto_there_is_no_ext_session() -> None:
+    hybrid, alpaca, schwab = _hybrid()
+    assert await hybrid.aget_quotes(["BTC/USD"]) == {}
+    assert alpaca.ext_quote_calls == []
+    assert schwab.quote_calls == []
 
 
 def test_deny_by_default_when_alpaca_unconfigured(monkeypatch) -> None:

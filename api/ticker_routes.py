@@ -54,9 +54,15 @@ async def api_watchlist_news(
     }
 
 
-@router.get("/{symbol}")
+# `:path` (not the default segment match) so slashed symbols resolve: the frontend
+# sends BTC%2FUSD but Starlette routes on the DECODED path, i.e. /api/ticker/BTC/USD.
+# The watchlist-news route above is declared first and therefore still wins.
+@router.get("/{symbol:path}")
 async def api_ticker_info(symbol: str) -> dict[str, Any]:
-    """Company profile + fundamentals + our per-symbol facts + recent news."""
+    """Company profile + fundamentals + our per-symbol facts + recent news.
+
+    Crypto pairs resolve here too; the Finnhub/news/facts sources are fail-soft
+    per block, so a pair simply comes back with empty sections."""
     # Lazy imports keep the router decoupled from the app's import graph and the
     # (optional) Finnhub client — same pattern as api/scan_routes.
     from ai.perception.context import build_symbol_context

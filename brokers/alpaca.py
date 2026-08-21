@@ -15,6 +15,7 @@ import httpx
 from dotenv import load_dotenv
 
 from brokers.base import Account, Order, PlaceOrderRequest, PlaceOrderResponse, Position
+from brokers.symbol_class import classify_symbol
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -23,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 _MAX_BAR_PAGES = 50
 _BATCH_BARS_PATH = "/v2/stocks/bars"
+_CRYPTO_BARS_PATH = "/v1beta3/crypto/us/bars"
+# Paths whose `bars` payload is keyed BY SYMBOL rather than a flat list. The
+# crypto endpoint always returns the dict shape, even for a single symbol.
+_BATCH_SHAPED_BAR_PATHS = frozenset({_BATCH_BARS_PATH, _CRYPTO_BARS_PATH})
 _BARS_PAGE_LIMIT = 10000  # the `limit` sent on every bars request
 # Alpaca does NOT always fill a page to `limit` — measured 2026-08-11, a 40-symbol
 # 5Min request with limit=10000 handed back a token after 2,387 bars. So the real
@@ -649,7 +654,7 @@ class AlpacaAdapter:
     @staticmethod
     def _bar_fetch_context(path: str, params: dict[str, Any]) -> str:
         timeframe = params.get("timeframe", "?")
-        if path == _BATCH_BARS_PATH:
+        if path in _BATCH_SHAPED_BAR_PATHS:
             return f"symbols={params.get('symbols', '?')} timeframe={timeframe}"
         parts = path.rstrip("/").split("/")
         symbol = parts[-2] if len(parts) >= 2 else "?"
@@ -675,7 +680,7 @@ class AlpacaAdapter:
     def _get_all_bar_pages(
         self, path: str, params: dict[str, Any]
     ) -> dict[str, list | dict[str, list]]:
-        is_batch = path == _BATCH_BARS_PATH
+        is_batch = path in _BATCH_SHAPED_BAR_PATHS
         accumulated: list | dict[str, list] = {} if is_batch else []
         page_token: str | None = None
         context = self._bar_fetch_context(path, params)
@@ -705,7 +710,7 @@ class AlpacaAdapter:
     async def _aget_all_bar_pages(
         self, path: str, params: dict[str, Any]
     ) -> dict[str, list | dict[str, list]]:
-        is_batch = path == _BATCH_BARS_PATH
+        is_batch = path in _BATCH_SHAPED_BAR_PATHS
         accumulated: list | dict[str, list] = {} if is_batch else []
         page_token: str | None = None
         context = self._bar_fetch_context(path, params)
@@ -970,8 +975,132 @@ class AlpacaAdapter:
             merged = [b for b in merged if b.time >= floor]
         return merged, more_sip or more_boats
 
+    # -- crypto bars (v1beta3/crypto/us) --------------------------------
+    # Same StockBar shape as the stock endpoints, but: `symbols=` (never a path
+    # segment — the pair carries a slash), no `feed`, no `adjustment` (Alpaca
+    # rejects both with "unexpected query parameter(s)"), always a symbol-keyed
+    # `bars` dict, and a `start` is mandatory (without one the default window is
+    # tiny and 1Week comes back empty). Measured 2026-08-21; no auth required.
+
+    def _crypto_bar_params(self, symbol: str, timeframe: str) -> tuple[str, dict[str, Any]]:
+        sym = symbol.strip().upper()
+        return sym, {"symbols": sym, "timeframe": timeframe}
+
+    async def aget_crypto_bars_range(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        start: datetime,
+        end: datetime,
+    ) -> list[StockBar]:
+        """Ascending crypto bars over [start, end], paged. Fail-soft → []."""
+        sym, params = self._crypto_bar_params(symbol, timeframe)
+        if not sym:
+            return []
+        params.update(
+            {
+                "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "limit": _BARS_PAGE_LIMIT,
+                "sort": "asc",
+            }
+        )
+        try:
+            data = await self._aget_all_bar_pages(_CRYPTO_BARS_PATH, params)
+        except Exception:
+            logger.warning("Alpaca crypto bars fetch failed for %s", sym, exc_info=True)
+            return []
+        by_symbol = data.get("bars") or {}
+        return self._parse_stock_bars(by_symbol.get(sym) or [])
+
+    async def aget_crypto_bars_latest(
+        self,
+        symbol: str,
+        *,
+        timeframe: str = "1Day",
+        limit: int = 300,
+        before: datetime | None = None,
+    ) -> tuple[list[StockBar], bool]:
+        """The newest ``limit`` crypto bars (strictly before ``before`` when
+        given), ascending, plus whether older history exists — the crypto twin
+        of ``_aget_latest_with_feed`` (same newest-first page walk and cap)."""
+        sym, params = self._crypto_bar_params(symbol, timeframe)
+        if not sym:
+            return [], False
+        params.update({"start": _BARS_HISTORY_START, "sort": "desc"})
+        if before is not None:
+            # `end` is inclusive and bar times are bucket starts: step back one
+            # second so a bar AT `before` (the caller's oldest) is not repeated.
+            params["end"] = (before.astimezone(UTC) - timedelta(seconds=1)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+        raw: list = []
+        page_token: str | None = None
+        has_more = False
+        for _ in range(_LATEST_MAX_PAGES):
+            request_params = dict(params)
+            request_params["limit"] = min(_BARS_PAGE_LIMIT, max(1, limit - len(raw)))
+            if page_token:
+                request_params["page_token"] = page_token
+            data = await self._aget_data(_CRYPTO_BARS_PATH, params=request_params)
+            raw.extend((data.get("bars") or {}).get(sym) or [])
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+            if len(raw) >= limit:
+                has_more = True
+                break
+        else:
+            has_more = True
+        bars = self._parse_stock_bars(raw)
+        bars.reverse()
+        return bars, has_more
+
+    async def aget_crypto_bars_batch(
+        self,
+        symbols: list[str],
+        *,
+        timeframe: str = "1Day",
+        days: int = 12,
+    ) -> dict[str, list[StockBar]]:
+        """Bars for several pairs in one request. Fail-soft → {} (the caller
+        is a watchlist-sized list, so there is nothing to chunk)."""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in symbols:
+            sym = raw.strip().upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                cleaned.append(sym)
+        if not cleaned:
+            return {}
+
+        end = datetime.now(UTC)
+        start = end - timedelta(days=days)
+        params = {
+            "symbols": ",".join(cleaned),
+            "timeframe": timeframe,
+            "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "limit": _BARS_PAGE_LIMIT,
+            "sort": "asc",
+        }
+        try:
+            data = await self._aget_all_bar_pages(_CRYPTO_BARS_PATH, params)
+        except Exception:
+            logger.warning(
+                "Alpaca crypto batch bars failed (%d symbols)", len(cleaned), exc_info=True
+            )
+            return {}
+        return self._parse_batch_bars(data.get("bars") or {})
+
     _assets_cache: tuple[float, list[str]] | None = None
     _overnight_cache: tuple[float, set[str]] | None = None
+    # Crypto pairs are cached SEPARATELY from `_assets_cache` on purpose: that
+    # list backs `symbol_exists` (RiskEngine's tradability gate), which must stay
+    # equity-only. Crypto is unioned into symbol SEARCH and nothing else.
+    _crypto_cache: tuple[float, list[str]] | None = None
     _ASSETS_TTL_SEC = 86_400
 
     def _tradable_symbols(self) -> list[str]:
@@ -1050,12 +1179,76 @@ class AlpacaAdapter:
             return AlpacaAdapter._overnight_cache[1]
         return set()
 
+    def _crypto_symbols(self) -> list[str]:
+        now = time.time()
+        if (
+            AlpacaAdapter._crypto_cache is not None
+            and now - AlpacaAdapter._crypto_cache[0] < self._ASSETS_TTL_SEC
+        ):
+            return AlpacaAdapter._crypto_cache[1]
+        try:
+            raw = self._get("/v2/assets?status=active&asset_class=crypto")
+        except Exception:
+            logger.warning("Alpaca crypto asset list fetch failed", exc_info=True)
+            return []
+        return self._cache_crypto_symbols(now, raw)
+
+    async def _acrypto_symbols(self) -> list[str]:
+        now = time.time()
+        if (
+            AlpacaAdapter._crypto_cache is not None
+            and now - AlpacaAdapter._crypto_cache[0] < self._ASSETS_TTL_SEC
+        ):
+            return AlpacaAdapter._crypto_cache[1]
+        try:
+            raw = await self._aget("/v2/assets?status=active&asset_class=crypto")
+        except Exception:
+            logger.warning("Alpaca crypto asset list fetch failed", exc_info=True)
+            return []
+        return self._cache_crypto_symbols(now, raw)
+
+    def _cache_crypto_symbols(self, now: float, raw: object) -> list[str]:
+        if not isinstance(raw, list):
+            return []
+        symbols = sorted(
+            {
+                str(item.get("symbol", ""))
+                for item in raw
+                if isinstance(item, dict) and item.get("symbol")
+            }
+        )
+        AlpacaAdapter._crypto_cache = (now, symbols)
+        return symbols
+
+    # Slots a crypto match is guaranteed in a search window. Without a reservation
+    # crypto is unreachable on exactly the queries that want it: "BTC" prefix-matches
+    # 8 equity tickers (BTC, BTCC, BTCI, BTCK, BTCL, BTCO, BTCS, BTCT — measured
+    # 2026-08-21), which fills the default 8-row window before BTC/USD is reached.
+    # 3 == the USD/USDC/USDT triple a base-currency query resolves to.
+    _CRYPTO_SEARCH_SLOTS = 3
+
     def search_symbols(self, query: str, *, limit: int = 10) -> list[str]:
-        return self._filter_symbols(self._tradable_symbols(), query, limit=limit)
+        return self._merge_symbol_matches(
+            self._filter_symbols(self._tradable_symbols(), query, limit=limit),
+            self._filter_symbols(self._crypto_symbols(), query, limit=limit),
+            limit,
+        )
 
     async def asearch_symbols(self, query: str, *, limit: int = 10) -> list[str]:
-        symbols = await self._atradable_symbols()
-        return self._filter_symbols(symbols, query, limit=limit)
+        return self._merge_symbol_matches(
+            self._filter_symbols(await self._atradable_symbols(), query, limit=limit),
+            self._filter_symbols(await self._acrypto_symbols(), query, limit=limit),
+            limit,
+        )
+
+    @classmethod
+    def _merge_symbol_matches(
+        cls, equities: list[str], crypto: list[str], limit: int
+    ) -> list[str]:
+        """Equity matches first, then crypto — with crypto holding a reserved
+        tail of the window so an equity prefix-storm can never hide BTC/USD."""
+        crypto = crypto[: max(0, min(cls._CRYPTO_SEARCH_SLOTS, limit))]
+        return equities[: max(0, limit - len(crypto))] + crypto
 
     @staticmethod
     def _filter_symbols(symbols: list[str], query: str, *, limit: int) -> list[str]:
@@ -1511,6 +1704,12 @@ class AlpacaAdapter:
     def symbol_exists(self, symbol: str) -> bool:
         sym = symbol.strip().upper()
         if not sym:
+            return False
+        # Measured 2026-08-21: `/v2/assets/BTC/USD` resolves and reports
+        # tradable=true, so without this guard the RiskEngine gate (the sole
+        # caller) would admit crypto orders — a class the execution chokepoint,
+        # the ledger and the exit engine were never built for. Deny it here.
+        if classify_symbol(sym) == "crypto":
             return False
         try:
             data = self._get(f"/v2/assets/{sym}")

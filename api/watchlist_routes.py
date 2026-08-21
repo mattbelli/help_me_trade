@@ -26,7 +26,8 @@ from brokers.alpaca import StockBar
 from brokers.errors import BrokerError
 from brokers.factory import get_market_data_provider
 from brokers.market_clock import market_session as _market_session
-from brokers.market_stream import _daily_prev_close
+from brokers.market_stream import _crypto_prev_close, _daily_prev_close
+from brokers.symbol_class import classify_symbol
 from config.settings import (
     add_watchlist_symbol,
     create_watchlist,
@@ -407,6 +408,13 @@ async def api_watchlist_market(symbols: str = ""):
         # what "%" means. Futures keep settle-vs-prior-settle (Globex roll below).
         if is_future:
             prev = closes[-2] if len(closes) >= 2 else price
+        elif classify_symbol(sym) == "crypto":
+            # Crypto daily bars are UTC days stamped 00:00Z, i.e. 20:00 ET the
+            # PREVIOUS day — so the ET-session rule reads the still-forming bar as
+            # a completed one and the row shows 0.00% for 20 of every 24 hours
+            # (measured 2026-08-21). Same reference the crypto stream hub uses, so
+            # the REST and stream halves of the row agree.
+            prev = _crypto_prev_close(bars)
         else:
             prev = _daily_prev_close(bars, session)
         change_pct = ((price - prev) / prev * 100) if prev else 0.0

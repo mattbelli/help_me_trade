@@ -7,6 +7,8 @@ and alert broadcasting.  Broker-specific subclasses override only
 
 Concrete implementations:
   AlpacaMarketStreamHub — original Alpaca IEX/SIP websocket upstream (default)
+  AlpacaCryptoStreamHub — Alpaca v1beta3 crypto websocket (same frame protocol,
+    its own connection + 24/7 UTC day roll)
   SchwabMarketStreamHub — Schwab StreamClient upstream (see schwab_market_stream.py)
 """
 
@@ -71,6 +73,10 @@ def alpaca_market_ws_url(feed: str | None = None) -> str:
         effective = configured
     return f"wss://stream.data.alpaca.markets/v2/{effective}"
 
+
+# Crypto is a SEPARATE socket from the stocks stream (its one-connection-per-account
+# limit does not apply), and it must never go through the equity collector proxy.
+CRYPTO_MARKET_WS_URL = "wss://stream.data.alpaca.markets/v1beta3/crypto/us"
 
 MAX_WS_SYMBOLS = 30
 RECONNECT_BASE_SEC = 2.0
@@ -151,6 +157,30 @@ def _daily_prev_close(bars: list, session: str | None = None) -> float:
         last_date = None
     if last_date is not None and last_date == datetime.now(_ET).date():
         return closes[-2] if len(closes) >= 2 else closes[-1]
+    return closes[-1]
+
+
+def _crypto_prev_close(bars: list) -> float:
+    """The day-change reference for a 24/7 market: yesterday's UTC close.
+
+    `_daily_prev_close` is ET-session shaped (weekend = Friday, "closed" =
+    two back) and is simply wrong for crypto, which has no session and no
+    weekend. Here the only question is whether the last daily bar is TODAY's
+    still-forming one (→ closes[-2]) or the last completed UTC day (→ closes[-1]).
+    """
+    closes = [b.close for b in bars]
+    if len(closes) < 2:
+        return closes[-1]
+    try:
+        last_date = (
+            datetime.fromisoformat(str(bars[-1].time).replace("Z", "+00:00"))
+            .astimezone(timezone.utc)
+            .date()
+        )
+    except (TypeError, ValueError):
+        last_date = None
+    if last_date is not None and last_date == datetime.now(timezone.utc).date():
+        return closes[-2]
     return closes[-1]
 
 
@@ -678,6 +708,19 @@ class AlpacaMarketStreamHub(BaseMarketHub):
     def _live_flag(self) -> bool:
         return broker_is_configured("alpaca")
 
+    # -- overridable seams (AlpacaCryptoStreamHub swaps exactly these three) --
+    def _ws_url(self, cfg: dict[str, str]) -> str:
+        return alpaca_market_ws_url(cfg.get("data_feed"))
+
+    async def _baseline_bars(
+        self, broker: AlpacaAdapter, symbols: list[str]
+    ) -> dict[str, list]:
+        return await broker.aget_stock_bars_batch(symbols, days=12)
+
+    @staticmethod
+    def _prev_close(bars: list) -> float:
+        return _daily_prev_close(bars)
+
     async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
         missing = [s for s in symbols if force or s not in self._quotes]
         if not missing or not broker_is_configured("alpaca"):
@@ -686,7 +729,7 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             broker = get_broker("alpaca")
             if not isinstance(broker, AlpacaAdapter):
                 return True
-            bars_by_symbol = await broker.aget_stock_bars_batch(missing, days=12)
+            bars_by_symbol = await self._baseline_bars(broker, missing)
         except BrokerError as exc:
             logger.warning("Watchlist baseline fetch failed: %s", exc)
             return False
@@ -701,7 +744,7 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                 continue
             closes = [b.close for b in bars]
             price = closes[-1]
-            prev = _daily_prev_close(bars)
+            prev = self._prev_close(bars)
             change_pct = ((price - prev) / prev * 100) if prev else 0.0
             state = QuoteState(
                 price=price,
@@ -736,7 +779,7 @@ class AlpacaMarketStreamHub(BaseMarketHub):
 
             try:
                 async with websockets.connect(
-                    alpaca_market_ws_url(cfg.get("data_feed")),
+                    self._ws_url(cfg),
                     additional_headers={
                         "APCA-API-KEY-ID": key_id,
                         "APCA-API-SECRET-KEY": secret,
@@ -1075,6 +1118,49 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             await self._check_price_alerts(symbol, prev, close_f)
         self._prev_prices[symbol] = close_f
         await self._broadcast_quote(symbol)
+
+
+class AlpacaCryptoStreamHub(AlpacaMarketStreamHub):
+    """Alpaca crypto websocket upstream (v1beta3/crypto/us).
+
+    Same frame protocol as the stocks stream (auth handshake, subscribe shape,
+    `t`/`b`/`u`/`d` types), so everything the parent does — suspect-print band
+    guard, alerts, minute-bar ring, broadcast throttle — is inherited verbatim.
+    Only three things differ, and they are the three overridable seams: the
+    socket URL, the baseline bar fetch, and the day-change reference close
+    (24/7 UTC days, not ET sessions).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        # The tape detector is equity-shaped: it keys off SIP condition codes and
+        # an exchange field crypto prints simply do not carry, and its block
+        # thresholds are equity dollar sizes. `_external_tape` gates exactly one
+        # thing — the detector tap in `_on_trade` — so setting it here skips the
+        # detector for crypto prints and changes nothing else.
+        self._external_tape = True
+        # The parent stamps the ET session date; this hub rolls on the UTC date.
+        self._baseline_date = datetime.now(timezone.utc).date()
+
+    def _ws_url(self, cfg: dict[str, str]) -> str:
+        return CRYPTO_MARKET_WS_URL
+
+    async def _baseline_bars(
+        self, broker: AlpacaAdapter, symbols: list[str]
+    ) -> dict[str, list]:
+        return await broker.aget_crypto_bars_batch(symbols, timeframe="1Day", days=12)
+
+    @staticmethod
+    def _prev_close(bars: list) -> float:
+        return _crypto_prev_close(bars)
+
+    async def _roll_baselines_if_new_day(self) -> None:
+        today = datetime.now(timezone.utc).date()
+        if today == self._baseline_date:
+            return
+        symbols = set(self._quotes) | self._subscribed
+        if not symbols or await self._ensure_baselines(symbols, force=True):
+            self._baseline_date = today
 
 
 # ---------------------------------------------------------------------------

@@ -23,8 +23,9 @@ import {
 
 import { useWorkspaceToast } from "@/components/workspace/workspace-toast";
 
-const WATCHLIST_ADD_RE = /^\/watchlist\s+add\s+([A-Za-z.\-]+)$/i;
-const WATCHLIST_REMOVE_RE = /^\/watchlist\s+remove\s+([A-Za-z.\-]+)$/i;
+// `/` is allowed so crypto pairs work (/watchlist add BTC/USD).
+const WATCHLIST_ADD_RE = /^\/watchlist\s+add\s+([A-Za-z.\-\/]+)$/i;
+const WATCHLIST_REMOVE_RE = /^\/watchlist\s+remove\s+([A-Za-z.\-\/]+)$/i;
 const THEME_NAMED_RE = /^\/theme(?:\s+(\w+))?$/i;
 
 export type CommandResult = {

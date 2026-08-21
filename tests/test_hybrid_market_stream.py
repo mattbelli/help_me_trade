@@ -31,6 +31,10 @@ def hub(monkeypatch) -> HybridMarketStreamHub:
         "brokers.schwab_market_stream.SchwabMarketStreamHub._ensure_baselines",
         _noop_baselines,
     )
+    monkeypatch.setattr(
+        "brokers.market_stream.AlpacaCryptoStreamHub._ensure_baselines",
+        _noop_baselines,
+    )
     return HybridMarketStreamHub()
 
 
@@ -39,6 +43,11 @@ def test_children_share_quotes_and_clients(hub: HybridMarketStreamHub) -> None:
     assert hub._alpaca._clients is hub._clients
     assert hub._schwab._quotes is hub._quotes
     assert hub._schwab._clients is hub._clients
+    assert hub._crypto._quotes is hub._quotes
+    assert hub._crypto._clients is hub._clients
+    assert hub._crypto.bars is hub.bars
+    assert hub._crypto._last_print_ms is hub._last_print_ms
+    assert hub._crypto.tape_detector is hub.tape_detector
 
     # A child tick lands in the composite's single quote table.
     hub._alpaca._quotes["AAPL"] = QuoteState(price=200.0)
@@ -54,14 +63,29 @@ async def test_subscribe_partitions_per_class(hub: HybridMarketStreamHub) -> Non
     assert hub._alpaca._pending_add == {"AAPL", "SPY"}
     assert hub._schwab._subscribed == {"/ESU25"}
     assert hub._schwab._pending_add == {"/ESU25"}
+    assert hub._crypto._subscribed == set()
 
 
 @pytest.mark.asyncio
-async def test_crypto_and_options_not_streamed(hub: HybridMarketStreamHub) -> None:
-    await hub.ensure_symbols({"BTC/USD", "AAPL240119C00190000", "AAPL"})
-    # Only the equity is subscribed; crypto/option are documented stream skips.
+async def test_crypto_streams_on_its_own_child_options_still_dropped(
+    hub: HybridMarketStreamHub,
+) -> None:
+    await hub.ensure_symbols({"BTC/USD", "ETH/USD", "AAPL240119C00190000", "AAPL"})
+    # Crypto now has a child of its own; options remain a documented stream skip.
     assert hub._alpaca._subscribed == {"AAPL"}
+    assert hub._crypto._subscribed == {"BTC/USD", "ETH/USD"}
+    assert hub._crypto._pending_add == {"BTC/USD", "ETH/USD"}
     assert hub._schwab._subscribed == set()
+
+
+@pytest.mark.asyncio
+async def test_crypto_unsubscribe_flows_to_the_crypto_child(
+    hub: HybridMarketStreamHub,
+) -> None:
+    await hub.ensure_symbols({"BTC/USD", "AAPL"})
+    await hub.ensure_symbols({"AAPL"})
+    assert "BTC/USD" in hub._crypto._pending_remove
+    assert hub._crypto._subscribed == set()
 
 
 @pytest.mark.asyncio

@@ -568,3 +568,177 @@ async def test_vendor_minute_and_daily_bars_are_forwarded_final() -> None:
     assert len(daily) == 1 and daily[0]["close"] == 2 and daily[0]["final"] is True
     # Daily bars are NOT folded into the minute ring.
     assert [b.time for b in hub.bars.recent("AAPL")] == [hub.bars.forming("AAPL").time]
+
+
+# ---------------------------------------------------------------------------
+# Crypto hub: 24/7 UTC day reference + its own socket (never the equity proxy)
+# ---------------------------------------------------------------------------
+
+
+def _utc_daily_bar(day, close: float):
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from brokers.alpaca import StockBar
+
+    t = _dt(day.year, day.month, day.day, tzinfo=_tz.utc)
+    return StockBar(
+        time=t.isoformat().replace("+00:00", "Z"),
+        open=close,
+        high=close,
+        low=close,
+        close=close,
+        volume=1.0,
+    )
+
+
+def test_crypto_prev_close_last_bar_is_today_utc_uses_prior_close() -> None:
+    """The 00:00Z bar is still forming — yesterday's UTC close is the reference."""
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    from datetime import timezone as _tz
+
+    from brokers.market_stream import _crypto_prev_close
+
+    today = _dt.now(_tz.utc).date()
+    bars = [
+        _utc_daily_bar(today - timedelta(days=1), 60_000.0),
+        _utc_daily_bar(today, 61_500.0),
+    ]
+    assert _crypto_prev_close(bars) == 60_000.0
+
+
+def test_crypto_prev_close_series_ending_yesterday_uses_last_close() -> None:
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    from datetime import timezone as _tz
+
+    from brokers.market_stream import _crypto_prev_close
+
+    today = _dt.now(_tz.utc).date()
+    bars = [
+        _utc_daily_bar(today - timedelta(days=2), 59_000.0),
+        _utc_daily_bar(today - timedelta(days=1), 60_000.0),
+    ]
+    assert _crypto_prev_close(bars) == 60_000.0
+
+
+def test_crypto_prev_close_single_bar_is_its_own_reference() -> None:
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    from brokers.market_stream import _crypto_prev_close
+
+    bars = [_utc_daily_bar(_dt.now(_tz.utc).date(), 61_500.0)]
+    assert _crypto_prev_close(bars) == 61_500.0
+
+
+def test_crypto_prev_close_is_not_the_et_session_rule(monkeypatch) -> None:
+    """Weekend: `_daily_prev_close` holds Friday (closes[-2]); crypto trades
+    through it, so the last completed UTC day is the reference."""
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    from datetime import timezone as _tz
+
+    from brokers.market_stream import _crypto_prev_close, _daily_prev_close
+
+    today = _dt.now(_tz.utc).date()
+    bars = [
+        _utc_daily_bar(today - timedelta(days=2), 59_000.0),
+        _utc_daily_bar(today - timedelta(days=1), 60_000.0),
+    ]
+    assert _daily_prev_close(bars, session="closed") == 59_000.0
+    assert _crypto_prev_close(bars) == 60_000.0
+
+
+def test_crypto_hub_dials_the_crypto_socket_never_the_proxy(monkeypatch) -> None:
+    from brokers.market_stream import CRYPTO_MARKET_WS_URL, AlpacaCryptoStreamHub
+
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "1")
+    monkeypatch.setenv("EQUITY_TAPE_PROXY_URL", "ws://127.0.0.1:8767")
+    hub = AlpacaCryptoStreamHub()
+    assert hub._ws_url({"data_feed": "sip"}) == CRYPTO_MARKET_WS_URL
+    assert CRYPTO_MARKET_WS_URL == "wss://stream.data.alpaca.markets/v1beta3/crypto/us"
+
+
+def test_equity_hub_ws_url_still_honours_the_external_collector(monkeypatch) -> None:
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "1")
+    monkeypatch.setenv("EQUITY_TAPE_PROXY_URL", "ws://127.0.0.1:9999")
+    assert AlpacaMarketStreamHub()._ws_url({"data_feed": "sip"}) == "ws://127.0.0.1:9999"
+
+    monkeypatch.setenv("EQUITY_TAPE_EXTERNAL_COLLECTOR", "0")
+    assert (
+        AlpacaMarketStreamHub()._ws_url({"data_feed": "sip"})
+        == "wss://stream.data.alpaca.markets/v2/sip"
+    )
+
+
+def test_crypto_hub_skips_the_equity_tape_detector() -> None:
+    """Crypto prints carry no condition codes or exchange, and the detector's
+    thresholds are equity-shaped — `_external_tape` gates exactly that tap."""
+    from brokers.market_stream import AlpacaCryptoStreamHub
+
+    assert AlpacaCryptoStreamHub()._external_tape is True
+
+
+@pytest.mark.asyncio
+async def test_crypto_baseline_uses_crypto_bars_and_utc_prev_close(monkeypatch) -> None:
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    from datetime import timezone as _tz
+
+    import brokers.market_stream as ms
+    from brokers.alpaca import AlpacaAdapter
+    from brokers.market_stream import AlpacaCryptoStreamHub
+
+    today = _dt.now(_tz.utc).date()
+    bars = [
+        _utc_daily_bar(today - timedelta(days=1), 60_000.0),
+        _utc_daily_bar(today, 61_200.0),
+    ]
+    broker = AsyncMock(spec=AlpacaAdapter)
+    broker.aget_crypto_bars_batch = AsyncMock(return_value={"BTC/USD": bars})
+    broker.aget_stock_bars_batch = AsyncMock(return_value={})
+    monkeypatch.setattr(ms, "get_broker", lambda name: broker)
+    monkeypatch.setattr(ms, "broker_is_configured", lambda name: True)
+
+    hub = AlpacaCryptoStreamHub()
+    assert await hub._ensure_baselines({"BTC/USD"}) is True
+    broker.aget_stock_bars_batch.assert_not_awaited()
+    assert broker.aget_crypto_bars_batch.await_args.kwargs == {
+        "timeframe": "1Day",
+        "days": 12,
+    }
+    state = hub._quotes["BTC/USD"]
+    assert state.price == 61_200.0
+    assert state.prev_close == 60_000.0
+    assert state.change_pct == pytest.approx(2.0)
+
+
+@pytest.mark.asyncio
+async def test_crypto_baseline_roll_uses_the_utc_date(monkeypatch) -> None:
+    from datetime import datetime as _dt
+    from datetime import timedelta
+    from datetime import timezone as _tz
+
+    from brokers.market_stream import AlpacaCryptoStreamHub
+
+    hub = AlpacaCryptoStreamHub()
+    assert hub._baseline_date == _dt.now(_tz.utc).date()
+
+    seeded: list[bool] = []
+
+    async def _seed(symbols, force=False):
+        seeded.append(force)
+        return True
+
+    hub._ensure_baselines = _seed  # type: ignore[method-assign]
+    hub._subscribed = {"BTC/USD"}
+
+    await hub._roll_baselines_if_new_day()
+    assert seeded == []  # same UTC day — no roll
+
+    hub._baseline_date = _dt.now(_tz.utc).date() - timedelta(days=1)
+    await hub._roll_baselines_if_new_day()
+    assert seeded == [True]
+    assert hub._baseline_date == _dt.now(_tz.utc).date()
