@@ -15,13 +15,6 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-21 Crypto tickers live (`crypto-tickers`) — in-browser check owed
-
-- **⏳ Founder: type `BTC` in symbol search → pick `BTC/USD` → add to a watchlist → open the chart on 1Min/1Day/1Week.** Expect a live row (% vs yesterday's UTC close) and a chart with left-edge backfill; the header will show empty profile/fundamentals (no Finnhub for pairs). Report anything that renders wrong → fix round on the same card, then move it to `done`.
-- **Follow-ups parked on the card, not here:** sub-penny price formatting (PEPE/BONK/SHIB/DOGE), skip equity enrichment for pairs in `/api/watchlist/market`, lazy-open the crypto socket.
-
----
-
 ## ▶ 08-21 Pre-close IV reading armed (#339) — first real firing owed
 
 - **⏳ 08-21 after 15:50 ET: `sqlite3 data/options_chain_history.db "select count(*), min(captured_at) from iv_preclose where session='2026-08-21'"`** → expect ~66 rows stamped 19:4x UTC. Zero rows = the cron gate or the `cd` is wrong (`grep preclose data/research/options_sampler.log`). Then delete this entry.
