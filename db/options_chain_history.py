@@ -9,7 +9,16 @@ has to come from here.
 
 Three tables plus a completeness sidecar:
   * ``chain_snapshots`` — per contract per session, inside the stored band.
-  * ``iv_daily``        — per underlying per session; the IV-rank input.
+  * ``iv_daily``        — per underlying per session; the IV-rank input. Sampled
+    AFTER the close, off quotes frozen at 16:00 — i.e. the conventional 4:00 PM
+    surface.
+  * ``iv_preclose``     — the same row shape sampled ~15 min BEFORE the close. A
+    separate table, not a second key on ``iv_daily``, because every reader of
+    ``iv_daily`` treats one row per session as "the close". Exists to measure
+    the "Last Fifteen Minutes" result (SSRN 7279624: with 0DTE the close is the
+    expiration boundary, and the 3:45 PM ATM short-dated IV predicts next-day
+    realized variance far better than the 4:00 PM one) on OUR data before any
+    vol model leans on either timestamp.
   * ``sampler_universe``— APPEND-ONLY. Once a symbol is sampled it keeps being
     sampled, because an IV rank is a percentile against that symbol's own
     trailing year: a symbol that drops off a watchlist and returns later would
@@ -30,6 +39,35 @@ from db.base import connect as _connect
 CHAIN_DB_PATH = Path(
     os.environ.get("OPTIONS_CHAIN_DB_PATH", str(ROOT / "data" / "options_chain_history.db"))
 )
+
+
+# One row shape for both IV tables, so a 15:45 row and a close row differ ONLY
+# in when the chain was read — the comparison is meaningless otherwise.
+_IV_ROW_COLUMNS = """
+                session TEXT NOT NULL,
+                underlying TEXT NOT NULL,
+                spot REAL,
+                atm_iv_30d REAL,
+                atm_iv_front REAL,
+                front_dte INTEGER,
+                hv_ewma REAL,
+                vrp REAL,
+                call_volume INTEGER NOT NULL DEFAULT 0,
+                put_volume INTEGER NOT NULL DEFAULT 0,
+                call_oi INTEGER NOT NULL DEFAULT 0,
+                put_oi INTEGER NOT NULL DEFAULT 0,
+                contracts_observed INTEGER NOT NULL DEFAULT 0,
+                contracts_stored INTEGER NOT NULL DEFAULT 0,
+                bars_current INTEGER NOT NULL DEFAULT 0,
+                captured_at TEXT NOT NULL,
+                -- 'deep' = the whole board was read, so the volume/OI columns are
+                -- true board totals. 'wide' = an IV reading only: the fetch was a
+                -- slice, so volume/OI were NOT COLLECTED and the zeros in those
+                -- columns are placeholders, never measurements. Check this column
+                -- before aggregating anything but the IV/HV/VRP fields.
+                tier TEXT NOT NULL DEFAULT 'deep',
+                PRIMARY KEY (session, underlying)
+"""
 
 
 def init_chain_tables(db_path: Path = CHAIN_DB_PATH) -> None:
@@ -74,35 +112,8 @@ def init_chain_tables(db_path: Path = CHAIN_DB_PATH) -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_chain_occ_session ON chain_snapshots (occ, session)"
         )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS iv_daily (
-                session TEXT NOT NULL,
-                underlying TEXT NOT NULL,
-                spot REAL,
-                atm_iv_30d REAL,
-                atm_iv_front REAL,
-                front_dte INTEGER,
-                hv_ewma REAL,
-                vrp REAL,
-                call_volume INTEGER NOT NULL DEFAULT 0,
-                put_volume INTEGER NOT NULL DEFAULT 0,
-                call_oi INTEGER NOT NULL DEFAULT 0,
-                put_oi INTEGER NOT NULL DEFAULT 0,
-                contracts_observed INTEGER NOT NULL DEFAULT 0,
-                contracts_stored INTEGER NOT NULL DEFAULT 0,
-                bars_current INTEGER NOT NULL DEFAULT 0,
-                captured_at TEXT NOT NULL,
-                -- 'deep' = the whole board was read, so the volume/OI columns are
-                -- true board totals. 'wide' = an IV reading only: the fetch was a
-                -- slice, so volume/OI were NOT COLLECTED and the zeros in those
-                -- columns are placeholders, never measurements. Check this column
-                -- before aggregating anything but the IV/HV/VRP fields.
-                tier TEXT NOT NULL DEFAULT 'deep',
-                PRIMARY KEY (session, underlying)
-            )
-            """
-        )
+        conn.execute(f"CREATE TABLE IF NOT EXISTS iv_daily ({_IV_ROW_COLUMNS})")
+        conn.execute(f"CREATE TABLE IF NOT EXISTS iv_preclose ({_IV_ROW_COLUMNS})")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sampler_universe (
@@ -275,7 +286,16 @@ def backfill_iv_daily_oi(
 
 
 def write_iv_daily(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
-    """Insert one session's per-underlying IV rows."""
+    """Insert one session's per-underlying IV rows (the post-close reading)."""
+    return _write_iv_rows("iv_daily", rows, db_path)
+
+
+def write_iv_preclose(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
+    """Insert one session's per-underlying IV rows read ~15 min BEFORE the close."""
+    return _write_iv_rows("iv_preclose", rows, db_path)
+
+
+def _write_iv_rows(table: str, rows: list[dict], db_path: Path) -> int:
     if not rows:
         return 0
     stamp = now_iso()
@@ -292,8 +312,8 @@ def write_iv_daily(rows: list[dict], *, db_path: Path = CHAIN_DB_PATH) -> int:
     ]
     with _connect(db_path) as conn:
         conn.executemany(
-            """
-            INSERT OR REPLACE INTO iv_daily (
+            f"""
+            INSERT OR REPLACE INTO {table} (
                 session, underlying, spot, atm_iv_30d, atm_iv_front, front_dte,
                 hv_ewma, vrp, call_volume, put_volume, call_oi, put_oi,
                 contracts_observed, contracts_stored, bars_current, captured_at, tier

@@ -13,6 +13,17 @@ order path. Safe to re-run: a session's rows are replaced, not duplicated.
     python tools/options_chain_sampler.py                # today's session
     python tools/options_chain_sampler.py --session 2026-07-24
     python tools/options_chain_sampler.py --dry-run --symbols SPY,AAPL
+    python tools/options_chain_sampler.py --preclose      # the 15:45 ET reading
+
+``--preclose`` is the pre-close twin: the deep-tier names only, IV reading only
+(no contract rows, no OI, no HV — the daily bar is still partial), written to
+``iv_preclose``. It self-gates to the last 10-20 minutes of the session so one
+cron line firing at :45 every hour covers both DST regimes and 13:00 half-days;
+outside the window it exits before touching the broker. Why it exists: with
+0DTE the close is the expiration boundary, and the 3:45 PM ATM short-dated IV
+predicts next-day realized variance far better than the 4:00 PM one (SSRN
+7279624). This captures both stamps under ONE construction so that claim can be
+measured here before any vol model leans on either.
 """
 
 from __future__ import annotations
@@ -38,6 +49,7 @@ from db.options_chain_history import (  # noqa: E402
     universe_tiers,
     write_chain_rows,
     write_iv_daily,
+    write_iv_preclose,
 )
 from signals.options_chain_snapshot import (  # noqa: E402
     atm_iv,
@@ -52,7 +64,7 @@ from signals.options_chain_snapshot import (  # noqa: E402
 )
 from signals.universe import all_watchlist_symbols_fresh  # noqa: E402
 from signals.volatility import forecast_vol  # noqa: E402
-from trading.market_calendar import is_trading_day  # noqa: E402
+from trading.market_calendar import is_early_close, is_trading_day  # noqa: E402
 
 logger = logging.getLogger("options_chain_sampler")
 _ET = ZoneInfo("America/New_York")
@@ -72,6 +84,23 @@ BAR_BATCH = 25
 # a dense chain on one page comes back near-dated only and cannot bracket 30 DTE
 # (measured: SPY returned 7/10/11-DTE expiries). A few pages covers ordinary names.
 WIDE_MAX_PAGES = 5
+
+
+# The pre-close reading is taken 10-20 minutes before the session close: late
+# enough to carry nearly all of the day's information, early enough that the
+# same-day expiries still have time value. Session-relative, never a fixed 15:45
+# — a half-day closes at 13:00 and a fixed clock would read a closed market.
+PRECLOSE_LEAD_MIN = (10, 20)
+
+
+def preclose_window_open(now_et: datetime) -> bool:
+    """Whether ``now_et`` sits inside the pre-close sampling window."""
+    d = now_et.date()
+    if not is_trading_day(d):
+        return False
+    close = now_et.replace(hour=13 if is_early_close(d) else 16, minute=0, second=0, microsecond=0)
+    lead = (close - now_et).total_seconds() / 60
+    return PRECLOSE_LEAD_MIN[0] <= lead <= PRECLOSE_LEAD_MIN[1]
 
 
 def resolve_universe() -> list[str]:
@@ -117,7 +146,7 @@ def fetch_daily_bars(adapter: AlpacaAdapter, symbols: list[str]) -> dict:
 
 def sample_symbol(
     adapter: AlpacaAdapter, sym: str, session: str, session_date: date, bars: list,
-    tier: str = "deep",
+    tier: str = "deep", wide_pages: int = WIDE_MAX_PAGES,
 ) -> tuple[list[dict], dict, list[tuple[str, str, int]], tuple[int, int], str | None]:
     """Sample one underlying.
 
@@ -139,7 +168,7 @@ def sample_symbol(
     wide = tier == "wide"
     if wide:
         snaps = adapter.get_option_chain_snapshot(
-            sym, limit=1000, max_pages=WIDE_MAX_PAGES,
+            sym, limit=1000, max_pages=wide_pages,
             **wide_fetch_window(session_date, spot),
         )
     else:
@@ -254,6 +283,12 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="fetch and report, write nothing")
     ap.add_argument("--force", action="store_true", help="run even on a non-trading day")
     ap.add_argument(
+        "--preclose",
+        action="store_true",
+        help="pre-close IV reading of the deep tier into iv_preclose (self-gated to "
+        "10-20 min before the close; --force overrides the window)",
+    )
+    ap.add_argument(
         "--allow-backdate",
         action="store_true",
         help="permit a past --session (testing only; the capture is NOT that session)",
@@ -270,6 +305,8 @@ def main() -> int:
     if not is_trading_day(session_date) and not args.force:
         logger.info("%s is not a trading day — nothing to sample", session)
         return 0
+    if args.preclose and not args.force and not preclose_window_open(datetime.now(_ET)):
+        return 0  # the hourly cron firing that isn't the one before the close
     # Snapshots are a LIVE read with no history endpoint, so a past --session does
     # not sample that session — it labels today's quotes with an old date, and the
     # daily bars attached can even postdate the label. Writing that into the corpus
@@ -289,30 +326,41 @@ def main() -> int:
             session,
         )
 
+    if not args.dry_run:
+        init_chain_tables()
     if args.symbols:
         symbols = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
     elif args.dry_run:
         # A dry run must not create or write the corpus DB, so it previews today's
         # sources rather than reading (and extending) the append-only universe.
         symbols = sorted(set(CORE_ROOTS) | set(all_watchlist_symbols_fresh()))
+    elif args.preclose:
+        # The close run owns the universe; this reads the names we might trade.
+        symbols = sorted(set(CORE_ROOTS) | set(universe_symbols(tier="deep")))
     else:
-        init_chain_tables()
         symbols = resolve_universe()
     if not symbols:
         logger.warning("Universe is empty — nothing to sample")
         return 0
 
     adapter = AlpacaAdapter.from_settings()
-    tiers = {} if args.dry_run else universe_tiers()
-    if not args.dry_run:
-        start_run(session)
-
-    n_wide = sum(1 for s in symbols if tiers.get(s, "deep") == "wide")
-    logger.info(
-        "Sampling %d symbols for session %s (%d deep, %d wide)",
-        len(symbols), session, len(symbols) - n_wide, n_wide,
-    )
-    raw_bars = fetch_daily_bars(adapter, symbols)
+    if args.preclose:
+        # Slice fetch for everyone: the IV reading is the whole point, and a board
+        # read per name inside the last minutes of RTH would contend with the live
+        # backend for the same vendor pipe. No bars: today's is still in progress.
+        tiers = dict.fromkeys(symbols, "wide")
+        raw_bars = {}
+        logger.info("Pre-close IV reading of %d symbols for session %s", len(symbols), session)
+    else:
+        tiers = {} if args.dry_run else universe_tiers()
+        if not args.dry_run:
+            start_run(session)
+        n_wide = sum(1 for s in symbols if tiers.get(s, "deep") == "wide")
+        logger.info(
+            "Sampling %d symbols for session %s (%d deep, %d wide)",
+            len(symbols), session, len(symbols) - n_wide, n_wide,
+        )
+        raw_bars = fetch_daily_bars(adapter, symbols)
 
     from signals.strategy_scan import _stock_bars_to_dated
 
@@ -328,7 +376,10 @@ def main() -> int:
             bars = []
         try:
             rows, iv_row, oi_obs, board_oi, err = sample_symbol(
-                adapter, sym, session, session_date, bars, tiers.get(sym, "deep")
+                adapter, sym, session, session_date, bars, tiers.get(sym, "deep"),
+                # 66 names, not 1,800: the slice can afford every page, and SPY's
+                # window alone is >5,000 contracts (the 5-page cap was measured hit).
+                wide_pages=CHAIN_MAX_PAGES if args.preclose else WIDE_MAX_PAGES,
             )
         except Exception:
             logger.exception("Sampling failed for %s", sym)
@@ -355,11 +406,15 @@ def main() -> int:
             stamp = oi_obs[0][1]
             oi_totals_by_date.setdefault(stamp, {})[sym] = board_oi
 
-        if not args.dry_run:
+        if args.dry_run:
+            continue
+        if args.preclose:
+            write_iv_preclose([iv_row])
+        else:
             write_chain_rows(rows)
             write_iv_daily([iv_row])
 
-    if not args.dry_run:
+    if not args.dry_run and not args.preclose:
         for oi_date, obs in oi_by_date.items():
             if oi_date == session:
                 continue  # same-session OI needs no backfill
@@ -371,9 +426,9 @@ def main() -> int:
         )
 
     logger.info(
-        "Session %s: %d/%d symbols, %d contract rows, %d OI backfilled%s",
-        session, ok, len(symbols), total_contracts, total_oi,
-        " (dry run — nothing written)" if args.dry_run else "",
+        "Session %s%s: %d/%d symbols, %d contract rows, %d OI backfilled%s",
+        session, " pre-close" if args.preclose else "", ok, len(symbols), total_contracts,
+        total_oi, " (dry run — nothing written)" if args.dry_run else "",
     )
     if failures:
         logger.warning("Failed: %s", ", ".join(sorted(failures)))

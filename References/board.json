@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-08-20",
+ "updated_at": "2026-08-21",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 339,
+   "id": "iv-preclose-vs-close",
+   "title": "IV at 15:45 vs the close — pre-close corpus twin, then the sizing bake-off (SSRN 7279624)",
+   "lane": "in_progress",
+   "type": "research",
+   "priority": "P2",
+   "owner": "agent",
+   "updated_at": "2026-08-21",
+   "notes": "Paper (Aug 2026, iVolatility SPX 2017-22): with 0DTE the close IS the expiration boundary; the Day-Lewis ATM shortest-expiry IV is valid 99.8% of days at 15:45 vs 36.5% at 16:00, and the raw 15:45 signal predicts next-day RV with R2 0.46 vs 0.0045; lagged 15:45 IV is a large significant gain in GARCH/EGARCH. OUR corpus (tools/options_chain_sampler.py, cron 20:50 UTC) is a pure 16:00 surface. SHIPPED 08-21: --preclose mode → iv_preclose table (same row shape as iv_daily, deep tier = 66 names, slice fetch, no OI/HV), cron 45 16-20 UTC self-gated to 10-20 min before the close (half-day aware). NEXT (needs ~60 sessions, so ~mid-Nov): (a) measure drift iv_preclose vs iv_daily per name; (b) extend research/vol_bakeoff.py with EWMA+IV(15:45) and GARCH-X vs the EWMA incumbent on QLIKE, index names first — the 07-24 bake-off had NO option input at all; pre-register the tie rule first. Paper's own caveat: scalar-IV add-on did NOT robustly beat plain EGARCH OOS (their Table 5), so this is a test not a foregone conclusion. Gap: no reader of iv_daily/iv_preclose exists outside the DB module + tools (agents can't see the IV corpus) — wire a perception reader when (b) shows lift, not before."
+  },
   {
    "num": 338,
    "id": "off-site-ledger-backup-serv-pushes-an-encrypted-",

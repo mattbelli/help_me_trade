@@ -15,6 +15,13 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 08-21 Pre-close IV reading armed (#339) — first real firing owed
+
+- **⏳ 08-21 after 15:50 ET: `sqlite3 data/options_chain_history.db "select count(*), min(captured_at) from iv_preclose where session='2026-08-21'"`** → expect ~66 rows stamped 19:4x UTC. Zero rows = the cron gate or the `cd` is wrong (`grep preclose data/research/options_sampler.log`). Then delete this entry.
+- **▶ ~2026-11-15 (≈60 sessions): run the drift + bake-off on the card** — not before; the corpus is the gate, not the code.
+
+---
+
 ## ▶ 08-19 Phone approval bound to the device (#107) — server SHIPPED, phone REBUILD owed
 
 - **⏳ Rebuild the iOS app on the Mac** (`expo-crypto` is a new NATIVE dep → `expo run:ios`, not a Metro
