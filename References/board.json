@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 341,
+   "id": "crypto-tickers",
+   "title": "Crypto tickers: BTC/USD etc. search, chart, stream like an equity",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-21",
+   "notes": "2026-08-21: BUILT + reviewed (Opus coder, worktree pipeline/crypto-tickers): Alpaca v1beta3 crypto REST bars on the adapter, HybridMarketData routes crypto, AlpacaCryptoStreamHub third child in the hybrid hub (UTC prev-close, detector skipped), /api/ticker/{symbol:path}, search unions crypto assets w/ 3 reserved slots, symbol_exists DENIES crypto (RiskEngine gate). 107 tests, ruff+typecheck clean, live smoke OK. See BUILD_LOG 2026-08-21. PENDING in-browser check → then done. Follow-ups: sub-penny formatters (PEPE/BONK/SHIB/DOGE show 0.00), skip equity enrichment for pairs in /api/watchlist/market, lazy-open the crypto socket (idle 3rd ws today)."
+  },
+  {
    "num": 340,
    "id": "crypto-direction",
    "title": "Founder call: carry crypto? (data free + verified; trading = 25 bps, no brackets, 28 states)",
@@ -18,7 +29,7 @@
    "priority": "medium",
    "owner": "agent",
    "updated_at": "2026-08-21",
-   "notes": "2026-08-21 research: References/CRYPTO_DATA_RESEARCH_2026-08-21.md. Measured: Alpaca crypto REST unauth (1-min→2021, L2), WS w/ key, 73 pairs, paper ACTIVE; history.deribit.com = full BTC/ETH options tick archive w/ IV since 2016 (free); Schwab serves CME /BTC daily→2017-12 via our adapter; Binance 451 + Bybit 403 from US (mirrors measured). Proposed rungs: 0 regime angle → 1 perception+paper universe → 2 Deribit/CME research corpus → live last. Time-sensitive: add /MBT /MET to futures_bars_archive SYMBOLS (48-day wall)."
+   "notes": "2026-08-21 research: References/CRYPTO_DATA_RESEARCH_2026-08-21.md. Measured: Alpaca crypto REST unauth (1-min→2021, L2), WS w/ key, 73 pairs, paper ACTIVE; history.deribit.com = full BTC/ETH options tick archive w/ IV since 2016 (free); Schwab serves CME /BTC daily→2017-12 via our adapter; Binance 451 + Bybit 403 from US (mirrors measured). Proposed rungs: 0 regime angle → 1 perception+paper universe → 2 Deribit/CME research corpus → live last. Time-sensitive: add /MBT /MET to futures_bars_archive SYMBOLS (48-day wall).\n2026-08-21: 2026-08-21: Rung-1-lite shipped as card crypto-tickers (prices + charts + live rows, no trading surface). The carry-crypto decision itself is still yours."
   },
   {
    "num": 339,
