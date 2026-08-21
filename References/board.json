@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 340,
+   "id": "crypto-direction",
+   "title": "Founder call: carry crypto? (data free + verified; trading = 25 bps, no brackets, 28 states)",
+   "lane": "founder",
+   "type": "decision",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-08-21",
+   "notes": "2026-08-21 research: References/CRYPTO_DATA_RESEARCH_2026-08-21.md. Measured: Alpaca crypto REST unauth (1-min→2021, L2), WS w/ key, 73 pairs, paper ACTIVE; history.deribit.com = full BTC/ETH options tick archive w/ IV since 2016 (free); Schwab serves CME /BTC daily→2017-12 via our adapter; Binance 451 + Bybit 403 from US (mirrors measured). Proposed rungs: 0 regime angle → 1 perception+paper universe → 2 Deribit/CME research corpus → live last. Time-sensitive: add /MBT /MET to futures_bars_archive SYMBOLS (48-day wall)."
+  },
+  {
    "num": 339,
    "id": "iv-preclose-vs-close",
    "title": "IV at 15:45 vs the close — pre-close corpus twin, then the sizing bake-off (SSRN 7279624)",

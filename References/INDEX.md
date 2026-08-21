@@ -19,6 +19,7 @@ file in the same commit. When a doc is superseded, move its line to Historical A
 | `STARTUP.md` | serv access, tailnet addresses, service basics |
 | `SERVER_SETUP.md` | The always-on Linux box: units, env, collectors |
 | `AGENT_LOOP_RESEARCH.md` | The PERCEIVE→…→LEARN loop architecture + tech research |
+| `CRYPTO_DATA_RESEARCH_2026-08-21.md` | ★ CURRENT — crypto data/venue landscape, every US-access claim MEASURED from serv 08-21: Alpaca crypto REST unauth (1-min→2021, L2, 73 pairs, paper ACTIVE) + WS w/ key; `history.deribit.com` = full BTC/ETH options tick archive w/ IV since 2016, free; Schwab already serves CME /BTC /ETH /MBT /MET; Binance 451 + Bybit 403 from US (legal mirrors measured); CoinCap/CryptoPanic/CoinDesk free tiers DEAD 2026. Trading side = 25 bps taker, no brackets, 28 states. Proposed rungs 0→3; founder card #340 |
 | `FLOW_OVERVIEW.md` | ★ START HERE for options flow — the two lanes (live Alpaca collector / Databento research corpus), the measured dead-beliefs table (quote cap = 1,000 @ 0.09 cores; no wildcard lane; flags=194; 33%→58% multileg premium), still-true Alpaca limits, flow doc map, corpus state. LIVING doc — if an older flow doc contradicts it, this wins |
 | `IDEA_BANK.md` | Founder's product vision + the why — committed direction, not a wishlist |
 | `PLATFORM_PARITY.md` | Web vs phone feature tracker (living) |
