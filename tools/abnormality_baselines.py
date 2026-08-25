@@ -30,6 +30,7 @@ def main() -> None:
     n_base = int((bl.base_state > 0).sum())
     print(
         f"baselines {bl.session}: {len(bl.symbols):,} symbols, "
+        f"{int(bl.pool.sum()):,} in the options-eligible pool, "
         f"{n_base} with base_state ≠ none"
     )
 

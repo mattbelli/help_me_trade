@@ -140,14 +140,15 @@ def test_tesla_nov_otm_ranks_high_same_dollars_0dte_atm_does_not(tmp_path: Path)
     # Nov OTM: quiet cell, peaks well below $765k
     put_fixture(
         underlying="TSLA", right="C", dte="90+", mny="otm10p",
-        n=120, peaks=[50_000, 80_000, 120_000, 200_000, 400_000], db_path=db,
+        n=120, peaks=[50_000, 80_000, 120_000, 200_000, 400_000],
+        spot=325.0, db_path=db,
     )
     # 0-7 ATM: firehose, $765k is ordinary
     put_fixture(
         underlying="TSLA", right="C", dte="0-7", mny="atm",
         n=120,
         peaks=[int(x) for x in np.linspace(200_000, 8_000_000, 80)],
-        db_path=db,
+        spot=325.0, db_path=db,
     )
     nov = stamp_event(
         _sweep(strike=400.0, dte=101, premium_usd=765_000), db_path=db,
@@ -168,7 +169,7 @@ def test_tesla_nov_otm_ranks_high_same_dollars_0dte_atm_does_not(tmp_path: Path)
     assert "90+" in nov["rarity_cell"]
     assert "otm10p" in nov["rarity_cell"]
     assert "larger than" in nov["rarity_sentence"]
-    assert "session peaks" in nov["rarity_sentence"]
+    assert "session-peak" in nov["rarity_sentence"]
     assert "win" not in nov["rarity_sentence"].lower()
 
 
@@ -239,14 +240,14 @@ def test_insert_event_round_trip(tmp_path: Path) -> None:
     db = tmp_path / "app.db"
     put_fixture(
         underlying="TSLA", right="C", dte="90+", mny="otm2_10",
-        n=120, peaks=[10_000, 20_000, 30_000], db_path=db,
+        n=120, peaks=[10_000, 20_000, 30_000], spot=325.0, db_path=db,
     )
     of_db.init_db(db)
     of_db.insert_event(_sweep(), db_path=db)
     got = of_db.recent_events(db_path=db)[0]
     assert got["rarity_p"] is not None
     assert got["rarity_n"] == 120
-    assert got["rarity_sentence"].startswith("larger than")
+    assert got["rarity_sentence"].startswith("largest print larger than")
     assert got["otm_pct"] is not None
 
 
@@ -254,11 +255,12 @@ def test_reinsert_without_lookup_keeps_stamp(tmp_path: Path) -> None:
     db = tmp_path / "app.db"
     put_fixture(
         underlying="TSLA", right="C", dte="90+", mny="otm2_10",
-        n=120, peaks=[10_000], db_path=db,
+        n=120, peaks=[10_000], spot=325.0, db_path=db,
     )
     of_db.init_db(db)
     of_db.insert_event(_sweep(), db_path=db)
     first = of_db.recent_events(db_path=db)[0]["rarity_p"]
+    assert first is not None
     # Drop the lookup so the second insert cannot restamp.
     with sqlite3.connect(db) as conn:
         conn.execute("DELETE FROM flow_rarity_names")
@@ -269,6 +271,59 @@ def test_reinsert_without_lookup_keeps_stamp(tmp_path: Path) -> None:
     got = of_db.recent_events(db_path=db)[0]
     assert got["rarity_p"] == first
     assert got["premium_usd"] == 800_000
+
+
+def test_rarity_ranks_the_largest_print_not_the_order_sum(tmp_path: Path) -> None:
+    """Phase 1: the corpus reference class is per-print session peaks, so the
+    rank basis is max_print_usd — a $765k order of many small clips must not
+    outrank the cell like one $765k print would."""
+    db = tmp_path / "app.db"
+    peaks = [int(x) for x in np.linspace(20_000, 100_000, 60)]
+    put_fixture(
+        underlying="TSLA", right="C", dte="90+", mny="otm2_10",
+        n=120, peaks=peaks, spot=325.0, db_path=db,
+    )
+    clipped = stamp_event(
+        _sweep(premium_usd=765_000, max_print_usd=30_000), db_path=db,
+    )
+    single = stamp_event(
+        _sweep(id="s", premium_usd=765_000, max_print_usd=765_000), db_path=db,
+    )
+    assert single["rarity_p"] < 0.05
+    assert clipped["rarity_p"] > 0.3  # ~30k sits inside the pack, nowhere near rare
+    # legacy row with no max_print falls back to the order sum
+    legacy = stamp_event(_sweep(id="l", premium_usd=765_000), db_path=db)
+    assert legacy["rarity_p"] == single["rarity_p"]
+
+
+def test_moneyness_buckets_on_lookup_prior_close_not_live_spot(tmp_path: Path) -> None:
+    """A live spot that drifted across a bucket edge must not move the cell —
+    the corpus bucketed on its own prior close, so the stamp does too."""
+    db = tmp_path / "app.db"
+    put_fixture(
+        underlying="TSLA", right="C", dte="90+", mny="otm10p",
+        n=120, peaks=[10_000], spot=325.0, db_path=db,
+    )
+    # strike 360: 10.8% OTM on the prior close (325), but only 2.9% on the
+    # rallied live spot (350) — live bucketing would land otm2_10.
+    ev = stamp_event(
+        _sweep(strike=360.0, detail={"underlying_price": 350.0}), db_path=db,
+    )
+    assert ev["rarity_cell"] == "C/90+/otm10p"
+    # otm_pct display stays live-spot (a fact about now)
+    assert ev["otm_pct"] == pytest.approx((360.0 / 350.0 - 1.0) * 100.0, abs=0.01)
+
+
+def test_no_lookup_spot_means_unranked_never_fake_rare(tmp_path: Path) -> None:
+    """Equity name, no prior close in the lookup → the print would rank vs an
+    empty no_spot cell at floor-p. It must stay unranked instead."""
+    db = tmp_path / "app.db"
+    put_fixture(
+        underlying="TSLA", right="C", dte="90+", mny="otm2_10",
+        n=120, peaks=[10_000], db_path=db,  # no spot row
+    )
+    ev = stamp_event(_sweep(), db_path=db)
+    assert "rarity_p" not in ev
 
 
 def test_attach_sentence_is_perception_not_a_signal() -> None:

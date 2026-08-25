@@ -1,8 +1,10 @@
 """Grade fired events from the 5-min store — the correct estimand for a direction-less signal.
 
-One row per event: forward max|move| over 2h and to close, divided by the
-baseline forward norm (excess ratio), plus realized direction. Nightly, never
-live-polled. Any displayed rate is Wilson-bounded.
+One row per FIRST fire (repeats are the pseudo-replicates 1.14f excluded):
+forward max |cumulative 5-min log return| on CLOSES over 2h and to close — the
+registered study estimand, comparable to the 1.3x/0.94x published numbers —
+divided by the baseline forward norm (excess ratio), plus realized direction.
+Nightly, never live-polled. Any displayed rate is Wilson-bounded.
 """
 
 from __future__ import annotations
@@ -34,17 +36,22 @@ def grade_event(
     if not np.isfinite(entry) or entry <= 0:
         return {"ok": False, "reason": "no_entry"}
     end_2h = min(bucket + FORWARD_2H_BARS, N_BUCKETS)
-    h2 = high[bucket:end_2h]
-    l2 = low[bucket:end_2h]
-    if h2.size == 0 or not np.isfinite(h2).any():
+    # Registered estimand: max |cumulative 5-min log return| on CLOSES from the
+    # boundary — never the high/low excursion (that measured a different, wider
+    # quantity than the norms it is divided by).
+    c2 = close[bucket:end_2h]
+    if c2.size == 0 or not np.isfinite(c2).any():
         return {"ok": False, "reason": "no_horizon"}
-    with np.errstate(invalid="ignore"):
-        move_2h = float(np.nanmax(np.fmax(h2 / entry - 1.0, 1.0 - l2 / entry)))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        move_2h = float(np.nanmax(np.abs(np.log(c2 / entry))))
     close_2h = float(close[end_2h - 1]) if np.isfinite(close[end_2h - 1]) else float("nan")
-    h_to_c = high[bucket:]
-    l_to_c = low[bucket:]
-    with np.errstate(invalid="ignore"):
-        move_close = float(np.nanmax(np.fmax(h_to_c / entry - 1.0, 1.0 - l_to_c / entry)))
+    c_to_c = close[bucket:]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        move_close = (
+            float(np.nanmax(np.abs(np.log(c_to_c / entry))))
+            if np.isfinite(c_to_c).any()
+            else float("nan")
+        )
     last = _last(close)
     direction = 0
     if np.isfinite(close_2h):

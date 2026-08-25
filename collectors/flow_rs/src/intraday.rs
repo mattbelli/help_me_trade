@@ -191,6 +191,9 @@ pub struct Event {
     pub event_type: &'static str,
     pub contracts: Option<i64>,
     pub premium_usd: f64,
+    /// Largest single print in the parent order — the rarity rank's basis
+    /// (the corpus reference class is per-print session peaks).
+    pub max_print_usd: Option<f64>,
     pub direction: Dir,
     pub direction_basis: String,
     pub mid_side: Option<&'static str>,
@@ -240,6 +243,7 @@ pub fn detect_block(p: &Print, event_date: &str) -> Option<Event> {
         event_type: "block",
         contracts: Some(p.size),
         premium_usd: premium,
+        max_print_usd: Some(premium), // a block IS one print
         direction: p.direction,
         direction_basis: p.basis.to_string(),
         mid_side: Some(p.mid_side),

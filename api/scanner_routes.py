@@ -345,7 +345,7 @@ async def api_scanner_abnormality(
     base_high: bool = False,
     limit: int = 50,
 ):
-    """Live abnormality state ranked by composite. Surfaces-only — not alerts."""
+    """Live abnormality state ranked by within-cell percentile. Surfaces-only — not alerts."""
     from db.abnormality import events_today, list_state, recent_outcomes
     from signals.abnormality.constants import CAVEAT, LABEL
     from signals.abnormality.outcomes import aggregate
@@ -360,7 +360,8 @@ async def api_scanner_abnormality(
         "as_of": as_of,
         "count": len(rows),
         "results": rows,
-        "fires_today": len(events_today()),
+        # Name-days lit (first fires); repeats persist in the events table.
+        "fires_today": len(events_today(first_only=True)),
         "stats": aggregate(recent_outcomes(500)),
         "label": LABEL,
         "caveat": CAVEAT,

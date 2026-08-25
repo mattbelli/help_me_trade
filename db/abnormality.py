@@ -12,6 +12,7 @@ from typing import Any
 from db.base import DEFAULT_DB_PATH
 from db.base import connect as _connect
 from db.base import now_iso as _now
+from db.schema_helpers import _add_column_if_missing
 
 _INIT_DONE: set[str] = set()
 
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS abnormality_events (
     kind TEXT NOT NULL,
     session TEXT NOT NULL,
     bucket INTEGER NOT NULL,
+    repeat INTEGER NOT NULL DEFAULT 0,
     range_ratio REAL,
     vol_ratio REAL,
     rvol_session REAL,
@@ -90,6 +92,10 @@ def init_db(db_path: Path | None = None) -> None:
         return
     with _connect(resolved) as conn:
         conn.executescript(_DDL)
+        # Phase 1 (2026-08-25): first fire per name-day is the study object;
+        # later same-day fires persist flagged repeat=1.
+        _add_column_if_missing(conn, "abnormality_events", "repeat", "INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
     _INIT_DONE.add(key)
 
 
@@ -101,6 +107,7 @@ def insert_events(events: list[dict[str, Any]], db_path: Path | None = None) -> 
     rows = [
         (
             e["id"], e["ts"], e["symbol"], e["kind"], e["session"], int(e["bucket"]),
+            int(e.get("repeat") or 0),
             e.get("range_ratio"), e.get("vol_ratio"), e.get("rvol_session"),
             e.get("range_pctile"), e.get("vol_pctile"), e.get("composite"),
             e.get("base_state") or "none", e.get("quintile"),
@@ -112,10 +119,10 @@ def insert_events(events: list[dict[str, Any]], db_path: Path | None = None) -> 
         conn.executemany(
             """
             INSERT OR IGNORE INTO abnormality_events(
-                id, ts, symbol, kind, session, bucket,
+                id, ts, symbol, kind, session, bucket, repeat,
                 range_ratio, vol_ratio, rvol_session, range_pctile, vol_pctile,
                 composite, base_state, quintile, label, caveat, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -214,15 +221,30 @@ def list_state(
             rows = [r for r in rows if r["symbol"] in fired_syms]
         if paired:
             rows = [r for r in rows if r["symbol"] in paired_syms]
-    rows.sort(key=lambda r: (r.get("composite") is None, -(r.get("composite") or 0)))
+    # Rank by within-cell percentile (the study's magnitude), never the retired
+    # ratio-product composite (own-normalized product = microcaps on top).
+    rows.sort(
+        key=lambda r: (
+            r.get("range_pctile") is None,
+            -(r.get("range_pctile") or 0),
+            -(r.get("range_ratio") or 0),
+        )
+    )
     return rows[: min(max(int(limit), 0), 200)]
 
 
-def events_today(session: str | None = None, db_path: Path | None = None) -> list[dict[str, Any]]:
+def events_today(
+    session: str | None = None,
+    db_path: Path | None = None,
+    *,
+    first_only: bool = False,
+) -> list[dict[str, Any]]:
     """Fires for one ET session. Default is *today*, never MAX(session).
 
     MAX(session) would keep Friday's names on the Monday book pack until the
     first Monday fire landed — the pack line is labelled "today".
+    ``first_only`` drops same-day repeats (the study object is the FIRST fire
+    per name-day; repeats persist flagged for the record).
     """
     init_db(db_path)
     if session is None:
@@ -230,9 +252,10 @@ def events_today(session: str | None = None, db_path: Path | None = None) -> lis
         from zoneinfo import ZoneInfo
 
         session = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    extra = " AND repeat = 0" if first_only else ""
     with _connect(_db_path(db_path)) as conn:
         rows = conn.execute(
-            "SELECT * FROM abnormality_events WHERE session = ? ORDER BY ts",
+            f"SELECT * FROM abnormality_events WHERE session = ?{extra} ORDER BY ts",
             (session,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -245,7 +268,7 @@ def ungraded_events(session: str, db_path: Path | None = None) -> list[dict[str,
             """
             SELECT e.* FROM abnormality_events e
             LEFT JOIN abnormality_outcomes o ON o.event_id = e.id
-            WHERE e.session = ? AND o.event_id IS NULL
+            WHERE e.session = ? AND e.repeat = 0 AND o.event_id IS NULL
             """,
             (session,),
         ).fetchall()

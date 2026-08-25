@@ -255,6 +255,16 @@ const FLOW_EVENTS: OptionsFlowEvent[] = FLOW_SEEDS.map((f, i) => {
       f.dir === "undetermined"
         ? "no NBBO at print time — side unknown"
         : "aggressor inferred from the tick test, not confirmed",
+    // Rarity on sweep/block only (mirrors the stamp path); every third stays
+    // unranked so the gallery shows the "—" cell too.
+    ...(["sweep", "block"].includes(f.type) && i % 3 !== 2
+      ? {
+          rarity_p: round2(0.01 + (i % 5) * 0.04) / 1,
+          rarity_n: 118 + i * 3,
+          rarity_sentence: `largest print larger than ${99 - (i % 5) * 4}% of ${f.underlying} 8-30 2-10% OTM ${f.right === "C" ? "call" : "put"} session-peak prints, n=${118 + i * 3}`,
+          max_print_usd: Math.round(f.premium / (1 + (i % 9))),
+        }
+      : {}),
   };
 });
 

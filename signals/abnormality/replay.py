@@ -1,7 +1,10 @@
-"""Replay harness: fire-rate tables at candidate thresholds over the 5-min store.
+"""Replay harness: fire-rate tables over the 5-min store.
 
 Reproducible: same store + same baselines + same thresholds → same counts.
-Founder eyeballs the table + example-fire galleries before locking (Inc 2).
+Phase 1 (2026-08-25): the fire rule is the registered study rule (p90 single
+component, pool universe, half-hour grid) — the harness measures the rate, it
+no longer shops thresholds; the stricter draft rule lives on as a
+PRE-REGISTERED subset test on the fire ledger (design §4.6).
 """
 
 from __future__ import annotations
@@ -19,16 +22,12 @@ from signals.abnormality.baselines import (
     default_dir,
     load_baselines,
 )
-from signals.abnormality.constants import KIND_PAIRED, N_BUCKETS, WINDOW_BARS
+from signals.abnormality.constants import FIRE_BUCKETS, KIND_PAIRED
 from signals.abnormality.engine import FireThresholds, PriorFire, evaluate_boundary
 from signals.abnormality.store import list_sessions, load_5min, window_slice
 
 CANDIDATES: tuple[FireThresholds, ...] = (
-    FireThresholds(),  # draft: p99/p95, floors 2.0/3.0, top-N 10
-    FireThresholds(range_p=99, vol_p=90, range_floor=2.0, vol_floor=2.0, top_n=10),
-    FireThresholds(range_p=99, vol_p=95, range_floor=1.5, vol_floor=2.0, top_n=10),
-    FireThresholds(range_p=99.5, vol_p=95, range_floor=2.0, vol_floor=3.0, top_n=5),
-    FireThresholds(range_p=99, vol_p=95, range_floor=2.0, vol_floor=3.0, top_n=20),
+    FireThresholds(),  # the study rule: p90 single component, occupancy 25
 )
 
 
@@ -49,7 +48,8 @@ def replay_session(
     prior: dict[int, PriorFire] = {}
     fires: list[dict[str, Any]] = []
     paired = 0
-    for b in range(WINDOW_BARS, N_BUCKETS):
+    repeats = 0
+    for b in sorted(FIRE_BUCKETS):
         if window_slice(b) is None:
             continue
         result = evaluate_boundary(
@@ -61,6 +61,7 @@ def replay_session(
             median_window_vol=baselines.median_window_vol[rows, b],
             median_cum_vol=baselines.median_cum_vol[rows, b],
             quintile=baselines.quintile[rows],
+            pool=baselines.pool[rows],
             base_state=baselines.base_state[rows],
             prior=prior,
             thresholds=thresholds,
@@ -68,6 +69,9 @@ def replay_session(
         for j, i in enumerate(result.fire_idx):
             i = int(i)
             kind = result.fire_kind[j]
+            if result.fire_repeat[j]:
+                repeats += 1
+                continue  # first-fire-per-day is the counted object
             prior[i] = PriorFire(bucket=b, composite=float(result.composite[i]))
             if kind == KIND_PAIRED:
                 paired += 1
@@ -88,6 +92,7 @@ def replay_session(
         "session": g.session.isoformat(),
         "fires": len(fires),
         "paired": paired,
+        "repeats": repeats,
         "examples": fires[:25],
     }
 
@@ -131,7 +136,14 @@ def replay_store(
             continue
         replayed.append(s)
         row = replay_session(bars_5min_dir / f"{s.isoformat()}.npz", baselines, thresholds)
-        per.append({"session": row["session"], "fires": row["fires"], "paired": row["paired"]})
+        per.append(
+            {
+                "session": row["session"],
+                "fires": row["fires"],
+                "paired": row["paired"],
+                "repeats": row["repeats"],
+            }
+        )
         total += int(row["fires"])
         paired += int(row["paired"])
         examples = row["examples"]

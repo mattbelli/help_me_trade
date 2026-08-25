@@ -620,20 +620,30 @@ PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (wa
 timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
 `_build_bars_response` (mind half-days), next UI round.
 
-## ▶ Attention list (#328) — Phase 0 shipped 08-17; Phases 1–3 open
+## ▶ Attention list (#328) — Phases 0+1 shipped (08-17, 08-25); Phases 2–3 open
 
 Design + decisions: `References/ATTENTION_JOIN_DESIGN_2026-08-17.md` (§4.6 decided; strict-rule
-subset test PRE-REGISTERED there). Open: (1) **Phase 1** — abnormality fires restricted to the
-options-eligible pool (= flow rarity lookup names), cell occupancy floor 25, p90 single-component
-range rule on the half-hour grid 10:00–14:00 (state stays 5-min), outcome estimand → close-based max
-|cum log return|; flow rarity stamped on the parent order's **largest single print** vs a
-`multileg=0` lookup with prior-close moneyness, calibration on a random cell sample, kernel retired,
-`conviction` renamed; (2) **Phase 2** — `attention_daily` ledger + 60s job + `/api/attention` +
-watchlist "Unusual today" + perception resource; RVOL scanner subsumed; (3) **Phase 3** —
-`attention_outcomes` on every pool name-day + the bounded AI queue; then run the pre-registered
-strict-subset test once ≥30 sessions / ≥500 lit name-days exist. Fusion is OFF (`FUSION_ENABLED=0`);
-delete the fusion attach lanes for both detectors with the fusion code, later, calmly. Watch tonight:
-first `abnormality_outcomes` rows (grader now uses the artifact built strictly before the session).
+subset test PRE-REGISTERED there). Phase 1 (study alignment, BOTH detectors) shipped 08-25 —
+BUILD_LOG row has the full record. Open:
+- **⏳ Post-deploy sequence (same evening as the deploy, in this order):** (1)
+  `.venv/bin/python tools/flow_rarity_refresh.py` — rebuilds the lookup on the multileg=0 fence +
+  writes `flow_rarity_spot` (until then equity stamps are UNRANKED by the no-spot guard); (2)
+  `.venv/bin/python tools/abnormality_baselines.py` — the artifact must grow `pool` or the detector
+  fires NOTHING tomorrow (deny-by-default on legacy artifacts; the print line now shows pool size);
+  (3) restart `hmt-flow-collector` — the new `flow_rs` binary writes `max_print_usd`; until the
+  restart, live sweeps stamp on the order-sum fallback.
+- **⏳ First session after (verify):** fires land ONLY on buckets {12,18,24,30,36,42,48,54}, all
+  pool names, `repeat` populated; fire count will be far above the old 115/day (p90, no budget —
+  lit ≠ shown is the design); sweep rows carry `max_print_usd` and rarity cell-day rate at α=.05
+  lands near 5% in the next build's calibration block (was 22% on the sum basis).
+- **⏳ Outcome cohort boundary = 2026-08-25** — `abnormality_outcomes` rows before this date are the
+  old high/low-excursion estimand; the §4.6 subset test must filter sessions ≥ the first post-deploy
+  session.
+- (2) **Phase 2** — `attention_daily` ledger + 60s job + `/api/attention` + watchlist "Unusual
+  today" + perception resource; RVOL scanner subsumed; (3) **Phase 3** — `attention_outcomes` on
+  every pool name-day + the bounded AI queue; then run the pre-registered strict-subset test once
+  ≥30 sessions / ≥500 lit name-days exist. Fusion is OFF (`FUSION_ENABLED=0`); delete the fusion
+  attach lanes for both detectors with the fusion code, later, calmly.
 
 ## ▶ Chart data — bar authority (#325) + progressive load (#326) shipped 08-17 (BUILD_LOG 08-17)
 

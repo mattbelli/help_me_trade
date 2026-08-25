@@ -134,7 +134,13 @@ def _cluster_event(cluster: list[dict], event_date: str) -> dict | None:
     occ = str(first.get("occ_symbol") or "").strip().upper()
 
     contracts = sum(int(p["size"]) for p in cluster)
-    premium = sum(float(p["size"]) * float(p["price"]) * 100.0 for p in cluster)
+    per_print = [float(p["size"]) * float(p["price"]) * 100.0 for p in cluster]
+    premium = sum(per_print)
+    # Largest single print in the parent order — the corpus reference class
+    # (flow_rollup premium_max) is per-print session peaks, so rarity must rank
+    # THIS number, never the order sum (2026-08-17 audit: sum-vs-peak inflated
+    # "rare" cell-days to 22% at a nominal 5% bar).
+    max_print = max(per_print)
     floor = MIN_PREMIUM_INDEX_USD if sym in INDEX_MEGACAP_SET else MIN_PREMIUM_USD
     if premium < floor:
         return None
@@ -158,6 +164,7 @@ def _cluster_event(cluster: list[dict], event_date: str) -> dict | None:
         "event_type": "sweep",
         "contracts": contracts,
         "premium_usd": premium,
+        "max_print_usd": max_print,
         "vol_oi_ratio": None,
         "vol_zscore": None,
         "direction": direction,

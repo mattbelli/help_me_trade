@@ -94,14 +94,14 @@ impl Db {
                     vol_zscore, direction, direction_basis, spread_flag, n_prints,
                     exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
                     coverage, minutes_into_session, mid_side,
-                    rarity_p, rarity_n, rarity_cell, rarity_asof
+                    rarity_p, rarity_n, rarity_cell, rarity_asof, max_print_usd
                 ) VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                     NULL, ?10, ?11, ?12, NULL,
                     NULL, ?13, ?14, 0, ?15,
                     ?16, ?17, ?18, NULL, NULL, ?19, ?20,
                     'market_wide', ?21, ?22,
-                    NULL, NULL, NULL, NULL
+                    NULL, NULL, NULL, NULL, ?23
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     underlying = excluded.underlying,
@@ -130,7 +130,8 @@ impl Db {
                     rarity_p = COALESCE(excluded.rarity_p, options_flow_events.rarity_p),
                     rarity_n = COALESCE(excluded.rarity_n, options_flow_events.rarity_n),
                     rarity_cell = COALESCE(excluded.rarity_cell, options_flow_events.rarity_cell),
-                    rarity_asof = COALESCE(excluded.rarity_asof, options_flow_events.rarity_asof)",
+                    rarity_asof = COALESCE(excluded.rarity_asof, options_flow_events.rarity_asof),
+                    max_print_usd = COALESCE(excluded.max_print_usd, options_flow_events.max_print_usd)",
                 params![
                     ev.id,
                     ingest_seq,
@@ -154,6 +155,7 @@ impl Db {
                     ev.detail,
                     minutes_into_session(&ev.ts),
                     ev.mid_side,
+                    ev.max_print_usd,
                 ],
             )?;
         }

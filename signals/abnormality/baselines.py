@@ -8,6 +8,7 @@ than STALE_SESSIONS old rather than fire against stale norms.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -51,9 +52,16 @@ class Baselines:
     vol_trend: np.ndarray
     baseline_close: np.ndarray
     n_sessions: np.ndarray
+    # Options-eligible pool (flow rarity lookup names) — the 1.14f/g study
+    # population. Quintiles are assigned WITHIN it; fires exist only inside it.
+    # All-False on a pre-Phase-1 artifact (loader default): state only, no
+    # fires, until the artifact is rebuilt.
+    pool: np.ndarray = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         self.symbol_index = {str(s): i for i, s in enumerate(self.symbols)}
+        if self.pool is None:
+            self.pool = np.zeros(len(self.symbols), dtype=bool)
 
     def stale(self, today: date) -> bool:
         return trading_days_between(self.session, today) > STALE_SESSIONS
@@ -97,6 +105,16 @@ def load_baselines(out_dir: Path | None = None, *, session: date | None = None) 
     if not npz.exists() or not meta.exists():
         return None
     with np.load(npz) as z:
+        if "pool" in z:
+            pool = np.asarray(z["pool"], dtype=bool)
+        else:
+            # Pre-Phase-1 artifact: no pool recorded → nothing may fire
+            # (deny-by-default; rebuild the artifact to restore fires).
+            pool = np.zeros(len(np.asarray(z["symbols"])), dtype=bool)
+            logging.getLogger(__name__).warning(
+                "baselines %s has no pool — fires stand down until rebuilt",
+                session,
+            )
         return Baselines(
             session=session,
             symbols=np.asarray(z["symbols"]),
@@ -112,6 +130,7 @@ def load_baselines(out_dir: Path | None = None, *, session: date | None = None) 
             vol_trend=np.asarray(z["vol_trend"], np.float64),
             baseline_close=np.asarray(z["baseline_close"], np.float64),
             n_sessions=np.asarray(z["n_sessions"], np.int16),
+            pool=pool,
         )
 
 
@@ -121,6 +140,7 @@ def build_baselines(
     daily_dir: Path,
     out_dir: Path,
     as_of: date | None = None,
+    pool_names: set[str] | None = None,
 ) -> Baselines:
     """Rebuild the artifact from the bar stores. Idempotent (same inputs → same npz)."""
     sessions = list_sessions(bars_5min_dir)
@@ -177,7 +197,19 @@ def build_baselines(
     )
     if np.isfinite(d_close).any():
         last_close = np.where(np.isfinite(d_close), d_close, last_close)
-    quintile = assign_quintiles(median_dvol)
+    # Pool = the flow rarity lookup names (options-eligible, >=100 active
+    # sessions) — the 1.14f/g study population. Quintiles are assigned WITHIN
+    # it: cutting them over all 12k names crowds pool names into the top cells
+    # and hands microcaps their own (2026-08-17 audit, deviation 2).
+    if pool_names is None:
+        pool_names = _pool_names()
+    pool = np.array([str(s) in pool_names for s in symbols], dtype=bool)
+    if not pool.any():
+        logging.getLogger(__name__).warning(
+            "abnormality baselines: flow rarity pool is EMPTY — no name can "
+            "fire off this artifact (is flow_rarity_names built?)"
+        )
+    quintile = assign_quintiles(np.where(pool, median_dvol, np.nan))
 
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = dict(
@@ -194,6 +226,7 @@ def build_baselines(
         vol_trend=vol_trend.astype(np.float32),
         baseline_close=last_close.astype(np.float32),
         n_sessions=n_sess,
+        pool=pool,
     )
     part = out_dir / f"baselines-{as_of.isoformat()}.npz.part"
     final = out_dir / f"baselines-{as_of.isoformat()}.npz"
@@ -205,6 +238,7 @@ def build_baselines(
         "session": as_of.isoformat(),
         "generated_at": datetime.now(ET).isoformat(timespec="seconds"),
         "n_symbols": n,
+        "n_pool": int(pool.sum()),
         "lookback_sessions": [s.isoformat() for s in lookback],
         "warmup_min": WARMUP_MIN_SESSIONS,
         "n_base_state": n_base,
@@ -213,6 +247,24 @@ def build_baselines(
     (out_dir / f"baselines-{as_of.isoformat()}.json").write_text(json.dumps(meta, indent=1))
     current_pointer(out_dir).write_text(json.dumps({"session": as_of.isoformat()}, indent=1))
     return load_baselines(out_dir, session=as_of)  # type: ignore[return-value]
+
+
+def _pool_names() -> set[str]:
+    """Names in the flow rarity lookup (app DB) — the options-eligible pool.
+
+    Read at BUILD time only (nightly/offline), never on the boundary path.
+    Empty on failure — the artifact then fires nothing, loudly.
+    """
+    try:
+        from db.base import DEFAULT_DB_PATH
+        from db.base import connect as _connect
+
+        with _connect(DEFAULT_DB_PATH) as conn:
+            rows = conn.execute("SELECT underlying FROM flow_rarity_names").fetchall()
+        return {str(r["underlying"]).strip().upper() for r in rows}
+    except Exception:
+        logging.getLogger(__name__).exception("abnormality baselines: pool read failed")
+        return set()
 
 
 def _last_finite(a: np.ndarray) -> np.ndarray:
@@ -225,17 +277,22 @@ def _last_finite(a: np.ndarray) -> np.ndarray:
 
 
 def _fwd_max_move(close: np.ndarray, high: np.ndarray, low: np.ndarray, bucket: int) -> np.ndarray:
-    """Per-name max |move| over the next 2h. NaN when the horizon is incomplete."""
+    """Per-name max |cumulative 5-min log return| over the next 2h, on CLOSES —
+    the registered 1.14f estimand ("the measure runs over the bars that
+    exist"). NaN when the horizon extends past the session. ``high``/``low``
+    are unused (kept for the call sites' grid signature)."""
+    del high, low
     end = bucket + FORWARD_2H_BARS
     if end > close.shape[1]:
         return np.full(close.shape[0], np.nan)
     entry = close[:, bucket - 1]
-    h = high[:, bucket:end]
-    lo = low[:, bucket:end]
+    c = close[:, bucket:end]
     with np.errstate(invalid="ignore", divide="ignore"):
-        up = np.nanmax(h / entry[:, None] - 1.0, axis=1)
-        dn = np.nanmax(1.0 - lo / entry[:, None], axis=1)
-        move = np.fmax(up, dn)
+        cum = np.abs(np.log(c / entry[:, None]))
+    move = np.full(close.shape[0], np.nan)
+    has = np.isfinite(cum).any(axis=1)
+    if has.any():
+        move[has] = np.nanmax(np.where(np.isfinite(cum), cum, -np.inf), axis=1)[has]
     ok = np.isfinite(entry) & (entry > 0) & np.isfinite(move)
     return np.where(ok, move, np.nan)
 

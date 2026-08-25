@@ -97,12 +97,17 @@ async def api_options_flow(
     ``caveat`` and never a win%/EV/confidence. Populated by the nightly EOD scan
     (``OPTIONS_FLOW_ENABLED``); returns an empty list until that has run.
     ``event_type`` accepts a comma-separated list to filter the tape by kind.
-    ``order`` is recent (default), premium, unusual, or conviction.
+    ``order`` is recent (default), premium, unusual, or rarity (conviction is a
+    deprecated alias for rarity — the shape kernel is retired).
     """
     from db.options_flow import recent_events
 
     capped = max(1, min(int(limit), 250))
-    order_key = order if order in ("recent", "premium", "unusual", "conviction") else "recent"
+    order_key = (
+        order
+        if order in ("recent", "premium", "unusual", "rarity", "conviction")
+        else "recent"
+    )
     try:
         events = recent_events(
             symbol=symbol,
@@ -120,9 +125,10 @@ async def api_options_flow(
         "events": events,
         # Survives every transport (honesty red-team rule): the tape is perception.
         "caveat": (
-            "OPRA tape facts, not a signal. rarity_p = this print vs this name's own "
-            "daily maxima in its right/tenor/moneyness bucket (how quiet the bucket "
-            "usually is); conviction = rarity x shape rank, perception not a forecast; "
+            "OPRA tape facts, not a signal. rarity_p = this event's largest single "
+            "print vs this name's own session-peak prints in its right/tenor/"
+            "moneyness bucket (single-leg reference, prior-close moneyness; how "
+            "quiet the bucket usually is). DTE/OTM/side are facts, not a rank; "
             "no direction, no win%."
         ),
     }

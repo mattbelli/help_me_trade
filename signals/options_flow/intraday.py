@@ -335,6 +335,7 @@ def detect_block(
         "event_type": "block",
         "contracts": size,
         "premium_usd": premium,
+        "max_print_usd": premium,  # a block IS one print
         "vol_oi_ratio": None,
         "vol_zscore": None,
         "direction": direction,

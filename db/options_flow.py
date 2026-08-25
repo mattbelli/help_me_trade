@@ -159,6 +159,10 @@ def init_db(db_path: Path | None = None) -> None:
         _add_column_if_missing(conn, "options_flow_events", "rarity_n", "INTEGER")
         _add_column_if_missing(conn, "options_flow_events", "rarity_cell", "TEXT")
         _add_column_if_missing(conn, "options_flow_events", "rarity_asof", "TEXT")
+        # Largest single print in the parent order (2026-08-25, attention Phase 1):
+        # the rarity basis — the corpus reference class is per-print session
+        # peaks. NULL on rows written before this column existed.
+        _add_column_if_missing(conn, "options_flow_events", "max_print_usd", "REAL")
         conn.commit()
     from db.flow_rarity import init_tables as _init_rarity
     _init_rarity(resolved)
@@ -189,8 +193,6 @@ def _row_to_event(row: Any) -> dict[str, Any]:
     if out.get("rarity_p") is not None:
         from db.flow_rarity import attach_sentence
         attach_sentence(out)
-    from db.flow_conviction import attach as attach_conviction
-    attach_conviction(out)
     return out
 
 
@@ -258,13 +260,13 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 vol_zscore, direction, direction_basis, spread_flag, n_prints,
                 exchanges, reason, caveat, ret_1d, ret_5d, created_at, detail,
                 coverage, minutes_into_session, mid_side,
-                rarity_p, rarity_n, rarity_cell, rarity_asof
+                rarity_p, rarity_n, rarity_cell, rarity_asof, max_print_usd
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?
+                ?, ?, ?, ?, ?
             )
             ON CONFLICT(id) DO UPDATE SET
                 underlying = excluded.underlying,
@@ -293,7 +295,8 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 rarity_p = COALESCE(excluded.rarity_p, options_flow_events.rarity_p),
                 rarity_n = COALESCE(excluded.rarity_n, options_flow_events.rarity_n),
                 rarity_cell = COALESCE(excluded.rarity_cell, options_flow_events.rarity_cell),
-                rarity_asof = COALESCE(excluded.rarity_asof, options_flow_events.rarity_asof)
+                rarity_asof = COALESCE(excluded.rarity_asof, options_flow_events.rarity_asof),
+                max_print_usd = COALESCE(excluded.max_print_usd, options_flow_events.max_print_usd)
             """,
             (
                 event["id"],
@@ -329,6 +332,7 @@ def insert_event(event: dict, db_path: Path | None = None) -> None:
                 event.get("rarity_n"),
                 event.get("rarity_cell"),
                 event.get("rarity_asof"),
+                event.get("max_print_usd"),
             ),
         )
         conn.commit()
@@ -505,14 +509,17 @@ def recent_events(
     ``order`` is ``recent`` (newest-first, the default), ``premium``
     (largest-first), ``unusual`` — the heuristic surfacing rank
     (``_UNUSUAL_WEIGHTS``) that answers "did anything unusual happen?" without
-    letting routine index/ETF size win by sheer dollars — or ``conviction``
-    (rarity × tenor × OTM × type; perception, not a forecast). ``universe``
-    filters by the registered root class (``equity`` | ``etf`` | ``index``).
+    letting routine index/ETF size win by sheer dollars — or ``rarity``
+    (rarest largest-print first: ``rarity_p`` ascending, unranked rows last,
+    premium breaks ties; the retired ``conviction`` shape kernel is accepted as
+    an alias). DTE/OTM/side are facts on the row, never multipliers — the
+    2026-08-17 audit showed the kernel inverted the replicated short-dated
+    finding and out-ranked rarity 23×. ``universe`` filters by the registered
+    root class (``equity`` | ``etf`` | ``index``).
 
-    ``order=unusual``, ``order=conviction``, and ``universe`` score/filter in
+    ``order=unusual``, ``order=rarity``, and ``universe`` score/filter in
     Python over the full matching range (scan capped at ``_UNUSUAL_SCAN_CAP``
     newest rows). Unusual rows carry ``underlying_class`` + ``unusual_score``.
-    Every returned row already carries ``conviction`` (attached at read).
 
     ``event_type`` accepts a single type or a comma-separated list (``IN``) so a
     caller can pull just the directional tape (``sweep,block,directional_pressure``)
@@ -520,6 +527,8 @@ def recent_events(
     """
     resolved = _db_path(db_path)
     init_db(resolved)
+    if order == "conviction":  # retired kernel; deprecated alias
+        order = "rarity"
     cap = max(1, min(int(limit), _RECENT_EVENTS_CAP))
     where, params = _event_clauses(
         symbol=symbol,
@@ -528,12 +537,12 @@ def recent_events(
         since=since,
         until=until,
     )
-    needs_python_pass = order in ("unusual", "conviction") or universe is not None
+    needs_python_pass = order in ("unusual", "rarity") or universe is not None
     if needs_python_pass:
         sql_cap = _UNUSUAL_SCAN_CAP
     else:
         sql_cap = cap
-    if order in ("unusual", "conviction") and event_type is None:
+    if order in ("unusual", "rarity") and event_type is None:
         # The EOD unusual_volume batch is WATCHLIST-capped day-aggregates —
         # mixing it into a market-wide unusualness rank re-creates the coverage
         # artifact this order exists to kill. Ask for it explicitly to see it.
@@ -554,11 +563,11 @@ def recent_events(
     events = [_row_to_event(r) for r in rows]
     if not needs_python_pass:
         return events
-    if universe is not None or order in ("unusual", "conviction"):
+    if universe is not None or order in ("unusual", "rarity"):
         _classify_events(events)
     if universe is not None:
         events = [e for e in events if e["underlying_class"] == universe]
-    elif order == "conviction":
+    elif order == "rarity":
         # The registered root fence applies here too (08-17 audit: 10 of the
         # top-100 were ETF/index plumbing — the XLV case). Equity by default;
         # ask for universe=etf/index explicitly to rank those.
@@ -567,8 +576,16 @@ def recent_events(
         for ev in events:
             ev["unusual_score"] = _unusual_score(ev)
         events.sort(key=lambda e: e["unusual_score"], reverse=True)
-    elif order == "conviction":
-        events.sort(key=lambda e: float(e.get("conviction") or 0.0), reverse=True)
+    elif order == "rarity":
+        # rarity_p ascending (rarer first), unranked (NULL) last; the largest
+        # print then the order sum break ties. Plain facts, no kernel.
+        events.sort(
+            key=lambda e: (
+                e.get("rarity_p") is None,
+                float(e.get("rarity_p") or 1.0),
+                -float(e.get("max_print_usd") or e.get("premium_usd") or 0.0),
+            )
+        )
     return events[:cap]
 
 

@@ -31,9 +31,8 @@ def main() -> None:
     for t in tables:
         thr = t["thresholds"]
         print(
-            f"p{thr['range_p']:g}/p{thr['vol_p']:g} floor {thr['range_floor']}/"
-            f"{thr['vol_floor']} topN={thr['top_n']}: "
-            f"{t['fires']} fires / {t['sessions']} sess "
+            f"p{thr['range_p']:g} single-component occ>={thr['min_occupancy']}: "
+            f"{t['fires']} first fires / {t['sessions']} sess "
             f"({t['fires_per_day']}/day), {t['paired']} paired "
             f"({t['paired_per_week']}/week)"
         )

@@ -1,7 +1,12 @@
-"""Draft thresholds, honesty labels, and grid constants for the abnormality scanner.
+"""Fire rule, honesty labels, and grid constants for the abnormality scanner.
 
-Thresholds are DRAFT until the replay harness locks them (design §8 Inc 2).
-The live detector uses these; replay can override per candidate set.
+Attention Phase 1 (2026-08-25): the fire rule is the REGISTERED 1.14f/g study
+rule — range ratio >= p90 within the (boundary x $-vol quintile) peer cell,
+single component, cells need >= 25 occupants (1.14g's own floor), fires only on
+the half-hour boundary grid the study measured, universe = the options-eligible
+pool. The old draft rule (p99 ^ p95 ^ floors ^ top-N) is retired from firing
+and PRE-REGISTERED as a subset test on the fire ledger instead
+(ATTENTION_JOIN_DESIGN_2026-08-17.md §4.6). State stays 5-minute.
 """
 
 from __future__ import annotations
@@ -20,14 +25,12 @@ LOOKBACK_SESSIONS = 20
 N_QUINTILES = 5
 STALE_SESSIONS = 3  # artifact older than this → detector stands down
 
-# Draft fire rule (design §2a). Replay retunes; do not treat as locked.
-RANGE_PCTL = 99.0
-VOL_PCTL = 95.0
-RANGE_FLOOR = 2.0
-VOL_FLOOR = 3.0
-TOP_N_PER_BOUNDARY = 10
-REFIRE_MINUTES = 60
-REFIRE_COMPOSITE_LIFT = 1.50  # ≥50% above the prior fire's composite
+# Study fire rule (1.14f/g — the licensed object, not a tunable draft).
+RANGE_PCTL = 90.0  # single component: range ratio >= p90 within the peer cell
+CELL_MIN_OCCUPANCY = 25  # 1.14g: a peer cell with <25 rows contributes nothing
+# Half-hour boundary grid, W=60 fully inside RTH and H=2h reachable:
+# 10:30..14:00 ET = 5-min buckets 12,18,..,54 (the study's 8 boundaries).
+FIRE_BUCKETS = frozenset(range(12, 55, 6))
 
 # Corporate-action guard (design §3).
 CA_GAP_PCT = 0.40

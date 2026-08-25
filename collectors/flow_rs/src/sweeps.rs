@@ -64,6 +64,8 @@ fn cluster_event(cluster: &[&Print], event_date: &str) -> Option<Event> {
     let first = cluster[0];
     let contracts: i64 = cluster.iter().map(|p| p.size).sum();
     let premium = py_sum(cluster.iter().map(|p| p.premium())); // Python sum() → compensated
+    // Largest single print — the rarity basis (corpus peaks are per-print).
+    let max_print = cluster.iter().map(|p| p.premium()).fold(0.0_f64, f64::max);
     let floor = if is_index_megacap(&first.underlying) {
         MIN_PREMIUM_INDEX_USD
     } else {
@@ -108,6 +110,7 @@ fn cluster_event(cluster: &[&Print], event_date: &str) -> Option<Event> {
         event_type: "sweep",
         contracts: Some(contracts),
         premium_usd: premium,
+        max_print_usd: Some(max_print),
         direction,
         direction_basis: basis.to_string(),
         mid_side: None,

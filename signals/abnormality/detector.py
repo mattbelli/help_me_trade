@@ -21,6 +21,7 @@ from signals.abnormality.constants import (
     CA_VOL_GAP_PCT,
     CA_VOL_RATIO,
     CAVEAT,
+    FIRE_BUCKETS,
     KIND_PAIRED,
     LABEL,
     N_BUCKETS,
@@ -276,16 +277,21 @@ class AbnormalityDetector:
             median_window_vol=bl.median_window_vol[rows, bucket],
             median_cum_vol=bl.median_cum_vol[rows, bucket],
             quintile=bl.quintile[rows],
+            pool=bl.pool[rows],
             base_state=bl.base_state[rows],
             prior=prior_idx,
             thresholds=self._thresholds,
             n_buckets=self._n_buckets,
+            # Fires only on the study's half-hour grid; every other 5-min
+            # boundary is state-only (the column keeps its cadence).
+            fires_allowed=bucket in FIRE_BUCKETS,
         )
         # Drop CA-suspect fires.
         if self._ca_suspect:
             hold = [j for j, i in enumerate(result.fire_idx) if names_k[int(i)] not in self._ca_suspect]
             result.fire_idx = result.fire_idx[hold] if hold else np.array([], np.int32)
             result.fire_kind = [result.fire_kind[j] for j in hold]
+            result.fire_repeat = [result.fire_repeat[j] for j in hold]
 
         ts = now_et.isoformat(timespec="seconds")
         session = now_et.date().isoformat()
@@ -293,8 +299,10 @@ class AbnormalityDetector:
             i = int(i)
             name = names_k[i]
             kind = result.fire_kind[j]
+            repeat = bool(result.fire_repeat[j])
             comp = float(result.composite[i])
-            self._prior[name] = PriorFire(bucket=bucket, composite=comp)
+            if not repeat:
+                self._prior[name] = PriorFire(bucket=bucket, composite=comp)
             caveat = CAVEAT if kind != KIND_PAIRED else f"{CAVEAT} {PAIRED_CAVEAT}"
             bs = int(bl.base_state[rows[i]])
             self.pending_events.append(
@@ -305,6 +313,7 @@ class AbnormalityDetector:
                     "kind": kind,
                     "session": session,
                     "bucket": bucket,
+                    "repeat": int(repeat),
                     "range_ratio": _f(result.range_ratio[i]),
                     "vol_ratio": _f(result.vol_ratio[i]),
                     "rvol_session": _f(result.rvol_session[i]),

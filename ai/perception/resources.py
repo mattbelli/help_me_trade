@@ -1266,7 +1266,7 @@ def _read_options_flow(
         min_premium=float(min_premium) if min_premium is not None else None,
         since=str(since) if since else None,
         until=str(until) if until else None,
-        order=order if order in ("premium", "unusual", "conviction") else "recent",
+        order=order if order in ("premium", "unusual", "rarity", "conviction") else "recent",
         universe=str(universe) if universe in ("equity", "etf", "index") else None,
         limit=limit,
         db_path=db_path,
@@ -1524,7 +1524,8 @@ def _summarize_abnormality(filters: dict[str, Any], *, db_path: Path) -> dict[st
     return {
         "label": LABEL,
         "caveat": CAVEAT,
-        "fires_today": len(events_today(db_path=db_path)),
+        # Name-days lit (first fires; same-day repeats excluded).
+        "fires_today": len(events_today(db_path=db_path, first_only=True)),
         "outcomes": aggregate(recent_outcomes(500, db_path=db_path)),
     }
 
@@ -1814,13 +1815,15 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "an annotation measured ~85% against stock-leg ground truth on "
             "checkable prints (o-sign Step 1', 2026-08-05), NOT a confirmed "
             "aggressor; direction stays the never-guessed at-quote read. "
-            "Sweep/block rows may carry rarity_p (Laplace rank vs that name's "
-            "own trailing-120 session peaks in the same right/DTE/moneyness "
-            "cell; smaller = rarer; NULL = unranked) plus rarity_sentence — "
-            "a description of the tape, never a win% or a move forecast. "
-            "conviction is rarity×tenor×OTM×type (0-10 display scale), same "
-            "honesty rule; clusters nearly cannot win. The summary block "
-            "aggregates the FULL range, not just returned rows."
+            "Sweep/block rows may carry rarity_p (Laplace rank of the event's "
+            "LARGEST SINGLE PRINT vs that name's own trailing-120 session-peak "
+            "prints in the same right/DTE/moneyness cell — single-leg "
+            "reference, prior-close moneyness; smaller = rarer; NULL = "
+            "unranked) plus rarity_sentence and max_print_usd — a description "
+            "of the tape, never a win% or a move forecast. DTE/OTM/side are "
+            "facts on the row, not rank inputs (the old conviction shape "
+            "kernel is retired). The summary block aggregates the FULL range, "
+            "not just returned rows."
         ),
         "filters": {
             "symbol": "optional — filter by underlying ticker",
@@ -1835,9 +1838,9 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "order": (
                 "optional — recent (default) | premium (largest first) | "
                 "unusual (heuristic interestingness rank; rows carry "
-                "unusual_score + underlying_class) | conviction "
-                "(rarity×tenor×OTM×type; rows carry conviction + "
-                "conviction_parts; perception, not a forecast)"
+                "unusual_score + underlying_class) | rarity (rarest "
+                "largest-print first, unranked last, equity roots only by "
+                "default; perception, not a forecast)"
             ),
             "universe": (
                 "optional — equity|etf|index: keep only that root class "
@@ -2000,15 +2003,17 @@ RESOURCES: dict[str, dict[str, Any]] = {
     "abnormality": {
         "description": (
             "Vol/volume abnormality perception — a MAGNITUDE TELL, not a verdict. "
-            "Names whose trailing-60-min Parkinson range and volume are unusual vs "
-            "their own time-of-day norm AND their $-vol peer cell. Measured in-sample "
-            "(1.14f/g, options-eligible names, first fire of the day): fired names' "
-            "next-2h max move ran ~1.3x their own time-of-day norm vs ~0.94x for "
-            "non-fired peers; direction was a coin flip. Own-norm units only, not "
-            "a forecast of a large absolute move. No win%, no probability, "
-            "no direction implied. `base_state` pairing (accumulation/distribution) "
-            "is a labelled founder thesis, not a measurement. Surfaces-only: these "
-            "are not alerts."
+            "Fires = the REGISTERED 1.14f/g rule: trailing-60-min Parkinson range "
+            ">= p90 of the (boundary x $-vol quintile) peer cell, options-eligible "
+            "pool only, half-hour boundaries 10:30-14:00 ET, first fire per "
+            "name-day (repeats flagged repeat=1). Measured in-sample: fired "
+            "names' next-2h max |cum log move| ran ~1.3x their own time-of-day "
+            "norm vs ~0.94x for non-fired peers; direction was a coin flip. "
+            "Own-norm units only, not a forecast of a large absolute move. "
+            "vol_ratio/rvol_session are displayed facts, never gates. No win%, "
+            "no probability, no direction implied. `base_state` pairing "
+            "(accumulation/distribution) is a labelled founder thesis, not a "
+            "measurement. Surfaces-only: these are not alerts."
         ),
         "filters": {
             "symbol": "optional ticker — that name's live state + today's fires",

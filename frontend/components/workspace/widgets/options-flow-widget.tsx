@@ -176,46 +176,23 @@ function sideCell(ev: OptionsFlowEvent): {
   };
 }
 
-type ScoreComp = { label: string; w: number };
-
 /**
- * Server conviction: 10 × rarity × tenor × OTM × type. Perception, not a
- * forecast — no known-side bonus, no 0DTE bonus. Missing score → 0.
+ * RARITY cell — Laplace rank of the event's largest single print vs this
+ * name's own session-peak prints in the same right/tenor/moneyness cell
+ * (single-leg reference, prior-close moneyness). Perception, not a forecast.
+ * The old conviction shape kernel (tenor/OTM multipliers) is retired — DTE and
+ * OTM are plain columns, never rank inputs. null = unranked (thin corpus).
  */
-function convictionView(ev: OptionsFlowEvent): { score: number; comps: ScoreComp[] } {
-  const score = ev.conviction ?? 0;
-  const p = ev.conviction_parts;
-  const comps: ScoreComp[] = [];
-  if (p) {
-    const ranked = p.ranked && ev.rarity_p != null;
-    comps.push({
-      label: ranked ? `rarity p=${ev.rarity_p!.toFixed(2)}` : "rarity unranked",
-      w: p.rarity,
-    });
-    comps.push({
-      label: ev.dte != null ? `tenor ${ev.dte}d` : "tenor unknown",
-      w: p.dte,
-    });
-    const otm = ev.otm_pct;
-    comps.push({
-      label:
-        otm != null
-          ? `OTM ${otm >= 0 ? "+" : ""}${otm.toFixed(0)}%`
-          : "OTM unknown",
-      w: p.otm,
-    });
-    comps.push({ label: ev.event_type, w: p.type });
-  }
-  return { score, comps };
+function rarityPct(ev: OptionsFlowEvent): number | null {
+  if (ev.rarity_p == null) return null;
+  return Math.max(0, Math.min(100, (1 - ev.rarity_p) * 100));
 }
 
-function scoreTitle(ev: OptionsFlowEvent, score: number, comps: ScoreComp[]): string {
-  const lines = comps.map((c) => `  ×${c.w.toFixed(2)}  ${c.label}`);
-  const sentence = ev.rarity_sentence ? `\n${ev.rarity_sentence}` : "";
-  return (
-    `score ${score.toFixed(1)} — rarity × tenor × OTM × type` +
-    `\nperception, not a forecast${sentence}\n${lines.join("\n")}`
-  );
+function rarityTitle(ev: OptionsFlowEvent, pct: number | null): string {
+  if (pct == null)
+    return "unranked — this name has under 100 corpus sessions in the rarity lookup\nperception, not a forecast";
+  const sentence = ev.rarity_sentence ? `${ev.rarity_sentence}\n` : "";
+  return `${sentence}rarity of the largest single print vs this name's own tape\nperception, not a forecast`;
 }
 
 function num(detail: Record<string, number>, key: string): number | null {
@@ -223,11 +200,12 @@ function num(detail: Record<string, number>, key: string): number | null {
   return typeof v === "number" ? v : null;
 }
 
-type Scored = { ev: OptionsFlowEvent; score: number; comps: ScoreComp[] };
+type Scored = { ev: OptionsFlowEvent; pct: number | null };
 
 function sortValue(s: Scored, key: SortKey): number {
   switch (key) {
-    case "score": return s.score;
+    // "score" is the persisted config key; the column is rarity (unranked sinks).
+    case "score": return s.pct ?? -1;
     case "size": return s.ev.contracts ?? 0;
     case "premium": return s.ev.premium_usd ?? 0;
     case "time": {
@@ -295,7 +273,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
   usePagePoll(load, POLL_MS);
 
   const rows = useMemo<Scored[]>(() => {
-    const scored = (data?.events ?? []).map((ev) => ({ ev, ...convictionView(ev) }));
+    const scored = (data?.events ?? []).map((ev) => ({ ev, pct: rarityPct(ev) }));
     const dir = sort.dir === "asc" ? 1 : -1;
     return scored.sort((a, b) => {
       const d = (sortValue(a, sort.key) - sortValue(b, sort.key)) * dir;
@@ -361,7 +339,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                 <span>·</span>
               </>
             ) : null}
-            <span>rarity × tenor × OTM · perception, not a forecast</span>
+            <span>largest-print rarity vs own tape · perception, not a forecast</span>
           </div>
 
           <div className={cn("relative", GRID_MIN)}>
@@ -370,7 +348,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
               className="sticky top-0 z-20 grid items-center gap-x-2 border-b border-[var(--line-divider)] bg-[var(--panel)] px-2 py-1 text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em]"
               style={{ gridTemplateColumns: GRID_COLS }}
             >
-              <span className={cn(headCls, sortableCls, sort.key === "score" && "text-[var(--c-accent)]")} onClick={() => handleSort("score")}>score{arrow("score")}</span>
+              <span className={cn(headCls, sortableCls, sort.key === "score" && "text-[var(--c-accent)]")} onClick={() => handleSort("score")}>rarity{arrow("score")}</span>
               <span className={cn(headCls, sortableCls, sort.key === "time" && "text-[var(--c-accent)]")} onClick={() => handleSort("time")}>time{arrow("time")}</span>
               <span className={headCls}>ticker</span>
               <span className={headCls}>side</span>
@@ -383,7 +361,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
               <span className={cn(headCls, "text-right", sortableCls, sort.key === "premium" && "text-[var(--c-accent)]")} onClick={() => handleSort("premium")}>prem{arrow("premium")}</span>
             </div>
 
-            {rows.map(({ ev, score, comps }) => {
+            {rows.map(({ ev, pct }) => {
               const side = sideCell(ev);
               const kind = flowKind(ev);
               const expanded = expandedIds.has(ev.id);
@@ -404,21 +382,24 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                     className="group/row relative grid cursor-pointer items-center gap-x-2 overflow-hidden px-2 py-1.5 text-left leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
                     style={{ gridTemplateColumns: GRID_COLS }}
                   >
-                    {/* magnitude bar — width = score, tinted by side; scoped to the
-                        row so it never washes over the expanded drawer below */}
+                    {/* magnitude bar — width = rarity percentile, tinted by side;
+                        scoped to the row so it never washes over the drawer below */}
                     <div
                       aria-hidden
                       className="pointer-events-none absolute inset-y-0 left-0"
                       style={{
-                        width: `${score * 10}%`,
+                        width: `${pct ?? 0}%`,
                         background: `linear-gradient(90deg, color-mix(in srgb, ${side.tint} 22%, transparent), transparent)`,
                       }}
                     />
                     <span
-                      className="tabular-nums font-medium text-[var(--c-accent)]"
-                      title={scoreTitle(ev, score, comps)}
+                      className={cn(
+                        "tabular-nums font-medium",
+                        pct != null ? "text-[var(--c-accent)]" : "text-[var(--fg-faint)]",
+                      )}
+                      title={rarityTitle(ev, pct)}
                     >
-                      {score.toFixed(1)}
+                      {pct != null ? `${pct.toFixed(0)}%` : "—"}
                     </span>
                     <span className="tabular-nums text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
                       {formatTimeEt(ev.ts)}
@@ -488,9 +469,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
                     </span>
                   </div>
 
-                  {expanded ? (
-                    <FlowDetail ev={ev} score={score} comps={comps} hasDetail={hasDetail} />
-                  ) : null}
+                  {expanded ? <FlowDetail ev={ev} hasDetail={hasDetail} /> : null}
                 </div>
               );
             })}
@@ -502,17 +481,7 @@ export function OptionsFlowWidget({ config, onConfigChange }: WidgetProps) {
 }
 
 /** Plain depth drawer — no card; the widget's deepest view. */
-function FlowDetail({
-  ev,
-  score,
-  comps,
-  hasDetail,
-}: {
-  ev: OptionsFlowEvent;
-  score: number;
-  comps: ScoreComp[];
-  hasDetail: boolean;
-}) {
+function FlowDetail({ ev, hasDetail }: { ev: OptionsFlowEvent; hasDetail: boolean }) {
   const d = ev.detail ?? {};
   const bid = num(d, "bid");
   const ask = num(d, "ask");
@@ -630,10 +599,13 @@ function FlowDetail({
           )
         : null}
       {cell("side basis", basis)}
-      {cell(
-        "score",
-        `${score.toFixed(1)} = ${comps.map((c) => c.w.toFixed(2)).join(" × ") || "—"}`,
-      )}
+      {ev.max_print_usd != null
+        ? cell(
+            "largest print",
+            formatPremium(ev.max_print_usd),
+            "the single biggest print in this order — the rarity rank's basis",
+          )
+        : null}
       {why.length ? (
         <div className="col-span-full flex gap-2 border-t border-[var(--line-divider)] pt-2 text-[var(--fg-dim)]">
           <span className="shrink-0 text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--fg-faint)]">

@@ -42,8 +42,8 @@ RESTART_LOOKBACK_S = 600
 
 _ROW_COLS = (
     "id, ingest_seq, ts, underlying, occ_symbol, right, strike, expiry, dte, "
-    "otm_pct, event_type, contracts, premium_usd, direction, direction_basis, "
-    "spread_flag, n_prints, reason, caveat, detail, coverage, mid_side"
+    "otm_pct, event_type, contracts, premium_usd, max_print_usd, direction, "
+    "direction_basis, spread_flag, n_prints, reason, caveat, detail, coverage, mid_side"
 )
 
 

@@ -511,12 +511,14 @@ def _market_frame_section(db_path: Path) -> str:
     try:
         from db.abnormality import events_today
 
-        fires = events_today(db_path=db_path)
+        # First fires only — the study object; p90 lights far more name-days
+        # than the old draft rule, and repeats would double-count them.
+        fires = events_today(db_path=db_path, first_only=True)
         fires = sorted(
             fires,
             key=lambda e: (
-                e.get("composite") is None,
-                -(e.get("composite") or 0),
+                e.get("range_pctile") is None,
+                -(e.get("range_pctile") or 0),
             ),
         )
         paired_n = sum(1 for e in fires if e.get("kind") == "abnormality_paired")

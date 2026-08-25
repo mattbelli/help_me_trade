@@ -4,16 +4,21 @@ Nightly job reads ``flow_corpus`` (the 16 GB research DB — never on the poll
 path) and writes a compact lookup into the app DB. ``insert_event`` stamps
 ``rarity_p`` / ``rarity_n`` from that lookup.
 
-The object is the fusion-audit rank, at parent-order grain:
+The object is the registered ``largest_print_ratio`` reference class
+(1.14f — attention Phase 1, 2026-08-25): the event's **largest single print**
+(``max_print_usd``; a block IS one print) ranked against the corpus per-print
+session peaks:
 
-    p = (#{session peaks >= this premium} + 1) / (n + 1)
+    p = (#{session peak prints >= this print} + 1) / (n + 1)
 
 inside ``(underlying, right, dte_bucket, mny_bucket)``, trailing 120 corpus
-sessions. ITM is its own bucket so an OTM print is never ranked against
-dividend-arb. Names with ``n < 100`` stay **unranked** (NULL), not fake-rare.
+sessions, **multileg=0 rollup rows only** (the numerator is package-fenced, so
+the denominator must be too). Moneyness is bucketed on the **prior close**
+carried with the lookup — the corpus's own basis — never the live spot (~3% of
+prints shift cells otherwise). ITM is its own bucket so an OTM print is never
+ranked against dividend-arb. Names with ``n < 100`` stay **unranked** (NULL),
+not fake-rare.
 
-The rollup does not retain per-order premiums — only ``premium_max`` per
-cell-day — so the reference class is **session peaks**, not individual orders.
 Zeros (name traded that day, this cell did not) stay in the denominator so a
 quiet cell is honestly rare. No z-score, no pooling across names, no direction,
 no win%.
@@ -83,6 +88,11 @@ def init_tables(db_path: Path | None = None) -> None:
             CREATE TABLE IF NOT EXISTS flow_rarity_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS flow_rarity_spot (
+                underlying TEXT PRIMARY KEY,
+                spot REAL NOT NULL,
+                spot_date TEXT NOT NULL
             );
             """
         )
@@ -180,8 +190,13 @@ def _spot_from_event(event: dict) -> float | None:
     return spot if spot > 0 else None
 
 
-def event_cell(event: dict) -> tuple[str, str, str, str] | None:
-    """(underlying, right, dte_bucket, mny_bucket) or None if unmappable."""
+def event_cell(event: dict, *, spot: Any = ...) -> tuple[str, str, str, str] | None:
+    """(underlying, right, dte_bucket, mny_bucket) or None if unmappable.
+
+    ``spot`` overrides the moneyness basis (the stamp path passes the lookup's
+    prior close — the corpus's own bucketing basis); default = the event's live
+    spot, for callers that only want a cell label.
+    """
     und = str(event.get("underlying") or "").strip().upper()
     right = canon_right(event.get("right"))
     dte = dte_bucket(event.get("dte"))
@@ -189,7 +204,7 @@ def event_cell(event: dict) -> tuple[str, str, str, str] | None:
         return None
     mny = mny_bucket(
         strike=event.get("strike"),
-        spot=_spot_from_event(event),
+        spot=_spot_from_event(event) if spot is ... else spot,
         right=right,
         underlying=und,
     )
@@ -225,8 +240,8 @@ def format_sentence(
     cp = _RIGHT_LABEL.get(right, right)
     mny_s = _MNY_LABEL.get(mny, mny)
     return (
-        f"larger than {pct:.0f}% of {underlying} {dte_bucket_label} {mny_s} "
-        f"{cp} session peaks, n={n}"
+        f"largest print larger than {pct:.0f}% of {underlying} {dte_bucket_label} "
+        f"{mny_s} {cp} session-peak prints, n={n}"
     )
 
 
@@ -303,7 +318,15 @@ def _load_name_unlocked(underlying: str, db_path: Path) -> dict[str, Any] | None
             except (TypeError, ValueError, json.JSONDecodeError):
                 peaks = ()
             cells[(c["right"], c["dte_bucket"], c["mny_bucket"])] = peaks
-    rec = {"n": int(row["n"]), "asof": str(row["asof_date"]), "cells": cells}
+        try:
+            spot_row = conn.execute(
+                "SELECT spot FROM flow_rarity_spot WHERE underlying = ?",
+                (underlying,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            spot_row = None
+    spot = float(spot_row["spot"]) if spot_row is not None else None
+    rec = {"n": int(row["n"]), "asof": str(row["asof_date"]), "cells": cells, "spot": spot}
     _name_cache[underlying] = rec
     return rec
 
@@ -330,27 +353,44 @@ def lookup_cell(
 def stamp_event(event: dict, *, db_path: Path | None = None) -> dict:
     """Mutate ``event`` with rarity fields. No-op for non-parent types.
 
+    Rank basis = the largest single print (``max_print_usd``; falls back to
+    ``premium_usd`` for a block or a legacy row), bucketed on the lookup's
+    prior close — both matching the corpus reference class. ``otm_pct`` stays
+    live-spot (a display fact about now, not a cell key).
+
     Never opens the corpus. Missing lookup → fields stay unset (NULL on insert).
     """
     if str(event.get("event_type") or "") not in STAMP_TYPES:
         return event
-    cell = event_cell(event)
-    if cell is None:
-        return event
-    und, right, dte, mny = cell
-    spot = _spot_from_event(event)
-    if event.get("otm_pct") is None and spot is not None:
-        filled = signed_otm_pct(event.get("strike"), spot, right)
+    und = str(event.get("underlying") or "").strip().upper()
+    right = canon_right(event.get("right"))
+    live_spot = _spot_from_event(event)
+    if event.get("otm_pct") is None and live_spot is not None:
+        filled = signed_otm_pct(event.get("strike"), live_spot, right)
         if filled is not None:
             event["otm_pct"] = filled
-    found = lookup_cell(und, right, dte, mny, db_path=db_path)
-    if found is None:
+    if not und:
         return event
-    n, peaks, asof = found
+    rec = _load_name(und, _db_path(db_path))
+    if rec is None:
+        return event
+    n = int(rec["n"])
     if n < MIN_N:
         return event
+    cell = event_cell(event, spot=rec.get("spot"))
+    if cell is None:
+        return event
+    _, right, dte, mny = cell
+    # No prior close in the lookup for an equity name → the print would rank
+    # against an (almost surely empty) no_spot cell and read floor-rare. An
+    # empty basis is unranked, never fake-rare. (no_spot_index is real corpus
+    # history — cash-settled roots live there by design.)
+    if mny == "no_spot_missing":
+        return event
+    peaks = rec["cells"].get((right, dte, mny), ())
+    asof = str(rec["asof"])
     try:
-        prem = float(event.get("premium_usd") or 0)
+        prem = float(event.get("max_print_usd") or event.get("premium_usd") or 0)
     except (TypeError, ValueError):
         return event
     if prem <= 0:
@@ -415,7 +455,7 @@ def stamp_existing(
         rows = conn.execute(
             f"""
             SELECT id, underlying, right, strike, dte, otm_pct, event_type,
-                   premium_usd, detail
+                   premium_usd, max_print_usd, detail
             FROM options_flow_events WHERE {where}
             """,
             params,
@@ -430,6 +470,7 @@ def stamp_existing(
                 "otm_pct": row["otm_pct"],
                 "event_type": row["event_type"],
                 "premium_usd": row["premium_usd"],
+                "max_print_usd": row["max_print_usd"],
                 "detail": None,
             }
             raw = row["detail"]
@@ -512,12 +553,15 @@ def build_lookup(
 
     with _corpus_ro(corpus_path) as conn:
         for i, date in enumerate(dates, start=1):
+            # multileg = 0 only: the live numerator is package-fenced
+            # (spread-leg/MULTILEG prints never reach a sweep/block), so a
+            # denominator pooling package legs under-ranks everything.
             rows = conn.execute(
                 """
                 SELECT underlying, right, dte_bucket, mny_bucket,
                        MAX(premium_max) AS px
                 FROM flow_rollup
-                WHERE date = ?
+                WHERE date = ? AND multileg = 0
                 GROUP BY 1, 2, 3, 4
                 """,
                 (date,),
@@ -538,6 +582,18 @@ def build_lookup(
                 cell_day[(und, right, dte, mny)][date] = int(round(float(px)))
             if i == 1 or i == len(dates) or i % 20 == 0:
                 logger.info("flow_rarity build %s/%s %s", i, len(dates), date)
+
+        # Prior close per underlying — the corpus's own moneyness basis
+        # (upsert_spot writes alpaca_split_close per session). Newest date in
+        # the window per name; the stamp path buckets on THIS, not live spot.
+        spot_rows = conn.execute(
+            """
+            SELECT underlying, spot, MAX(date) AS spot_date
+            FROM corpus_spot WHERE date <= ?
+            GROUP BY underlying
+            """,
+            (asof,),
+        ).fetchall()
 
     name_rows: list[tuple[str, int, str]] = []
     skipped = 0
@@ -571,9 +627,18 @@ def build_lookup(
         conn.execute("DELETE FROM flow_rarity_names")
         conn.execute("DELETE FROM flow_rarity_cells")
         conn.execute("DELETE FROM flow_rarity_meta")
+        conn.execute("DELETE FROM flow_rarity_spot")
         conn.executemany(
             "INSERT INTO flow_rarity_names (underlying, n, asof_date) VALUES (?,?,?)",
             name_rows,
+        )
+        conn.executemany(
+            "INSERT INTO flow_rarity_spot (underlying, spot, spot_date) VALUES (?,?,?)",
+            [
+                (str(r["underlying"]).strip().upper(), float(r["spot"]), str(r["spot_date"]))
+                for r in spot_rows
+                if r["spot"] is not None and float(r["spot"]) > 0
+            ],
         )
         conn.executemany(
             """
@@ -592,6 +657,9 @@ def build_lookup(
             "n_cells": str(len(cell_rows)),
             "n_skipped": str(skipped),
             "first_date": dates[0],
+            # Basis provenance (attention Phase 1): largest single print vs
+            # multileg=0 session peaks, prior-close moneyness.
+            "basis": "largest_print/multileg0/prior_close_mny",
         }
         conn.executemany(
             "INSERT INTO flow_rarity_meta (key, value) VALUES (?,?)",
@@ -621,35 +689,44 @@ def _walk_forward_sample(
     sample_cells: int = 400,
     alphas: tuple[float, ...] = (0.20, 0.10, 0.05, 0.01),
 ) -> dict[str, Any]:
-    """Walk-forward Laplace rank on a sample of cells. Realised/claimed at α."""
+    """Walk-forward Laplace rank on a RANDOM sample of cells (seeded by the
+    window so a rebuild reproduces itself). Dict-order sampling covered ~13
+    names — a coverage artifact, not a calibration (2026-08-17 audit).
+    Realised/claimed at α."""
+    import random
+
     hits = {a: 0 for a in alphas}
     total = 0
-    used = 0
+    candidates: list[tuple[str, str, str, str, dict[str, int]]] = []
     for und, n_days in name_days.items():
         if len(n_days) < min_n:
             continue
         for right, dte, mny, daymap in by_und.get(und, []):
-            if used >= sample_cells:
-                break
-            # Dense series over this name's active dates, in window order.
-            series = [float(daymap.get(d, 0) or 0) for d in dates if d in n_days]
-            if len(series) < min_n + 10:
-                continue
-            used += 1
-            hist: list[int] = []
-            for x in series:
-                if len(hist) >= min_n:
-                    peaks = sorted(v for v in hist if v > 0)
-                    p = laplace_p(x, peaks, len(hist))
-                    total += 1
-                    for a in alphas:
-                        if p <= a:
-                            hits[a] += 1
-                hist.append(int(round(x)))
-                if len(hist) > WINDOW:
-                    hist.pop(0)
+            candidates.append((und, right, dte, mny, daymap))
+    rng = random.Random(f"{dates[0]}:{dates[-1]}" if dates else "empty")
+    rng.shuffle(candidates)
+    used = 0
+    for und, right, dte, mny, daymap in candidates:
         if used >= sample_cells:
             break
+        n_days = name_days[und]
+        # Dense series over this name's active dates, in window order.
+        series = [float(daymap.get(d, 0) or 0) for d in dates if d in n_days]
+        if len(series) < min_n + 10:
+            continue
+        used += 1
+        hist: list[int] = []
+        for x in series:
+            if len(hist) >= min_n:
+                peaks = sorted(v for v in hist if v > 0)
+                p = laplace_p(x, peaks, len(hist))
+                total += 1
+                for a in alphas:
+                    if p <= a:
+                        hits[a] += 1
+            hist.append(int(round(x)))
+            if len(hist) > WINDOW:
+                hist.pop(0)
     out: dict[str, Any] = {"n_obs": total, "n_cells": used}
     for a in alphas:
         claimed = a
@@ -672,6 +749,7 @@ def put_fixture(
     n: int,
     peaks: list[int],
     asof: str = "2026-08-11",
+    spot: float | None = None,
     db_path: Path | None = None,
 ) -> None:
     """Test helper: write one name/cell into the lookup."""
@@ -679,6 +757,16 @@ def put_fixture(
     init_tables(resolved)
     peaks_s = sorted(int(x) for x in peaks if x > 0)
     with _connect(resolved) as conn:
+        if spot is not None:
+            conn.execute(
+                """
+                INSERT INTO flow_rarity_spot (underlying, spot, spot_date)
+                VALUES (?,?,?)
+                ON CONFLICT(underlying) DO UPDATE SET
+                    spot=excluded.spot, spot_date=excluded.spot_date
+                """,
+                (underlying, float(spot), asof),
+            )
         conn.execute(
             """
             INSERT INTO flow_rarity_names (underlying, n, asof_date)

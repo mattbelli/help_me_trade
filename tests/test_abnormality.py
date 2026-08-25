@@ -141,46 +141,113 @@ def test_base_state_warmup_is_none():
     assert info["reason"] == "warmup"
 
 
-def test_fire_rule_needs_both_cell_and_floor(tmp_path: Path):
-    n = 40
+def _cell_inputs(n: int) -> dict[str, np.ndarray]:
     high = np.ones((n, N_BUCKETS)) * 10.1
     low = np.ones((n, N_BUCKETS)) * 10.0
     vol = np.ones((n, N_BUCKETS)) * 100
-    # One name with a huge window.
-    high[0, 0:WINDOW_BARS] = 20.0
-    vol[0, 0:WINDOW_BARS] = 10_000
-    median_rv = np.full(n, parkinson_rv(np.full(WINDOW_BARS, 10.1), np.full(WINDOW_BARS, 10.0)))
-    median_wvol = np.full(n, 100.0 * WINDOW_BARS)
-    median_cum = np.full(n, 100.0 * WINDOW_BARS)
-    quintile = np.zeros(n, np.int8)
+    return {
+        "high": high, "low": low, "volume": vol,
+        "median_rv": np.full(
+            n, parkinson_rv(np.full(WINDOW_BARS, 10.1), np.full(WINDOW_BARS, 10.0))
+        ),
+        "median_window_vol": np.full(n, 100.0 * WINDOW_BARS),
+        "median_cum_vol": np.full(n, 100.0 * WINDOW_BARS),
+        "quintile": np.zeros(n, np.int8),
+    }
+
+
+def test_fire_rule_is_p90_single_component_in_pool(tmp_path: Path):
+    n = 40
+    args = _cell_inputs(n)
+    # One name with a huge range window — volume left ORDINARY: the study rule
+    # is single-component, volume is never a gate.
+    args["high"][0, 0:WINDOW_BARS] = 20.0
     result = evaluate_boundary(
-        high=high, low=low, volume=vol, bucket=WINDOW_BARS,
-        median_rv=median_rv, median_window_vol=median_wvol, median_cum_vol=median_cum,
-        quintile=quintile, base_state=np.zeros(n, np.int8),
-        thresholds=FireThresholds(range_p=50, vol_p=50, range_floor=2.0, vol_floor=3.0, top_n=10),
+        bucket=WINDOW_BARS, base_state=np.zeros(n, np.int8),
+        pool=np.ones(n, dtype=bool),
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
     )
     assert 0 in set(result.fire_idx.tolist())
     assert result.fire_kind[list(result.fire_idx).index(0)] == KIND_ABNORMALITY
+    assert not result.fire_repeat[list(result.fire_idx).index(0)]
+
+
+def test_occupancy_floor_blocks_thin_cells():
+    n = 10  # < 25 occupants in the only cell
+    args = _cell_inputs(n)
+    args["high"][0, 0:WINDOW_BARS] = 20.0
+    result = evaluate_boundary(
+        bucket=WINDOW_BARS, pool=np.ones(n, dtype=bool),
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
+    )
+    assert result.fire_idx.size == 0
+    # ratios/percentiles still computed for the column
+    assert np.isfinite(result.range_ratio[0])
+
+
+def test_pool_fence_no_pool_no_fire():
+    n = 40
+    args = _cell_inputs(n)
+    args["high"][0, 0:WINDOW_BARS] = 20.0
+    pool = np.ones(n, dtype=bool)
+    pool[0] = False  # the mover is outside the options-eligible pool
+    result = evaluate_boundary(
+        bucket=WINDOW_BARS, pool=pool,
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
+    )
+    assert 0 not in set(result.fire_idx.tolist())
+    # and with no pool at all, nothing fires (deny-by-default)
+    result_none = evaluate_boundary(
+        bucket=WINDOW_BARS, thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
+    )
+    assert result_none.fire_idx.size == 0
+
+
+def test_off_grid_boundary_is_state_only():
+    n = 40
+    args = _cell_inputs(n)
+    args["high"][0, 0:WINDOW_BARS] = 20.0
+    result = evaluate_boundary(
+        bucket=WINDOW_BARS, pool=np.ones(n, dtype=bool),
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        fires_allowed=False,
+        **args,
+    )
+    assert result.fire_idx.size == 0
+    assert np.isfinite(result.range_ratio[0])
+
+
+def test_repeat_fire_is_flagged_not_suppressed():
+    from signals.abnormality.engine import PriorFire
+
+    n = 40
+    args = _cell_inputs(n)
+    args["high"][0, 0:WINDOW_BARS] = 20.0
+    result = evaluate_boundary(
+        bucket=WINDOW_BARS, pool=np.ones(n, dtype=bool),
+        prior={0: PriorFire(bucket=6, composite=1.0)},
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
+    )
+    idx = list(result.fire_idx.tolist())
+    assert 0 in idx
+    assert result.fire_repeat[idx.index(0)] is True
 
 
 def test_paired_kind_when_base_state_set():
-    n = 20
-    high = np.ones((n, N_BUCKETS)) * 10.1
-    low = np.ones((n, N_BUCKETS)) * 10.0
-    vol = np.ones((n, N_BUCKETS)) * 100
-    high[0, :WINDOW_BARS] = 20.0
-    vol[0, :WINDOW_BARS] = 10_000
-    median_rv = np.full(n, parkinson_rv(np.full(WINDOW_BARS, 10.1), np.full(WINDOW_BARS, 10.0)))
+    n = 40
+    args = _cell_inputs(n)
+    args["high"][0, :WINDOW_BARS] = 20.0
     base = np.zeros(n, np.int8)
     base[0] = 1
     result = evaluate_boundary(
-        high=high, low=low, volume=vol, bucket=WINDOW_BARS,
-        median_rv=median_rv,
-        median_window_vol=np.full(n, 100.0 * WINDOW_BARS),
-        median_cum_vol=np.full(n, 100.0 * WINDOW_BARS),
-        quintile=np.zeros(n, np.int8),
-        base_state=base,
-        thresholds=FireThresholds(range_p=50, vol_p=50, range_floor=2.0, vol_floor=3.0, top_n=5),
+        bucket=WINDOW_BARS, base_state=base, pool=np.ones(n, dtype=bool),
+        thresholds=FireThresholds(range_p=90, min_occupancy=25),
+        **args,
     )
     assert KIND_PAIRED in result.fire_kind
 
@@ -244,10 +311,13 @@ def test_replay_counts_are_reproducible(tmp_path: Path):
             for j, sym in enumerate(symbols)
         }
         write_session(s, daily, symbols, parts, 1, 0.1)
-    bl = build_baselines(bars_5min_dir=bars, daily_dir=daily, out_dir=out, as_of=sessions[-1])
+    bl = build_baselines(
+        bars_5min_dir=bars, daily_dir=daily, out_dir=out, as_of=sessions[-1],
+        pool_names=set(symbols),
+    )
     path = bars / f"{sessions[-1].isoformat()}.npz"
-    a = replay_session(path, bl, FireThresholds(range_p=80, vol_p=50, range_floor=1.0, vol_floor=1.0))
-    b = replay_session(path, bl, FireThresholds(range_p=80, vol_p=50, range_floor=1.0, vol_floor=1.0))
+    a = replay_session(path, bl, FireThresholds(range_p=80, min_occupancy=5))
+    b = replay_session(path, bl, FireThresholds(range_p=80, min_occupancy=5))
     assert a["fires"] == b["fires"]
     assert a["session"] == sessions[-1].isoformat()
 
@@ -318,15 +388,17 @@ def test_honesty_labels_persist(tmp_path: Path):
 
 
 def test_grade_event_excess_and_direction():
+    """Registered estimand: max |cum 5-min LOG return| on CLOSES — a high/low
+    spike with no close movement contributes nothing."""
     close = np.full(N_BUCKETS, 10.0)
     high = np.full(N_BUCKETS, 10.0)
     low = np.full(N_BUCKETS, 10.0)
-    high[WINDOW_BARS:WINDOW_BARS + 10] = 12.0
+    high[WINDOW_BARS:WINDOW_BARS + 10] = 12.0  # intrabar spike, closes flat — ignored
     close[WINDOW_BARS + 23] = 11.0
     graded = grade_event(close=close, high=high, low=low, bucket=WINDOW_BARS, fwd_norm=0.1)
     assert graded["ok"]
-    assert graded["move_2h"] == pytest.approx(0.2)
-    assert graded["excess_2h"] == pytest.approx(2.0)
+    assert graded["move_2h"] == pytest.approx(np.log(1.1))
+    assert graded["excess_2h"] == pytest.approx(np.log(1.1) / 0.1)
     assert graded["direction"] == 1
 
 
@@ -366,17 +438,18 @@ def test_parity_detector_vs_replay(tmp_path: Path):
             for j, sym in enumerate(symbols)
         }
         write_session(s, daily, symbols, parts, 1, 0.1)
-    bl = build_baselines(bars_5min_dir=bars, daily_dir=daily, out_dir=out, as_of=sessions[-1])
+    bl = build_baselines(
+        bars_5min_dir=bars, daily_dir=daily, out_dir=out, as_of=sessions[-1],
+        pool_names=set(symbols),
+    )
     last = sessions[-1]
     path = bars / f"{last.isoformat()}.npz"
-    replayed = replay_session(
-        path, bl, FireThresholds(range_p=80, vol_p=50, range_floor=1.0, vol_floor=1.0, top_n=10)
-    )
+    replayed = replay_session(path, bl, FireThresholds(range_p=80, min_occupancy=5))
     grid = load_5min(path)
     det = AbnormalityDetector()
     det.set_baselines(bl, last)
     det.reset_session(last)
-    det._thresholds = FireThresholds(range_p=80, vol_p=50, range_floor=1.0, vol_floor=1.0, top_n=10)
+    det._thresholds = FireThresholds(range_p=80, min_occupancy=5)
     det.prime_from_grid(grid.symbols, grid.high, grid.low, grid.close, grid.volume)
     now = datetime.combine(last, dtime(10, 30, 5), ET)
     det.run_boundary_for_test(WINDOW_BARS, now)
