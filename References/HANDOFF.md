@@ -18,8 +18,9 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 ## ▶ 08-25 Manual trading foundation (#342) — SHIPPED on main; deploy + founder pass owed
 
 Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDATION_SPEC.md`.
-- **⏳ Deploy** (deliberately not done 08-25 — market was open and a backend restart drops the
-  live hub). `tools/serv-deploy.sh` after close. Until then nothing user-visible changes.
+- ✅ Deployed 08-25 20:06 UTC (after close): frontend built in the main checkout, all four
+  services restarted clean (backend/frontend/flow/equity collectors), `/api/manual/limits`
+  answering live, OPRA + SIP streams reconnected.
 - **⏳ Founder in-browser pass:** trade-ticket + dom widgets (picker: "trade ticket", "dom
   ladder"), chart right-click buy/sell + order-line drag. Money verbs need the ADMIN token in
   Settings → Execution / Risk (per-tab); without it every submit answers "admin token required".
