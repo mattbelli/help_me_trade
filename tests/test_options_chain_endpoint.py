@@ -379,8 +379,19 @@ def test_options_chain_never_overwrites_vendor_greeks(
     expiring today (measured across 5 symbols 2026-07-31), so ours are a
     fallback — silently replacing a real vol surface with our own would be the
     opposite of the fix."""
-    _mock_alpaca(monkeypatch, chain=_chain_snapshots())
     from api.main import app
+    from trading.market_hours import _ET
+
+    # Freeze the clock before the fixture expiry (2026-08-21): once the real
+    # date passed it, _time_to_expiry_years returned None and greeks_source
+    # vanished — this test date-rotted on 2026-08-22 (caught by CI 08-25).
+    class FrozenDatetime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2026, 8, 10, 15, 30, 0, tzinfo=tz or _ET)
+
+    monkeypatch.setattr("brokers.options_chain.datetime", FrozenDatetime)
+    _mock_alpaca(monkeypatch, chain=_chain_snapshots())
 
     with TestClient(app, base_url="http://127.0.0.1") as client:
         resp = client.get("/api/options-chain?symbol=NVDA&expiry=2026-08-21")
