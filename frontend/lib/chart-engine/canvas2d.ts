@@ -51,15 +51,19 @@ export class Canvas2DPainter implements Painter {
     const cDev = this.snap(x, wickDev) * dpr;
     const slotDev = barSpacing * dpr;
     // Nearest wick-parity width to ~70% of the slot, then trimmed 2 at a time
-    // until at least a wick-wide gap survives. Below that there is no room for
-    // a body at all and the bar is drawn as a bare wick.
+    // until it fits the slot. Neighbours may TOUCH (zero gap) but never
+    // overlap — the same call TradingView (optimalCandlestickWidth: a 3px body
+    // from 2.5 to 4 px/bar) and KLineChart (gapBar = floor(spacing), odd)
+    // make: bodies survive to ~3 px/bar and only then drop to a bare wick.
+    // Insisting on a gap instead collapsed bodies below 4 px/bar (dpr 1),
+    // which read as candles "losing their bodies" far too early.
     //
     // The cap measures against FLOOR(slot): snapped centres sit floor(slot) or
-    // ceil(slot) apart, so budgeting for the average lets the tight pairs touch
-    // — and at even parity, overlap by a pixel.
+    // ceil(slot) apart, so budgeting for the average lets the tight pairs
+    // overlap by a pixel.
     const tightestSlot = Math.floor(slotDev);
     let bodyDev = wickDev + 2 * Math.max(0, Math.round((slotDev * 0.7 - wickDev) / 2));
-    while (bodyDev > wickDev && bodyDev > tightestSlot - wickDev) bodyDev -= 2;
+    while (bodyDev > wickDev && bodyDev > tightestSlot) bodyDev -= 2;
     return {
       bodyX: (cDev - bodyDev / 2) / dpr,
       bodyW: bodyDev / dpr,

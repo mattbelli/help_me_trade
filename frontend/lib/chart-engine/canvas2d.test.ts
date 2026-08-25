@@ -74,16 +74,16 @@ describe.each([1, 2, 1.5])("barColumn at dpr=%s", (dpr) => {
     }
   });
 
-  it("never lets adjacent bodies touch", () => {
+  it("never lets adjacent bodies overlap (touching is allowed)", () => {
     for (const s of spacings()) {
       const cols = centres(s).map((x) => p.barColumn(x, s));
       // Below ~1px per bar the slots themselves overlap and bars are drawn as
       // bare wicks — nothing to keep apart. Wherever a body DOES draw, the
-      // tightest pair in the frame must still show a gap.
+      // tightest pair in the frame may touch but never share a pixel.
       if (cols[0].bodyW <= cols[0].wickW) continue;
       for (let i = 1; i < cols.length; i++) {
         const gap = dev(cols[i].bodyX) - (dev(cols[i - 1].bodyX) + dev(cols[i - 1].bodyW));
-        expect(gap).toBeGreaterThan(0);
+        expect(gap).toBeGreaterThanOrEqual(0);
       }
     }
   });
@@ -104,9 +104,11 @@ describe("barColumn width policy", () => {
 
   it("collapses to a bare wick only when a body cannot fit", () => {
     const p = painterAt(1);
-    // Wide enough for a 3px body + 1px gap → body draws.
-    expect(p.barColumn(100.3, 5).bodyW).toBeGreaterThan(p.barColumn(100.3, 5).wickW);
-    // A 3px body in a 3.5px slot would merge the candles, so: wick only.
-    expect(p.barColumn(100.3, 3.5).bodyW).toBe(p.barColumn(100.3, 3.5).wickW);
+    // 3px body, neighbours touching at the tight pairs (TradingView's
+    // 2.5–4 px/bar special case; KLineChart's floor(spacing) rule).
+    expect(p.barColumn(100.3, 3.5).bodyW).toBe(3);
+    expect(p.barColumn(100.3, 3).bodyW).toBe(3);
+    // A 3px body in a 2.5px slot would overlap the neighbour, so: wick only.
+    expect(p.barColumn(100.3, 2.5).bodyW).toBe(p.barColumn(100.3, 2.5).wickW);
   });
 });
