@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "flow_corpus.db"
 
@@ -434,3 +437,382 @@ def ingested_dates(db_path: Path = DEFAULT_DB_PATH) -> set[str]:
                 (SCHEMA_VERSION,),
             )
         }
+
+
+# --- agent history reads (perception `flow_history`) --------------------------------
+# Read-only. The corpus is a separate 16GB file; never open it through the
+# trading.db path the registry passes. Pairing law: `premium_sq` goes with
+# `prints`; `premium_sq_orders` goes with `orders`. Mixing them is the
+# 1.55% negative-variance footgun in the DDL comment above.
+
+_ET = ZoneInfo("America/New_York")
+RIGHTS = ("C", "P")
+_DEFAULT_SESSIONS = 60
+_DRILL_CAP = 400
+_GROUP_BY = {
+    "right": "right",
+    "dte_bucket": "dte_bucket",
+    "mny_bucket": "mny_bucket",
+    "side": "side",
+    "strict_side": "strict_side",
+    "cond": "cond",
+    "multileg": "multileg",
+}
+_DIM_VALUES = {
+    "right": RIGHTS,
+    "dte_bucket": DTE_BUCKETS,
+    "mny_bucket": MNY_BUCKETS,
+    "side": SIDES,
+    "strict_side": SIDES,
+    "multileg": ("0", "1"),
+}
+
+
+def connect_ro(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    """Open the corpus without creating it or taking a write lock."""
+    uri = f"file:{Path(db_path).resolve().as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only = ON")
+    return conn
+
+
+def order_grain_variance(
+    premium_usd: float, premium_sq_orders: float, orders: int
+) -> float | None:
+    """Variance of order-sized premiums. None when there are no orders."""
+    if orders <= 0:
+        return None
+    mean = premium_usd / orders
+    return premium_sq_orders / orders - mean * mean
+
+
+def history_query(
+    filters: dict[str, Any] | None = None,
+    *,
+    db_path: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Marginals (default) or rarity rank for one underlying.
+
+    Missing/locked corpus → one `unavailable` row, never an exception.
+    Missing symbol → error naming `flow_perception`, never a full-table scan.
+    """
+    path = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
+    if not path.is_file():
+        return [_unavailable("flow corpus file is missing")]
+    try:
+        conn = connect_ro(path)
+    except sqlite3.Error as exc:
+        return [_unavailable(f"flow corpus could not be opened ({exc})")]
+    try:
+        return _history_query_conn(conn, filters or {})
+    except sqlite3.Error as exc:
+        return [_unavailable(f"flow corpus read failed ({exc})")]
+    finally:
+        conn.close()
+
+
+def _unavailable(note: str) -> dict[str, Any]:
+    return {
+        "unavailable": True,
+        "note": note + " — not 'nothing unusual'; the history file is unreadable",
+    }
+
+
+def _history_query_conn(
+    conn: sqlite3.Connection, filters: dict[str, Any]
+) -> list[dict[str, Any]]:
+    symbol = str(
+        filters.get("symbol") or filters.get("underlying") or filters.get("ticker") or ""
+    ).strip().upper()
+    if not symbol:
+        return [
+            {
+                "error": (
+                    "symbol is required — this index is (underlying, date). "
+                    "A market-wide scan of the corpus is a full-table read. "
+                    "For market-wide unusual-vs-peers, query flow_perception."
+                )
+            }
+        ]
+
+    group_by = filters.get("group_by")
+    if isinstance(group_by, (list, tuple)):
+        return [
+            {
+                "error": "group_by takes ONE of: " + "|".join(_GROUP_BY),
+                "available": list(_GROUP_BY),
+            }
+        ]
+    if group_by is not None and str(group_by).strip() != "":
+        key = str(group_by).strip()
+        if key not in _GROUP_BY:
+            return [
+                {
+                    "error": f"unknown group_by {key!r}",
+                    "available": list(_GROUP_BY),
+                }
+            ]
+
+    try:
+        limit = int(filters["limit"]) if filters.get("limit") is not None else _DRILL_CAP
+    except (TypeError, ValueError):
+        return [{"error": "limit must be an int"}]
+    limit = max(1, min(limit, _DRILL_CAP))
+
+    since = _opt_str(filters.get("since"))
+    until = _opt_str(filters.get("until"))
+    window = _session_window(conn, since, until)
+    if window["corpus_through"] is None:
+        return [_unavailable("flow corpus has no sessions")]
+
+    dim_err = _validate_dims(filters)
+    if dim_err:
+        return [dim_err]
+
+    premium_raw = filters.get("premium_usd")
+    if premium_raw is not None and str(premium_raw).strip() != "":
+        try:
+            premium = float(premium_raw)
+        except (TypeError, ValueError):
+            return [{"error": "premium_usd must be a number"}]
+        return [
+            _rarity_row(
+                conn,
+                symbol=symbol,
+                premium=premium,
+                window=window,
+                filters=filters,
+            )
+        ]
+
+    return _marginals(
+        conn,
+        symbol=symbol,
+        window=window,
+        group_by=str(group_by).strip() if group_by else None,
+        limit=limit,
+        filters=filters,
+    )
+
+
+def _opt_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _session_window(
+    conn: sqlite3.Connection, since: str | None, until: str | None
+) -> dict[str, Any]:
+    row = conn.execute("SELECT MIN(date), MAX(date) FROM corpus_sessions").fetchone()
+    through = row[1] if row else None
+    until_s = until or through
+    since_s = since
+    if since_s is None and until_s is not None:
+        dates = [
+            r[0]
+            for r in conn.execute(
+                "SELECT date FROM corpus_sessions WHERE date <= ? "
+                "ORDER BY date DESC LIMIT ?",
+                (until_s, _DEFAULT_SESSIONS),
+            )
+        ]
+        since_s = dates[-1] if dates else until_s
+    stale_days = None
+    if through:
+        today = datetime.now(_ET).date()
+        stale_days = (today - datetime.fromisoformat(through).date()).days
+    return {
+        "since": since_s,
+        "until": until_s,
+        "corpus_through": through,
+        "stale_days": stale_days,
+    }
+
+
+def _validate_dims(filters: dict[str, Any]) -> dict[str, Any] | None:
+    for dim, allowed in _DIM_VALUES.items():
+        raw = filters.get(dim)
+        if raw is None or str(raw).strip() == "":
+            continue
+        value = str(raw).strip()
+        if dim == "multileg" and value in ("0", "1", "0.0", "1.0"):
+            value = value[0]
+        if value not in allowed:
+            return {
+                "error": f"unknown {dim} {value!r}",
+                "available": list(allowed),
+            }
+    return None
+
+
+def _where(
+    symbol: str,
+    window: dict[str, Any],
+    filters: dict[str, Any],
+) -> tuple[str, list[Any]]:
+    clauses = ["underlying = ?", "date >= ?", "date <= ?"]
+    params: list[Any] = [symbol, window["since"], window["until"]]
+    for dim, col in _GROUP_BY.items():
+        raw = filters.get(dim)
+        if raw is None or str(raw).strip() == "":
+            continue
+        value: Any = str(raw).strip()
+        if dim == "multileg":
+            value = int(float(value))
+        clauses.append(f"{col} = ?")
+        params.append(value)
+    return " AND ".join(clauses), params
+
+
+def _stamp(window: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "since": window["since"],
+        "until": window["until"],
+        "corpus_through": window["corpus_through"],
+        "stale_days": window["stale_days"],
+        "side_is_not_sentiment": True,
+        "note": (
+            "side is a midpoint/quote classification, not sentiment — packages "
+            "are ~53% of premium and a multi-leg flip reverses the sign. "
+            "Rarity is a rank in this name's bucket, not a forecast. "
+            "Forward screens on this fingerprint were pre-registered NULL twice."
+        ),
+    }
+
+
+def _marginals(
+    conn: sqlite3.Connection,
+    *,
+    symbol: str,
+    window: dict[str, Any],
+    group_by: str | None,
+    limit: int,
+    filters: dict[str, Any],
+) -> list[dict[str, Any]]:
+    where, params = _where(symbol, window, filters)
+    row = {
+        "symbol": symbol,
+        **_stamp(window),
+        "premium_usd": 0.0,
+        "orders": 0,
+        "prints": 0,
+    }
+    totals = conn.execute(
+        f"SELECT COALESCE(SUM(premium_usd),0), COALESCE(SUM(orders),0), "
+        f"COALESCE(SUM(prints),0) FROM flow_rollup WHERE {where}",
+        params,
+    ).fetchone()
+    row["premium_usd"] = totals[0]
+    row["orders"] = totals[1]
+    row["prints"] = totals[2]
+
+    dims = [group_by] if group_by else [
+        "right", "dte_bucket", "mny_bucket", "side", "strict_side", "multileg"
+    ]
+    for dim in dims:
+        col = _GROUP_BY[dim]
+        drill = conn.execute(
+            f"SELECT {col} AS bucket, SUM(premium_usd) AS premium_usd, "
+            f"SUM(orders) AS orders, SUM(prints) AS prints "
+            f"FROM flow_rollup WHERE {where} GROUP BY {col} "
+            f"ORDER BY premium_usd DESC LIMIT ?",
+            [*params, limit],
+        ).fetchall()
+        row[dim] = [
+            {
+                "bucket": _plain(r["bucket"]),
+                "premium_usd": r["premium_usd"],
+                "orders": r["orders"],
+                "prints": r["prints"],
+            }
+            for r in drill
+        ]
+
+    daily = conn.execute(
+        f"SELECT date, SUM(premium_usd) AS premium_usd, SUM(orders) AS orders, "
+        f"SUM(prints) AS prints FROM flow_rollup WHERE {where} "
+        f"GROUP BY date ORDER BY date LIMIT ?",
+        [*params, limit],
+    ).fetchall()
+    row["daily"] = [
+        {
+            "date": r["date"],
+            "premium_usd": r["premium_usd"],
+            "orders": r["orders"],
+            "prints": r["prints"],
+        }
+        for r in daily
+    ]
+    return [row]
+
+
+def _rarity_row(
+    conn: sqlite3.Connection,
+    *,
+    symbol: str,
+    premium: float,
+    window: dict[str, Any],
+    filters: dict[str, Any],
+) -> dict[str, Any]:
+    missing = [
+        k for k in ("right", "dte_bucket", "mny_bucket")
+        if not _opt_str(filters.get(k))
+    ]
+    if missing:
+        return {
+            "error": (
+                "rarity ranks inside (underlying, right, dte_bucket, mny_bucket) "
+                "— pass " + ", ".join(missing)
+            ),
+            "available": {k: list(_DIM_VALUES[k]) for k in ("right", "dte_bucket", "mny_bucket")},
+        }
+    where, params = _where(symbol, window, filters)
+    agg = conn.execute(
+        f"SELECT COALESCE(SUM(orders),0) AS n, "
+        f"COALESCE(SUM(CASE WHEN premium_max < ? THEN orders ELSE 0 END),0) "
+        f"AS smaller, "
+        f"MAX(premium_max) AS biggest, "
+        f"COALESCE(SUM(premium_usd),0) AS premium_usd, "
+        f"COALESCE(SUM(premium_sq_orders),0) AS premium_sq_orders "
+        f"FROM flow_rollup WHERE {where}",
+        [premium, *params],
+    ).fetchone()
+    biggest_date = None
+    if agg["biggest"] is not None:
+        hit = conn.execute(
+            f"SELECT date FROM flow_rollup WHERE {where} AND premium_max = ? "
+            f"ORDER BY date DESC LIMIT 1",
+            [*params, agg["biggest"]],
+        ).fetchone()
+        biggest_date = hit["date"] if hit else None
+    n = int(agg["n"] or 0)
+    smaller = int(agg["smaller"] or 0)
+    var = order_grain_variance(agg["premium_usd"], agg["premium_sq_orders"], n)
+    # Rank uses cell max: an order counts as smaller only when that cell's
+    # largest order was smaller. Intra-cell sizes are collapsed in the rollup,
+    # so larger_than_pct is a lower bound, never a z-score or a forecast.
+    return {
+        "symbol": symbol,
+        "premium_usd": premium,
+        "right": str(filters["right"]).strip(),
+        "dte_bucket": str(filters["dte_bucket"]).strip(),
+        "mny_bucket": str(filters["mny_bucket"]).strip(),
+        "orders_smaller": smaller,
+        "reference_n": n,
+        "larger_than_pct": round(100.0 * smaller / n, 4) if n else None,
+        "biggest_seen_usd": agg["biggest"],
+        "biggest_seen_date": biggest_date,
+        "rank_grain": "orders",
+        "rank_method": "cell_max_bound",
+        "order_variance_nonneg": var is None or var >= -1e-6,
+        **_stamp(window),
+    }
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, int) and value in (0, 1):
+        return value
+    return value if value is not None else None

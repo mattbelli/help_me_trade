@@ -1,8 +1,9 @@
 # BRIEF — `flow_history`: give the agent the 16 GB flow corpus
 
 *Self-contained coder brief, written 2026-08-03. Board card: `flow-history-agent-reach`.
-Not yet dispatched — no code exists. Measured figures below are as of 2026-08-03;
-re-check the corpus end date before quoting staleness numbers.*
+SHIPPED 2026-08-24 on `flow-history-agent-reach` (`query("flow_history")` →
+`db.flow_corpus.history_query`). Measured figures below were as of 2026-08-03;
+live corpus at ship was 2025-07-28 → 2026-08-21 (270 sessions).*
 
 ## Why this exists
 

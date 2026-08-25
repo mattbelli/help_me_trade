@@ -1171,6 +1171,13 @@ def _read_flow_perception(filters: dict[str, Any], *, db_path: Path) -> list[dic
     return rows
 
 
+def _read_flow_history(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    del db_path  # lives in data/flow_corpus.db, not trading.db
+    from db.flow_corpus import history_query
+
+    return history_query(filters)
+
+
 def _read_flow_report(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     from db.reports import recent_reports_by_kind
 
@@ -1950,6 +1957,46 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_flow_perception,
     },
+    "flow_history": {
+        "description": (
+            "Whole-market OPRA directional-flow HISTORY for one name: 16GB rollup "
+            "corpus (every listed underlying, not the watchlist), session × right × "
+            "DTE × moneyness × side. Default answer is MARGINALS — weight on each "
+            "axis separately, plus a daily series — because the crossed grain is "
+            "unreadable. Pass premium_usd + right + dte_bucket + mny_bucket for a "
+            "rarity RANK of one print against that name's own matching orders. "
+            "Rarity is measurable; significance is not. Forward screens on this "
+            "fingerprint were pre-registered NULL twice (FLOW_ROADMAP 1.14c/1.14d) "
+            "— no direction word, no probability, no score. side is a "
+            "midpoint/quote classification, not sentiment (packages ~53% of "
+            "premium; a multi-leg flip reverses the sign). Vocab: right=C|P; "
+            "dte_bucket=0-7|8-30|31-90|90+; mny_bucket=atm|itm|otm2_10|otm10p|"
+            "no_spot_index|no_spot_missing; side/strict_side=buy|sell|"
+            "unclassified|wide_spread; multileg=0|1. An invalid filter returns "
+            "the valid set. symbol is REQUIRED — the only index is "
+            "(underlying, date); a market-wide group-by is a full-table scan. "
+            "For market-wide unusual-vs-peers, query flow_perception. "
+            "Every row carries corpus_through + stale_days so a stopped corpus "
+            "cannot read as 'nothing happened'."
+        ),
+        "filters": {
+            "symbol": "REQUIRED — ticker (the only index is underlying, date)",
+            "since": "optional ISO date — default trailing 60 sessions",
+            "until": "optional ISO date — default latest corpus session",
+            "group_by": "optional ONE of right|dte_bucket|mny_bucket|side|"
+                        "strict_side|cond|multileg — never a list",
+            "limit": "optional int — cap on drill/daily rows, default 400",
+            "premium_usd": "optional — with right+dte_bucket+mny_bucket, rarity rank",
+            "right": "optional C|P (required for rarity)",
+            "dte_bucket": "optional 0-7|8-30|31-90|90+",
+            "mny_bucket": "optional atm|itm|otm2_10|otm10p|…",
+            "side": "optional buy|sell|unclassified|wide_spread",
+            "strict_side": "optional, same vocab as side",
+            "cond": "optional Alpaca condition code",
+            "multileg": "optional 0|1",
+        },
+        "read": _read_flow_history,
+    },
     "abnormality": {
         "description": (
             "Vol/volume abnormality perception — a MAGNITUDE TELL, not a verdict. "
@@ -2183,6 +2230,10 @@ _RESOURCE_ALIASES = {
     "unusual_flow": "flow_perception",
     "unusual_options_flow": "flow_perception",
     "flow_scan": "flow_perception",
+    "flow_corpus": "flow_history",
+    "flow_hist": "flow_history",
+    "historical_flow": "flow_history",
+    "flow_baseline": "flow_history",
     "vol_scanner": "abnormality",
     "unusual_activity": "abnormality",
     "abnormality_scanner": "abnormality",

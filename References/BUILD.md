@@ -31,7 +31,7 @@ rough cuts, not measurements):
 
 | Stage | Built | Frontier / gap |
 |---|---|---|
-| PERCEIVE | ~90% | options flow (own OPRA collector) + equity tape (own collector) + filings + EDGAR earnings + FINRA SI + regime + social + index-pressure gauge all live; gaps: fundamentals depth, news |
+| PERCEIVE | ~90% | options flow (own OPRA collector + **`query("flow_history")` on the 17GB whole-market rollup**, 2026-08-24) + equity tape (own collector) + filings + EDGAR earnings + FINRA SI + regime + social + index-pressure gauge all live; gaps: fundamentals depth, news |
 | REASON | ~80% | ONE Python chat brain (`ai/chat/loop.py`, all surfaces) + research engine v2 + nightly setup scan w/ conviction lane; gaps: durable multi-step loop, vector memory (parked, founder lane) |
 | DECIDE | ~70% | **Idea Engine Phase 1 LIVE 07-16** (unified ledger + Grading Law + lane alarms); calibrated scorer wired; the EDGE is the frontier — fusion layer designed (`DECISION_ENGINE_FUSION_DESIGN_2026-07-13.md`), not built |
 | ACT | ~90% | chokepoint + phone approval + paper auto-entry/exit LIVE (exit engine revived 07-16 #91); LIVE hard-gated (Increment 3); bounded-auto = rung-3 design intel staged |
