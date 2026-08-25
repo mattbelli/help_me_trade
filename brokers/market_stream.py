@@ -123,6 +123,14 @@ TRADE_EXCLUDE_CONDITIONS = frozenset(
 # ceiling: ~10 Hz / symbol / client. Alerts are NOT throttled.
 BROADCAST_THROTTLE_MS = 100.0
 
+# Quote-watch lane (DOM ladder): NBBO quote frames are ~100-1000x the trade
+# rate for a liquid symbol, so the upstream `quotes` channel is subscribed ONLY
+# for symbols a connected client explicitly quote-watches — never the whole
+# pinned/watchlist set. Small hard caps keep the loopback proxy's per-client
+# queue (2000 frames, drop-on-overflow) out of reach.
+MAX_QUOTE_WATCH_PER_CLIENT = 3
+MAX_QUOTE_SYMBOLS = 12
+
 
 def _daily_prev_close(bars: list, session: str | None = None) -> float:
     """The close every % on a row is measured against — ToS "Mark % change"
@@ -201,6 +209,12 @@ class QuoteState:
     ext_price: float | None = None
     ext_change_pct: float | None = None
     market_session: str | None = None
+    # NBBO sizes + quote timestamp — populated only while a client quote-watches
+    # the symbol (the `quotes` WS action). Alpaca SIP sizes are SHARES (round
+    # lots only before 2025-11-03), so no ×100 anywhere.
+    bid_size: float = 0.0
+    ask_size: float = 0.0
+    quote_ts: int | None = None
 
 
 class BaseMarketHub:
@@ -219,6 +233,14 @@ class BaseMarketHub:
         self._subscribed: set[str] = set()
         self._pending_add: set[str] = set()
         self._pending_remove: set[str] = set()
+        # Quote-watch lane (see MAX_QUOTE_WATCH_PER_CLIENT): per-client NBBO
+        # watch sets, and the upstream `quotes`-channel subscription they drive.
+        # Deliberately separate from the trade/bars sets — the quotes channel is
+        # subscribed per-symbol on demand, never for the whole pinned set.
+        self._quote_watch: dict[WebSocket, set[str]] = {}
+        self._quotes_subscribed: set[str] = set()
+        self._pending_quote_add: set[str] = set()
+        self._pending_quote_remove: set[str] = set()
         self._lock = asyncio.Lock()
         self._upstream_task: asyncio.Task | None = None
         self._running = False
@@ -316,13 +338,37 @@ class BaseMarketHub:
                     await self._ensure_baselines(symbols)
                     await self._sync_upstream()
                     await self._send_quotes(ws, self._snapshot_for(symbols))
+                elif action == "quotes":
+                    # NBBO quote-watch for a DOM ladder / ticket: replace-set,
+                    # like `subscribe`. Quote frames still fan out through the
+                    # normal per-symbol broadcast, so the client should also
+                    # `subscribe` the symbol (the DOM does both).
+                    watch = _normalize_symbols(msg.get("symbols"))
+                    if len(watch) > MAX_QUOTE_WATCH_PER_CLIENT:
+                        watch = set(sorted(watch)[:MAX_QUOTE_WATCH_PER_CLIENT])
+                    self._quote_watch[ws] = watch
+                    # Seed QuoteStates BEFORE any `q` frame can arrive — a
+                    # quote-created bare state would be skipped by the
+                    # baseline seeder forever (the price=0 trap at
+                    # _send_quotes).
+                    await self._ensure_baselines(watch)
+                    await self._sync_quote_upstream()
+                    # Ack what is actually watched (truncation and asset-class
+                    # drops are otherwise silent) before the data snapshot.
+                    await ws.send_json(
+                        {"type": "quote_watch", "symbols": sorted(watch)}
+                    )
+                    await self._send_quotes(ws, self._snapshot_for(watch))
                 elif action == "ping":
                     await ws.send_json({"type": "pong"})
         except WebSocketDisconnect:
             pass
         finally:
             self._clients.pop(ws, None)
+            had_watch = self._quote_watch.pop(ws, None)
             await self._sync_upstream()
+            if had_watch:
+                await self._sync_quote_upstream()
 
     async def _send_quotes(
         self, ws: WebSocket, quotes: dict[str, QuoteState]
@@ -539,6 +585,37 @@ class BaseMarketHub:
             self._pending_remove |= to_remove
         if to_add:
             await self._ensure_baselines(to_add)
+
+    def _quote_desired(self) -> set[str]:
+        desired: set[str] = set()
+        for symbols in self._quote_watch.values():
+            desired.update(symbols)
+        if len(desired) > MAX_QUOTE_SYMBOLS:
+            kept = set(sorted(desired)[:MAX_QUOTE_SYMBOLS])
+            logger.warning(
+                "quote-watch cap: dropping %d of %d desired symbols (cap=%d)",
+                len(desired) - len(kept),
+                len(desired),
+                MAX_QUOTE_SYMBOLS,
+            )
+            desired = kept
+        return desired
+
+    async def _sync_quote_upstream(self) -> None:
+        desired = self._quote_desired()
+        async with self._lock:
+            to_add = desired - self._quotes_subscribed
+            to_remove = self._quotes_subscribed - desired
+            self._quotes_subscribed = desired
+            # Cancel the OPPOSITE pending too: a watch that flickers off and
+            # on inside one drain window must not leave both an add and a
+            # remove queued — the drain sends unsubscribe first, so the stale
+            # add would re-subscribe a symbol nobody watches (leaked upstream
+            # sub, unreachable by any later diff — measured in review).
+            self._pending_quote_add |= to_add
+            self._pending_quote_add -= to_remove
+            self._pending_quote_remove |= to_remove
+            self._pending_quote_remove -= to_add
 
     async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
         """Seed QuoteState for new symbols; ``force`` re-seeds existing ones
@@ -794,48 +871,62 @@ class AlpacaMarketStreamHub(BaseMarketHub):
 
                     async with self._lock:
                         initial = set(self._subscribed)
+                        initial_quotes = set(self._quotes_subscribed)
                         self._pending_add -= initial
-                    if initial:
-                        await self._alpaca_send(
-                            alpaca_ws,
-                            {
-                                "action": "subscribe",
-                                "trades": sorted(initial),
-                                "bars": sorted(initial),
-                                "updatedBars": sorted(initial),
-                                "dailyBars": sorted(initial),
-                            },
-                        )
+                        self._pending_quote_add -= initial_quotes
+                    if initial or initial_quotes:
+                        payload: dict[str, Any] = {"action": "subscribe"}
+                        if initial:
+                            payload.update(
+                                trades=sorted(initial),
+                                bars=sorted(initial),
+                                updatedBars=sorted(initial),
+                                dailyBars=sorted(initial),
+                            )
+                        if initial_quotes:
+                            payload["quotes"] = sorted(initial_quotes)
+                        await self._alpaca_send(alpaca_ws, payload)
 
                     while self._running:
-                        if self._pending_add or self._pending_remove:
+                        if (
+                            self._pending_add
+                            or self._pending_remove
+                            or self._pending_quote_add
+                            or self._pending_quote_remove
+                        ):
                             async with self._lock:
                                 pending_remove = set(self._pending_remove)
                                 pending_add = set(self._pending_add)
+                                q_remove = set(self._pending_quote_remove)
+                                q_add = set(self._pending_quote_add)
                                 self._pending_remove.clear()
                                 self._pending_add.clear()
-                            if pending_remove:
-                                await self._alpaca_send(
-                                    alpaca_ws,
-                                    {
-                                        "action": "unsubscribe",
-                                        "trades": sorted(pending_remove),
-                                        "bars": sorted(pending_remove),
-                                        "updatedBars": sorted(pending_remove),
-                                        "dailyBars": sorted(pending_remove),
-                                    },
-                                )
-                            if pending_add:
-                                await self._alpaca_send(
-                                    alpaca_ws,
-                                    {
-                                        "action": "subscribe",
-                                        "trades": sorted(pending_add),
-                                        "bars": sorted(pending_add),
-                                        "updatedBars": sorted(pending_add),
-                                        "dailyBars": sorted(pending_add),
-                                    },
-                                )
+                                self._pending_quote_remove.clear()
+                                self._pending_quote_add.clear()
+                            if pending_remove or q_remove:
+                                payload = {"action": "unsubscribe"}
+                                if pending_remove:
+                                    payload.update(
+                                        trades=sorted(pending_remove),
+                                        bars=sorted(pending_remove),
+                                        updatedBars=sorted(pending_remove),
+                                        dailyBars=sorted(pending_remove),
+                                    )
+                                if q_remove:
+                                    payload["quotes"] = sorted(q_remove)
+                                await self._alpaca_send(alpaca_ws, payload)
+                            if pending_add or q_add:
+                                payload = {"action": "subscribe"}
+                                if pending_add:
+                                    payload.update(
+                                        trades=sorted(pending_add),
+                                        bars=sorted(pending_add),
+                                        updatedBars=sorted(pending_add),
+                                        dailyBars=sorted(pending_add),
+                                    )
+                                if q_add:
+                                    payload["quotes"] = sorted(q_add)
+                                await self._alpaca_send(alpaca_ws, payload)
 
                         try:
                             raw = await asyncio.wait_for(
@@ -911,6 +1002,14 @@ class AlpacaMarketStreamHub(BaseMarketHub):
             msg_type = item.get("T")
             if msg_type == "t":
                 await self._on_trade(item)
+            elif msg_type == "q":
+                await self._on_quote(item)
+            elif msg_type == "error":
+                # Mid-stream errors (e.g. a rejected subscription) were
+                # previously swallowed — the handshake handler only covers
+                # connect time. Log loudly; the reconnect loop re-derives
+                # subscriptions from the desired sets either way.
+                logger.warning("Alpaca stream error frame: %s", item)
             elif msg_type in ("b", "u"):
                 await self._on_vendor_minute_bar(item)
             elif msg_type in ("d", "db"):
@@ -919,6 +1018,33 @@ class AlpacaMarketStreamHub(BaseMarketHub):
                 # 2026-07-15: only matching "db" left the dailyBars channel
                 # dead-on-arrival (real frames were silently ignored).
                 await self._on_daily_bar(item)
+
+    async def _on_quote(self, item: dict[str, Any]) -> None:
+        """NBBO quote frame (`q`) — only arrives for quote-watched symbols.
+
+        No suspect-print banding here: quotes are the venue's own book, not a
+        tape print, and the ladder wants the book as-is (one-sided quotes carry
+        a 0 on the empty side). The 100ms broadcast throttle bounds fan-out.
+        """
+        symbol = str(item.get("S", "")).upper()
+        if not symbol:
+            return
+        state = self._quotes.get(symbol)
+        if state is None:
+            # Never seed here: a bare QuoteState (price=0) is skipped by the
+            # baseline seeder forever and its zeros would clobber every
+            # client's REST-derived price. The `quotes` action seeds via
+            # _ensure_baselines before the upstream sub exists.
+            return
+        try:
+            state.bid = float(item.get("bp") or 0.0)
+            state.ask = float(item.get("ap") or 0.0)
+            state.bid_size = float(item.get("bs") or 0.0)
+            state.ask_size = float(item.get("as") or 0.0)
+        except (TypeError, ValueError):
+            return
+        state.quote_ts = parse_ts_ms(item.get("t"))
+        await self._broadcast_quote(symbol)
 
     async def _on_trade(self, item: dict[str, Any]) -> None:
         symbol = str(item.get("S", "")).upper()
@@ -1210,6 +1336,9 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
         "sparkline": state.sparkline,
         "bid": state.bid,
         "ask": state.ask,
+        "bid_size": state.bid_size,
+        "ask_size": state.ask_size,
+        "quote_ts": state.quote_ts,
         "volume": state.volume,
         "ext_price": state.ext_price,
         "ext_change_pct": state.ext_change_pct,

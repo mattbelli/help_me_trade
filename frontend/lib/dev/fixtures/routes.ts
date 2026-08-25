@@ -49,6 +49,44 @@ const ROUTES: [RegExp, Handler][] = [
     both(accounts.PORTFOLIO_HISTORY, accounts.PORTFOLIO_HISTORY_EMPTY),
   ],
 
+  // ── manual trading ───────────────────────────────────────────────────────
+  [
+    /^\/api\/manual\/limits$/,
+    always({
+      execution_mode: "paper",
+      kill_switch_active: false,
+      entries_halted: false,
+      market_open: true,
+      orders_today: 6,
+      orders_today_account: 4,
+      max_daily_orders: 20,
+      max_open_orders: 10,
+      open_orders: 4,
+      max_order_value_usd: 50000,
+      account_id: "acct_paper_main",
+      admin_unlocked: true,
+    }),
+  ],
+  [
+    /^\/api\/strategies\/accounts$/,
+    always({
+      accounts: [
+        {
+          id: "acct_paper_main",
+          label: "paper-main",
+          broker: "alpaca",
+          is_default: true,
+        },
+        {
+          id: "acct_paper_swing",
+          label: "paper-swing",
+          broker: "alpaca",
+          is_default: false,
+        },
+      ],
+    }),
+  ],
+
   // ── trades / orders ──────────────────────────────────────────────────────
   [
     /^\/api\/trades\/accounts$/,

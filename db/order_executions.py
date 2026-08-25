@@ -511,6 +511,27 @@ def get_execution(
     return _row_to_execution(row) if row else None
 
 
+def get_execution_by_broker_order(
+    broker_order_id: str,
+    *,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Execution row for a broker-side order id (snapshot open_orders carry
+    the broker id, not ours). None for orders we did not place."""
+    init_execution_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM order_executions
+            WHERE broker_order_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (broker_order_id,),
+        ).fetchone()
+    return _row_to_execution(row) if row else None
+
+
 def get_execution_by_proposal(
     proposal_id: str,
     *,

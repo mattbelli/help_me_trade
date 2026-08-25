@@ -102,6 +102,9 @@ export type Order = {
   status: string;
   filled_qty: number;
   limit_price: number | null;
+  // Present in the snapshot since 2026-08-01; the ladder/chart draw them.
+  stop_price?: number | null;
+  time_in_force?: string | null;
 };
 
 export type AllAccountsSummary = {
@@ -512,6 +515,10 @@ export type WatchlistQuote = {
   next_earnings?: string | null;
   bid?: number | null;
   ask?: number | null;
+  // NBBO sizes in SHARES (quote-watch lane; zero until a client watches).
+  bid_size?: number | null;
+  ask_size?: number | null;
+  quote_ts?: number | null;
   w52_high?: number | null;
   w52_low?: number | null;
   atr14?: number | null;

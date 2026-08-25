@@ -707,6 +707,7 @@ async def create_phone_proposal(
     thesis: str | None = None,
     entry_ref_price: str | None = None,
     ttl_seconds: int = DEFAULT_PROPOSAL_TTL_SECONDS,
+    announce: bool = True,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     # Book entry styles (moo/GTC-limit/ext) come with cap exemptions and the
@@ -803,6 +804,11 @@ async def create_phone_proposal(
         logger.warning(
             "decision_journal CONTEXT hook failed for %s", row.get("id"), exc_info=True
         )
+
+    # The desk's manual path approves in the same request — announcing an
+    # already-decided proposal would page the phone for nothing.
+    if not announce:
+        return row
 
     side = str(intent_fields["side"]).upper()
     qty = intent_fields["qty"]

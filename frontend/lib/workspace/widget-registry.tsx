@@ -29,6 +29,8 @@ import { NewsWidget } from "@/components/workspace/widgets/news-widget";
 import { IdeaOutcomesWidget } from "@/components/workspace/widgets/idea-outcomes-widget";
 import { EvidenceStackWidget } from "@/components/workspace/widgets/evidence-stack-widget";
 import { DeskWidget } from "@/components/workspace/widgets/desk-widget";
+import { DomLadderWidget } from "@/components/workspace/widgets/dom-ladder-widget";
+import { TradeTicketWidget } from "@/components/workspace/widgets/trade-ticket-widget";
 
 import type { WidgetInstanceConfig } from "./layout-persistence";
 
@@ -57,6 +59,26 @@ export type WidgetDefinition = {
 };
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
+  {
+    id: "trade-ticket",
+    title: "trade ticket",
+    description:
+      "Manual order entry — paper accounts, through the proposal chokepoint",
+    multiInstance: true,
+    channelAware: true,
+    component: TradeTicketWidget,
+    defaultSize: { w: 8, h: 5, minW: 6, minH: 4 },
+  },
+  {
+    id: "dom",
+    title: "dom ladder",
+    description:
+      "Price ladder — NBBO, session volume, click-to-trade at a price",
+    multiInstance: true,
+    channelAware: true,
+    component: DomLadderWidget,
+    defaultSize: { w: 8, h: 8, minW: 5, minH: 5 },
+  },
   {
     id: "positions",
     title: "positions",

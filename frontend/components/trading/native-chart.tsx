@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createDrawing,
@@ -49,6 +49,16 @@ import type {
   OverlaySegment,
   PaneStudySeries,
 } from "@/lib/chart-engine/types";
+import {
+  cancelManualOrder,
+  closeManualPosition,
+  placeManualOrder,
+  replaceManualOrder,
+  snapPrice,
+  verbText,
+} from "@/lib/manual-trading-api";
+import { useSnapshot } from "@/components/providers/snapshot-provider";
+import { useManualQtyStore } from "@/lib/workspace/use-manual-qty-store";
 import { OVERLAY_STUDIES } from "@/lib/chart-studies";
 import { macdSeries, rsiSeries } from "@/lib/indicators";
 import {
@@ -290,6 +300,8 @@ export function NativeChart({
     alertId: number | null;
     levelId: number | null;
     shapeId: number | null;
+    orderId: string | null;
+    positionHit: boolean;
   } | null>(null);
   const [pendingAlert, setPendingAlert] = useState<{ x: number; y: number } | null>(
     null,
@@ -304,6 +316,43 @@ export function NativeChart({
   // The engine outlives symbol switches — its callbacks read these refs.
   const symbolRef = useRef(symbol);
   const drawingsRef = useRef<ChartDrawing[]>([]);
+
+  // Chart trading: working orders + position for this symbol (default paper
+  // account scope, same as the DOM), drawn as overlay lines. All actions ride
+  // the admin-gated manual verbs; feedback renders as a pointer-events-none
+  // line above the legend (never buttons floating on the canvas).
+  const { snapshot, refresh: refreshSnapshot } = useSnapshot();
+  const tradeScope = snapshot?.snapshots?.find((sn) => sn.is_default)
+    ?? snapshot?.snapshots?.find((sn) => sn.money_type === "paper");
+  // Memoized: these feed the overlays effect — fresh array identities every
+  // render would re-push overlays to the engine on every state change.
+  const chartOrders = useMemo(
+    () => (tradeScope?.open_orders ?? []).filter((o) => o.symbol === symbol),
+    [tradeScope, symbol],
+  );
+  const chartPosition = useMemo(
+    () =>
+      (tradeScope?.positions ?? []).find(
+        (p) => p.symbol === symbol && p.side === "long",
+      ),
+    [tradeScope, symbol],
+  );
+  const chartOrdersRef = useRef(chartOrders);
+  chartOrdersRef.current = chartOrders;
+  const chartPositionRef = useRef(chartPosition);
+  chartPositionRef.current = chartPosition;
+  const refreshSnapshotRef = useRef(refreshSnapshot);
+  refreshSnapshotRef.current = refreshSnapshot;
+  const [tradeMsg, setTradeMsg] = useState<{
+    tone: "ok" | "err";
+    text: string;
+  } | null>(null);
+  const tradeMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showTradeMsg = useCallback((tone: "ok" | "err", text: string) => {
+    setTradeMsg({ tone, text });
+    if (tradeMsgTimer.current) clearTimeout(tradeMsgTimer.current);
+    tradeMsgTimer.current = setTimeout(() => setTradeMsg(null), 6_000);
+  }, []);
 
   useEffect(() => {
     styleRef.current = style;
@@ -352,6 +401,10 @@ export function NativeChart({
         const shapeId = hit.segmentId?.startsWith("shape:")
           ? Number(hit.segmentId.slice(6))
           : null;
+        const orderId = hit.lineId?.startsWith("order:")
+          ? hit.lineId.slice(6)
+          : null;
+        const positionHit = hit.lineId?.startsWith("pos:") ?? false;
         setPendingAlert(null);
         setMenu({
           x: hit.x,
@@ -362,9 +415,28 @@ export function NativeChart({
           alertId,
           levelId,
           shapeId,
+          orderId,
+          positionHit,
         });
       },
       onLineDragEnd: (id, price) => {
+        if (id.startsWith("order:")) {
+          // Drag-to-move a working limit: cancel + revalidated re-place via
+          // the manual verb. Refresh either way — success shows the new line,
+          // failure snaps it back to the broker's truth.
+          void replaceManualOrder(id.slice(6), snapPrice(price))
+            .then((result) => {
+              showTradeMsg(
+                result.status === "executed" ? "ok" : "err",
+                result.status === "executed"
+                  ? `moved to ${snapPrice(price)}`
+                  : verbText(result),
+              );
+            })
+            .catch((err) => showTradeMsg("err", String(err)))
+            .finally(() => refreshSnapshotRef.current());
+          return;
+        }
         if (!id.startsWith("alert:")) return;
         // Refetch either way: success confirms, failure snaps the line back.
         updatePriceAlert(Number(id.slice(6)), {
@@ -567,13 +639,53 @@ export function NativeChart({
         });
       }
     }
+    // Working orders / protective stops / position (chart trading). Alert-line
+    // alpha convention (0.55); labels name the order so the founder never has
+    // to guess which line is which.
+    for (const o of chartOrders) {
+      const linePrice = o.limit_price ?? o.stop_price;
+      if (linePrice == null) continue;
+      const remaining = o.qty - (o.filled_qty || 0);
+      if (o.order_type === "stop" || o.order_type?.startsWith("stop") || (o.order_type ?? "").includes("trail")) {
+        lines.push({
+          price: linePrice,
+          color: withAlpha(resolveCssColor("--c-amber", "#e0b154"), 0.55),
+          dash: [4, 3],
+          label: `stop ${remaining}`,
+          // No id on purpose: not draggable, not cancelable from the chart —
+          // the stop guard owns it.
+        });
+        continue;
+      }
+      const buy = o.side === "buy";
+      lines.push({
+        price: linePrice,
+        color: withAlpha(
+          resolveCssColor(buy ? "--c-green" : "--c-red", buy ? "#5bc98a" : "#ef6f6c"),
+          0.55,
+        ),
+        dash: [6, 2],
+        label: `${o.side} ${remaining} lmt`,
+        id: `order:${o.id}`,
+        draggable: o.order_type === "limit",
+      });
+    }
+    if (chartPosition && chartPosition.avg_entry_price > 0) {
+      lines.push({
+        price: chartPosition.avg_entry_price,
+        color: withAlpha(resolveCssColor("--fg-dim", "#9aa1ab"), 0.5),
+        dash: [8, 4],
+        label: `pos ${chartPosition.qty}`,
+        id: `pos:${chartPosition.symbol}`,
+      });
+    }
     const overlays: EngineOverlays = { lines, segments };
     // Hiding the tag column hides every overlay line with it (founder call:
     // one quick switch back to a clean chart).
     engineRef.current?.setOverlays(
       showTagColumn && (lines.length || segments.length) ? overlays : null,
     );
-  }, [alerts, levels, drawings, themeNonce, timeframe.intraday, showTagColumn]);
+  }, [alerts, levels, drawings, chartOrders, chartPosition, themeNonce, timeframe.intraday, showTagColumn]);
 
   // Theme changes (mode toggle or custom-theme var edits) re-resolve colors.
   useEffect(() => {
@@ -823,13 +935,86 @@ export function NativeChart({
     setMenu(null);
   }
 
+  async function handleCancelOrderFromMenu() {
+    const orderId = menu?.orderId;
+    setMenu(null);
+    if (!orderId) return;
+    try {
+      const result = await cancelManualOrder(orderId);
+      showTradeMsg(
+        result.status === "cancel_sent" ? "ok" : "err",
+        verbText(result),
+      );
+    } catch (err) {
+      showTradeMsg("err", String(err));
+    } finally {
+      refreshSnapshotRef.current();
+    }
+  }
+
+  async function handleFlattenFromMenu() {
+    const pos = chartPositionRef.current;
+    setMenu(null);
+    if (!pos) return;
+    try {
+      const result = await closeManualPosition(pos.symbol);
+      showTradeMsg(
+        result.status === "executed" ? "ok" : "err",
+        result.status === "executed" ? `flattening ${pos.symbol}` : verbText(result),
+      );
+    } catch (err) {
+      showTradeMsg("err", String(err));
+    } finally {
+      refreshSnapshotRef.current();
+    }
+  }
+
+  async function handlePlaceFromMenu(side: "buy" | "sell", price: number) {
+    setMenu(null);
+    const qty = useManualQtyStore.getState().qty;
+    try {
+      const result = await placeManualOrder({
+        symbol: symbolRef.current,
+        side,
+        qty,
+        order_type: "limit",
+        limit_price: snapPrice(price),
+      });
+      showTradeMsg(
+        result.status === "executed" ? "ok" : "err",
+        result.status === "executed"
+          ? `${side} ${qty} @ ${snapPrice(price)} sent`
+          : verbText(result),
+      );
+    } catch (err) {
+      showTradeMsg("err", String(err));
+    } finally {
+      refreshSnapshotRef.current();
+    }
+  }
+
   const hitShapeKind =
     menu?.shapeId != null
       ? (drawings.find((d) => d.id === menu.shapeId)?.kind ?? "trendline")
       : null;
 
+  const menuQty = useManualQtyStore((st) => st.qty);
   const menuItems: ChartMenuItem[] = menu
-    ? menu.alertId != null
+    ? menu.orderId != null
+      ? [
+          {
+            label: "Cancel order",
+            onSelect: () => void handleCancelOrderFromMenu(),
+          },
+        ]
+      : menu.positionHit
+        ? [
+            {
+              label: `Flatten position`,
+              onSelect: () => void handleFlattenFromMenu(),
+            },
+          ]
+      : menu.alertId != null
       ? [{ label: "Remove alert", onSelect: () => void handleRemoveAlert() }]
       : menu.shapeId != null
         ? [
@@ -842,6 +1027,14 @@ export function NativeChart({
             ...(menu.levelId != null
               ? [{ label: "Remove level", onSelect: () => void handleRemoveLevel() }]
               : [
+                  {
+                    label: `Buy ${menuQty} @ ${menu.price.toFixed(2)} lmt`,
+                    onSelect: () => void handlePlaceFromMenu("buy", menu.price),
+                  },
+                  {
+                    label: `Sell ${menuQty} @ ${menu.price.toFixed(2)} lmt`,
+                    onSelect: () => void handlePlaceFromMenu("sell", menu.price),
+                  },
                   {
                     label: `Add level at ${menu.price.toFixed(2)}`,
                     onSelect: () => void handleAddLevel(),
@@ -924,6 +1117,19 @@ export function NativeChart({
         <div className="pointer-events-none absolute left-2 top-1.5 z-20">
           <p className="text-[11px] tabular-nums text-muted-foreground">
             {legend}
+          </p>
+        </div>
+      ) : null}
+      {tradeMsg ? (
+        <div className="pointer-events-none absolute bottom-2 left-2 z-20">
+          <p
+            className="font-mono text-[length:var(--fs-table)]"
+            style={{
+              color:
+                tradeMsg.tone === "ok" ? "var(--c-green)" : "var(--c-red)",
+            }}
+          >
+            {tradeMsg.text}
           </p>
         </div>
       ) : null}

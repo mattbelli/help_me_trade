@@ -205,7 +205,7 @@ export function EquityFeedPanel({ snap }: { snap: CollectorSnapshot | null }) {
     <div className="space-y-2">
       <Header snap={snap} title="SIP tape · Rust" />
       <div className="flex items-baseline justify-between">
-        <span className="text-[length:var(--fs-h2)] font-bold tabular-nums text-foreground">
+        <span className="text-[length:var(--fs-emph)] font-bold tabular-nums text-foreground">
           {rate(snap.rate_1s)}
         </span>
         <span className="text-[length:var(--fs-micro)] text-[var(--fg-faint)]">
@@ -253,7 +253,7 @@ export function FlowFeedPanel({ snap }: { snap: CollectorSnapshot | null }) {
     <div className="space-y-2">
       <Header snap={snap} title="OPRA · Databento" />
       <div className="flex items-baseline justify-between">
-        <span className="text-[length:var(--fs-h2)] font-bold tabular-nums text-foreground">
+        <span className="text-[length:var(--fs-emph)] font-bold tabular-nums text-foreground">
           {num(snap.prints_per_min)}
           <span className="ml-1 text-[length:var(--fs-micro)] font-normal text-[var(--fg-faint)]">prints/min</span>
         </span>

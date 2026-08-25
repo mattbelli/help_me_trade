@@ -48,7 +48,11 @@ def order_intent_from_fields(
     # silently die at a session boundary.
     entry_style = str(intent_fields.get("entry_style") or "")
     book_entry = entry_style in ("moo", "book_limit", "book_ext")
-    extended_hours = entry_style == "book_ext"
+    # Manual desk orders may carry an explicit TIF/ext (validated at
+    # build_order_proposal_from_args); book styles keep deciding their own.
+    extended_hours = entry_style == "book_ext" or bool(
+        intent_fields.get("extended_hours")
+    )
     if entry_style == "moo":
         from trading.market_hours import moo_time_in_force
 
@@ -59,7 +63,7 @@ def order_intent_from_fields(
     elif entry_style in ("book_limit", "book_ext"):
         time_in_force = "gtc"
     else:
-        time_in_force = "day"
+        time_in_force = str(intent_fields.get("time_in_force") or "day")
     if not account_id:
         default = default_execution_account(db_path=db_path)
         if default is not None:
@@ -105,6 +109,8 @@ def intent_fields_from_order(
     allow_fractional: bool = False,
     entry_style: str = "immediate",
     stop_price: Decimal | None = None,
+    time_in_force: str = "day",
+    extended_hours: bool = False,
 ) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "symbol": symbol,
@@ -121,6 +127,12 @@ def intent_fields_from_order(
     }
     if entry_style != "immediate":
         fields["entry_style"] = entry_style
+    # Non-default only: keeps canonical payloads (and their hashes) byte-stable
+    # for every existing caller that never sets these.
+    if time_in_force != "day":
+        fields["time_in_force"] = time_in_force
+    if extended_hours:
+        fields["extended_hours"] = True
     if stop_price is not None:
         # Metadata, not an entry-order param: the stop guard places this as a
         # resting GTC stop AFTER the entry fills. Never set on the entry intent.
@@ -206,10 +218,22 @@ def build_order_proposal_from_args(
         qty = Decimal(str(qty_raw))
     except Exception:
         return {"error": "qty must be a number"}
-    if qty <= 0:
-        return {"error": "qty must be positive"}
+    # NaN raises on comparison; Infinity passes a bare > 0 — both must die
+    # here, not as a 500 (or an inf-qty proposal row) downstream.
+    if not qty.is_finite() or qty <= 0:
+        return {"error": "qty must be a positive finite number"}
     if order_type not in ("market", "limit"):
         return {"error": "order_type must be market or limit"}
+
+    # Manual-desk knobs. Default day/False keeps every existing caller's
+    # canonical payload unchanged; the RiskEngine order_shape gate re-checks
+    # both at submit (ext hours ⇒ whole-share equity day/gtc LIMIT).
+    time_in_force = str(args.get("time_in_force", "day")).strip().lower()
+    if time_in_force not in ("day", "gtc"):
+        return {"error": "time_in_force must be day or gtc"}
+    extended_hours = bool(args.get("extended_hours", False))
+    if extended_hours and (order_type != "limit" or opt is not None):
+        return {"error": "extended_hours requires an equity limit order"}
 
     entry_style = str(args.get("entry_style", "immediate")).strip().lower()
     if entry_style not in ("immediate", "moo", "book_limit", "book_ext"):
@@ -235,8 +259,8 @@ def build_order_proposal_from_args(
             stop_price = Decimal(str(stop_raw))
         except Exception:
             return {"error": "stop_price must be a number"}
-        if stop_price <= 0:
-            return {"error": "stop_price must be positive"}
+        if not stop_price.is_finite() or stop_price <= 0:
+            return {"error": "stop_price must be a positive finite number"}
 
     limit_price: Decimal | None = None
     if limit_price_raw is not None:
@@ -244,6 +268,8 @@ def build_order_proposal_from_args(
             limit_price = Decimal(str(limit_price_raw))
         except Exception:
             return {"error": "limit_price must be a number"}
+        if not limit_price.is_finite() or limit_price <= 0:
+            return {"error": "limit_price must be a positive finite number"}
 
     if entry_style in ("book_limit", "book_ext") and (
         order_type != "limit" or limit_price is None or limit_price <= 0
@@ -260,6 +286,10 @@ def build_order_proposal_from_args(
     }
     if entry_style != "immediate":
         proposal_payload["entry_style"] = entry_style
+    if time_in_force != "day":
+        proposal_payload["time_in_force"] = time_in_force
+    if extended_hours:
+        proposal_payload["extended_hours"] = True
     if stop_price is not None:
         proposal_payload["stop_price"] = float(stop_price)
     account_id_arg = args.get("account_id")
@@ -349,6 +379,8 @@ def build_order_proposal_from_args(
         allow_fractional=allow_fractional,
         entry_style=entry_style,
         stop_price=stop_price,
+        time_in_force=time_in_force,
+        extended_hours=extended_hours,
     )
 
     return {

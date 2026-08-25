@@ -66,7 +66,18 @@ const OPEN_ORDERS: Order[] = [
     order_type: "limit",
     status: "new",
     filled_qty: 0,
-    limit_price: 234.5,
+    // Near the fixture mark (228.71) so the DOM ladder's marker is on-screen.
+    limit_price: 228.76,
+  },
+  {
+    id: "ord_5e0aa1",
+    symbol: "AAPL",
+    qty: 25,
+    side: "buy",
+    order_type: "limit",
+    status: "new",
+    filled_qty: 0,
+    limit_price: 228.66,
   },
   {
     id: "ord_7c1b08",

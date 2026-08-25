@@ -55,6 +55,7 @@ from api.jobs import (
 from api.journal_routes import router as journal_router
 from api.loop_probe import LoopProbe
 from api.loop_probe import router as debug_router
+from api.manual_trading_routes import router as manual_trading_router
 from api.middleware import SecurityMiddleware
 from api.notification_routes import router as notification_router
 from api.ops_jobs import _filings_initial_fill
@@ -320,6 +321,7 @@ app.include_router(fill_orphan_router)
 app.include_router(ticker_router)
 app.include_router(social_router)
 app.include_router(orders_router)
+app.include_router(manual_trading_router)
 app.include_router(alert_drawing_router)
 app.include_router(fusion_router)
 app.include_router(status_page_router)

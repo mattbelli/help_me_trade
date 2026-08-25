@@ -15,7 +15,28 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
-## ▶ 08-21 Pre-close IV reading armed (#339) — first real firing owed
+## ▶ 08-25 Manual trading foundation (#342) — SHIPPED on main; deploy + founder pass owed
+
+Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDATION_SPEC.md`.
+- **⏳ Deploy** (deliberately not done 08-25 — market was open and a backend restart drops the
+  live hub). `tools/serv-deploy.sh` after close. Until then nothing user-visible changes.
+- **⏳ Founder in-browser pass:** trade-ticket + dom widgets (picker: "trade ticket", "dom
+  ladder"), chart right-click buy/sell + order-line drag. Money verbs need the ADMIN token in
+  Settings → Execution / Risk (per-tab); without it every submit answers "admin token required".
+  SHIFT-click = instant everywhere; DOM `confirm/armed` toggle = one-click mode (session-only).
+- **⏳ First live-session quote-lane verify:** open a DOM on a liquid name during RTH →
+  `journalctl -u hmt-backend | grep "quote_watch"` nothing needed — just check the ladder shows
+  moving bid/ask sizes, and the collector's stats line `proxy` shows `subs_quotes: 1` while the
+  widget is open, `0` after it closes (release on disconnect is regression-pinned but never
+  live-fired). Also eyeball `bs/as` magnitudes vs the broker UI once (sizes = SHARES).
+- **⏳ Narrow-width check** for both widgets (gallery frames can't shrink below defaultSize —
+  ui-review flagged the evidence gap).
+- Known + deliberate: `max_daily_orders=20` counts every replace twice (cancelled row + new row)
+  — the limits strip shows the burn; bump in Settings if DOM use starves it. Stop-ENTRY orders,
+  brackets/OCO, qty-replace, options ticket: spec'd as deferred phases, not built. GTC+ext manual
+  limits are standing overnight orders with NO stop guard (manual = founder's own risk, spec §4).
+
+
 
 - **⏳ 08-21 after 15:50 ET: `sqlite3 data/options_chain_history.db "select count(*), min(captured_at) from iv_preclose where session='2026-08-21'"`** → expect ~66 rows stamped 19:4x UTC. Zero rows = the cron gate or the `cd` is wrong (`grep preclose data/research/options_sampler.log`). Then delete this entry.
 - **▶ ~2026-11-15 (≈60 sessions): run the drift + bake-off on the card** — not before; the corpus is the gate, not the code.

@@ -135,6 +135,23 @@ class HybridMarketStreamHub(BaseMarketHub):
         await self._sync_child(self._schwab, schwab_syms, MAX_WS_SYMBOLS)
         await self._sync_child(self._crypto, crypto_syms, MAX_WS_SYMBOLS)
 
+    async def _sync_quote_upstream(self) -> None:
+        """Quote-watch lane: only the Alpaca (equity) child has a `quotes`
+        upstream channel. Futures bid/ask already ride the Schwab level-one
+        stream (no sizes); crypto quote-watch is dropped (no consumer)."""
+        desired = self._quote_desired()
+        alpaca_syms, _schwab_syms, _crypto_syms = _stream_partition(desired)
+        child = self._alpaca
+        async with child._lock:
+            to_add = alpaca_syms - child._quotes_subscribed
+            to_remove = child._quotes_subscribed - alpaca_syms
+            child._quotes_subscribed = alpaca_syms
+            # Symmetric cancellation — same flicker hazard as the base hub.
+            child._pending_quote_add |= to_add
+            child._pending_quote_add -= to_remove
+            child._pending_quote_remove |= to_remove
+            child._pending_quote_remove -= to_add
+
     async def _sync_child(
         self, child: BaseMarketHub, desired: set[str], cap: int
     ) -> None:

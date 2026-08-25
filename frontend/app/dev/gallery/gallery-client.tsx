@@ -36,12 +36,14 @@ function workspacePixels(def: WidgetDefinition): { width: number; height: number
 /** Per-widget starting config. Widgets not named here mount with `{}` — the
  *  list is an override map, never the source of which widgets exist. */
 const CONFIG: Record<string, WidgetInstanceConfig> = {
-  chart: { symbol: "SPY", timeframe: "1D", showSessionNodes: true },
+  chart: { symbol: "AAPL", timeframe: "1D", showSessionNodes: true },
   watchlist: { watchlistId: "core" },
   "company-info": { symbol: "AAPL" },
   news: { newsScope: "watchlist" },
   "options-chain": { symbol: "SPY", strikes: 10 },
   "index-pressure": { pressureWindow: "open" },
+  "trade-ticket": { symbol: "AAPL", ticketAccountId: "acct_paper_main" },
+  dom: { symbol: "AAPL", ticketAccountId: "acct_paper_main" },
 };
 
 /** Widgets that render an empty prompt until the founder presses a button — the

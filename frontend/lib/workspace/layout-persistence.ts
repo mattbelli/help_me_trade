@@ -49,6 +49,12 @@ export type WidgetInstanceConfig = {
   bloop?: boolean;
   /** News: feed scope. Undefined = ticker when on a channel, else watchlist. */
   newsScope?: "ticker" | "watchlist" | "sp500" | "all" | "filings";
+  /** Manual trading (ticket + DOM): default order quantity. */
+  ticketQty?: string;
+  /** Manual trading: the qty preset buttons (shared by ticket + DOM). */
+  ticketPresets?: number[];
+  /** Manual trading: target account id. Undefined = the default account. */
+  ticketAccountId?: string;
 };
 
 /** Options-flow event kinds, filterable from the widget's ⚙ menu. */
