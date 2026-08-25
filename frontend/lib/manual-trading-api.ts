@@ -152,6 +152,7 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 export function verbText(result: ManualVerbResult): string {
-  if (result.reason) return result.reason;
-  return STATUS_TEXT[result.status] ?? result.status.replace(/_/g, " ");
+  if (result.reason) return String(result.reason);
+  const status = String(result.status ?? "no response");
+  return STATUS_TEXT[status] ?? status.replace(/_/g, " ");
 }

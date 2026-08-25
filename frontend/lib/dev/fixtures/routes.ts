@@ -51,6 +51,22 @@ const ROUTES: [RegExp, Handler][] = [
 
   // ── manual trading ───────────────────────────────────────────────────────
   [
+    /^\/api\/manual\/orders$/,
+    always({ status: "executed", execution_id: "exec_gallery", proposal_id: "prop_gallery" }),
+  ],
+  [
+    /^\/api\/manual\/orders\/[^/]+\/cancel$/,
+    always({ status: "cancel_sent", execution_id: "exec_gallery", symbol: "AAPL" }),
+  ],
+  [
+    /^\/api\/manual\/orders\/[^/]+\/replace$/,
+    always({ status: "executed", execution_id: "exec_gallery2", replaced_execution_id: "exec_gallery" }),
+  ],
+  [
+    /^\/api\/manual\/positions\/close$/,
+    always({ status: "executed", execution_id: "exec_gallery3", cancelled_orders: [] }),
+  ],
+  [
     /^\/api\/manual\/limits$/,
     always({
       execution_mode: "paper",
