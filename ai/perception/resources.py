@@ -1530,6 +1530,51 @@ def _summarize_abnormality(filters: dict[str, Any], *, db_path: Path) -> dict[st
     }
 
 
+def _read_attention(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from db.attention import get_row, list_rows
+
+    symbol = str(filters.get("symbol") or "").strip().upper()
+    session = str(filters.get("session") or "").strip() or datetime.now(
+        ZoneInfo("America/New_York")
+    ).date().isoformat()
+    if symbol:
+        row = get_row(symbol, session, db_path=db_path)
+        return [row] if row else []
+    limit = min(max(int(filters.get("limit") or 50), 1), 200)
+    min_angles = int(filters.get("min_angles") or 1)
+    min_quintile = int(filters.get("min_quintile") if filters.get("min_quintile") is not None else 3)
+    return list_rows(
+        session,
+        min_quintile=min(max(min_quintile, 0), 4),
+        min_angles=min(max(min_angles, 0), 2),
+        limit=limit,
+        db_path=db_path,
+    )
+
+
+def _summarize_attention(filters: dict[str, Any], *, db_path: Path) -> dict[str, Any]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from db.attention import list_rows
+    from signals.attention import CAVEAT
+
+    del filters
+    session = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    rows = list_rows(session, min_quintile=0, min_angles=1, limit=500, db_path=db_path)
+    both = [r["symbol"] for r in rows if r["angles"] >= 2]
+    return {
+        "caveat": CAVEAT,
+        "session": session,
+        "lit_names": len(rows),
+        "both_angles": both[:20],
+        "both_angles_n": len(both),
+    }
+
+
 def _read_social(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
     """Reddit/StockTwits attention — perception only, never a forecast."""
     from db.social_mentions import (
@@ -2026,6 +2071,32 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "read": _read_abnormality,
         "summarize": _summarize_abnormality,
     },
+    "attention": {
+        "description": (
+            "The attention ledger — one row per (name, session) lit today by "
+            "either registered angle, ATTENTION_JOIN_DESIGN §4.2. Angle 1 "
+            "(range): first abnormality fire of the day (trailing-60-min range "
+            ">= p90 of its time-of-day x $-vol peer cell, options-eligible pool, "
+            "half-hour grid). Angle 2 (flow): rare-sized sweep/block prints "
+            "(largest single print rarer than 95% of the name's own session "
+            "peaks in its bucket), equity roots only, deduped by cell-day. "
+            "angles (0-2) + within-angle percentile rank the list — NEVER a "
+            "composite score, no win%, no direction. Facts per row: range/vol "
+            "ratios, rvol_session, base_state annotation, rare-print count / "
+            "min p / largest print / call vs put premium / short-dated share "
+            "(<=30 DTE — the corpus's one replicated positive tenor). "
+            "Written every 60s during RTH; empty before the first fire/print."
+        ),
+        "filters": {
+            "symbol": "optional ticker — that name's ledger row for the session",
+            "session": "optional ET date — default today",
+            "min_angles": "optional 0-2 — default 1 (any angle lit)",
+            "min_quintile": "optional 0-4 $-vol display floor — default 3 (top 40%); 0 = everything",
+            "limit": "optional row cap — default 50, max 200",
+        },
+        "read": _read_attention,
+        "summarize": _summarize_attention,
+    },
     "social": {
         "description": (
             "Reddit + StockTwits attention — mention counts, recent post titles, "
@@ -2242,6 +2313,9 @@ _RESOURCE_ALIASES = {
     "vol_scanner": "abnormality",
     "unusual_activity": "abnormality",
     "abnormality_scanner": "abnormality",
+    "unusual": "attention",
+    "unusual_today": "attention",
+    "attention_list": "attention",
 }
 
 

@@ -243,8 +243,8 @@ const ROUTES: [RegExp, Handler][] = [
   [/^\/api\/scan\/presets$/, always({ presets: market.SCAN_PRESETS })],
   [/^\/api\/scan\/run$/, both(market.SCAN_RUN, market.SCAN_RUN_EMPTY)],
   [
-    /^\/api\/scanner\/rvol$/,
-    both(market.RVOL_SCANNER, market.RVOL_SCANNER_EMPTY),
+    /^\/api\/attention$/,
+    both(market.ATTENTION, market.ATTENTION_EMPTY),
   ],
 
   // ── notifications ────────────────────────────────────────────────────────

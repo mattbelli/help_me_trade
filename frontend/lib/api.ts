@@ -678,41 +678,6 @@ export async function addWatchlistSymbol(symbol: string): Promise<string[]> {
 
 // ── RVOL Scanner ──────────────────────────────────────────────────────────────
 
-export type RvolScannerRow = {
-  symbol: string;
-  rvol: number;
-  total_volume: number;
-  price: number;
-};
-
-export type RvolScannerResult = {
-  as_of: string;
-  session: "pre" | "regular" | "post" | "overnight" | "closed";
-  count: number;
-  results: RvolScannerRow[];
-  note?: string;
-};
-
-export async function fetchRvolScanner(
-  minRvol = 1.5,
-  limit = 50,
-): Promise<RvolScannerResult> {
-  const params = new URLSearchParams({
-    min_rvol: String(minRvol),
-    limit: String(limit),
-  });
-  const res = await apiFetch(`${API_BASE}/api/scanner/rvol?${params}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? `RVOL scanner error ${res.status}`,
-    );
-  }
-  return res.json();
-}
-
 export type AbnormalityScannerRow = {
   symbol: string;
   range_ratio: number | null;
@@ -762,6 +727,62 @@ export async function fetchAbnormalityScanner(opts?: {
     const body = await res.json().catch(() => ({}));
     throw new Error(
       (body as { error?: string }).error ?? `Abnormality scanner error ${res.status}`,
+    );
+  }
+  return res.json();
+}
+
+export type AttentionRow = {
+  symbol: string;
+  session: string;
+  quintile: number | null;
+  abn_lit: number;
+  abn_first_ts: string | null;
+  abn_range_ratio: number | null;
+  abn_range_pctile: number | null;
+  abn_vol_ratio: number | null;
+  abn_rvol_session: number | null;
+  abn_repeats: number;
+  base_state: string;
+  flow_lit: number;
+  flow_first_ts: string | null;
+  flow_cell_days: number;
+  flow_min_p: number | null;
+  flow_max_print_usd: number | null;
+  flow_call_prem: number | null;
+  flow_put_prem: number | null;
+  flow_short_dated_share: number | null;
+  flow_events: number;
+  angles: number;
+  rank_pctile: number | null;
+  first_lit_ts: string | null;
+  label: string;
+  caveat: string;
+};
+
+export type AttentionResult = {
+  as_of: string;
+  session: string;
+  count: number;
+  results: AttentionRow[];
+  caveat?: string;
+};
+
+export async function fetchAttention(opts?: {
+  min_quintile?: number;
+  min_angles?: number;
+  limit?: number;
+}): Promise<AttentionResult> {
+  const params = new URLSearchParams({
+    min_quintile: String(opts?.min_quintile ?? 3),
+    min_angles: String(opts?.min_angles ?? 1),
+    limit: String(opts?.limit ?? 100),
+  });
+  const res = await apiFetch(`${API_BASE}/api/attention?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Attention list error ${res.status}`,
     );
   }
   return res.json();

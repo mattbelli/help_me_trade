@@ -33,6 +33,8 @@ AUDIT_LOOP_NAMES = [
     "volume_profile_refresh",
     "fusion_day_volume_refresh",
     "rvol_alert",
+    "attention_ledger",
+    "attention_ledger_eod",
     "options_flow",
     "options_flow_intraday",
     "earnings_alert",

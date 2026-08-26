@@ -1,5 +1,6 @@
 /** Market-data fixtures: watchlists, quotes, bars, chain, flow, pressure, scans. */
 import type {
+  AttentionResult,
   BarsResponse,
   IndexPressureResult,
   IndexPressureTrendResult,
@@ -8,7 +9,6 @@ import type {
   OptionsFlowEvent,
   OptionsFlowResult,
   OvernightFlowResult,
-  RvolScannerResult,
   SessionLevelsResponse,
   WatchlistAggregate,
   WatchlistQuote,
@@ -521,24 +521,54 @@ export const SCAN_RUN_EMPTY: ScanRunResult = {
   note: "no symbols cleared the filter",
 };
 
-export const RVOL_SCANNER: RvolScannerResult = {
+const ATTENTION_CAVEAT =
+  "Attention only — angles are booleans, never a score, and none is a forecast.";
+
+export const ATTENTION: AttentionResult = {
   as_of: NOW_ISO,
-  session: "regular",
+  session: NOW_ISO.slice(0, 10),
   count: 8,
-  results: QUOTE_SEEDS.slice(0, 8).map((s, i) => ({
-    symbol: s.symbol,
-    rvol: round2(3.9 - i * 0.28),
-    total_volume: s.volume,
-    price: s.price,
-  })),
+  caveat: ATTENTION_CAVEAT,
+  results: QUOTE_SEEDS.slice(0, 8).map((s, i) => {
+    const both = i < 2;
+    const abnLit = both || i % 2 === 0;
+    const flowLit = both || !abnLit;
+    return {
+      symbol: s.symbol,
+      session: NOW_ISO.slice(0, 10),
+      quintile: 4 - (i % 3),
+      abn_lit: abnLit ? 1 : 0,
+      abn_first_ts: abnLit ? NOW_ISO : null,
+      abn_range_ratio: abnLit ? round2(3.4 - i * 0.3) : null,
+      abn_range_pctile: abnLit ? round2(97 - i) : null,
+      abn_vol_ratio: abnLit ? round2(6.5 - i * 0.5) : null,
+      abn_rvol_session: abnLit ? round2(2.4 - i * 0.1) : null,
+      abn_repeats: i === 0 ? 2 : 0,
+      base_state: i === 1 ? "base_high" : "none",
+      flow_lit: flowLit ? 1 : 0,
+      flow_first_ts: flowLit ? NOW_ISO : null,
+      flow_cell_days: flowLit ? 1 + (i % 3) : 0,
+      flow_min_p: flowLit ? round2(0.04 - i * 0.004) / 1 : null,
+      flow_max_print_usd: flowLit ? 2_300_000 - i * 250_000 : null,
+      flow_call_prem: flowLit ? 1_900_000 - i * 200_000 : null,
+      flow_put_prem: flowLit ? 400_000 : null,
+      flow_short_dated_share: flowLit ? round2(0.8 - i * 0.1) : null,
+      flow_events: flowLit ? 15 - i : 0,
+      angles: (abnLit ? 1 : 0) + (flowLit ? 1 : 0),
+      rank_pctile: round2(97.5 - i),
+      first_lit_ts: NOW_ISO,
+      label: "attention — unusual range + rare options flow",
+      caveat: ATTENTION_CAVEAT,
+    };
+  }),
 };
 
-export const RVOL_SCANNER_EMPTY: RvolScannerResult = {
+export const ATTENTION_EMPTY: AttentionResult = {
   as_of: NOW_ISO,
-  session: "closed",
+  session: NOW_ISO.slice(0, 10),
   count: 0,
   results: [],
-  note: "market closed — no live RVOL",
+  caveat: ATTENTION_CAVEAT,
 };
 
 export { QUOTE_SEEDS };

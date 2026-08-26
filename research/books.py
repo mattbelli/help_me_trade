@@ -540,6 +540,32 @@ def _market_frame_section(db_path: Path) -> str:
         logger.exception("book pack abnormality read failed")
         lines.append("- abnormality fires today: _unavailable_")
 
+    try:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _zi
+
+        from db.attention import list_rows as _attention_rows
+
+        att = _attention_rows(
+            _dt.now(_zi("America/New_York")).date().isoformat(),
+            min_quintile=3,
+            min_angles=1,
+            limit=500,
+            db_path=db_path,
+        )
+        both = [r["symbol"] for r in att if r["angles"] >= 2]
+        if att:
+            names = ", ".join(both[:8]) or "none"
+            lines.append(
+                f"- unusual today (attention join, Q>=3): {len(att)} names lit, "
+                f"{len(both)} on both angles: {names}. Angles are booleans "
+                "(range vs own norm; rare-sized option print) — attention, not a "
+                "signal. query('attention') for rows."
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("book pack attention read failed")
+        lines.append("- unusual today (attention join): _unavailable_")
+
     hot = hot_lane_rows(db_path=db_path)
     if hot:
         # Mechanical-idea attention first — "position" rows are mostly other

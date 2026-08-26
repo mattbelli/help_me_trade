@@ -449,6 +449,30 @@ async def build_symbol_context(
         logger.debug("Abnormality block failed for %s", sym, exc_info=True)
 
     try:
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo as _zi
+
+        from db.attention import get_row
+
+        att = get_row(sym, _dt.now(_zi("America/New_York")).date().isoformat(), db_path=db_path)
+        if att:
+            ctx["attention"] = {
+                "angles": att.get("angles"),
+                "label": att.get("label"),
+                "quintile": att.get("quintile"),
+                "abn_range_ratio": att.get("abn_range_ratio"),
+                "abn_range_pctile": att.get("abn_range_pctile"),
+                "flow_events": att.get("flow_events"),
+                "flow_min_p": att.get("flow_min_p"),
+                "flow_max_print_usd": att.get("flow_max_print_usd"),
+                "flow_short_dated_share": att.get("flow_short_dated_share"),
+                "first_lit_ts": att.get("first_lit_ts"),
+                "caveat": att.get("caveat"),
+            }
+    except Exception:
+        logger.debug("Attention block failed for %s", sym, exc_info=True)
+
+    try:
         session_payload = await compute_session_levels(sym, db_path=db_path)
         nodes = _flatten_session_nodes(session_payload)
         if nodes is not None:

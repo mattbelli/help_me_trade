@@ -49,7 +49,14 @@ from api.scan_jobs import (
     SESSION_NODE_SCAN_INTERVAL_SECONDS,
     SIGNAL_SCAN_INTERVAL_SECONDS,
 )
-from api.scanner_routes import _RVOL_ALERTS_ENABLED, RVOL_ALERT_INTERVAL_SECONDS, _rvol_alert_once
+from api.scanner_routes import (
+    _RVOL_ALERTS_ENABLED,
+    ATTENTION_INTERVAL_SECONDS,
+    RVOL_ALERT_INTERVAL_SECONDS,
+    _attention_eod_once,
+    _attention_once,
+    _rvol_alert_once,
+)
 from api.schwab_jobs import (
     _SCHWAB_HEALTH_ALERTS_ENABLED,
     SCHWAB_HEALTH_INTERVAL_SECONDS,
@@ -137,6 +144,21 @@ def _register_background_jobs() -> None:
             fn=_rvol_alert_once,
             interval_s=float(RVOL_ALERT_INTERVAL_SECONDS),
             enabled=lambda: _RVOL_ALERTS_ENABLED,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="attention_ledger",
+            fn=_attention_once,
+            interval_s=float(ATTENTION_INTERVAL_SECONDS),
+            market_hours_only=True,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="attention_ledger_eod",
+            fn=_attention_eod_once,
+            interval_s=300.0,
         )
     )
     register_job(

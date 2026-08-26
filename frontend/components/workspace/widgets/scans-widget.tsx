@@ -10,7 +10,7 @@ import {
 } from "@/components/workspace/widget-states";
 import { TerminalButton } from "@/components/ui/terminal/terminal-button";
 import { TerminalSelect } from "@/components/ui/terminal/terminal-select";
-import { fetchRvolScanner, fetchAbnormalityScanner, type RvolScannerResult, type AbnormalityScannerResult } from "@/lib/api";
+import { fetchAttention, fetchAbnormalityScanner, type AttentionResult, type AttentionRow, type AbnormalityScannerResult } from "@/lib/api";
 import {
   fetchScanPresets,
   runScan,
@@ -31,19 +31,12 @@ const POLL_MS = 25_000;
 // is greyed out on that universe (only the live Watchlist path carries volume).
 const VOLUME_ONLY_PRESET = "unusual_volume";
 
-// Market-wide RVOL rides as a pseudo-preset (absorbed the rvol-scanner widget,
-// 2026-08-09 consolidation). Its universe is the ~986-name liquid core, so the
-// Watchlist/S&P toggle doesn't apply while it is selected.
-const RVOL_PRESET = "__rvol__";
+// Market-wide pseudo-presets ride the same dropdown (the rvol-scanner widget
+// was absorbed 2026-08-09; its list retired into the attention join 2026-08-25
+// per ATTENTION_JOIN_DESIGN §4.3). Their universes are their own, so the
+// Watchlist/S&P toggle doesn't apply while one is selected.
+const ATTENTION_PRESET = "__attention__";
 const ABNORM_PRESET = "__abnorm__";
-
-const RVOL_SESSION_LABELS: Record<string, string> = {
-  pre: "pre-market",
-  regular: "regular",
-  post: "after-hours",
-  overnight: "overnight",
-  closed: "closed",
-};
 
 function rvolColor(value: number): string {
   if (value >= 3) return "var(--c-red)";
@@ -52,11 +45,44 @@ function rvolColor(value: number): string {
   return "var(--fg-dim)";
 }
 
-function formatVolume(v: number): string {
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
-  return String(v);
+function formatUsd(v: number): string {
+  if (v >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(1)}B`;
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${Math.round(v)}`;
+}
+
+function formatLitTime(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "America/New_York",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+// The flow cell: rare-print count + the largest single print, tooltip carries
+// min p and the call/put premium split.
+function flowCell(row: AttentionRow): { text: string; title: string } | null {
+  if (!row.flow_lit) return null;
+  const maxPrint = row.flow_max_print_usd != null ? formatUsd(row.flow_max_print_usd) : "—";
+  const call = row.flow_call_prem ?? 0;
+  const put = row.flow_put_prem ?? 0;
+  return {
+    text: `${row.flow_events}·${maxPrint}`,
+    title:
+      `${row.flow_events} rare print${row.flow_events === 1 ? "" : "s"} · largest ${maxPrint}` +
+      (row.flow_min_p != null ? ` · min p ${row.flow_min_p.toFixed(3)}` : "") +
+      ` · calls ${formatUsd(call)} / puts ${formatUsd(put)}` +
+      (row.flow_short_dated_share != null
+        ? ` · ${(row.flow_short_dated_share * 100).toFixed(0)}% ≤30 DTE`
+        : ""),
+  };
 }
 
 const UNIVERSES: ReadonlyArray<{ id: ScanUniverse; label: string; title: string }> = [
@@ -105,7 +131,9 @@ export function ScansWidget({ config }: WidgetProps) {
   // Default to the broad S&P 500 scan — the founder wants the bigger screen.
   const [universe, setUniverse] = useState<ScanUniverse>("sp500");
   const [data, setData] = useState<ScanRunResult | null>(null);
-  const [rvolData, setRvolData] = useState<RvolScannerResult | null>(null);
+  const [attData, setAttData] = useState<AttentionResult | null>(null);
+  const [attBoth, setAttBoth] = useState(false);
+  const [attAllQ, setAttAllQ] = useState(false);
   const [abnormData, setAbnormData] = useState<AbnormalityScannerResult | null>(null);
   const [abnormFilter, setAbnormFilter] = useState<"all" | "fired" | "paired" | "base_low" | "base_high">("fired");
   const [running, setRunning] = useState(false);
@@ -140,20 +168,24 @@ export function ScansWidget({ config }: WidgetProps) {
     };
   }, []);
 
-  const runRvol = useCallback(async () => {
+  const runAttention = useCallback(async () => {
     setRunning(true);
     try {
-      const result = await fetchRvolScanner(1.5, 50);
+      const result = await fetchAttention({
+        min_quintile: attAllQ ? 0 : 3,
+        min_angles: attBoth ? 2 : 1,
+        limit: 100,
+      });
       if (cancelledRef.current) return;
-      setRvolData(result);
+      setAttData(result);
       setError(null);
     } catch (err) {
       if (cancelledRef.current) return;
-      setError(err instanceof Error ? err.message : "Scanner failed");
+      setError(err instanceof Error ? err.message : "Attention list failed");
     } finally {
       if (!cancelledRef.current) setRunning(false);
     }
-  }, []);
+  }, [attBoth, attAllQ]);
 
   const runAbnorm = useCallback(async () => {
     setRunning(true);
@@ -181,11 +213,16 @@ export function ScansWidget({ config }: WidgetProps) {
     void runAbnorm();
   }, [abnormFilter, selected, runAbnorm]);
 
+  useEffect(() => {
+    if (selected !== ATTENTION_PRESET) return;
+    void runAttention();
+  }, [attBoth, attAllQ, selected, runAttention]);
+
   const run = useCallback(
     async (presetId: string) => {
       if (!presetId) return;
-      if (presetId === RVOL_PRESET) {
-        await runRvol();
+      if (presetId === ATTENTION_PRESET) {
+        await runAttention();
         return;
       }
       if (presetId === ABNORM_PRESET) {
@@ -205,7 +242,7 @@ export function ScansWidget({ config }: WidgetProps) {
         if (!cancelledRef.current) setRunning(false);
       }
     },
-    [universe, runRvol, runAbnorm],
+    [universe, runAttention, runAbnorm],
   );
 
   // Keep an already-run scan fresh (only while it matches the selected preset).
@@ -215,23 +252,23 @@ export function ScansWidget({ config }: WidgetProps) {
   useEffect(() => {
     if (!pageActive) return;
     const fresh =
-      selected === RVOL_PRESET
-        ? rvolData !== null
+      selected === ATTENTION_PRESET
+        ? attData !== null
         : selected === ABNORM_PRESET
           ? abnormData !== null
           : data !== null && data.preset_id === selected;
     if (!fresh) return;
     const timer = setInterval(() => void run(selected), POLL_MS);
     return () => clearInterval(timer);
-  }, [pageActive, data, rvolData, abnormData, selected, run]);
+  }, [pageActive, data, attData, abnormData, selected, run]);
 
   const handlePresetChange = (id: string) => {
     setSelected(id);
     setData(null);
     setError(null);
-    // The RVOL endpoint is a cheap precomputed read — run it on select rather
-    // than making the founder press Run for a ranking that's already there.
-    if (id === RVOL_PRESET) void runRvol();
+    // Both market-wide presets are cheap precomputed reads that run on select
+    // (attention via its filter effect keyed on `selected`) — no Run press
+    // needed for a list that's already there.
     if (id === ABNORM_PRESET) void runAbnorm();
   };
 
@@ -255,10 +292,10 @@ export function ScansWidget({ config }: WidgetProps) {
     return <WidgetLoading rows={3} cols={[2, 1, 1]} />;
   }
 
-  const isRvol = selected === RVOL_PRESET;
+  const isAttention = selected === ATTENTION_PRESET;
   const isAbnorm = selected === ABNORM_PRESET;
-  const isMarketScan = isRvol || isAbnorm;
-  const showResults = !isRvol && data && data.preset_id === selected;
+  const isMarketScan = isAttention || isAbnorm;
+  const showResults = !isMarketScan && data && data.preset_id === selected;
   const metricLabel =
     presets.find((p) => p.id === selected)?.metric_label ?? "Value";
 
@@ -313,10 +350,10 @@ export function ScansWidget({ config }: WidgetProps) {
             );
           })}
           <option
-            value={RVOL_PRESET}
-            title="Volume vs expected for this time of day, market-wide (~986 liquid names)"
+            value={ATTENTION_PRESET}
+            title="Names lit today by either registered angle — unusual range vs own norm, or a rare-sized option print. Angles, not a score; attention, not a forecast."
           >
-            RVOL — market-wide
+            Unusual today — attention
           </option>
           <option
             value={ABNORM_PRESET}
@@ -337,10 +374,9 @@ export function ScansWidget({ config }: WidgetProps) {
             {data.universe_size} · {formatAsOf(data.as_of)}
           </span>
         ) : null}
-        {isRvol && rvolData ? (
+        {isAttention && attData ? (
           <span className="tabular-nums text-[length:var(--fs-table)] text-[var(--fg-faint)]">
-            {RVOL_SESSION_LABELS[rvolData.session] ?? rvolData.session} ·{" "}
-            {formatAsOf(rvolData.as_of)}
+            {attData.count} lit · {formatAsOf(attData.as_of)}
           </span>
         ) : null}
         {isAbnorm && abnormData ? (
@@ -475,65 +511,142 @@ export function ScansWidget({ config }: WidgetProps) {
             )}
           </div>
         )
-      ) : isRvol ? (
-        error && !rvolData ? (
+      ) : isAttention ? (
+        error && !attData ? (
           <WidgetError message={error} />
-        ) : !rvolData ? (
-          <WidgetLoading cols={[2, 1, 1, 1]} />
-        ) : rvolData.session !== "regular" || rvolData.count === 0 ? (
-          <WidgetEmpty
-            message={
-              rvolData.note ?? "Scanner runs during market hours (9:30–16:00 ET)."
-            }
-          />
+        ) : !attData ? (
+          <WidgetLoading cols={[1, 3, 1, 1, 2, 1, 1]} />
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
-            <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
-              <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]">
-                #
-              </span>
-              {(["Sym", "Last", "RVOL", "Vol"] as const).map((h, idx) => (
-                <span
-                  key={h}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center gap-1 border-b border-[var(--line-divider)] px-2 py-1">
+              {(
+                [
+                  [false, "any angle"],
+                  [true, "both angles"],
+                ] as const
+              ).map(([both, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    setAttBoth(both);
+                    setAttData(null);
+                  }}
+                  aria-pressed={attBoth === both}
                   className={cn(
-                    "text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-faint)]",
-                    idx === 0 ? "text-left" : "text-right",
+                    "px-1 py-0.5 font-mono text-[length:var(--fs-table)]",
+                    attBoth === both
+                      ? "text-[var(--c-accent)]"
+                      : "text-[var(--fg-faint)] hover:text-foreground",
                   )}
                 >
-                  {h}
-                </span>
+                  {label}
+                </button>
+              ))}
+              <span className="text-[var(--fg-faint)]">·</span>
+              {(
+                [
+                  [false, "Q≥3"],
+                  [true, "all liquidity"],
+                ] as const
+              ).map(([allQ, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    setAttAllQ(allQ);
+                    setAttData(null);
+                  }}
+                  aria-pressed={attAllQ === allQ}
+                  className={cn(
+                    "px-1 py-0.5 font-mono text-[length:var(--fs-table)]",
+                    attAllQ === allQ
+                      ? "text-[var(--c-accent)]"
+                      : "text-[var(--fg-faint)] hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
               ))}
             </div>
-            {rvolData.results.map((row, idx) => (
-              <div
-                key={row.symbol}
-                className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_3.75rem_3.25rem_3.5rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
-              >
-                <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
-                  {idx + 1}
-                </span>
-                <span className="truncate font-medium">
-                  <ClickableSymbol
-                    symbol={row.symbol}
-                    linked={linked}
-                    onActivate={() => publish(row.symbol)}
-                  />
-                </span>
-                <span className="text-right tabular-nums text-foreground">
-                  {formatPrice(row.price)}
-                </span>
-                <span
-                  className="text-right tabular-nums"
-                  style={{ color: rvolColor(row.rvol) }}
-                  title={`${row.rvol.toFixed(2)}× normal volume for this time of day`}
-                >
-                  {row.rvol.toFixed(1)}×
-                </span>
-                <span className="text-right tabular-nums text-[var(--fg-dim)]">
-                  {formatVolume(row.total_volume)}
-                </span>
+            <p
+              className="px-2 py-1 font-mono text-[length:var(--fs-table)] text-[var(--fg-dim)]"
+              title={attData.caveat}
+            >
+              angles, not a score · attention, not a forecast
+            </p>
+            {attData.count === 0 ? (
+              <WidgetEmpty message="Nothing lit yet this session." />
+            ) : (
+              <div className="min-h-0 flex-1 overflow-auto scroll-shadow-y">
+                <div className="grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem_3.25rem_4.5rem_2rem_2.75rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5">
+                  <span className="text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-table-header)]">
+                    #
+                  </span>
+                  {(["Sym", "Range", "Vol", "Flow", "Q", "Lit"] as const).map((h, idx) => (
+                    <span
+                      key={h}
+                      className={cn(
+                        "text-[length:var(--fs-micro)] font-medium uppercase tracking-[0.08em] text-[var(--fg-table-header)]",
+                        idx === 0 ? "text-left" : "text-right",
+                      )}
+                    >
+                      {h}
+                    </span>
+                  ))}
+                </div>
+                {attData.results.map((row, idx) => {
+                  const flow = flowCell(row);
+                  return (
+                    <div
+                      key={row.symbol}
+                      className="group/row grid grid-cols-[1.25rem_minmax(0,1fr)_3.25rem_3.25rem_4.5rem_2rem_2.75rem] items-center gap-x-1 border-b border-[var(--line-divider)] px-2 py-1.5 leading-[20px] transition-colors hover:bg-[var(--bg-hover)]"
+                    >
+                      <span className="text-[length:var(--fs-table)] tabular-nums text-[var(--fg-faint)]">
+                        {idx + 1}
+                      </span>
+                      <span className="truncate font-medium">
+                        <ClickableSymbol
+                          symbol={row.symbol}
+                          linked={linked}
+                          onActivate={() => publish(row.symbol)}
+                        />
+                      </span>
+                      <span
+                        className="text-right tabular-nums"
+                        style={{ color: row.abn_lit ? rvolColor(row.abn_range_ratio ?? 0) : "var(--fg-faint)" }}
+                        title={
+                          row.abn_lit && row.abn_range_pctile != null
+                            ? `range ${(row.abn_range_ratio ?? 0).toFixed(2)}× own norm · top ${(100 - row.abn_range_pctile).toFixed(1)}% of peers${row.abn_repeats ? ` · ${row.abn_repeats} repeat${row.abn_repeats === 1 ? "" : "s"}` : ""}`
+                            : undefined
+                        }
+                      >
+                        {row.abn_lit && row.abn_range_ratio != null
+                          ? `${row.abn_range_ratio.toFixed(1)}×`
+                          : "—"}
+                      </span>
+                      <span className="text-right tabular-nums text-[var(--fg-dim)]">
+                        {row.abn_lit && row.abn_vol_ratio != null
+                          ? `${row.abn_vol_ratio.toFixed(1)}×`
+                          : "—"}
+                      </span>
+                      <span
+                        className="text-right tabular-nums text-[var(--fg-dim)]"
+                        title={flow?.title}
+                      >
+                        {flow ? flow.text : "—"}
+                      </span>
+                      <span className="text-right tabular-nums text-[var(--fg-faint)]">
+                        {row.quintile != null ? `Q${row.quintile}` : "—"}
+                      </span>
+                      <span className="text-right tabular-nums text-[var(--fg-faint)]">
+                        {formatLitTime(row.first_lit_ts)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            )}
           </div>
         )
       ) : !showResults ? (

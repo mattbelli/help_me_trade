@@ -136,6 +136,66 @@ async def _rvol_alert_once() -> None:
             logger.exception("RVOL alert: error processing symbol %s", sym)
 
 
+# ---------------------------------------------------------------------------
+# Attention ledger job (ATTENTION_JOIN_DESIGN §4.2): ONE 60s upsert of the
+# per-(symbol, session) join during RTH, plus one self-gated post-close pass so
+# prints landing after the last RTH tick (job cadence, not data) still ledger.
+# ---------------------------------------------------------------------------
+ATTENTION_INTERVAL_SECONDS = max(30, int(os.environ.get("ATTENTION_INTERVAL_SECONDS", "60")))
+_attention_eod_last_date: dict[str, date] = {}
+
+
+async def _attention_once() -> None:
+    from signals.attention import refresh_attention
+
+    await asyncio.to_thread(refresh_attention)
+
+
+async def _attention_eod_once() -> None:
+    now_et = datetime.now(_ET)
+    if now_et.weekday() >= 5:
+        return
+    after_close = now_et.hour > 16 or (now_et.hour == 16 and now_et.minute >= 5)
+    if not after_close:
+        return
+    if _attention_eod_last_date.get("date") == now_et.date():
+        return
+    await _attention_once()
+    _attention_eod_last_date["date"] = now_et.date()
+
+
+@router.get("/api/attention")
+async def api_attention(
+    session: str = "",
+    min_quintile: int = 3,
+    min_angles: int = 1,
+    limit: int = 100,
+):
+    """The attention list — names lit today by either angle, ranked by
+    (angles, within-angle percentile). Rows carry label + caveat, never a score.
+
+    ``min_quintile`` is the display liquidity floor (§4.6 fork 2: default 3 =
+    top 40% of the pool by $-vol; 0 shows everything in the ledger)."""
+    from db.attention import list_rows
+    from signals.attention import CAVEAT
+
+    if limit < 1 or limit > 500:
+        return JSONResponse({"error": "limit must be 1–500"}, status_code=400)
+    if min_angles < 0 or min_angles > 2 or min_quintile < 0 or min_quintile > 4:
+        return JSONResponse({"error": "min_angles 0–2, min_quintile 0–4"}, status_code=400)
+    resolved = session or datetime.now(_ET).date().isoformat()
+    rows = list_rows(
+        resolved, min_quintile=min_quintile, min_angles=min_angles, limit=limit
+    )
+    return {
+        "as_of": datetime.now(_ET).isoformat(timespec="seconds"),
+        "session": resolved,
+        "count": len(rows),
+        "results": rows,
+        "caveat": CAVEAT,
+    }
+
+
 _SCANNER_CHUNK_SIZE = 250  # Schwab get_quotes accepts many symbols; chunk to stay safe
 
 
