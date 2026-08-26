@@ -574,6 +574,13 @@ export function ScansWidget({ config }: WidgetProps) {
               title={attData.caveat}
             >
               angles, not a score · attention, not a forecast
+              {(attData.stats ?? [])
+                .filter((s) => s.median_excess != null)
+                .map(
+                  (s) =>
+                    ` · ${s.angles} angle${s.angles === 1 ? "" : "s"}: ${s.median_excess!.toFixed(2)}× (n=${s.n})`,
+                )
+                .join("")}
             </p>
             {attData.count === 0 ? (
               <WidgetEmpty message="Nothing lit yet this session." />

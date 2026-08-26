@@ -620,14 +620,16 @@ PR #102 deployed + machine-verified 07-23. Open: founder verifies in-browser (wa
 timeframe switches); ETH-off charts still paint pre/post — make `ext=false` truly RTH-only in
 `_build_bars_response` (mind half-days), next UI round.
 
-## ▶ Attention list (#328) — Phases 0–2 shipped (08-17, 08-25); Phase 3 open
+## ▶ Attention list (#328) — Phases 0–3 shipped (08-17, 08-25); subset test pending data
 
 Design + decisions: `References/ATTENTION_JOIN_DESIGN_2026-08-17.md` (§4.6 decided; strict-rule
 subset test PRE-REGISTERED there). Phase 1 (study alignment, BOTH detectors) + post-deploy sequence
-(lookup + baselines rebuilt, collector restarted) shipped 08-25; Phase 2 (`attention_daily` ledger +
-60s/EOD jobs + `/api/attention` + scans-widget "Unusual today" pseudo-preset [RVOL list retired into
-it] + `attention` perception resource + get_context block + book pack line) shipped the same evening
-— BUILD_LOG rows have the full record. Open:
+shipped 08-25; Phase 2 (`attention_daily` ledger + 60s/EOD jobs + `/api/attention` + scans-widget
+"Unusual today" pseudo-preset [RVOL list retired into it] + `attention` perception resource +
+get_context block + book pack line) and Phase 3 (`attention_outcomes` every pool name-day nightly
+via `abnormality_nightly.sh` + `attention_queue` → `attention_investigator` inbox notes, one
+item/run, `ATTENTION_INVESTIGATOR_ENABLED` kill switch) shipped the same evening — BUILD_LOG rows
+have the full record. Open:
 - **⏳ First session after (verify):** abnormality fires land ONLY on buckets
   {12,18,24,30,36,42,48,54}, all pool names, `repeat` populated; fire count will be far above the
   old 115/day (p90, no budget — lit ≠ shown is the design); sweep rows carry `max_print_usd` and
@@ -638,10 +640,15 @@ it] + `attention` perception resource + get_context block + book pack line) ship
   old high/low-excursion estimand; the §4.6 subset test must filter sessions ≥ the first post-deploy
   session. The 08-25 `attention_daily` rows are seeded from PRE-deploy old-rule fires + backfilled
   sum-basis rarity — treat 08-26 as the ledger's first clean session too.
-- **Phase 3** — `attention_outcomes` on every pool name-day + the bounded AI queue (angles=2 →
-  one `look_into` item/name-day); then run the pre-registered strict-subset test once ≥30 sessions /
-  ≥500 lit name-days exist. Fusion is OFF (`FUSION_ENABLED=0`); delete the fusion attach lanes for
-  both detectors with the fusion code, later, calmly.
+- **⏳ First session (Phase 3 additions):** investigator notes appear in the inbox for both-angle
+  Q≥3 names (kind `attention`, inbox-only — no phone); nightly `attention outcome sweep` line in
+  `data/abnormality_nightly.log`; `/api/attention.stats` grows a second session. 08-25's first
+  grade (old-rule cohort): 0 angles 0.78× · 1 angle 1.02× · 2 angles 2.65× median excess — one
+  session, NOT a result.
+- **Run the §4.6 pre-registered strict-subset test** once ≥30 sessions / ≥500 lit name-days exist
+  (sessions ≥ 2026-08-26 only — the clean cohort). Analysis, not build. Fusion is OFF
+  (`FUSION_ENABLED=0`); delete the fusion attach lanes for both detectors with the fusion code,
+  later, calmly.
 
 ## ▶ Chart data — bar authority (#325) + progressive load (#326) shipped 08-17 (BUILD_LOG 08-17)
 

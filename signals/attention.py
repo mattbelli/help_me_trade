@@ -187,7 +187,14 @@ def build_attention_rows(
 
 
 def refresh_attention(session: str | None = None, *, db_path: Path | None = None) -> int:
-    """Build + upsert the tick's picture; returns rows written."""
-    from db.attention import upsert_rows
+    """Build + upsert the tick's picture; returns rows written. Both-angle
+    names above the display floor also enter the bounded look_into queue
+    (design §4.3 — one item per name-day, idempotent, consumed one per
+    investigator run; nothing is injected into other prompts)."""
+    from db.attention import enqueue_pending, upsert_rows
 
-    return upsert_rows(build_attention_rows(session, db_path=db_path), db_path=db_path)
+    rows = build_attention_rows(session, db_path=db_path)
+    n = upsert_rows(rows, db_path=db_path)
+    if rows:
+        enqueue_pending(rows[0]["session"], min_quintile=3, db_path=db_path)
+    return n

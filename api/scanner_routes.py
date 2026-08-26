@@ -142,7 +142,21 @@ async def _rvol_alert_once() -> None:
 # prints landing after the last RTH tick (job cadence, not data) still ledger.
 # ---------------------------------------------------------------------------
 ATTENTION_INTERVAL_SECONDS = max(30, int(os.environ.get("ATTENTION_INTERVAL_SECONDS", "60")))
+# The bounded AI queue consumer (design §4.3): ONE item per run — the cadence
+# is the throughput cap. Kill switch, not a tunable.
+ATTENTION_INVESTIGATOR_SECONDS = max(
+    300, int(os.environ.get("ATTENTION_INVESTIGATOR_SECONDS", "900"))
+)
+_ATTENTION_INVESTIGATOR_ENABLED = os.environ.get(
+    "ATTENTION_INVESTIGATOR_ENABLED", "1"
+).strip() not in ("0", "false", "no")
 _attention_eod_last_date: dict[str, date] = {}
+
+
+async def _attention_investigator_once() -> None:
+    from research.attention_investigator import investigate_once
+
+    await investigate_once()
 
 
 async def _attention_once() -> None:
@@ -176,7 +190,7 @@ async def api_attention(
 
     ``min_quintile`` is the display liquidity floor (§4.6 fork 2: default 3 =
     top 40% of the pool by $-vol; 0 shows everything in the ledger)."""
-    from db.attention import list_rows
+    from db.attention import list_rows, outcomes_by_angles
     from signals.attention import CAVEAT
 
     if limit < 1 or limit > 500:
@@ -192,6 +206,9 @@ async def api_attention(
         "session": resolved,
         "count": len(rows),
         "results": rows,
+        # Median excess by angles lit over the trailing 30 graded sessions —
+        # the Phase-3 aggregate; empty until the nightly grader has run.
+        "stats": outcomes_by_angles(sessions=30),
         "caveat": CAVEAT,
     }
 

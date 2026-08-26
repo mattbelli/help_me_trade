@@ -69,6 +69,7 @@ const KIND_CATEGORY: Record<string, Category> = {
   options_flow_solo: "flow",
   price_alert: "alerts",
   rvol: "alerts",
+  attention: "alerts",
   rule_triggered: "alerts",
   earnings: "alerts",
   report_ready: "research",

@@ -35,6 +35,7 @@ AUDIT_LOOP_NAMES = [
     "rvol_alert",
     "attention_ledger",
     "attention_ledger_eod",
+    "attention_investigator",
     "options_flow",
     "options_flow_intraday",
     "earnings_alert",

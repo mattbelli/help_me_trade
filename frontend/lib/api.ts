@@ -760,11 +760,21 @@ export type AttentionRow = {
   caveat: string;
 };
 
+export type AttentionOutcomeStat = {
+  angles: number;
+  n: number;
+  median_excess: number | null;
+  up: number;
+  down: number;
+  sessions: number;
+};
+
 export type AttentionResult = {
   as_of: string;
   session: string;
   count: number;
   results: AttentionRow[];
+  stats?: AttentionOutcomeStat[];
   caveat?: string;
 };
 

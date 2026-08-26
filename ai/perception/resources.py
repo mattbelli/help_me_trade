@@ -1559,7 +1559,7 @@ def _summarize_attention(filters: dict[str, Any], *, db_path: Path) -> dict[str,
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from db.attention import list_rows
+    from db.attention import list_rows, outcomes_by_angles
     from signals.attention import CAVEAT
 
     del filters
@@ -1572,6 +1572,9 @@ def _summarize_attention(filters: dict[str, Any], *, db_path: Path) -> dict[str,
         "lit_names": len(rows),
         "both_angles": both[:20],
         "both_angles_n": len(both),
+        # Median excess by angles lit, every pool name-day graded (nightly);
+        # medians only, never a win%.
+        "outcomes_30d": outcomes_by_angles(sessions=30, db_path=db_path),
     }
 
 
@@ -2085,7 +2088,10 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "ratios, rvol_session, base_state annotation, rare-print count / "
             "min p / largest print / call vs put premium / short-dated share "
             "(<=30 DTE — the corpus's one replicated positive tenor). "
-            "Written every 60s during RTH; empty before the first fire/print."
+            "Written every 60s during RTH; empty before the first fire/print. "
+            "Nightly, EVERY pool name-day (lit or not) is graded with the "
+            "registered estimand into attention_outcomes; the summarize block "
+            "carries median excess by angles lit — medians, never a win%."
         ),
         "filters": {
             "symbol": "optional ticker — that name's ledger row for the session",

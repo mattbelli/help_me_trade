@@ -50,10 +50,13 @@ from api.scan_jobs import (
     SIGNAL_SCAN_INTERVAL_SECONDS,
 )
 from api.scanner_routes import (
+    _ATTENTION_INVESTIGATOR_ENABLED,
     _RVOL_ALERTS_ENABLED,
     ATTENTION_INTERVAL_SECONDS,
+    ATTENTION_INVESTIGATOR_SECONDS,
     RVOL_ALERT_INTERVAL_SECONDS,
     _attention_eod_once,
+    _attention_investigator_once,
     _attention_once,
     _rvol_alert_once,
 )
@@ -159,6 +162,14 @@ def _register_background_jobs() -> None:
             name="attention_ledger_eod",
             fn=_attention_eod_once,
             interval_s=300.0,
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="attention_investigator",
+            fn=_attention_investigator_once,
+            interval_s=float(ATTENTION_INVESTIGATOR_SECONDS),
+            enabled=lambda: _ATTENTION_INVESTIGATOR_ENABLED,
         )
     )
     register_job(

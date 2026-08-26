@@ -47,6 +47,11 @@ log "outcome sweep"
 nice -n 10 "$PY" tools/abnormality_outcomes.py \
   || alarm "outcome sweep failed"
 
+# Attention outcomes ride the same t-1 rule: grade BEFORE the rebuild.
+log "attention outcome sweep"
+nice -n 10 "$PY" tools/attention_outcomes.py \
+  || alarm "attention outcome sweep failed"
+
 log "baselines rebuild"
 nice -n 10 "$PY" tools/abnormality_baselines.py \
   || alarm "baselines rebuild failed"
