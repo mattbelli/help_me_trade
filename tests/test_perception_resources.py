@@ -76,6 +76,7 @@ def test_list_resources_catalog() -> None:
         "options_chain",
         "equity_tape",
         "abnormality",
+        "attention",
         "social",
         "index_pressure",
         "flow_report",
