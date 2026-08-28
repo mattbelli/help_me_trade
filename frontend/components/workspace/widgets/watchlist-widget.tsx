@@ -52,6 +52,7 @@ import {
   type WatchlistCellContext,
   type WatchlistDensity,
 } from "@/lib/workspace/watchlist-columns";
+import { useWatchlistLiveSort } from "@/lib/workspace/use-watchlist-live-sort";
 import { cn } from "@/lib/utils";
 
 const EMPTY_SYMBOLS: string[] = [];
@@ -414,6 +415,9 @@ function WatchlistSymbolRow({
   onReorderEnd,
   onDragOutRelease,
   getWidgetRect,
+  animateLayout,
+  onRowNode,
+  vtStyle,
 }: {
   symbol: string;
   quote: Quote | undefined;
@@ -437,12 +441,19 @@ function WatchlistSymbolRow({
   onReorderEnd: () => void;
   onDragOutRelease: () => void;
   getWidgetRect: () => DOMRect | null;
+  // Motion layout animation is drag-only (spring). Quote-driven reseats
+  // zero the layout duration and use scoped view-transitions / WAAPI FLIP
+  // so we don't leave will-change:transform on every row (that was eating
+  // the 1px hairlines).
+  animateLayout: boolean;
+  onRowNode: (el: HTMLLIElement | null) => void;
+  vtStyle: CSSProperties | undefined;
 }) {
   const controls = useDragControls();
   // While a held row is dragged OUTSIDE the widget's bounding box it becomes a
   // "release to delete" gesture; back inside, it's a normal reorder.
   const [willDelete, setWillDelete] = useState(false);
-  const itemRef = useRef<HTMLLIElement>(null);
+  const itemRef = useRef<HTMLLIElement | null>(null);
 
   // Keep the keyboard-selected row in view as arrows move the selection.
   useEffect(() => {
@@ -542,9 +553,15 @@ function WatchlistSymbolRow({
 
   return (
     <Reorder.Item
-      ref={itemRef}
+      ref={(el: HTMLLIElement | null) => {
+        itemRef.current = el;
+        onRowNode(el);
+      }}
       value={symbol}
       layout="position"
+      // Quote-driven reseats must not spring — that was the flip-flop. Drag
+      // still uses the default layout spring so siblings make a hole.
+      transition={animateLayout ? undefined : { layout: { duration: 0 } }}
       // Unlock BOTH axes so a dragged-out row follows the pointer horizontally.
       // The framer-motion Reorder.Item source spreads a `drag` prop AFTER its
       // internal `drag: axis` default, so this overrides the group's y-lock
@@ -611,7 +628,7 @@ function WatchlistSymbolRow({
         }
         onPublish();
       }}
-      style={{ cursor: linked ? "pointer" : "default" }}
+      style={{ cursor: linked ? "pointer" : "default", ...vtStyle }}
     >
       <div
         className={cn(
@@ -1036,7 +1053,11 @@ function WatchlistContextMenu({
   );
 }
 
-export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
+export function WatchlistWidget({
+  instanceId,
+  config,
+  onConfigChange,
+}: WidgetProps) {
   const [state, setState] = useState<WatchlistsState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1453,9 +1474,6 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     return out;
   }, [quotes, spyChangePct]);
 
-  const baseOrder = dragOrder ?? symbols;
-
-  // Sortable keys → their value extractor (symbol handled specially below).
   const sortValueMap = useMemo(() => {
     const map: Record<
       string,
@@ -1467,34 +1485,31 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
     return map;
   }, [resolved]);
 
-  const sortedSymbols = useMemo(() => {
-    if (!sortState) return baseOrder;
-
-    const { key, dir } = sortState;
-    const mul = dir === "asc" ? 1 : -1;
-
-    const getValue = (sym: string): number | string | null => {
-      if (key === "symbol") return sym;
-      const fn = sortValueMap[key];
+  const getSortValue = useCallback(
+    (sym: string): number | string | null => {
+      if (!sortState) return null;
+      if (sortState.key === "symbol") return sym;
+      const fn = sortValueMap[sortState.key];
       if (!fn) return null;
       return fn(enrichedQuotes[sym], positions[sym]);
-    };
+    },
+    [sortState, sortValueMap, enrichedQuotes, positions],
+  );
 
-    return [...baseOrder].sort((a, b) => {
-      const va = getValue(a);
-      const vb = getValue(b);
-      const aMissing = va == null;
-      const bMissing = vb == null;
-      if (aMissing && bMissing) return 0;
-      if (aMissing) return 1;
-      if (bMissing) return -1;
-
-      if (key === "symbol") {
-        return mul * (va as string).localeCompare(vb as string);
-      }
-      return mul * ((va as number) - (vb as number));
+  const { liveOrder, scopeRef, registerRow, rowVtStyle, animateLayout } =
+    useWatchlistLiveSort({
+      sortState,
+      baseOrder: symbols,
+      getValue: getSortValue,
+      isDragging,
+      pageActive,
+      instanceId,
+      scrollerRef: listRef,
     });
-  }, [baseOrder, sortState, enrichedQuotes, positions, sortValueMap]);
+
+  // Drag order wins (the lift clears any column sort). Live-sort seats only
+  // apply while a header is active — sticky, not tick-by-tick.
+  const sortedSymbols = dragOrder ?? liveOrder ?? symbols;
 
   const handleSortHeaderClick = useCallback((key: string) => {
     setSortState((prev) => {
@@ -1533,8 +1548,8 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
   // than after it.
   //
   // Drop the in-progress drag order first: it still contains this symbol and
-  // sortedSymbols renders baseOrder unfiltered, so without this the row snaps
-  // back into the list for the length of the PUT and then vanishes.
+  // sortedSymbols falls back to the persisted list, so without this the row
+  // snaps back into the list for the length of the PUT and then vanishes.
   const deleteFromDrag = useCallback(
     (symbol: string) => {
       setIsDragging(false);
@@ -1875,6 +1890,7 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
             />
           ) : null}
 
+          <div ref={scopeRef}>
           <Reorder.Group
             // Remount the motion list when this page becomes visible so the rows
             // mount fresh at their final position — otherwise the hidden→visible
@@ -1918,9 +1934,13 @@ export function WatchlistWidget({ config, onConfigChange }: WidgetProps) {
                 onReorderEnd={handleReorderEnd}
                 onDragOutRelease={() => deleteFromDrag(symbol)}
                 getWidgetRect={getWidgetRect}
+                animateLayout={animateLayout}
+                onRowNode={(el) => registerRow(symbol, el)}
+                vtStyle={rowVtStyle(symbol)}
               />
             ))}
           </Reorder.Group>
+          </div>
         </div>
       </div>
 

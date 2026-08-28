@@ -5,7 +5,11 @@ import path from "node:path";
 // frontend is verified by typecheck + the headless-browser screenshot loop.
 export default defineConfig({
   test: {
-    include: ["lib/chart-engine/**/*.test.ts", "lib/bars-cache-persist.test.ts"],
+    include: [
+      "lib/chart-engine/**/*.test.ts",
+      "lib/bars-cache-persist.test.ts",
+      "lib/workspace/watchlist-sort.test.ts",
+    ],
     environment: "node",
   },
   resolve: {

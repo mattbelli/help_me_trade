@@ -461,6 +461,87 @@
   animation: toast-countdown 2800ms linear forwards;
 }
 
+/* Watchlist live-sort: rows slide to a new seat instead of teleporting.
+   Scoped view-transitions (Chrome 147+: element.startViewTransition on the
+   row list) snapshot the row bitmaps so we never leave will-change:transform
+   on the real <li> — that's what was eating the 1px grid hairlines. The
+   directional wake is a drop-shadow on the snapshot (up = green leading
+   edge, down = red) plus a 5px "lane change" on the image-pair; not a
+   WebGL displacement, which would smear the ticker. WAAPI FLIP fallback
+   (Safari / older Chrome) uses the .wl-rank-* wash on the real row. */
+::view-transition-group(.wl-row) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-old(.wl-row),
+::view-transition-new(.wl-row) {
+  height: 100%;
+  mix-blend-mode: normal;
+  animation: none;
+}
+::view-transition-old(.wl-row) {
+  opacity: 0;
+}
+::view-transition-image-pair(.wl-row-up) {
+  animation: wl-lane-up 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-image-pair(.wl-row-down) {
+  animation: wl-lane-down 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-new(.wl-row-up) {
+  animation: wl-vt-wake-up 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+::view-transition-new(.wl-row-down) {
+  animation: wl-vt-wake-down 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes wl-lane-up {
+  0%, 100% { transform: translateX(0); }
+  40% { transform: translateX(5px); }
+}
+@keyframes wl-lane-down {
+  0%, 100% { transform: translateX(0); }
+  40% { transform: translateX(-5px); }
+}
+@keyframes wl-vt-wake-up {
+  from {
+    filter: brightness(1.16) drop-shadow(0 -5px 6px color-mix(in srgb, var(--c-green) 45%, transparent));
+  }
+  to { filter: none; }
+}
+@keyframes wl-vt-wake-down {
+  from {
+    filter: brightness(1.16) drop-shadow(0 5px 6px color-mix(in srgb, var(--c-red) 45%, transparent));
+  }
+  to { filter: none; }
+}
+@keyframes wl-rank-wake-up {
+  from {
+    box-shadow:
+      inset 0 12px 16px -10px color-mix(in srgb, var(--c-green) 55%, transparent),
+      inset 2px 0 0 color-mix(in srgb, var(--c-green) 75%, transparent);
+  }
+  to { box-shadow: inset 0 0 0 transparent; }
+}
+@keyframes wl-rank-wake-down {
+  from {
+    box-shadow:
+      inset 0 -12px 16px -10px color-mix(in srgb, var(--c-red) 55%, transparent),
+      inset 2px 0 0 color-mix(in srgb, var(--c-red) 75%, transparent);
+  }
+  to { box-shadow: inset 0 0 0 transparent; }
+}
+.wl-rank-up,
+.wl-rank-down {
+  position: relative;
+  z-index: 2;
+}
+.wl-rank-up > div {
+  animation: wl-rank-wake-up 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wl-rank-down > div {
+  animation: wl-rank-wake-down 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* Reduced-motion guard scoped to the keyframe animations added above (the
    motion/react transitions collapse to instant via useMotionSafe separately). */
 @media (prefers-reduced-motion: reduce) {
@@ -474,6 +555,17 @@
   /* Widget skeleton (N2): drop the tw-shimmer sweep → static cells. */
   .widget-skeleton-sweep {
     display: none;
+  }
+  .wl-rank-up > div,
+  .wl-rank-down > div {
+    animation: none;
+  }
+  ::view-transition-group(.wl-row),
+  ::view-transition-image-pair(.wl-row-up),
+  ::view-transition-image-pair(.wl-row-down),
+  ::view-transition-new(.wl-row-up),
+  ::view-transition-new(.wl-row-down) {
+    animation: none !important;
   }
 }
 
