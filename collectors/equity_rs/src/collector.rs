@@ -48,6 +48,8 @@ pub struct Collector {
     pub callback_errors: u64,
     pub vendor_errors: u64,
     pub reconnects: u64,
+    /// Times the liveness watchdog caught a silently-stalled upstream (main.rs).
+    pub stalls: u64,
     lag_samples: Vec<f64>,
     lag_tick: u64,
     // UI snapshot (stats.rs): last-second + ET-day latency histograms, per-minute series
@@ -89,6 +91,7 @@ impl Collector {
             callback_errors: 0,
             vendor_errors: 0,
             reconnects: 0,
+            stalls: 0,
             lag_samples: Vec::with_capacity(8192),
             lag_tick: 0,
             sec_hist: LagHist::default(),
@@ -257,6 +260,7 @@ impl Collector {
                 "frames": r.frames.load(std::sync::atomic::Ordering::Relaxed),
                 "drops": r.drops.load(std::sync::atomic::Ordering::Relaxed) })),
             "reconnects": self.reconnects,
+            "stalls": self.stalls,
             "vendor_errors": self.vendor_errors,
             "frames": self.frames,
             "rss_mb": rss_mb(),
@@ -417,13 +421,14 @@ impl Collector {
             .map(|(s, r, bps)| format!("{s}:{r:.0}x@{bps:.0}bps"))
             .collect();
         format!(
-            "equity stream stats: msgs={} ({:.0}/s) t={} q={} reconnects={} vendor_errors={} lag_p50_ms={:.0} lag_p95_ms={:.0} \
+            "equity stream stats: msgs={} ({:.0}/s) t={} q={} reconnects={} stalls={} vendor_errors={} lag_p50_ms={:.0} lag_p95_ms={:.0} \
              | events persisted={} sweeps={} velocity={} spots={} bars={} | proxy clients={} subs t/q/db={}/{}/{} drops={} | rec frames={} drops={} | wideners: {}",
             total,
             rate,
             self.msgs.get("t").copied().unwrap_or(0),
             self.msgs.get("q").copied().unwrap_or(0),
             self.reconnects,
+            self.stalls,
             self.vendor_errors,
             p50,
             p95,

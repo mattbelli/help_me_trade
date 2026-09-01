@@ -2505,6 +2505,8 @@ export type CollectorSnapshot = {
   /** [epoch_min, msgs/s, lag p95 ms|null] per closed minute of the ET day */
   minutes: [number, number, number | null][];
   reconnects: number;
+  /** Times the liveness watchdog caught a silently-stalled upstream (equity). */
+  stalls?: number;
   rss_mb: number;
   // equity
   msgs_total?: number;

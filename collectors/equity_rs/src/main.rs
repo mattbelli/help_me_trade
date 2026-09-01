@@ -38,6 +38,10 @@ const STOCKS_WS_URL: &str = "wss://stream.data.alpaca.markets/v2/sip";
 const RECONNECT_BASE_SEC: f64 = 1.0;
 const RECONNECT_MAX_SEC: f64 = 30.0;
 const STATS_INTERVAL_S: u64 = 60;
+/// Liveness watchdog: quiet this long and we probe with a ping, ...
+const PING_AFTER_IDLE_S: u64 = 30;
+/// ... and if nothing at all comes back this long after it, the session is dead.
+const PONG_TIMEOUT_S: u64 = 30;
 
 #[derive(Parser, Debug)]
 #[command(about = "help_me_trade equity tape collector (Rust)")]
@@ -144,7 +148,7 @@ async fn run(args: &Args, col: &mut Collector, mut chan_rx: mpsc::UnboundedRecei
     let mut last_total: u64 = 0;
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
-        match session(args, col, &mut chan_rx, &mut wanted, &mut last_total, &mut sigterm).await {
+        match session(args, col, &mut chan_rx, &mut wanted, &mut last_total, &mut sigterm, &mut backoff).await {
             Ok(SessionEnd::Stop) => return Ok(()),
             Ok(SessionEnd::Closed) => {
                 col.proxy.set_upstream_healthy(false);
@@ -168,10 +172,6 @@ async fn run(args: &Args, col: &mut Collector, mut chan_rx: mpsc::UnboundedRecei
             _ = sigterm.recv() => return Ok(()),
         }
         backoff = (backoff * 2.0).min(RECONNECT_MAX_SEC);
-        // A successful handshake resets backoff inside session().
-        if backoff >= RECONNECT_MAX_SEC {
-            backoff = RECONNECT_MAX_SEC;
-        }
     }
 }
 
@@ -187,6 +187,7 @@ async fn session(
     wanted: &mut [HashSet<String>; 5],
     last_total: &mut u64,
     sigterm: &mut tokio::signal::unix::Signal,
+    backoff: &mut f64,
 ) -> Result<SessionEnd> {
     let mut req = args.url.as_str().into_client_request()?;
     // Alpaca negotiates frame encoding off this header; without it frames are JSON.
@@ -227,16 +228,33 @@ async fn session(
         applied[proxy::CH_BARS].len()
     );
     col.proxy.set_upstream_healthy(true);
+    // We are subscribed and streaming: the next failure starts its backoff from
+    // scratch rather than inheriting the ladder this reconnect climbed.
+    *backoff = RECONNECT_BASE_SEC;
 
     // --- loop ------------------------------------------------------------------------------
     let mut flush_tick = tokio::time::interval(Duration::from_millis(collector::FLUSH_INTERVAL_MS as u64));
     let mut spot_tick = tokio::time::interval(Duration::from_millis(collector::SPOT_FLUSH_INTERVAL_MS as u64));
     let mut stats_tick = tokio::time::interval(Duration::from_secs(STATS_INTERVAL_S));
     let mut bars_tick = tokio::time::interval(Duration::from_secs(1));
+    // Upstream liveness. 2026-09-01: Alpaca stopped sending mid-session with the
+    // socket still ESTAB — no Close frame, no error, no FIN — and `rx.next()`
+    // simply never woke again, so the feed was dead for 6.5h (through the open)
+    // with reconnects=0 and the proxy still advertising upstream_healthy. Nothing
+    // recovers that by itself: our subscription lives in Alpaca's session state,
+    // so a wedged session is a pipe to nobody and only a NEW one gets us back.
+    // Hence an active probe. Any inbound frame counts as life — data, a pong, or
+    // the server's own ping — so an honestly quiet tape (overnight, weekends)
+    // never trips this; only silence that survives a ping does.
+    // Measured 2026-09-01 against /v2/test: Alpaca answers a client ping in 15-21ms.
+    let mut watchdog_tick = tokio::time::interval(Duration::from_secs(5));
+    let mut last_rx = Instant::now();
+    let mut ping_sent: Option<Instant> = None;
     flush_tick.tick().await;
     spot_tick.tick().await;
     stats_tick.tick().await;
     bars_tick.tick().await;
+    watchdog_tick.tick().await;
     loop {
         tokio::select! {
             biased;
@@ -259,6 +277,8 @@ async fn session(
             }
             msg = rx.next() => {
                 let Some(msg) = msg else { return Ok(SessionEnd::Closed) };
+                last_rx = Instant::now();
+                ping_sent = None;
                 match msg? {
                     Message::Binary(b) => col.on_frame(&b),
                     Message::Text(t) => col.on_frame(t.as_bytes()), // never expected (msgpack negotiated)
@@ -278,6 +298,24 @@ async fn session(
             }
             _ = stats_tick.tick() => {
                 eprintln!("{}", col.stats_line(STATS_INTERVAL_S as f64, last_total));
+            }
+            _ = watchdog_tick.tick(), if !args.replay => {
+                match ping_sent {
+                    Some(sent) if sent.elapsed() >= Duration::from_secs(PONG_TIMEOUT_S) => {
+                        col.stalls += 1;
+                        eprintln!(
+                            "equity stream STALLED: silent for {:.0}s, no pong {:.0}s after ping \u{2014} dropping the dead session and reconnecting (the tape has a gap from here)",
+                            last_rx.elapsed().as_secs_f64(),
+                            sent.elapsed().as_secs_f64(),
+                        );
+                        return Ok(SessionEnd::Closed);
+                    }
+                    None if last_rx.elapsed() >= Duration::from_secs(PING_AFTER_IDLE_S) => {
+                        tx.send(Message::Ping(Vec::new())).await?;
+                        ping_sent = Some(Instant::now());
+                    }
+                    _ => {}
+                }
             }
         }
     }

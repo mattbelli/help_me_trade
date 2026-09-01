@@ -15,6 +15,17 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+## ▶ 09-01 flow_rs has the same silent-stall blind spot equity_rs just fixed
+
+Full record: BUILD_LOG 09-01 row + card #329.
+- **⏳ Port the ping/pong watchdog to `collectors/flow_rs/src/live.rs` (by 09-08):** its liveness
+  guard is a silence timer gated on `market_open`, so it calls `idle()` and returns healthy
+  whenever the market is shut. The equity stall that motivated this started 05:36 ET — that shape
+  of failure is invisible to an RTH-gated check until the bell. Alpaca answers a client ping in
+  15-21ms (measured 09-01), so the same 30s-idle → ping → 30s → close pattern applies directly.
+
+---
+
 ## ▶ 08-25 Manual trading foundation (#342) — SHIPPED on main; deploy + founder pass owed
 
 Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDATION_SPEC.md`.
