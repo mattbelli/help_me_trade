@@ -43,8 +43,9 @@ Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDA
   live-fired). Also eyeball `bs/as` magnitudes vs the broker UI once (sizes = SHARES).
 - **⏳ Narrow-width check** for both widgets (gallery frames can't shrink below defaultSize —
   ui-review flagged the evidence gap).
-- Known + deliberate: `max_daily_orders=20` counts every replace twice (cancelled row + new row)
-  — the limits strip shows the burn; bump in Settings if DOM use starves it. Stop-ENTRY orders,
+- Known + deliberate: `max_daily_orders=0` is unlimited (lifted 2026-09-02 after a
+  morning strat2 rebalance burned the old global 20-cap and refused Fable's DELL
+  entry). `max_open_orders=10` still binds. Stop-ENTRY orders,
   brackets/OCO, qty-replace, options ticket: spec'd as deferred phases, not built. GTC+ext manual
   limits are standing overnight orders with NO stop guard (manual = founder's own risk, spec §4).
 

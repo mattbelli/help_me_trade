@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-01",
+ "updated_at": "2026-09-02",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 343,
+   "id": "lift-daily-order-cap",
+   "title": "Lift max_daily_orders (0 = unlimited)",
+   "lane": "done",
+   "type": "fix",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-09-02",
+   "notes": "2026-09-02: Fable DELL (and Aug 3 PLTR) died at RiskEngine precheck because strat2's morning momentum rebalance filled 36 legs and tripped the GLOBAL UTC max_daily_orders=20. Founder: unlimited daily orders. 0 = skip the count throttle; buying power / notional / open-orders / breaker stay. Persist in settings.json so the live backend picks it up on restart.\n2026-09-02: Code + tests + settings.json=0 are on the tree. 0 = skip the daily-order throttle (open-orders/notional/BP/breaker unchanged). Backend restart is still owed so the running process loads the new code — a settings PATCH on the OLD binary would treat 0 as 'already at cap' and refuse every order. Frontend strip/settings label need a frontend rebuild to show 'N today' instead of 'N/0'.\n2026-09-02: 2026-09-02: founder restarted backend; live settings.json is 0. Finite cap still works if set >0. Open-orders=10 / notional / BP / breaker unchanged."
+  },
   {
    "num": 342,
    "id": "manual-trading-foundation",

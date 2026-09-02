@@ -40,8 +40,8 @@ build creates the LIVE equity ladder natively, reusing its rendering conventions
   broadcast throttle (~10 Hz). Trades stream per-symbol end-to-end already (`t` frames drive price).
 - Chart engine: `OverlayLine` with `draggable` + `onLineDragEnd` + context-menu hit-testing already
   powers price alerts — order/position lines are the same primitive with an `order:` id prefix.
-- Caps that bite a clicker: `max_daily_orders=20` (global+per-account, UTC day), `max_open_orders=10`
-  (vs ≤40s-stale snapshot), RTH-only quote gate (off-hours manual orders fail `live_quote` unless
+- Caps that bite a clicker: `max_open_orders=10` (vs ≤40s-stale snapshot).
+  `max_daily_orders=0` is unlimited (lifted 2026-09-02). RTH-only quote gate (off-hours manual orders fail `live_quote` unless
   opg), `max_order_value_usd=50k`, sells reduce-only (short-to-open behind the settings toggle).
 
 ## 2. Deliverables
@@ -158,8 +158,8 @@ bid | price | ask, size bars in row background, best-bid/ask emphasis, tokens on
 
 ## 4. Open founder decisions (defaults chosen, flag on review)
 
-- `max_daily_orders=20` will starve active DOM use — left as-is (visible in the limits strip);
-  bump is a settings change he can make himself.
+- `max_daily_orders=0` is unlimited (lifted 2026-09-02). The limits strip still
+  shows today's count; `max_open_orders=10` still binds.
 - Manual orders target the default account ("Matt + LLM") unless picked; fills in sub-accounts
   won't reach performance surfaces until #249 lands (known, noted in UI as nothing new).
 - Off-hours: manual orders fail the RTH `live_quote` gate (by design). The limits strip shows

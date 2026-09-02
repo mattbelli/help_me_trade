@@ -710,7 +710,11 @@ export function DomLadderWidget({ config, onConfigChange }: WidgetProps) {
         ) : null}
         <span className="ml-auto tabular-nums">
           {limits
-            ? `${limits.orders_today}/${limits.max_daily_orders} today${
+            ? `${
+                limits.max_daily_orders <= 0
+                  ? `${limits.orders_today} today`
+                  : `${limits.orders_today}/${limits.max_daily_orders} today`
+              }${
                 limits.kill_switch_active
                   ? " · kill switch"
                   : limits.market_open

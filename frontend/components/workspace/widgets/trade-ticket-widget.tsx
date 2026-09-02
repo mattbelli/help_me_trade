@@ -517,16 +517,23 @@ export function TradeTicketWidget({ config, onConfigChange }: WidgetProps) {
         {limits ? (
           <>
             <span
-              title="orders today vs the daily cap"
+              title={
+                limits.max_daily_orders <= 0
+                  ? "orders today (no daily cap)"
+                  : "orders today vs the daily cap"
+              }
               className="tabular-nums"
               style={{
                 color:
+                  limits.max_daily_orders > 0 &&
                   limits.orders_today >= limits.max_daily_orders
                     ? "var(--c-red)"
                     : undefined,
               }}
             >
-              {limits.orders_today}/{limits.max_daily_orders} today
+              {limits.max_daily_orders <= 0
+                ? `${limits.orders_today} today`
+                : `${limits.orders_today}/${limits.max_daily_orders} today`}
             </span>
             <span title="open orders vs the cap" className="tabular-nums">
               {limits.open_orders}/{limits.max_open_orders} open

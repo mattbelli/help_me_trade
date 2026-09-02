@@ -30,7 +30,7 @@ const DEFAULT_TRADING: TradingSettings = {
   max_order_value_usd: 50000,
   max_position_pct: 30,
   max_open_orders: 10,
-  max_daily_orders: 20,
+  max_daily_orders: 0,
   max_daily_loss_usd: 2500,
   max_daily_notional_usd: 150000,
   max_rebalance_run_notional_usd: 120000,
@@ -281,7 +281,7 @@ export function TradingRiskSettings({
             }
           />
         </TerminalField>
-        <TerminalField label="Max daily orders" htmlFor="max-daily-orders">
+        <TerminalField label="Max daily orders (0 = unlimited)" htmlFor="max-daily-orders">
           <TerminalInput
             id="max-daily-orders"
             type="number"

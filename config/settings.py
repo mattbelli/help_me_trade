@@ -183,7 +183,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_order_value_usd": 50000,
         "max_position_pct": 30,
         "max_open_orders": 10,
-        "max_daily_orders": 20,
+        # 0 = unlimited. A positive cap is a throttle, not a risk gate; the
+        # global UTC counter used to let a morning rebalance silence the books.
+        "max_daily_orders": 0,
         "max_daily_loss_usd": 2500.0,
         "max_daily_notional_usd": 150000.0,
         "max_rebalance_run_notional_usd": 120000.0,
@@ -662,7 +664,7 @@ def _apply_patch(
             elif key == "max_open_orders":
                 current["trading"]["max_open_orders"] = int(value)
             elif key == "max_daily_orders":
-                current["trading"]["max_daily_orders"] = int(value)
+                current["trading"]["max_daily_orders"] = max(0, int(value))
             elif key == "allow_short_selling":
                 current["trading"]["allow_short_selling"] = bool(value)
             elif key == "agent_proposals_enabled":
@@ -1223,7 +1225,9 @@ def trading_config() -> dict[str, Any]:
             cfg.get("max_position_pct", defaults["max_position_pct"])
         ),
         "max_open_orders": int(cfg.get("max_open_orders", defaults["max_open_orders"])),
-        "max_daily_orders": int(cfg.get("max_daily_orders", defaults["max_daily_orders"])),
+        "max_daily_orders": max(
+            0, int(cfg.get("max_daily_orders", defaults["max_daily_orders"]))
+        ),
         "max_daily_loss_usd": float(
             cfg.get("max_daily_loss_usd", defaults["max_daily_loss_usd"])
         ),

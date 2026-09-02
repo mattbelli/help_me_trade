@@ -377,13 +377,29 @@ async def test_stop_sell_exempt_from_count_throttles(
         )
     ]
     sqlite_mod.save_snapshot(account, positions, [], broker="alpaca", db_path=db)
+    from db.order_executions import create_execution_record
+
+    create_execution_record(
+        execution_id="exec_cap1",
+        proposal_id=None,
+        session_id=None,
+        symbol="AAPL",
+        side="buy",
+        qty=Decimal("1"),
+        order_type="market",
+        limit_price=None,
+        execution_mode="paper",
+        status="filled",
+        broker="alpaca",
+        db_path=db,
+    )
     monkeypatch.setattr(
         "trading.risk_engine.trading_config",
         lambda: {
             **settings_mod.DEFAULT_SETTINGS["trading"],
             "execution_mode": "dry_run",
             "max_open_orders": 0,
-            "max_daily_orders": 0,
+            "max_daily_orders": 1,
         },
     )
 

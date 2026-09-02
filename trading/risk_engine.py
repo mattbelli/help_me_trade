@@ -888,31 +888,41 @@ class RiskEngine:
                 )
             checks["open_orders_cap"] = "pass"
 
-            # 10. Daily-order counter
+            # 10. Daily-order counter. 0 = unlimited: a morning momentum
+            # rebalance (36 filled legs) used to trip this global UTC cap and
+            # silently refuse every later book/manual entry the same day
+            # (Fable DELL 2026-09-01, Fable PLTR 2026-08-03).
             max_daily_orders = int(cfg["max_daily_orders"])
-            today_count = count_executions_today(db_path=db_path)
-            if today_count >= max_daily_orders:
-                checks["daily_orders"] = "fail: daily order limit reached"
-                return RiskCheckResult(
-                    passed=False,
-                    checks=checks,
-                    blocked_reason="daily order limit reached",
-                )
-            # Per-account ceiling (same threshold): an account can't exceed the daily cap
-            # on its own even when the global aggregate still has room.
-            if intent.account_id is not None:
-                account_today = count_executions_today(
-                    account_id=intent.account_id, db_path=db_path
-                )
-                if account_today >= max_daily_orders:
-                    checks["daily_orders_account"] = "fail: account daily order limit reached"
+            if max_daily_orders <= 0:
+                checks["daily_orders"] = "exempt: unlimited"
+                checks["daily_orders_account"] = "exempt: unlimited"
+            else:
+                today_count = count_executions_today(db_path=db_path)
+                if today_count >= max_daily_orders:
+                    checks["daily_orders"] = "fail: daily order limit reached"
                     return RiskCheckResult(
                         passed=False,
                         checks=checks,
-                        blocked_reason="account daily order limit reached",
+                        blocked_reason="daily order limit reached",
                     )
-            checks["daily_orders_account"] = "pass"
-            checks["daily_orders"] = "pass"
+                # Per-account ceiling (same threshold): an account can't exceed
+                # the daily cap on its own even when the global aggregate
+                # still has room.
+                if intent.account_id is not None:
+                    account_today = count_executions_today(
+                        account_id=intent.account_id, db_path=db_path
+                    )
+                    if account_today >= max_daily_orders:
+                        checks["daily_orders_account"] = (
+                            "fail: account daily order limit reached"
+                        )
+                        return RiskCheckResult(
+                            passed=False,
+                            checks=checks,
+                            blocked_reason="account daily order limit reached",
+                        )
+                checks["daily_orders_account"] = "pass"
+                checks["daily_orders"] = "pass"
 
         return RiskCheckResult(
             passed=True,

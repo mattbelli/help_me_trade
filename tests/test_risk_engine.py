@@ -588,13 +588,54 @@ async def test_risk_engine_daily_orders_cap(monkeypatch, tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_zero_max_daily_orders_is_unlimited(monkeypatch, tmp_path: Path) -> None:
+    """0 means unlimited — the default. A 36-leg rebalance day must not
+    refuse a later book/manual entry (Fable DELL 2026-09-01)."""
+    db = tmp_path / "risk_unlimited.db"
+    _patch_passing_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine.trading_config",
+        lambda: {
+            **settings_mod.DEFAULT_SETTINGS["trading"],
+            "max_daily_orders": 0,
+        },
+    )
+    for i in range(40):
+        order_executions_mod.create_execution_record(
+            execution_id=f"exec_unlim{i:02d}",
+            proposal_id=None,
+            session_id=None,
+            symbol="AAPL",
+            side="buy",
+            qty=Decimal("1"),
+            order_type="market",
+            limit_price=None,
+            execution_mode="paper",
+            status="filled",
+            broker="alpaca",
+            db_path=db,
+        )
+    result = await RiskEngine.validate(_intent(), db_path=db)
+    assert result.passed is True, result.blocked_reason
+    assert result.checks["daily_orders"] == "exempt: unlimited"
+    assert result.checks["daily_orders_account"] == "exempt: unlimited"
+
+
+@pytest.mark.asyncio
 async def test_rebalance_exempt_from_count_gates_only(monkeypatch, tmp_path: Path) -> None:
     """rebalance=True bypasses ONLY the open-orders + daily-order COUNT throttles."""
     db = tmp_path / "risk_rebal.db"
     _patch_passing_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine.trading_config",
+        lambda: {
+            **settings_mod.DEFAULT_SETTINGS["trading"],
+            "max_daily_orders": 20,
+        },
+    )
     from db.order_executions import create_execution_record
 
-    # Max out the daily-order count (cap = 20).
+    # Max out a *finite* daily-order count (0 is unlimited).
     for i in range(20):
         create_execution_record(
             execution_id=f"e{i}", proposal_id=None, session_id=None, symbol="AAPL",
@@ -647,9 +688,16 @@ async def test_allow_fractional_does_not_exempt_count_throttles(
     — that separation is the whole reason it's a distinct flag."""
     db = tmp_path / "risk_frac2.db"
     _patch_passing_env(monkeypatch, db)
+    monkeypatch.setattr(
+        "trading.risk_engine.trading_config",
+        lambda: {
+            **settings_mod.DEFAULT_SETTINGS["trading"],
+            "max_daily_orders": 20,
+        },
+    )
     from db.order_executions import create_execution_record
 
-    for i in range(20):  # max out the daily-order count (cap = 20)
+    for i in range(20):  # finite cap still binds fractional entries
         create_execution_record(
             execution_id=f"e{i}", proposal_id=None, session_id=None, symbol="AAPL",
             side="buy", qty=Decimal("1"), order_type="market", limit_price=None,
