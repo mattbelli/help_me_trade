@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from brokers.alpaca import AlpacaAdapter
+from brokers.alpaca import AlpacaAdapter, AlpacaError
 from db import options_flow as of_db
 from signals.options_flow import constants as C
 
@@ -495,6 +495,38 @@ def test_get_option_contracts_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(adapter, "_request", boom)
     assert adapter.get_option_contracts("SPY") == []
+
+
+def test_option_contract_exists_uses_v2_and_requires_canonical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _adapter()
+    calls: list[str] = []
+
+    def fake_get(path: str) -> dict:
+        calls.append(path)
+        assert path.startswith("/v2/options/contracts/")
+        assert "/v1beta1/" not in path
+        occ = path.rsplit("/", 1)[-1]
+        if occ == "SPY260902C00500000":
+            return {"symbol": "SPY260902C00500000", "tradable": True, "style": "american"}
+        if occ == "SPXW260902C07650000":
+            return {"symbol": "SPXW260902C07650000", "tradable": True, "style": "european"}
+        if occ == "ALIAS":
+            return {"symbol": "SPY260902C00500000", "tradable": True}
+        if occ == "DEAD":
+            return {"symbol": "DEAD", "tradable": False}
+        raise AlpacaError("not found")
+
+    monkeypatch.setattr(adapter, "_get", fake_get)
+    assert adapter.option_contract_exists("SPY260902C00500000") is True
+    assert adapter.option_contract_exists("spxw260902c07650000") is True
+    assert adapter.option_contract_exists("ALIAS") is False
+    assert adapter.option_contract_exists("DEAD") is False
+    assert adapter.option_contract_exists("NOPE") is False
+    assert adapter.option_contract_exists("") is False
+    assert calls[0] == "/v2/options/contracts/SPY260902C00500000"
+    assert calls[1] == "/v2/options/contracts/SPXW260902C07650000"
 
 
 def test_get_option_chain_snapshot_path(monkeypatch: pytest.MonkeyPatch) -> None:

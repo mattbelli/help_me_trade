@@ -534,7 +534,7 @@ def test_options_chain_alpaca_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
     assert resp.status_code == 501
 
 
-# --- Index option roots (SPX/SPXW) — no contracts API, generated picker ---------
+# --- Index option roots (SPX/SPXW) — generated picker, parity spot, no OI ---------
 
 
 def test_index_expirations_spxw_horizons() -> None:
@@ -605,7 +605,7 @@ def test_options_chain_spxw_uses_generated_picker_and_parity(
     }
     result = build_options_chain_sync(broker, "SPXW", "2026-07-23", "all")
 
-    # No trading-API calls for an index root — contracts/stock quote don't exist.
+    # Index roots skip contracts + stock snapshot (no index spot; generated picker).
     broker.get_option_contracts.assert_not_called()
     broker.get_stock_snapshot_fields.assert_not_called()
     assert result["expiry"] == "2026-07-23"

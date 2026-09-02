@@ -20,10 +20,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Index option roots the market-data API serves but the trading-API contracts
-# endpoint does NOT (index options aren't tradable on Alpaca): expirations must
-# be generated, OI has no source, and the "underlying price" has no stock quote
-# — it's inferred from put-call parity at the tightest call/put midpoint.
+# Index option roots. Alpaca listed them as tradable 2026-09-02 (SPX/SPXW/DJX/
+# XSP/VIX/VIXW, European, cash-settled) but still has NO index spot in market
+# data, and the contracts list is awkward: SPXW is ``underlying=SPX`` +
+# ``root_symbol=SPXW`` (``underlying=SPXW`` returns empty), and an unfiltered
+# SPX page fills with monthlies before weeklies. So the chain widget still
+# generates the expiration picker, skips the stock snapshot, and infers the
+# header level from put-call parity at the tightest call/put midpoint.
 # NOTE the snapshots path symbol is the OCC ROOT: SPX = AM monthlies only,
 # SPXW = the PM dailies/weeklies (measured 2026-07-22, chain sampler postmortem).
 INDEX_OPTION_ROOTS = frozenset({"SPX", "SPXW"})
@@ -169,7 +172,7 @@ def _build_chain_side(snapshot: dict | None, oi: int | None) -> dict:
 
 
 def _index_expirations(sym: str, today: date) -> list[str]:
-    """Generated expiration picker for index roots (no contracts API).
+    """Generated expiration picker for index roots (no stock quote; see INDEX_OPTION_ROOTS).
 
     Horizons measured live 2026-07-22 against /v1beta1/options/snapshots:
     SPXW listed every trading day ~3 weeks out, Friday weeklies ~7 weeks,
@@ -523,9 +526,10 @@ def build_options_chain_sync(
     # Contracts metadata drives the expirations picker + OI. The snapshot
     # endpoint pages alphabetically (near-dated calls first), so deriving
     # expirations from an unfiltered snapshot truncates the picker to one
-    # expiry and drops most puts (live finding 2026-07-09). Index roots have
-    # no contracts API (not tradable on Alpaca): generated picker, no OI.
-    # Cached per (symbol, ET date) — see _CONTRACTS_CACHE.
+    # expiry and drops most puts (live finding 2026-07-09). Index roots still
+    # use the generated picker (no index spot; SPXW nested under SPX — see
+    # INDEX_OPTION_ROOTS); OI stays null on that path. Cached per (symbol,
+    # ET date) — see _CONTRACTS_CACHE.
     oi_by_expiry: dict[str, dict[str, int]] = {}
     if sym in INDEX_OPTION_ROOTS:
         expirations = _index_expirations(sym, datetime.now(_ET).date())

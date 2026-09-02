@@ -1724,14 +1724,22 @@ class AlpacaAdapter:
             return False
 
     def option_contract_exists(self, occ_symbol: str) -> bool:
+        """True when the trading API lists this OCC as tradable.
+
+        ``GET /v2/options/contracts/{occ}`` — the v1beta1 path 404s (measured
+        2026-09-02: ``endpoint not found`` for SPY and SPX alike). Same
+        canonical-symbol check as ``symbol_exists``: never accept an alias.
+        """
         sym = occ_symbol.strip().upper()
         if not sym:
             return False
         try:
-            data = self._get(f"/v1beta1/options/contracts/{sym}")
-            return bool(isinstance(data, dict) and data.get("tradable"))
+            data = self._get(f"/v2/options/contracts/{sym}")
         except AlpacaError:
             return False
+        if not isinstance(data, dict) or not data.get("tradable"):
+            return False
+        return str(data.get("symbol") or "").upper() == sym
 
     @staticmethod
     def _parse_option_snapshot(data: dict, occ_symbol: str) -> dict | None:
