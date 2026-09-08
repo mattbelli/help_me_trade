@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from pathlib import Path
 
 from brokers.schwab_auth import OPEN_ORDER_STATUSES, create_client, token_exists
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
 _LABELS_PATH = ROOT / "data" / "schwab_account_labels.json"
@@ -111,9 +114,16 @@ def _parse_open_orders(raw: list) -> list[dict]:
     return out
 
 
-def _fetch_all() -> dict:
+def _fetch_all() -> tuple[dict, dict[str, list[dict]]]:
     """Blocking: pull every linked Schwab account (balances + positions + open
-    orders). Called off the event loop via ``asyncio.to_thread``."""
+    orders). Called off the event loop via ``asyncio.to_thread``.
+
+    Returns the snapshot plus ``{account_hash: positions}``. The hash stays out
+    of the snapshot payload (it is the Schwab account identifier, and the API
+    response is not the place for it) but it is what maps a live account to its
+    ``trade_accounts`` row, so the position-change trigger can refresh exactly
+    the account that moved.
+    """
     from schwab.client import Client
 
     client = create_client()
@@ -123,6 +133,7 @@ def _fetch_all() -> dict:
     labels = _labels()
 
     accounts: list[dict] = []
+    positions_by_hash: dict[str, list[dict]] = {}
     for entry in linked:
         num = str(entry.get("accountNumber", ""))
         account_hash = entry.get("hashValue", "")
@@ -133,6 +144,8 @@ def _fetch_all() -> dict:
         sec = (ar.json() or {}).get("securitiesAccount", {})
         bal = sec.get("currentBalances") or sec.get("initialBalances") or {}
         positions = _parse_positions(sec)
+        if account_hash:
+            positions_by_hash[str(account_hash)] = positions
 
         try:
             orders_resp = client.get_orders_for_account(account_hash)
@@ -172,7 +185,7 @@ def _fetch_all() -> dict:
         )
 
     accounts.sort(key=lambda a: a["liquidation_value"], reverse=True)
-    return {
+    snapshot = {
         "accounts": accounts,
         "totals": {
             "liquidation_value": sum(a["liquidation_value"] for a in accounts),
@@ -183,6 +196,7 @@ def _fetch_all() -> dict:
             "account_count": len(accounts),
         },
     }
+    return snapshot, positions_by_hash
 
 
 def get_schwab_accounts_sync(force: bool = False) -> dict:
@@ -226,7 +240,7 @@ def get_schwab_accounts_sync(force: bool = False) -> dict:
             ):
                 return refreshed
         try:
-            data = _fetch_all()
+            data, positions_by_hash = _fetch_all()
         except Exception as exc:  # noqa: BLE001 — read path must never raise into callers
             if cached is not None:
                 return {**cached, "stale": True, "error": str(exc)}
@@ -237,6 +251,15 @@ def get_schwab_accounts_sync(force: bool = False) -> dict:
     data["fetched_at"] = time.time()
     with _cache_lock:
         _cache.update(ts=time.time(), data=data)
+    # Only a fresh upstream success reaches here (cache hits, the stale
+    # fallback and errors all returned above), so this is the one place a
+    # position change can be trusted as evidence a transaction happened.
+    try:
+        from trading.position_trigger import observe_positions
+
+        observe_positions(positions_by_hash)
+    except Exception:  # noqa: BLE001 — the accelerated refresh must never break the read
+        logger.exception("Schwab position-change trigger failed")
     # Persist a daily equity/P&L snapshot (upsert today's ET row) so the
     # accurate numbers accrue over time instead of vanishing at the next open.
     try:

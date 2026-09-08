@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Collection
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -341,7 +342,11 @@ def _sync_schwab_account(
     }
 
 
-def sync_schwab(*, lookback_days: int = 365) -> dict[str, Any]:
+def sync_schwab(
+    *,
+    lookback_days: int = 365,
+    external_ids: Collection[str] | None = None,
+) -> dict[str, Any]:
     """Read-only: pull Schwab Transactions-API history for EACH linked account,
     attributing every trade to the correct ``trade_accounts`` row by its
     ``broker_external_id`` (the account hash).
@@ -351,6 +356,10 @@ def sync_schwab(*, lookback_days: int = 365) -> dict[str, Any]:
     OAuth client + a per-account adapter (works with the multiple linked accounts
     ``SchwabAdapter.from_settings`` cannot). GET-only — never places, cancels, or
     mutates an order. A non-blocking lock prevents overlapping runs.
+
+    ``external_ids`` narrows the run to those account hashes — the
+    position-change trigger sweeps only the account that actually moved. The
+    hourly job passes None and still covers every mapped account.
     """
     if not token_exists():
         return {"broker": "schwab", "skipped": "no token"}
@@ -362,6 +371,11 @@ def sync_schwab(*, lookback_days: int = 365) -> dict[str, Any]:
             for a in list_accounts(broker="schwab", enabled_only=True)
             if a.get("broker_external_id")
         ]
+        if external_ids is not None:
+            wanted = {str(x) for x in external_ids}
+            accounts = [
+                a for a in accounts if str(a["broker_external_id"]) in wanted
+            ]
         if not accounts:
             return {"broker": "schwab", "skipped": "no mapped accounts"}
 

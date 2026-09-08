@@ -210,3 +210,64 @@ def test_latest_trade_date_source_filter(tmp_path):
     assert latest_trade_date(acct, source="schwab_json_import", db_path=db) == date(2026, 6, 15)
     assert latest_trade_date(acct, source="schwab_api", db_path=db) == date(2026, 6, 20)
     assert latest_trade_date(acct, db_path=db) == date(2026, 6, 20)
+
+
+# --- accelerated refresh scope (position-change trigger) -------------------
+
+def _mapped_accounts():
+    return [
+        {"id": "acct_a", "label": "Individual", "broker_external_id": "hash_a"},
+        {"id": "acct_b", "label": "Roth IRA", "broker_external_id": "hash_b"},
+    ]
+
+
+def _stub_schwab_sync(monkeypatch):
+    """Mock every network/ledger touch point; return the list of synced ids."""
+    from trading import sync as sync_mod
+
+    synced: list[str] = []
+    monkeypatch.setattr(sync_mod, "token_exists", lambda: True)
+    monkeypatch.setattr(sync_mod, "list_accounts", lambda **kw: _mapped_accounts())
+    monkeypatch.setattr(sync_mod, "create_client", lambda: object())
+
+    def _fake_account_sync(client, acct, *, end, lookback_days):
+        synced.append(acct["id"])
+        return {"account_id": acct["id"], "fetched": 0, "inserted": 0, "duplicates": 0}
+
+    monkeypatch.setattr(sync_mod, "_sync_schwab_account", _fake_account_sync)
+    return sync_mod, synced
+
+
+def test_sync_schwab_without_external_ids_covers_every_account(monkeypatch):
+    sync_mod, synced = _stub_schwab_sync(monkeypatch)
+    sync_mod.sync_schwab()
+    assert synced == ["acct_a", "acct_b"]
+
+
+def test_sync_schwab_external_ids_limits_to_the_changed_account(monkeypatch):
+    sync_mod, synced = _stub_schwab_sync(monkeypatch)
+    result = sync_mod.sync_schwab(external_ids=["hash_b"])
+    assert synced == ["acct_b"]
+    assert [r["account_id"] for r in result["accounts"]] == ["acct_b"]
+
+
+def test_sync_schwab_unmapped_external_id_syncs_nothing(monkeypatch):
+    sync_mod, synced = _stub_schwab_sync(monkeypatch)
+    assert sync_mod.sync_schwab(external_ids=["hash_unknown"]) == {
+        "broker": "schwab",
+        "skipped": "no mapped accounts",
+    }
+    assert synced == []
+
+
+def test_sync_schwab_is_single_flight(monkeypatch):
+    sync_mod, synced = _stub_schwab_sync(monkeypatch)
+    assert sync_mod._schwab_sync_lock.acquire(blocking=False)
+    try:
+        assert sync_mod.sync_schwab(external_ids=["hash_a"]) == {
+            "broker": "schwab",
+            "skipped": "already running",
+        }
+    finally:
+        sync_mod._schwab_sync_lock.release()
+    assert synced == []
