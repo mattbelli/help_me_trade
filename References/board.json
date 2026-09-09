@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-08",
+ "updated_at": "2026-09-09",
  "lanes": [
   "inbox",
   "founder",
@@ -17,8 +17,8 @@
    "type": "feat",
    "priority": "medium",
    "owner": "agent",
-   "updated_at": "2026-09-08",
-   "notes": "2026-09-08: The Schwab transaction ledger only refreshed on the hourly trade-sync loop, so a fill the founder took at 10:05 was invisible in the cockpit until 11:00. Fast lane added: a FRESH successful read-only account snapshot (brokers/schwab_accounts._fetch_all) now hands trading/position_trigger.py a {account_hash: positions} side channel; a changed signed quantity / added / removed symbol on a mapped account queues a Transactions-API sweep for THAT account only (sync_schwab gained external_ids). Mark price, day P&L and unrealized never enter the signature. 20s debounce coalesces bursts + 300s per-account cooldown (a cooled-down change is deferred, not dropped); one daemon worker, and sync_schwab's own non-blocking lock keeps the hourly job single-flight-safe. Cache hits, the stale fallback, errors and the unauthenticated path never observe. Read-only end to end — no broker execution path touched. 32 tests (16 new trigger + 4 new sync-scope). Hourly sync, 7-day late-fill window, JSON boundary and dedup unchanged.\n2026-09-08: OPEN: never fired against live Schwab yet (all tests mock the broker). First live check = take a fill in a real account, then confirm the backend log shows 'Schwab positions changed on 1 account(s)' followed by 'Accelerated Schwab ledger refresh' within ~20-40s, and the trade appears in the ledger before the next hourly run."
+   "updated_at": "2026-09-09",
+   "notes": "2026-09-08: The Schwab transaction ledger only refreshed on the hourly trade-sync loop, so a fill the founder took at 10:05 was invisible in the cockpit until 11:00. Fast lane added: a FRESH successful read-only account snapshot (brokers/schwab_accounts._fetch_all) now hands trading/position_trigger.py a {account_hash: positions} side channel; a changed signed quantity / added / removed symbol on a mapped account queues a Transactions-API sweep for THAT account only (sync_schwab gained external_ids). Mark price, day P&L and unrealized never enter the signature. 20s debounce coalesces bursts + 300s per-account cooldown (a cooled-down change is deferred, not dropped); one daemon worker, and sync_schwab's own non-blocking lock keeps the hourly job single-flight-safe. Cache hits, the stale fallback, errors and the unauthenticated path never observe. Read-only end to end — no broker execution path touched. 32 tests (16 new trigger + 4 new sync-scope). Hourly sync, 7-day late-fill window, JSON boundary and dedup unchanged.\n2026-09-08: OPEN: never fired against live Schwab yet (all tests mock the broker). First live check = take a fill in a real account, then confirm the backend log shows 'Schwab positions changed on 1 account(s)' followed by 'Accelerated Schwab ledger refresh' within ~20-40s, and the trade appears in the ledger before the next hourly run.\n2026-09-09: Account Activity websocket trigger implemented after live MNQ proved position snapshots futures-blind; account-number to hash routing keeps sync scoped, unmapped fails safe to all, subscription fail-soft. 70 targeted tests green; live subscription/fill fire owed after safe backend restart."
   },
   {
    "num": 344,

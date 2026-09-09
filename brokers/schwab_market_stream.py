@@ -41,6 +41,7 @@ from trading.market_hours import is_market_open
 logger = logging.getLogger(__name__)
 
 _HANDLE_MESSAGE_TIMEOUT = 30.0  # seconds before assuming the stream dropped
+_ACCOUNT_ACTIVITY_SUB_TIMEOUT = 10.0
 
 # Suspect-print guard (band + one-tick confirmation; constants shared with the REST
 # apply_extended guard via brokers.market_stream). A tick outside ±TICK_BAND_PCT of the
@@ -91,6 +92,7 @@ _FUTURES_FIELDS = [
 # which silently drops every tick. These constants make the access key explicit.
 _EQ = StreamClient.LevelOneEquityFields
 _FUT = StreamClient.LevelOneFuturesFields
+_ACCT = StreamClient.AccountActivityFields
 
 
 def _partition_symbols(symbols: set[str]) -> tuple[list[str], list[str]]:
@@ -114,13 +116,28 @@ def _token_exists() -> bool:
         return False
 
 
-async def _build_stream_client() -> StreamClient:
-    """Create and return a fresh Schwab StreamClient (blocking I/O off-thread)."""
+async def _build_stream_client() -> tuple[StreamClient, dict[str, str]]:
+    """Create a stream client plus account-number → hash routing map."""
     from brokers.schwab_auth import create_client
 
     client = await asyncio.to_thread(create_client, interactive=False)
+    account_hashes: dict[str, str] = {}
+    try:
+        response = await asyncio.to_thread(client.get_account_numbers)
+        response.raise_for_status()
+        for row in response.json() or []:
+            number = str(row.get("accountNumber") or "").strip()
+            account_hash = str(row.get("hashValue") or "").strip()
+            if number and account_hash:
+                account_hashes[number] = account_hash
+    except Exception as exc:  # noqa: BLE001 — activity can fall back to all accounts
+        logger.warning(
+            "Schwab account-activity routing map unavailable (%s); "
+            "activity will refresh all mapped accounts",
+            exc,
+        )
     # account_id is vestigial in schwab-py 1.5.1 — omit it
-    return StreamClient(client)
+    return StreamClient(client), account_hashes
 
 
 class SchwabMarketStreamHub(BaseMarketHub):
@@ -147,6 +164,10 @@ class SchwabMarketStreamHub(BaseMarketHub):
         self._held_streak: dict[str, int] = {}
         self._held_since_log: dict[str, int] = {}
         self._held_log_ts: dict[str, float] = {}
+        # Account Activity names the numeric Schwab account; ledger sync scopes
+        # by its opaque hash. Built authoritatively from get_account_numbers on
+        # every stream connection — never infer this through labels/last-four.
+        self._activity_account_hashes: dict[str, str] = {}
 
     def _is_held_suspect_tick(
         self, symbol: str, price_f: float, prev_close: float, *, label: str
@@ -322,11 +343,12 @@ class SchwabMarketStreamHub(BaseMarketHub):
 
             stream: StreamClient | None = None
             try:
-                stream = await _build_stream_client()
+                stream, self._activity_account_hashes = await _build_stream_client()
 
                 # Register handlers BEFORE login
                 stream.add_level_one_equity_handler(self._on_equity)
                 stream.add_level_one_futures_handler(self._on_futures)
+                stream.add_account_activity_handler(self._on_account_activity)
 
                 await stream.login()
                 backoff = RECONNECT_BASE_SEC
@@ -346,6 +368,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                     await stream.level_one_futures_subs(
                         init_fut, fields=_FUTURES_FIELDS
                     )
+                await self._subscribe_account_activity(stream)
 
                 while self._running:
                     await self._apply_stream_changes(stream)
@@ -412,9 +435,58 @@ class SchwabMarketStreamHub(BaseMarketHub):
                     add_fut, fields=_FUTURES_FIELDS
                 )
 
+    async def _subscribe_account_activity(self, stream: StreamClient) -> bool:
+        """Subscribe without making account activity a market-data dependency.
+
+        A failure here must not reconnect-loop or take quotes offline. Position
+        observation and the hourly transaction sweep remain the fallback.
+        """
+        try:
+            await asyncio.wait_for(
+                stream.account_activity_sub(),
+                timeout=_ACCOUNT_ACTIVITY_SUB_TIMEOUT,
+            )
+        except Exception as exc:  # noqa: BLE001 — optional acceleration lane
+            logger.warning(
+                "Schwab account activity unavailable (%s); "
+                "position/hourly ledger refresh remains active",
+                exc,
+            )
+            return False
+        logger.info("Schwab account activity subscribed")
+        return True
+
     # ------------------------------------------------------------------
     # Message handlers (called by StreamClient on each tick)
     # ------------------------------------------------------------------
+
+    def _on_account_activity(self, msg: dict[str, Any]) -> None:
+        """Queue a transaction-ledger sweep for any real account activity.
+
+        Account Activity covers fills that never survive until the next
+        positions snapshot (the futures day-trading failure mode). Subscription
+        acknowledgements are response frames, not handler content; still require
+        at least one content item so malformed/empty frames cannot trigger work.
+        The downstream request is non-blocking and independently bounded.
+        """
+        content = msg.get("content") or []
+        if not content:
+            return
+        try:
+            from trading.position_trigger import observe_account_activity
+
+            hashes: set[str] = set()
+            complete_mapping = True
+            for item in content:
+                account_number = str(item.get(_ACCT.ACCOUNT.name) or "").strip()
+                account_hash = self._activity_account_hashes.get(account_number)
+                if not account_hash:
+                    complete_mapping = False
+                    break
+                hashes.add(account_hash)
+            observe_account_activity(hashes if complete_mapping and hashes else None)
+        except Exception:  # noqa: BLE001 — never break Schwab market streaming
+            logger.exception("Schwab account-activity trigger failed")
 
     def _on_equity(self, msg: dict[str, Any]) -> None:
         """Level-one equity handler — called synchronously by StreamClient.

@@ -39,6 +39,104 @@ async def _drain(hub: SchwabMarketStreamHub) -> None:
         await asyncio.gather(*list(hub._inflight_ticks))
 
 
+def test_account_activity_queues_accelerated_refresh(monkeypatch) -> None:
+    hub = SchwabMarketStreamHub()
+    hub._activity_account_hashes = {"12345678": "hash-1"}
+    calls: list[set[str] | None] = []
+    monkeypatch.setattr(
+        "trading.position_trigger.observe_account_activity",
+        lambda hashes=None: calls.append(hashes),
+    )
+
+    hub._on_account_activity(
+        {
+            "service": "ACCT_ACTIVITY",
+            "content": [{"ACCOUNT": "12345678", "MESSAGE_TYPE": "OrderFill"}],
+        }
+    )
+    assert calls == [{"hash-1"}]
+
+
+def test_unmapped_account_activity_falls_back_to_all_accounts(monkeypatch) -> None:
+    hub = SchwabMarketStreamHub()
+    calls: list[set[str] | None] = []
+    monkeypatch.setattr(
+        "trading.position_trigger.observe_account_activity",
+        lambda hashes=None: calls.append(hashes),
+    )
+
+    hub._on_account_activity(
+        {"service": "ACCT_ACTIVITY", "content": [{"ACCOUNT": "unknown"}]}
+    )
+    assert calls == [None]
+
+
+def test_empty_account_activity_does_not_queue_refresh(monkeypatch) -> None:
+    hub = SchwabMarketStreamHub()
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "trading.position_trigger.observe_account_activity",
+        lambda hashes=None: calls.append(True),
+    )
+
+    hub._on_account_activity({"service": "ACCT_ACTIVITY", "content": []})
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_account_activity_subscription_is_fail_soft(caplog) -> None:
+    class BrokenStream:
+        async def account_activity_sub(self):
+            raise RuntimeError("not entitled")
+
+    hub = SchwabMarketStreamHub()
+    assert await hub._subscribe_account_activity(BrokenStream()) is False
+    assert "position/hourly ledger refresh remains active" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_client_builds_authoritative_account_routing(monkeypatch) -> None:
+    from brokers import schwab_market_stream as stream_mod
+
+    class Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> list[dict[str, str]]:
+            return [
+                {"accountNumber": "12345678", "hashValue": "hash-1"},
+                {"accountNumber": "87654321", "hashValue": "hash-2"},
+            ]
+
+    class Client:
+        def get_account_numbers(self) -> Response:
+            return Response()
+
+    client = Client()
+    monkeypatch.setattr("brokers.schwab_auth.create_client", lambda **kwargs: client)
+    monkeypatch.setattr(stream_mod, "StreamClient", lambda got: ("stream", got))
+
+    stream, mapping = await stream_mod._build_stream_client()
+    assert stream == ("stream", client)
+    assert mapping == {"12345678": "hash-1", "87654321": "hash-2"}
+
+
+@pytest.mark.asyncio
+async def test_futures_only_pending_add_still_subscribes() -> None:
+    class RecordingStream:
+        def __init__(self) -> None:
+            self.futures: list[str] = []
+
+        async def level_one_futures_add(self, symbols, *, fields=None):
+            self.futures.extend(symbols)
+
+    hub = SchwabMarketStreamHub()
+    hub._pending_add.add("/MNQ")
+    stream = RecordingStream()
+    await hub._apply_stream_changes(stream)
+    assert stream.futures == ["/MNQ"]
+
+
 def _labeled_equity_msg() -> dict:
     # Keys are enum MEMBER NAMES — exactly what schwab-py's relabel_message emits.
     return {

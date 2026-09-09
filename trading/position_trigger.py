@@ -1,11 +1,17 @@
-"""Accelerated Schwab ledger refresh when a live snapshot shows positions moved.
+"""Accelerated Schwab ledger refresh from live account-change signals.
 
-The hourly ``_trade_sync_loop`` is the catch-all; this is the fast lane. When a
-**fresh, successful** read-only account snapshot (``brokers.schwab_accounts``)
-shows a mapped account's holdings changed — a symbol added, removed, or its
-signed quantity moved — the changed account's Transactions-API ledger sync is
-requested off the caller's thread, so a fill the founder just took shows up in
-the ledger in seconds instead of up to an hour.
+The hourly ``_trade_sync_loop`` is the catch-all; this is the fast lane. Two
+read-only signals feed it:
+
+* Schwab Account Activity websocket messages request a sweep for the account
+  named by the event (or all accounts if it cannot be mapped). This is the
+  primary fill signal and catches fast round trips (notably futures) that open
+  and close between account snapshots.
+* A **fresh, successful** account snapshot (``brokers.schwab_accounts``) whose
+  signed holdings changed requests a sweep narrowed to that account hash.
+
+Both requests run off the caller's thread, so a fill the founder just took shows
+up in the ledger in seconds instead of up to an hour.
 
 Read-only throughout: the only downstream call is ``sync_schwab``, which is
 GET-only. Mark-price and day-P&L drift never enter the signature, so the normal
@@ -34,12 +40,45 @@ _DEBOUNCE_S = 20.0
 _COOLDOWN_S = 300.0
 
 _QTY_STEP = Decimal("0.000001")
+_ALL_ACCOUNTS = "*"
 
 _lock = threading.Lock()
 _baseline: dict[str, tuple[tuple[str, str], ...]] = {}  # hash -> last seen signature
-_pending: set[str] = set()  # account hashes awaiting a sweep
+_pending: set[str] = set()  # account hashes (or _ALL_ACCOUNTS) awaiting a sweep
 _next_allowed: dict[str, float] = {}  # hash -> monotonic time the cooldown ends
 _worker: threading.Thread | None = None
+
+
+def observe_account_activity(external_ids: Iterable[str] | None = None) -> bool:
+    """Queue a refresh after a Schwab Account Activity websocket message.
+
+    ``external_ids`` contains Schwab's opaque account hashes when the stream's
+    account number mapped cleanly. An absent/empty mapping fails safe to an
+    all-account sweep; transaction IDs deduplicate it. The existing debounce and
+    five-minute per-account cooldown bound bursty fill/order messages. Returns
+    whether this call added any new pending request.
+    """
+    queued = False
+    try:
+        keys = {
+            str(external_id).strip()
+            for external_id in (external_ids or [])
+            if str(external_id).strip()
+        }
+        if not keys:
+            keys = {_ALL_ACCOUNTS}
+        with _lock:
+            new_keys = keys - _pending
+            if new_keys:
+                _pending.update(new_keys)
+                queued = True
+            _ensure_worker()
+    except Exception:  # noqa: BLE001 — never break the market-data stream
+        logger.exception("Schwab account-activity observation failed")
+        return False
+    if queued:
+        logger.info("Schwab account activity — accelerated ledger refresh queued")
+    return queued
 
 
 def _signature(positions: Iterable[Mapping[str, Any]]) -> tuple[tuple[str, str], ...]:
@@ -139,6 +178,11 @@ def _run() -> None:
                     _worker = None
                     return
                 continue
+            # An Account Activity request sweeps every mapped account, so it
+            # subsumes any account-specific position requests already pending.
+            if _ALL_ACCOUNTS in due:
+                due = [_ALL_ACCOUNTS]
+                _pending.clear()
             for account_hash in due:
                 _pending.discard(account_hash)
                 _next_allowed[account_hash] = now + _COOLDOWN_S
@@ -146,11 +190,12 @@ def _run() -> None:
 
 
 def _refresh(hashes: list[str]) -> None:
-    """Run the read-only Transactions sync for just the changed accounts."""
+    """Run the read-only Transactions sync for all or the changed accounts."""
     try:
         from trading.sync import sync_schwab
 
-        result = sync_schwab(external_ids=hashes)
+        external_ids = None if _ALL_ACCOUNTS in hashes else hashes
+        result = sync_schwab(external_ids=external_ids)
     except Exception:
         logger.exception(
             "Accelerated Schwab ledger refresh failed (%d account(s))", len(hashes)

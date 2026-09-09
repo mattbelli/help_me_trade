@@ -55,10 +55,10 @@ def calls(monkeypatch):
     monkeypatch.setattr(trigger, "_DEBOUNCE_S", 0.01)
     monkeypatch.setattr(trigger, "_COOLDOWN_S", 0.0)
 
-    recorded: list[list[str]] = []
+    recorded: list[list[str] | None] = []
 
     def _fake_sync(*, lookback_days: int = 365, external_ids=None) -> dict:
-        recorded.append(sorted(external_ids or []))
+        recorded.append(None if external_ids is None else sorted(external_ids))
         return {"broker": "schwab", "inserted": 0}
 
     monkeypatch.setattr("trading.sync.sync_schwab", _fake_sync)
@@ -141,6 +141,32 @@ def test_only_the_changed_account_is_refreshed(calls):
     assert queued == ["h2"]
     assert _wait_for(lambda: len(calls) == 1)
     assert calls == [["h2"]]
+
+
+def test_account_activity_refreshes_all_accounts(calls):
+    assert trigger.observe_account_activity() is True
+    assert _wait_for(lambda: calls == [None])
+
+
+def test_account_activity_refreshes_only_mapped_account(calls):
+    assert trigger.observe_account_activity(["h2"]) is True
+    assert _wait_for(lambda: calls == [["h2"]])
+
+
+def test_account_activity_burst_is_coalesced(calls, monkeypatch):
+    monkeypatch.setattr(trigger, "_DEBOUNCE_S", 0.2)
+    assert trigger.observe_account_activity() is True
+    assert trigger.observe_account_activity() is False
+    assert _wait_for(lambda: calls == [None])
+
+
+def test_account_activity_subsumes_pending_position_refresh(calls, monkeypatch):
+    monkeypatch.setattr(trigger, "_DEBOUNCE_S", 0.2)
+    trigger.observe_positions({"h1": [_pos("AAPL", 100)]})
+    trigger.observe_positions({"h1": [_pos("AAPL", 50)]})
+    trigger.observe_account_activity(["h1"])
+    assert _wait_for(lambda: calls == [["h1"]])
+    assert not trigger._pending
 
 
 # --- debounce / cooldown / single-flight -------------------------------------
