@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-02",
+ "updated_at": "2026-09-04",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 344,
+   "id": "price-alert-cross-client-sync",
+   "title": "Sync price alerts across web and phone in real time",
+   "lane": "in_progress",
+   "type": "bug",
+   "priority": "high",
+   "owner": "codex",
+   "updated_at": "2026-09-04",
+   "notes": "Broadcast alert CRUD over the existing market socket; refresh web/mobile immediately; foreground catch-up and polling fallback.\n2026-09-04: 09-04 follow-up: HMT job_watchdog pushes were persisted but mobile Inbox only seeded once; add foreground/socket/tab catch-up and route generic unified push taps to Inbox. Exact lost push was attention_ledger stale; both remain unread server-side."
+  },
   {
    "num": 343,
    "id": "lift-daily-order-cap",
