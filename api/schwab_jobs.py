@@ -1,17 +1,19 @@
-"""Schwab ops jobs: the auth/health watchdog (probe + alert once per ET day) and
-the daily Schwab account snapshot. Extracted verbatim from ``api/main``
-(strangler round 3); ``api/background_jobs`` registers both.
+"""Schwab ops jobs: auth/health, daily snapshots, and scoped minute trade sync.
+``api/background_jobs`` registers these jobs.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import date, datetime
 
 from brokers.factory import get_market_data_provider
 from config.settings import broker_is_configured
+from db.accounts import list_accounts
 from trading.market_hours import _ET
+from trading.sync import sync_schwab
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,42 @@ _SCHWAB_HEALTH_ALERTS_ENABLED = os.environ.get("SCHWAB_HEALTH_ALERTS_ENABLED", "
 SCHWAB_SNAPSHOT_INTERVAL_SECONDS = max(
     300, int(os.environ.get("SCHWAB_SNAPSHOT_INTERVAL_SECONDS", str(1800)))
 )
+SCHWAB_TRADE_SYNC_INTERVAL_SECONDS = 60.0
+# Explicit ledger IDs, not labels or last-four selectors. Empty disables the
+# minute job; the existing hourly all-account reconciliation still runs.
+SCHWAB_TRADE_SYNC_ACCOUNT_IDS = frozenset(
+    value.strip()
+    for value in os.environ.get("SCHWAB_TRADE_SYNC_ACCOUNT_IDS", "").split(",")
+    if value.strip()
+)
+
+
+def _sync_schwab_selected_accounts() -> dict:
+    if not SCHWAB_TRADE_SYNC_ACCOUNT_IDS:
+        return {"skipped": "no selected accounts"}
+    accounts = {
+        account["id"]: account["broker_external_id"]
+        for account in list_accounts(broker="schwab", enabled_only=True)
+        if account.get("broker_external_id")
+    }
+    if not SCHWAB_TRADE_SYNC_ACCOUNT_IDS <= accounts.keys():
+        raise RuntimeError("Schwab minute sync: selected account is disabled or unmapped")
+    # A nonempty, resolved scope can never fall back to an all-account sweep.
+    result = sync_schwab(
+        external_ids=[accounts[key] for key in sorted(SCHWAB_TRADE_SYNC_ACCOUNT_IDS)]
+    )
+    if result.get("error") or any(
+        account.get("error") or account.get("incomplete")
+        for account in result.get("accounts", [])
+    ):
+        raise RuntimeError("Schwab minute sync failed; see transaction sync logs")
+    return result
+
+
+async def _schwab_trade_sync_once() -> None:
+    """Discover fills even when position snapshots and activity events miss them."""
+    result = await asyncio.to_thread(_sync_schwab_selected_accounts)
+    logger.info("Schwab minute trade sync: %s", result)
 
 
 # Schwab health alert state: last-alert date (resets each ET day)

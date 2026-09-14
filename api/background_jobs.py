@@ -64,8 +64,11 @@ from api.schwab_jobs import (
     _SCHWAB_HEALTH_ALERTS_ENABLED,
     SCHWAB_HEALTH_INTERVAL_SECONDS,
     SCHWAB_SNAPSHOT_INTERVAL_SECONDS,
+    SCHWAB_TRADE_SYNC_ACCOUNT_IDS,
+    SCHWAB_TRADE_SYNC_INTERVAL_SECONDS,
     _schwab_health_once,
     _schwab_snapshot_once,
+    _schwab_trade_sync_once,
 )
 from api.tape_jobs import _EQUITY_TAPE_FLUSH_SECONDS
 from api.trade_jobs import (
@@ -217,6 +220,14 @@ def _register_background_jobs() -> None:
             name="schwab_snapshot",
             fn=_schwab_snapshot_once,
             interval_s=float(SCHWAB_SNAPSHOT_INTERVAL_SECONDS),
+        )
+    )
+    register_job(
+        jobs_mod.Job(
+            name="schwab_trade_sync",
+            fn=_schwab_trade_sync_once,
+            interval_s=SCHWAB_TRADE_SYNC_INTERVAL_SECONDS,
+            enabled=lambda: bool(SCHWAB_TRADE_SYNC_ACCOUNT_IDS),
         )
     )
     register_job(
