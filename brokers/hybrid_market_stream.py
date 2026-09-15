@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from brokers.market_stream import (
     MAX_WS_SYMBOLS,
@@ -33,6 +34,7 @@ from brokers.market_stream import (
 from brokers.schwab_market_stream import SchwabMarketStreamHub
 from brokers.symbol_class import classify_symbol
 from config.settings import broker_is_configured
+from trading.market_hours import _ET
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +109,22 @@ class HybridMarketStreamHub(BaseMarketHub):
         for child in (self._alpaca, self._schwab, self._crypto):
             child._running = True
             child._upstream_task = asyncio.create_task(child._upstream_loop())
+        # The children never start(), so nobody re-seeds prev_close across
+        # midnight ET unless the composite runs the roll loop itself. Without
+        # it every % on the board measured Tuesday against FRIDAY's close
+        # (2026-09-15: SPY −0.98% displayed vs a real −0.53%; hidden until
+        # then by daily deploy restarts).
+        self._baseline_roll_task = asyncio.create_task(self._baseline_roll_loop())
 
     async def stop(self) -> None:
         self._running = False
+        if self._baseline_roll_task:
+            self._baseline_roll_task.cancel()
+            try:
+                await self._baseline_roll_task
+            except asyncio.CancelledError:
+                pass
+            self._baseline_roll_task = None
         await self._alpaca.stop()
         await self._schwab.stop()
         await self._crypto.stop()
@@ -119,14 +134,38 @@ class HybridMarketStreamHub(BaseMarketHub):
         self._pending_broadcast.clear()
         self._last_broadcast_ms.clear()
 
-    async def _ensure_baselines(self, symbols: set[str]) -> None:
+    async def _ensure_baselines(self, symbols: set[str], force: bool = False) -> bool:
         alpaca_syms, schwab_syms, crypto_syms = _stream_partition(symbols)
+        ok = True
         if alpaca_syms:
-            await self._alpaca._ensure_baselines(alpaca_syms)
+            ok = await self._alpaca._ensure_baselines(alpaca_syms, force=force) and ok
         if schwab_syms:
-            await self._schwab._ensure_baselines(schwab_syms)
+            ok = await self._schwab._ensure_baselines(schwab_syms, force=force) and ok
         if crypto_syms:
-            await self._crypto._ensure_baselines(crypto_syms)
+            ok = await self._crypto._ensure_baselines(crypto_syms, force=force) and ok
+        return ok
+
+    async def _roll_baselines_if_new_day(self) -> None:
+        # Partition first: a child's own roll would walk the SHARED _quotes and
+        # fetch stock bars for crypto (and vice versa). Equities/futures roll on
+        # the ET date, crypto on the UTC date — each child's reference clock.
+        symbols = set(self._quotes) | self._subscribed
+        alpaca_syms, schwab_syms, crypto_syms = _stream_partition(symbols)
+        today_et = datetime.now(_ET).date()
+        if today_et != self._baseline_date:
+            ok = True
+            if alpaca_syms:
+                ok = await self._alpaca._ensure_baselines(alpaca_syms, force=True) and ok
+            if schwab_syms:
+                ok = await self._schwab._ensure_baselines(schwab_syms, force=True) and ok
+            if ok:  # stamp only on success so a failed fetch retries next tick
+                self._baseline_date = today_et
+        today_utc = datetime.now(timezone.utc).date()
+        if today_utc != self._crypto._baseline_date:
+            if not crypto_syms or await self._crypto._ensure_baselines(
+                crypto_syms, force=True
+            ):
+                self._crypto._baseline_date = today_utc
 
     async def _sync_upstream(self) -> None:
         desired = self._all_symbols()

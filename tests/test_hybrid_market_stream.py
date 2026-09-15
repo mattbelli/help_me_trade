@@ -6,6 +6,9 @@ network is touched; we assert only the composition + routing wiring.
 
 from __future__ import annotations
 
+import asyncio
+from datetime import date, datetime, timedelta, timezone
+
 import pytest
 
 from brokers.hybrid_market_stream import (
@@ -13,10 +16,11 @@ from brokers.hybrid_market_stream import (
     HybridMarketStreamHub,
 )
 from brokers.market_stream import QuoteState
+from trading.market_hours import _ET
 
 
-async def _noop_baselines(self, symbols):
-    return None
+async def _noop_baselines(self, symbols, force=False):
+    return True
 
 
 @pytest.fixture
@@ -102,3 +106,79 @@ def test_alpaca_child_cap_is_raised() -> None:
     from brokers.market_stream import MAX_WS_SYMBOLS
 
     assert MAX_WS_SYMBOLS_ALPACA > MAX_WS_SYMBOLS
+
+
+async def _sleep_forever(self):
+    await asyncio.sleep(3600)
+
+
+@pytest.mark.asyncio
+async def test_composite_runs_the_midnight_roll_loop(
+    hub: HybridMarketStreamHub, monkeypatch
+) -> None:
+    # Children never start(), so the composite must own the roll loop — or
+    # prev_close is never re-seeded and Tuesday's % reads against Friday.
+    for cls in (
+        "brokers.market_stream.AlpacaMarketStreamHub",
+        "brokers.schwab_market_stream.SchwabMarketStreamHub",
+        "brokers.market_stream.AlpacaCryptoStreamHub",
+    ):
+        monkeypatch.setattr(f"{cls}._upstream_loop", _sleep_forever)
+    await hub.start()
+    try:
+        assert hub._baseline_roll_task is not None
+        assert not hub._baseline_roll_task.done()
+    finally:
+        await hub.stop()
+    assert hub._baseline_roll_task is None
+
+
+@pytest.mark.asyncio
+async def test_roll_reseeds_each_child_slice_on_its_own_clock(
+    hub: HybridMarketStreamHub, monkeypatch
+) -> None:
+    calls: list[tuple[str, set[str], bool]] = []
+
+    def _rec(name: str, ok: bool = True):
+        async def _f(self, symbols, force=False):
+            calls.append((name, set(symbols), force))
+            return ok
+
+        return _f
+
+    monkeypatch.setattr(type(hub._alpaca), "_ensure_baselines", _rec("alpaca"))
+    monkeypatch.setattr(type(hub._schwab), "_ensure_baselines", _rec("schwab"))
+    monkeypatch.setattr(type(hub._crypto), "_ensure_baselines", _rec("crypto"))
+    for sym in ("AAPL", "/ESU25", "BTC/USD"):
+        hub._quotes[sym] = QuoteState(price=1.0)
+
+    yesterday = date.today() - timedelta(days=1)
+    hub._baseline_date = yesterday
+    hub._crypto._baseline_date = yesterday
+    await hub._roll_baselines_if_new_day()
+
+    assert ("alpaca", {"AAPL"}, True) in calls
+    assert ("schwab", {"/ESU25"}, True) in calls
+    assert ("crypto", {"BTC/USD"}, True) in calls
+    assert hub._baseline_date == datetime.now(_ET).date()
+    assert hub._crypto._baseline_date == datetime.now(timezone.utc).date()
+
+    # A second tick the same day is a no-op.
+    calls.clear()
+    await hub._roll_baselines_if_new_day()
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_roll_does_not_stamp_the_day_when_a_fetch_fails(
+    hub: HybridMarketStreamHub, monkeypatch
+) -> None:
+    async def _fail(self, symbols, force=False):
+        return False
+
+    monkeypatch.setattr(type(hub._alpaca), "_ensure_baselines", _fail)
+    hub._quotes["AAPL"] = QuoteState(price=1.0)
+    yesterday = date.today() - timedelta(days=1)
+    hub._baseline_date = yesterday
+    await hub._roll_baselines_if_new_day()
+    assert hub._baseline_date == yesterday  # retries next tick
