@@ -9,7 +9,9 @@
 # everything goes nightly except the re-downloadable bulk corpora in WEEKLY_DBS.
 # Retention is grandfather-father-son -- newest DAILY_KEEP copies plus the newest
 # SUNDAY_KEEP Sunday-dated ones -- so "yesterday" and "five weeks ago" both survive
-# without holding five weeks of 5 GB dailies.
+# without holding five weeks of 5 GB dailies. The optional raw equity tapes are
+# different: they are replay fixtures, not a permanent archive, and are capped on
+# both serv and USB.
 # A source DB older than its newest backup is skipped (static legacy copies get one
 # copy ever). Failure pings the ntfy dead-man topic; success stamps last_success.
 set -uo pipefail
@@ -22,6 +24,10 @@ NTFY_TOPIC="${NTFY_TOPIC:-hmt-deadman-0033ce1c5edb753f9932}"
 WEEKLY_DBS="flow_corpus oi_walls"
 DAILY_KEEP=7
 SUNDAY_KEEP=5
+WEEKLY_KEEP=2
+RAW_TAPE_KEEP=5
+RAW_TAPE_REFERENCE="2026-08-18.mpk.zst"
+RAW_TAPE_MIN_BYTES=$((1024 * 1024 * 1024))
 TODAY="$(date -u +%Y%m%d)"
 LOG_DIR="$DST/logs"
 
@@ -58,6 +64,41 @@ $(printf '%s\n' "$all" | while read -r f; do
   printf '%s\n' "$all" | grep -vxF -f <(printf '%s\n' "$keepers") | xargs -r rm -f
 }
 
+# Keep the five latest complete raw tapes plus the Rust/Python parity reference.
+# Today's ET file is actively written while this job can run, so never touch it.
+# The same policy applies at the source and destination: rsync's deliberate
+# no-delete rule protects against accidental source loss, not intended retention.
+prune_raw_tapes() {
+  local dir="$1" today_et file name keep_name found
+  local -a complete=() keep=()
+
+  [ -d "$dir" ] || return 0
+  today_et="$(TZ=America/New_York date +%F)"
+  mapfile -t complete < <(
+    find "$dir" -maxdepth 1 -type f -name '????-??-??.mpk.zst' \
+      -size +"${RAW_TAPE_MIN_BYTES}"c -printf '%f\n' |
+      awk -v today="$today_et" '$0 < today {print}' | sort
+  )
+  if [ "${#complete[@]}" -gt 0 ]; then
+    mapfile -t keep < <(printf '%s\n' "${complete[@]}" | tail -n "$RAW_TAPE_KEEP")
+  fi
+  keep+=("$RAW_TAPE_REFERENCE")
+
+  for file in "$dir"/*.mpk.zst; do
+    [ -e "$file" ] || continue
+    name="${file##*/}"
+    [ "$name" = "$today_et.mpk.zst" ] && continue
+    found=false
+    for keep_name in "${keep[@]}"; do
+      [ "$name" = "$keep_name" ] && { found=true; break; }
+    done
+    if ! $found; then
+      echo "prune raw tape: $file"
+      rm -f -- "$file" || { echo "ERROR: raw-tape prune failed for $file"; errors=$((errors + 1)); }
+    fi
+  done
+}
+
 # --- 1. SQLite databases: online .backup -> dated copies, tiered rotation ----------
 for db in "$SRC"/data/*.db; do
   name="$(basename "$db" .db)"
@@ -75,7 +116,7 @@ for db in "$SRC"/data/*.db; do
       echo "defer $name ($((size / 1024 / 1024 / 1024)) GB, weekly lane -- Sundays only)"
       continue
     fi
-    daily_keep=4; sunday_keep=4      # every copy is a Sunday; 4 weeks, as before
+    daily_keep=$WEEKLY_KEEP; sunday_keep=$WEEKLY_KEEP
   else
     daily_keep=$DAILY_KEEP; sunday_keep=$SUNDAY_KEEP
   fi
@@ -109,10 +150,16 @@ for db in "$SRC"/data/*.db; do
   fi
 done
 
-# --- 2. Everything else in data/: append-only rsync (no --delete, ever) ------------
-rsync -a --no-perms --no-owner --no-group --omit-dir-times \
+# --- 2. Data mirror, then explicit raw-tape retention -------------------------------
+if ! rsync -a --no-perms --no-owner --no-group --omit-dir-times \
   --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' --exclude '*.part' \
-  "$SRC/data/" "$DST/data/" || { echo "ERROR: data rsync failed (rc=$?)"; errors=$((errors + 1)); }
+  "$SRC/data/" "$DST/data/"; then
+  echo "ERROR: data rsync failed"
+  errors=$((errors + 1))
+else
+  prune_raw_tapes "$SRC/data/equity_tape_raw"
+  prune_raw_tapes "$DST/data/equity_tape_raw"
+fi
 
 # --- 3. Config + secrets + agent memory: dated tarball, keep 30 --------------------
 tarball="$DST/config/config.$TODAY.tar.gz"

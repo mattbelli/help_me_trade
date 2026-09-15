@@ -130,8 +130,6 @@ collector's bars" that never resolves = the Rust side stopped writing).
 - ⏳ **after close 08-18:** read both halves through the 16:00 burst; partial-session A/B —
   `tools/equity_ab.sh data/equity_tape_raw/2026-08-18.mpk.zst --start 09:30 --end 10:30` (the tape has a
   10:31–11:23 hole from the flip; from 11:23 the Rust tee appends). Rust vs Python msgs/s + RSS.
-- ⚠️ `EQUITY_TAPE_RECORD_DIR` is still set in `.env` → the Rust tee records every session (~10–15 GB/day;
-  349 GB free 08-18). Unset it once we have the tapes we want.
 - ▶ Nothing else owed on the equity side; abnormality output should be checked once against the Python
   era (`abnormality_state` rows per boundary, fires/day vs the 184/day draft-rule replay) after a full session.
 

@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-14",
+ "updated_at": "2026-09-15",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 347,
+   "id": "backup-retention-cap",
+   "title": "Bound raw-tape and backup corpus retention",
+   "lane": "done",
+   "type": "improvement",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-09-15",
+   "notes": "Founder authorized backup cleanup: stop the optional raw equity-frame tee; preserve the 2026-08-18 replay reference plus five completed sessions on source and USB; cap re-downloadable weekly corpus snapshots at two.\n2026-09-15: Disabled the optional raw-frame tee; retained the 2026-08-18 replay fixture plus five complete sessions on serv and USB; removed 93.09 GiB from serv and 128.84 GiB from USB. The collector restarted cleanly, subscribes live, and reports rec frames=0. Shell syntax and retention smoke checks passed."
+  },
   {
    "num": 345,
    "id": "schwab-position-change-accelerated-ledger-refres",
