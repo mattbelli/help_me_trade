@@ -199,6 +199,9 @@ export function useBars(symbol: string, timeframe = '1Day', days = 180) {
     queryFn: () => getBars(symbol, timeframe, days),
     enabled: enabled && Boolean(symbol),
     staleTime: 60_000,
+    // Live frames move the forming candle; this reconciles sealed bars with
+    // the vendor (the futures stream skips ticks, so live wicks run short).
+    refetchInterval: timeframe === '1Day' || timeframe === '1Week' ? 300_000 : 60_000,
   });
 }
 

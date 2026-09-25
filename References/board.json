@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-15",
+ "updated_at": "2026-09-25",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 348,
+   "id": "mobile-live-candles-and-rest-live-price",
+   "title": "Charts: phone candles from the server's live bars + live price in the watchlist endpoint",
+   "lane": "done",
+   "type": "bug",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-09-25",
+   "notes": "Founder: phone candles and /NQ price 'bouncing 10+ points', wicks disappearing. Measured: server candles are correct (5-min WS capture: SPY live bars = vendor exactly; /NQ opens/closes match, live wicks 0.25-4.5 pt short on Schwab's conflated futures level-one). Causes were client-side: (1) /api/watchlist/market served the up-to-5-min cached daily-bar close (/NQ 30824.75 vs live ~30805) and the phone merged its 6s poll over the stream; (2) the phone SkiaChart painted the header price onto the last FETCHED candle with no memory and never refetched bars; (3) the symbol screen didn't stream a symbol that wasn't on the selected watchlist.\n2026-09-25: Fixed: the route overlays the hub's fresh (<60s) last print (futures always; equities in the regular session); the phone folds the server's forming/sealed 1Min bar frames into the chart (port of the web merge; widens, never narrows), refetches bars every 60s (5 min on daily+), and streams the open symbol. Backend restarted 18:17 UTC; phone pending the Mac pull + reload. Follow-up: on the web 1Min futures chart, merge.ts's exact replace of the forming bar can shrink a wider fetched wick for a moment after each 30s refetch (left alone; merge.ts has another session's uncommitted edits)."
+  },
   {
    "num": 347,
    "id": "backup-retention-cap",

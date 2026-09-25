@@ -434,6 +434,12 @@ async def api_watchlist_market(symbols: str = ""):
                 day_low = roll["day_low"]
                 day_volume = roll["volume"]
                 spark_closes = (closes + [price])[-7:]
+            live = _live_price(sym)
+            if live is not None:
+                price = live
+                change_pct = (price - prev) / prev * 100 if prev else 0.0
+                day_high = max(day_high, price)
+                day_low = min(day_low, price) if day_low else price
             quotes[sym] = {
                 "price": price,
                 "change_pct": round(change_pct, 2),
@@ -457,6 +463,14 @@ async def api_watchlist_market(symbols: str = ""):
             continue
 
         eq = ext_quotes.get(sym, {})
+        day_high, day_low = float(latest.high), float(latest.low)
+        # Extended sessions headline ext_price; `price` stays the regular close.
+        live = _live_price(sym) if session == "regular" else None
+        if live is not None:
+            price = live
+            change_pct = (price - prev) / prev * 100 if prev else 0.0
+            day_high = max(day_high, price)
+            day_low = min(day_low, price) if day_low else price
 
         shares_outstanding = eq.get("shares_outstanding")
         market_cap: float | None = None
@@ -501,8 +515,8 @@ async def api_watchlist_market(symbols: str = ""):
             "sparkline": [round(c, 4) for c in closes[-7:]],
             "prev_close": prev,
             "volume": float(latest.volume),
-            "day_high": float(latest.high),
-            "day_low": float(latest.low),
+            "day_high": day_high,
+            "day_low": day_low,
             "gap_pct": gap_pct,
             "w52_high": (baselines.get(sym) or {}).get("w52_high"),
             "w52_low": (baselines.get(sym) or {}).get("w52_low"),
@@ -638,6 +652,17 @@ def _session_intraday_closes(bars: list[StockBar], *, futures: bool = False) -> 
             kept.append(bar)
 
     return [round(b.close, 4) for b in kept]
+
+
+def _live_price(sym: str) -> float | None:
+    """The stream's fresh last print, if any. The daily-bar close behind this
+    route is cached up to 5 min, and clients poll it on top of the stream — a
+    stale close flipped the phone's /NQ between 30824.75 and a live ~30805
+    every 6s (2026-09-25). Unsubscribed symbols keep the bar close."""
+    try:
+        return market_hub.live_price(sym)
+    except Exception:  # noqa: BLE001 — the overlay is best-effort
+        return None
 
 
 def _futures_price_roll(daily_bars: list[StockBar], intraday_bars: list[StockBar]) -> dict | None:

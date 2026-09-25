@@ -525,6 +525,17 @@ class BaseMarketHub:
             if sym in self._quotes
         }
 
+    def live_price(self, symbol: str, max_age_s: float = 60.0) -> float | None:
+        """The last admitted print, if the stream folded one in the last
+        *max_age_s* — None for an unsubscribed or quiet symbol."""
+        ts_ms = self._last_print_ms.get(symbol)
+        state = self._quotes.get(symbol)
+        if ts_ms is None or state is None or state.price <= 0:
+            return None
+        if time.time() * 1000 - ts_ms > max_age_s * 1000:
+            return None
+        return state.price
+
     async def broadcast_alert(self, payload: dict[str, Any]) -> None:
         """Push rule/alert payloads to all connected market WS clients."""
         enriched = {

@@ -252,3 +252,45 @@ def test_futures_stale_daily_rolls_price_in_endpoint(
     assert es["prev_close"] == pytest.approx(7_523.0)
     assert es["sparkline"][-1] == pytest.approx(7_557.0)
     assert es["volume"] == pytest.approx(500.0)
+
+
+def test_fresh_stream_price_overrides_cached_bar_close(
+    test_client, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daily-bar close is cached up to 5 min; a fresh stream print must win,
+    or clients polling this route on top of the stream flip between the two."""
+    provider = _make_provider()
+    monkeypatch.setattr("api.watchlist_routes.get_market_data_provider", lambda: provider)
+    monkeypatch.setattr("api.watchlist_routes._market_session", lambda: "regular")
+    monkeypatch.setattr("api.main.market_hub.apply_extended", AsyncMock())
+    monkeypatch.setenv("VOLUME_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        "api.watchlist_routes._live_price", {"/ES": 5_460.0, "AAPL": 201.0}.get
+    )
+
+    quotes = test_client.get("/api/watchlist/market?symbols=/ES,AAPL").json()["quotes"]
+    assert quotes["/ES"]["price"] == pytest.approx(5_460.0)
+    assert quotes["/ES"]["change_pct"] == pytest.approx(round(40 / 5_420.0 * 100, 2))
+    assert quotes["/ES"]["day_high"] == pytest.approx(5_460.0)
+    assert quotes["AAPL"]["price"] == pytest.approx(201.0)
+    assert quotes["AAPL"]["day_high"] == pytest.approx(201.0)
+
+    # Extended session: equities headline ext_price, `price` stays the close.
+    monkeypatch.setattr("api.watchlist_routes._market_session", lambda: "post")
+    quotes = test_client.get("/api/watchlist/market?symbols=/ES,AAPL").json()["quotes"]
+    assert quotes["AAPL"]["price"] == pytest.approx(199.0)
+    assert quotes["/ES"]["price"] == pytest.approx(5_460.0)
+
+
+def test_hub_live_price_only_when_fresh() -> None:
+    import time
+
+    from brokers.market_stream import AlpacaMarketStreamHub, QuoteState
+
+    hub = AlpacaMarketStreamHub()
+    assert hub.live_price("/ES") is None
+    hub._quotes["/ES"] = QuoteState(price=5_460.0)
+    hub._last_print_ms["/ES"] = int(time.time() * 1000)
+    assert hub.live_price("/ES") == 5_460.0
+    hub._last_print_ms["/ES"] -= 61_000
+    assert hub.live_price("/ES") is None

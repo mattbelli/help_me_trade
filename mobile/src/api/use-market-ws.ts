@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 
 import { wsUrl } from '@/config';
 
+import { parseBarFrame, publishBarFrame } from './bar-frames';
+
 import type { FeedNotification, MarketAlert } from './types';
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -44,6 +46,8 @@ interface WsQuoteMessage {
   ext_price?: number | null;
   ext_change_pct?: number | null;
   market_session?: MarketSession;
+  /** serv's forming 1-minute bar — see bar-frames.ts. */
+  bar?: unknown;
 }
 
 /** Bulk snapshot. serv sends one the instant a socket is accepted, and again on
@@ -285,12 +289,21 @@ export function useMarketWs({
           return;
         }
 
+        // Sealed minutes, vendor bar corrections, daily bars.
+        if (isRecord(msg) && msg.type === 'bar') {
+          const frame = parseBarFrame(msg);
+          if (frame) publishBarFrame(frame);
+          return;
+        }
+
         if (isRecord(msg) && msg.type === 'quote') {
           const quoteMsg = msg as unknown as WsQuoteMessage;
           if (typeof quoteMsg.symbol !== 'string') {
             return;
           }
           onQuoteRef.current?.(toQuoteUpdate(quoteMsg.symbol, quoteMsg));
+          const frame = parseBarFrame(quoteMsg.bar, quoteMsg.symbol);
+          if (frame) publishBarFrame(frame);
           return;
         }
 
@@ -302,6 +315,8 @@ export function useMarketWs({
           for (const [symbol, payload] of Object.entries(bulk)) {
             if (isRecord(payload)) {
               onQuoteRef.current?.(toQuoteUpdate(symbol, payload));
+              const frame = parseBarFrame(payload.bar, symbol);
+              if (frame) publishBarFrame(frame);
             }
           }
         }

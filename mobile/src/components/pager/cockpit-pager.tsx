@@ -20,6 +20,7 @@ import { useAuth } from '@/auth/auth-context';
 import { usePush } from '@/push/use-push';
 import { useLiveActivity } from '@/push/use-live-activity';
 import { useAlerts } from '@/state/alerts';
+import { useFocusedSymbols } from '@/state/focused-symbols';
 import { NavProvider } from '@/state/nav';
 import { haptics, useColors } from '@/theme';
 
@@ -80,6 +81,12 @@ export function CockpitPager() {
   const { data: watchlists } = useWatchlists();
   const { selected } = useSelectedWatchlist(watchlists);
   const activeSymbols = useMemo(() => selected?.symbols ?? [], [selected]);
+  // Plus whatever symbol screen is open (it may not be on the selected list).
+  const focusedSymbols = useFocusedSymbols();
+  const streamSymbols = useMemo(
+    () => [...new Set([...activeSymbols, ...focusedSymbols])],
+    [activeSymbols, focusedSymbols],
+  );
 
   const pendingQuotesRef = useRef<Map<string, QuoteUpdate>>(new Map());
   const quoteFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,7 +108,8 @@ export function CockpitPager() {
         // In extended hours, keep the REST regular-session close as the price
         // baseline (sessionView derives the headline from it + the live ext %).
         // Only let the WS overwrite price/change in the regular session.
-        if (!extended) {
+        // Futures have no "extended" price of their own — the stream IS the price.
+        if (!extended || q.symbol.startsWith('/')) {
           next.price = q.price;
           next.change_pct = q.change_pct;
         }
@@ -174,10 +182,10 @@ export function CockpitPager() {
   // opens later learns what to stream. Gating here once left a socket
   // permanently subscribed to nothing when `connected` never visibly flipped.
   useEffect(() => {
-    if (activeSymbols.length > 0) {
-      subscribe(activeSymbols);
+    if (streamSymbols.length > 0) {
+      subscribe(streamSymbols);
     }
-  }, [connected, activeSymbols, subscribe]);
+  }, [connected, streamSymbols, subscribe]);
 
   // Build pages ONCE so cockpit re-renders never remount/refetch a surface.
   const pages = useMemo(

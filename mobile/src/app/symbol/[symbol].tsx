@@ -36,8 +36,10 @@ import {
 import { SkiaChart, type ChartAlertLevel, type ChartMode } from '@/features/chart/skia-chart';
 import { ChartPill } from '@/features/chart/chart-pill';
 import { EpsChart } from '@/features/chart/eps-chart';
+import { useLiveBars } from '@/features/chart/live-bars';
 import { INTERVALS, intervalFor, type IntervalKey } from '@/features/chart/ranges';
 import { decodeSymbolParam } from '@/lib/symbol-route';
+import { useFocusSymbol } from '@/state/focused-symbols';
 import { duration, hairline, haptics, radius, spacing, useColors, type Colors } from '@/theme';
 
 const TABS = [
@@ -61,6 +63,8 @@ export default function SymbolDetailScreen() {
   const market = useWatchlistMarket(symbol ? [symbol] : undefined);
   const quote = symbol ? market.data?.quotes[symbol] : undefined;
   const bars = useBars(symbol, iv.timeframe, iv.days);
+  useFocusSymbol(symbol);
+  const chartBars = useLiveBars(symbol, bars.data?.bars, iv.timeframe);
   // Today's daily bar for "Open" — tiny fetch, cached separately from the chart.
   const dailyBars = useBars(symbol, '1Day', 7);
   const ticker = useTicker(symbol);
@@ -203,9 +207,9 @@ export default function SymbolDetailScreen() {
                 <Stack gap={spacing.md}>
                   {/* Full-bleed hero chart */}
                   <SkiaChart
-                    bars={bars.data?.bars ?? []}
+                    bars={chartBars}
                     mode={chartMode}
-                    livePrice={sv?.last}
+                    livePrice={chartBars.at(-1)?.close}
                     height={340}
                     loading={bars.isLoading}
                     resetKey={`${symbol}:${interval}`}
