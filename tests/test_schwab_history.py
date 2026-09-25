@@ -50,3 +50,13 @@ def test_account_filter(tmp_path):
     )
     rows = list_schwab_daily(account_id="schwab_1025", db_path=db)
     assert {r["account_id"] for r in rows} == {"schwab_1025"}
+
+
+def test_prior_futures_equity_is_last_earlier_day(tmp_path):
+    from db.schwab_history import prior_futures_equity
+
+    db = tmp_path / "h.db"
+    record_schwab_daily([_acct(futures_equity=500.0)], snapshot_date="2026-07-01", db_path=db)
+    record_schwab_daily([_acct(futures_equity=13302.26)], snapshot_date="2026-07-02", db_path=db)
+    assert prior_futures_equity("schwab_1025", before_date="2026-07-02", db_path=db) == 500.0
+    assert prior_futures_equity("schwab_1025", before_date="2026-07-01", db_path=db) is None

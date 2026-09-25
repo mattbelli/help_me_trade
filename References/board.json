@@ -10,6 +10,17 @@
  ],
  "cards": [
   {
+   "num": 349,
+   "id": "schwab-partial-sell-day-pl-and-futures-equity",
+   "title": "Schwab 1025: TSLA partial-sell day P/L and account value missing the futures side",
+   "lane": "done",
+   "type": "bug",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-09-25",
+   "notes": "Founder: TSLA day P/L read ~-$49k on 100 shares; 1025 read 74.0k vs Schwab ~87.4k.\n2026-09-25: Fixed. Position day_pl: Schwab's currentDayProfitLoss never credits today's sale proceeds (200 TSLA overnight, 100 sold -> -$49,867); when the position shrank since the prior session, use held qty x netChange (-$298.50). Account value: securitiesAccount balances exclude the futures sub-account (cash swept for /MNQ margin), so use aggregatedBalance.liquidationValue; the gap is stored as futures_equity (new schwab_account_daily column). Account day P/L adds the futures side vs the prior day's last-captured futures_equity; with no baseline (first day) the futures side counts 0 — the first capture read the whole ~$19.8k as a gain (+$16.7k). Founder confirmed numbers. Note: the 2026-09-24 history row (73,470) predates the fix and stays securities-only."
+  },
+  {
    "num": 348,
    "id": "mobile-live-candles-and-rest-live-price",
    "title": "Charts: phone candles from the server's live bars + live price in the watchlist endpoint",

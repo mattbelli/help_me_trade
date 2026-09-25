@@ -68,6 +68,20 @@ def _parse_positions(sec: dict) -> list[dict]:
         unrealized = float(item.get("longOpenProfitLoss") or 0) + float(
             item.get("shortOpenProfitLoss") or 0
         )
+        day_pl = float(item.get("currentDayProfitLoss") or 0)
+        # Schwab's currentDayProfitLoss = marketValue - prevSessionQty*prevClose
+        # - currentDayCost and never credits today's SALE proceeds: 200 TSLA held
+        # overnight, 100 sold today read -$49.8k instead of ~-$500. When the
+        # position shrank since the prior session, fall back to the held shares'
+        # move vs the prior close (the sale's realized part lives in the
+        # account-level day_pl, which is Schwab's liquidation-value delta).
+        prev_qty = float(item.get("previousSessionLongQuantity") or 0) or float(
+            item.get("previousSessionShortQuantity") or 0
+        )
+        net_change = inst.get("netChange")
+        if abs(qty) < prev_qty and net_change is not None:
+            mult = 100 if inst.get("assetType") == "OPTION" else 1
+            day_pl = round(qty * float(net_change) * mult, 2)
         out.append(
             {
                 "symbol": str(symbol),
@@ -79,7 +93,7 @@ def _parse_positions(sec: dict) -> list[dict]:
                 if qty and market_value
                 else avg_price,
                 "unrealized_pl": unrealized,
-                "day_pl": float(item.get("currentDayProfitLoss") or 0),
+                "day_pl": day_pl,
             }
         )
     return out
@@ -141,7 +155,8 @@ def _fetch_all() -> tuple[dict, dict[str, list[dict]]]:
 
         ar = client.get_account(account_hash, fields=[Client.Account.Fields.POSITIONS])
         ar.raise_for_status()
-        sec = (ar.json() or {}).get("securitiesAccount", {})
+        acct = ar.json() or {}
+        sec = acct.get("securitiesAccount", {})
         bal = sec.get("currentBalances") or sec.get("initialBalances") or {}
         positions = _parse_positions(sec)
         if account_hash:
@@ -156,16 +171,33 @@ def _fetch_all() -> tuple[dict, dict[str, list[dict]]]:
 
         liq = float(bal.get("liquidationValue") or bal.get("cashBalance") or 0)
         init_liq = float((sec.get("initialBalances") or {}).get("liquidationValue") or 0)
+        # securitiesAccount balances EXCLUDE the futures sub-account: cash swept
+        # there for /MNQ margin vanished from liq (2026-09-24: 74.1k shown vs
+        # Schwab's 87.4k). aggregatedBalance is the whole account; the gap is
+        # the futures side's equity.
+        agg_liq = float((acct.get("aggregatedBalance") or {}).get("liquidationValue") or 0)
+        futures_equity = round(agg_liq - liq, 2) if agg_liq else 0.0
         # Day P&L from Schwab's OWN start-of-day liquidation value — this captures
         # REALIZED closed trades AND unrealized open positions. Summing position
         # currentDayProfitLoss alone reads 0 once the account is flat (a day-trader
-        # who round-trips out), silently dropping the day's realized gain. Fall
-        # back to the position-day sum only if Schwab omits initialBalances.
-        day_pl = (
-            round(liq - init_liq, 2)
-            if init_liq
-            else sum(p["day_pl"] for p in positions)
-        )
+        # who round-trips out), silently dropping the day's realized gain. The
+        # futures side has no Schwab start-of-day figure, so its baseline is the
+        # last capture of the prior day; with no baseline the futures side counts
+        # 0 (the first day read its whole equity as a gain: +16.7k, 2026-09-25).
+        # Fall back to the position-day sum only if Schwab omits initialBalances.
+        if init_liq:
+            futures_sod = None
+            try:
+                from db.schwab_history import prior_futures_equity
+
+                futures_sod = prior_futures_equity(f"schwab_{last4}")
+            except Exception:  # noqa: BLE001 — history is best-effort
+                logger.exception("Schwab futures start-of-day lookup failed")
+            if futures_sod is None:
+                futures_sod = futures_equity
+            day_pl = round(liq + futures_equity - init_liq - futures_sod, 2)
+        else:
+            day_pl = sum(p["day_pl"] for p in positions)
 
         accounts.append(
             {
@@ -174,7 +206,8 @@ def _fetch_all() -> tuple[dict, dict[str, list[dict]]]:
                 "label": labels.get(last4) or f"Schwab ••{last4}",
                 "account_type": str(sec.get("type") or ""),
                 "is_day_trader": bool(sec.get("isDayTrader")),
-                "liquidation_value": liq,
+                "liquidation_value": liq + futures_equity,
+                "futures_equity": futures_equity,
                 "cash": float(bal.get("cashBalance") or 0),
                 "long_market_value": float(bal.get("longMarketValue") or 0),
                 "day_pl": day_pl,

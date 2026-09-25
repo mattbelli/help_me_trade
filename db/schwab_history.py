@@ -39,6 +39,10 @@ def init_schwab_history_tables(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
             """
         )
+        try:
+            conn.execute("ALTER TABLE schwab_account_daily ADD COLUMN futures_equity TEXT")
+        except Exception:  # noqa: BLE001 — column already exists
+            pass
         conn.commit()
 
 
@@ -67,8 +71,8 @@ def record_schwab_daily(
                 """
                 INSERT INTO schwab_account_daily (
                     snapshot_date, account_id, last4, label, liquidation_value,
-                    cash, long_market_value, day_pl, captured_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    cash, long_market_value, day_pl, futures_equity, captured_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(snapshot_date, account_id) DO UPDATE SET
                     last4=excluded.last4,
                     label=excluded.label,
@@ -76,6 +80,7 @@ def record_schwab_daily(
                     cash=excluded.cash,
                     long_market_value=excluded.long_market_value,
                     day_pl=excluded.day_pl,
+                    futures_equity=excluded.futures_equity,
                     captured_at=excluded.captured_at
                 """,
                 (
@@ -87,12 +92,37 @@ def record_schwab_daily(
                     str(a.get("cash") or 0),
                     str(a.get("long_market_value") or 0),
                     str(a.get("day_pl") or 0),
+                    str(a.get("futures_equity") or 0),
                     ts,
                 ),
             )
             written += 1
         conn.commit()
     return written
+
+
+def prior_futures_equity(
+    account_id: str,
+    *,
+    before_date: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> float | None:
+    """The futures sub-account equity at the last capture of the most recent day
+    before ``before_date`` (default today, ET) — the start-of-day baseline for
+    the futures side, which Schwab's initialBalances does not include. None when
+    no earlier row (or a row from before the column existed)."""
+    init_schwab_history_tables(db_path)
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT futures_equity FROM schwab_account_daily"
+            " WHERE account_id = ? AND snapshot_date < ?"
+            " ORDER BY snapshot_date DESC LIMIT 1",
+            (account_id, before_date or et_trading_date()),
+        ).fetchone()
+    try:
+        return float(row["futures_equity"]) if row and row["futures_equity"] else None
+    except (TypeError, ValueError):
+        return None
 
 
 def list_schwab_daily(
