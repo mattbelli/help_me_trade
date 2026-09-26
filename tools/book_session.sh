@@ -4,7 +4,8 @@
 # (research/book_prompts/<book>.md); the session's last act is
 # tools/book_session_submit.py which registers lanes + delivers the report.
 # The panel session may spawn EXACTLY its four named Opus seats (Agent tool);
-# the fable session runs solo.
+# the fable session runs solo. The "fable" book runs on Opus 5.5 from 2026-09-28 (founder:
+# as capable, not the scarce Fable pool); the book name, account and prompt are unchanged.
 set -euo pipefail
 BOOK="${1:?usage: book_session.sh fable|panel}"
 cd "$(dirname "$0")/.."
@@ -25,5 +26,5 @@ if [ "$BOOK" = "panel" ]; then
   TOOLS+=("Agent")
 fi
 
-exec claude --model fable -p "$(cat "research/book_prompts/${BOOK}.md")" \
+exec claude --model claude-opus-5-5 -p "$(cat "research/book_prompts/${BOOK}.md")" \
   --allowedTools "${TOOLS[@]}"
