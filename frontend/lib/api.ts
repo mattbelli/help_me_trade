@@ -1267,6 +1267,36 @@ export async function fetchSessionLevels(
   return res.json();
 }
 
+export type GammaWall = {
+  strike: number;
+  distance_pct: number;
+  /** Net under the dealer convention: + call-heavy, − put-heavy. $B per 1%. */
+  net_b: number;
+  gross_b: number;
+};
+
+export type GammaWallsResponse = {
+  symbol: string;
+  available: boolean;
+  /** "SPX" | "NDX" — the index whose board these walls come from. */
+  index?: string;
+  /** Index level the walls were priced against (options parity). */
+  spot?: number;
+  quote_as_of?: string | null;
+  oi_as_of?: string;
+  flip?: number | null;
+  walls: GammaWall[];
+};
+
+export async function fetchGammaWalls(
+  symbol: string,
+): Promise<GammaWallsResponse> {
+  const params = new URLSearchParams({ symbol });
+  const res = await apiFetch(`${API_BASE}/api/gamma/walls?${params}`);
+  if (!res.ok) throw new Error(`Gamma walls error ${res.status}`);
+  return res.json();
+}
+
 export type ReportRow = {
   id: string;
   kind: string;

@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 
 from brokers.base import MarketDataProvider
 from brokers.market_clock import market_session
-from brokers.symbol_class import classify_symbol
+from brokers.symbol_class import SCHWAB_CLASSES, classify_symbol
 from trading.market_hours import last_session_close
 
 if TYPE_CHECKING:
@@ -81,7 +81,7 @@ def _route(
     unsupported: list[str] = []
     for s in symbols:
         cls = classify_symbol(s)
-        if cls == "future":
+        if cls in SCHWAB_CLASSES:
             future.append(s)
         elif cls == "equity":
             equity.append(s)
@@ -123,7 +123,7 @@ class HybridMarketData:
         return self._schwab
 
     def _child_for(self, symbol: str) -> MarketDataProvider:
-        return self.schwab if classify_symbol(symbol) == "future" else self.alpaca
+        return self.schwab if classify_symbol(symbol) in SCHWAB_CLASSES else self.alpaca
 
     # -- MarketDataProvider protocol ------------------------------------
     async def aget_stock_bars(

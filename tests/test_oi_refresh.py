@@ -34,3 +34,31 @@ def test_midnight_dataset_end_drops_the_empty_window() -> None:
 def test_nothing_new_yields_no_windows() -> None:
     assert _windows(date(2026, 8, 1), "2026-08-01T00:00:00.000000000Z", per_day=True) == []
     assert _windows(date(2026, 8, 1), "2026-08-01T00:00:00.000000000Z", per_day=False) == []
+
+
+def test_holiday_window_is_skipped_not_fatal(caplog) -> None:
+    # Labor Day 2026-09-07: no OPRA session, so the parent symbols resolve to nothing
+    # and the API 422s. That one day aborted every run and froze the store for 19 days.
+    import logging
+    import sqlite3
+    from types import SimpleNamespace
+
+    from tools.oi_refresh import refresh
+
+    def get_cost(*, start, **_):
+        if start == "2026-09-07":
+            raise RuntimeError("422 symbology_invalid_request\nNone of the symbols could be resolved")
+        return 0.0
+
+    meta = SimpleNamespace(
+        get_dataset_range=lambda dataset: {"end": "2026-09-08T12:00:00.000000000Z"},
+        get_cost=get_cost,
+    )
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE oi_daily (date TEXT, source TEXT)")
+    conn.execute("INSERT INTO oi_daily VALUES ('2026-09-06', 'opra')")
+    with caplog.at_level(logging.INFO, logger="oi_refresh"):
+        refresh(SimpleNamespace(metadata=meta), conn, "opra",
+                start_override=None, max_cost=None, dry_run=True)
+    assert "2026-09-07: no symbols resolve" in caplog.text
+    assert "2 window(s)" in caplog.text

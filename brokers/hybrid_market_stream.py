@@ -32,7 +32,7 @@ from brokers.market_stream import (
     BaseMarketHub,
 )
 from brokers.schwab_market_stream import SchwabMarketStreamHub
-from brokers.symbol_class import classify_symbol
+from brokers.symbol_class import SCHWAB_CLASSES, classify_symbol
 from config.settings import broker_is_configured
 from trading.market_hours import _ET
 
@@ -58,7 +58,7 @@ def _stream_partition(symbols: set[str]) -> tuple[set[str], set[str], set[str]]:
     crypto: set[str] = set()
     for s in symbols:
         cls = classify_symbol(s)
-        if cls == "future":
+        if cls in SCHWAB_CLASSES:
             schwab.add(s)
         elif cls == "equity":
             alpaca.add(s)

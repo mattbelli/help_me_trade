@@ -92,6 +92,18 @@ FEEDS = {
         # where the same span day-by-day streams fine at ~3.4 MB/session.
         "per_day": True,
     },
+    # Nasdaq-100 (NDX monthlies + NDXP PM dailies) for the /NQ gamma walls. Its OWN
+    # source rather than a widened "opra" — that keeps the SPX series' universe
+    # unchanged (SCOPE CONTINUITY above). Added 2026-09-23; same $0.00 L0 tier.
+    "opra_ndx": {
+        "dataset": "OPRA.PILLAR",
+        "symbols": "NDX.OPT,NDXP.OPT",
+        "parser": parse_opra,
+        "out_dir": ROOT / "data" / "databento" / "opra_ndx_oi",
+        "max_cost": 0.0,
+        "first_date": date(2026, 9, 21),
+        "per_day": True,
+    },
 }
 STYPE = "parent"
 DL_ATTEMPTS = 3
@@ -169,14 +181,30 @@ def refresh(
         logger.info("[%s] nothing new: stored through %s, dataset ends %s", feed, last, end_ts)
         return
     quoted = 0.0
-    for w_start, w_end, _ in windows:
-        cost = client.metadata.get_cost(
-            dataset=spec["dataset"], schema=SCHEMA, symbols=spec["symbols"], stype_in=STYPE,
-            start=w_start, end=w_end)
+    kept = []
+    for w_start, w_end, label in windows:
+        try:
+            cost = client.metadata.get_cost(
+                dataset=spec["dataset"], schema=SCHEMA, symbols=spec["symbols"], stype_in=STYPE,
+                start=w_start, end=w_end)
+        except Exception as exc:
+            # A market holiday has no session, so the parent symbols resolve to nothing and
+            # the API 422s. Labor Day 2026-09-07 did exactly that and, because every run
+            # resumes from the newest stored day, wedged the OPRA half for 19 days. Skip the
+            # empty day; a real misconfiguration still surfaces via the staleness dead-man.
+            if "symbology_invalid_request" not in str(exc):
+                raise
+            logger.info("[%s] %s: no symbols resolve (holiday/no session) — skipped", feed, w_start)
+            continue
+        kept.append((w_start, w_end, label))
         quoted += cost
         if cost > ceiling:
             raise RuntimeError(
                 f"[{feed}] {w_start}: quoted ${cost:.4f} > max-cost ${ceiling:.4f}; aborting run")
+    windows = kept
+    if not windows:
+        logger.info("[%s] nothing new: every window since %s is a no-session day", feed, last)
+        return
     logger.info("[%s] %d window(s) %s -> %s quote $%.4f total (stored through %s)",
                 feed, len(windows), start, end_ts, quoted, last)
     if dry_run:

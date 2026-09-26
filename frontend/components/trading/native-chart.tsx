@@ -9,15 +9,18 @@ import {
   deletePriceAlert,
   fetchDrawings,
   fetchPriceAlerts,
+  fetchGammaWalls,
   fetchSessionLevels,
   updateDrawing,
   updatePriceAlert,
   type ChartDrawing,
   type ChartDrawingKind,
   type PriceAlert,
+  type GammaWallsResponse,
   type SessionLevel,
   type StockBar,
 } from "@/lib/api";
+import { subscribePriceAlertRefresh } from "@/lib/price-alert-sync";
 import {
   AlertCreatePopover,
   ChartContextMenu,
@@ -95,6 +98,8 @@ type Props = {
   extended?: boolean;
   /** Session-node levels (frame's ☰ menu). */
   showLevels?: boolean;
+  /** Index dealer-gamma walls + flip (Studies menu; SPX/NDX-tracking symbols only). */
+  showGammaWalls?: boolean;
   /** Eye-menu visibility toggles. Undefined = shown. */
   showAlerts?: boolean;
   showDrawings?: boolean;
@@ -127,6 +132,36 @@ function toEngineBars(bars: StockBar[]): EngineBar[] {
 // Overlay polls (match TvLightChart's alert cadence; drawings change rarely).
 const ALERTS_POLL_MS = 20_000;
 const DRAWINGS_POLL_MS = 60_000;
+// Walls move with the option board (OI daily, quotes ~2 min server cache).
+const GAMMA_WALLS_POLL_MS = 5 * 60_000;
+// Symbols quoted in index points; anything else (SPY, /ES, QQQ, /NQ…) is rescaled.
+const INDEX_POINT_SYMBOLS = new Set(["SPX", "$SPX", "^SPX", "SPXW", "NDX", "$NDX", "^NDX", "NDXP"]);
+
+/**
+ * Index points → this chart's price. The ratio is taken at the board's quote
+ * time, not now: after 16:00 the option quotes freeze while /ES and SPY keep
+ * trading, and a live ratio would slide every wall by the overnight move.
+ */
+function gammaWallScale(
+  symbol: string,
+  r: GammaWallsResponse,
+  bars: EngineBar[],
+  livePrice: number | undefined,
+): number | null {
+  if (INDEX_POINT_SYMBOLS.has(symbol.toUpperCase())) return 1;
+  if (!r.spot) return null;
+  const t = r.quote_as_of ? Date.parse(r.quote_as_of) : NaN;
+  let px = livePrice;
+  if (Number.isFinite(t)) {
+    for (let i = bars.length - 1; i >= 0; i--) {
+      if (bars[i].time <= t) {
+        px = bars[i].close;
+        break;
+      }
+    }
+  }
+  return px ? px / r.spot : null;
+}
 
 /** Alert-line colors per direction — cross-client convention (relay §2). */
 function alertColor(direction: string): string {
@@ -240,6 +275,7 @@ export function NativeChart({
   compact: _compact = false,
   extended = true,
   showLevels = false,
+  showGammaWalls = false,
   showAlerts = true,
   showDrawings = true,
   showTagColumn = true,
@@ -286,6 +322,7 @@ export function NativeChart({
   const [barsNonce, setBarsNonce] = useState(0);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [levels, setLevels] = useState<SessionLevel[]>([]);
+  const [gammaWalls, setGammaWalls] = useState<GammaWallsResponse | null>(null);
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   // CRUD bumps these to refetch immediately instead of waiting out the poll.
   const [alertsNonce, setAlertsNonce] = useState(0);
@@ -547,9 +584,11 @@ export function NativeChart({
       if (!pageActiveRef.current) return;
       void load();
     }, ALERTS_POLL_MS);
+    const unsubscribe = subscribePriceAlertRefresh(() => void load());
     return () => {
       cancelled = true;
       clearInterval(id);
+      unsubscribe();
     };
   }, [symbol, showAlerts, alertsNonce]);
 
@@ -566,6 +605,27 @@ export function NativeChart({
       cancelled = true;
     };
   }, [symbol, showLevels]);
+
+  useEffect(() => {
+    if (!showGammaWalls) {
+      setGammaWalls(null);
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      fetchGammaWalls(symbol)
+        .then((r) => !cancelled && setGammaWalls(r.available ? r : null))
+        .catch(() => !cancelled && setGammaWalls(null));
+    void load();
+    const id = setInterval(() => {
+      if (!pageActiveRef.current) return;
+      void load();
+    }, GAMMA_WALLS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [symbol, showGammaWalls]);
 
   useEffect(() => {
     if (!showDrawings) {
@@ -614,6 +674,35 @@ export function NativeChart({
         // Auto-levels merge into one "node" line when zoom crowds them.
         collapsible: true,
       });
+    }
+    const wallScale = gammaWalls
+      ? gammaWallScale(symbol, gammaWalls, barsRef.current, livePriceRef.current)
+      : null;
+    if (gammaWalls && wallScale) {
+      // Sign is the dealer convention (long calls, short puts) — the label
+      // carries the index strike so a rescaled SPY, /ES or /NQ line still names it.
+      for (const w of gammaWalls.walls) {
+        const call = w.net_b >= 0;
+        lines.push({
+          price: w.strike * wallScale,
+          color: withAlpha(
+            resolveCssColor(call ? "--c-green" : "--c-red", call ? "#5bc98a" : "#ef6f6c"),
+            0.45,
+          ),
+          dash: [1, 2],
+          label: `γ${call ? "+" : "−"} ${w.strike}`,
+          collapsible: true,
+        });
+      }
+      if (gammaWalls.flip != null) {
+        lines.push({
+          price: gammaWalls.flip * wallScale,
+          color: withAlpha(resolveCssColor("--c-amber", "#e0975b"), 0.7),
+          dash: [1, 2],
+          label: "γ flip",
+          collapsible: true,
+        });
+      }
     }
     for (const d of drawings) {
       // Semantic color names resolve to theme vars, legacy raw hex renders
@@ -685,7 +774,7 @@ export function NativeChart({
     engineRef.current?.setOverlays(
       showTagColumn && (lines.length || segments.length) ? overlays : null,
     );
-  }, [alerts, levels, drawings, chartOrders, chartPosition, themeNonce, timeframe.intraday, showTagColumn]);
+  }, [alerts, levels, gammaWalls, barsNonce, drawings, chartOrders, chartPosition, themeNonce, timeframe.intraday, showTagColumn, symbol]);
 
   // Theme changes (mode toggle or custom-theme var edits) re-resolve colors.
   useEffect(() => {

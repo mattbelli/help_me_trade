@@ -29,6 +29,7 @@ import {
 } from "@/lib/chart-time";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
+import { canonicalSymbol } from "@/lib/index-symbols";
 import { useSymbolQuote } from "@/lib/use-symbol-quote";
 import { cn } from "@/lib/utils";
 import {
@@ -113,10 +114,11 @@ function ChartHeaderControls({
 }) {
   const channelSymbol = useChannelSymbol(channel);
   const manualMode = channel === "none";
-  const symbol =
+  const symbol = canonicalSymbol(
     channel !== "none"
       ? (channelSymbol ?? config.symbol ?? "SPY")
-      : (config.symbol ?? "SPY");
+      : (config.symbol ?? "SPY"),
+  );
   const { price, live, changePct, extPrice, extChangePct, marketSession } =
     useSymbolQuote({ symbol });
   // Same rule as the watchlist row: off-RTH, show the last extended print so
@@ -389,6 +391,19 @@ function ChartHeaderMenus({
           >
             Session Nodes
             {config.showSessionNodes ? <Check className="size-3" /> : null}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => e.preventDefault()}
+            onClick={() =>
+              onConfigChange({ showGammaWalls: !config.showGammaWalls })
+            }
+            className={cn(
+              "flex items-center justify-between gap-3 px-2 py-1.5 text-[length:var(--fs-body)]",
+              config.showGammaWalls ? "text-foreground" : "text-[var(--fg-dim)]",
+            )}
+          >
+            Gamma Walls
+            {config.showGammaWalls ? <Check className="size-3" /> : null}
           </DropdownMenuItem>
           {timeframe.intraday ? (
             <DropdownMenuItem

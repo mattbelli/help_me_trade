@@ -111,6 +111,12 @@ def _is_future(sym: str) -> bool:
     return classify_symbol(sym) == "future"
 
 
+def _is_schwab_routed(sym: str) -> bool:
+    from brokers.symbol_class import SCHWAB_CLASSES, classify_symbol
+
+    return classify_symbol(sym) in SCHWAB_CLASSES
+
+
 def _is_crypto(sym: str) -> bool:
     from brokers.symbol_class import classify_symbol
 
@@ -304,7 +310,7 @@ async def _refresh_store(
         and existing[1].get("bars")
         and full_at is not None
         and (time.monotonic() - full_at) < _BARS_FULL_REBASELINE
-        and not (timeframe in _FUTURES_AGGREGATED_TIMEFRAMES and _is_future(sym))
+        and not (timeframe in _FUTURES_AGGREGATED_TIMEFRAMES and _is_schwab_routed(sym))
     ):
         merged = await _refresh_tail(sym, timeframe, ext, key, existing[1])
         if merged is not None:
@@ -361,8 +367,8 @@ async def _fetch_newest(
     except Exception as exc:
         # Any provider failure (BrokerError, Schwab outage, httpx error) falls back
         # to Alpaca so charts never hard-break — resilience is the point of the path.
-        if _is_future(sym):
-            # Alpaca has no futures data — the fallback hop can only fail. Serve the
+        if _is_schwab_routed(sym):
+            # Alpaca has no futures/index data — the fallback hop can only fail. Serve the
             # last-good series through a Schwab WAF cooldown instead of an empty chart.
             logger.warning("/api/bars futures provider failed (%s), serving stale", exc)
             return _stale_bars_or_none(key)
@@ -379,3 +385,30 @@ async def _fetch_newest(
     response = _build_bars_response(sym, timeframe, _stockbars_to_dicts(bars), ext, has_more)
     _store_bars(key, timeframe, response, full=True)
     return response
+
+
+# Charts that track an index closely enough to carry its gamma walls. Levels are
+# in index points; the chart rescales them onto its own symbol by the price ratio.
+_GAMMA_WALL_INDEX = {
+    **dict.fromkeys(
+        ("SPX", "$SPX", "^SPX", "SPXW", "XSP", "SPY", "VOO", "IVV", "/ES", "/MES"), "SPX"
+    ),
+    **dict.fromkeys(("NDX", "$NDX", "^NDX", "NDXP", "QQQ", "/NQ", "/MNQ"), "NDX"),
+}
+
+
+@router.get("/api/gamma/walls")
+async def api_gamma_walls(symbol: str = "SPY"):
+    sym = symbol.strip().upper()
+    payload = None
+    index = _GAMMA_WALL_INDEX.get(sym)
+    if index:
+        from signals.gamma_exposure import cached_chart_walls
+
+        try:
+            payload = await asyncio.to_thread(cached_chart_walls, index)
+        except BrokerError:
+            payload = None
+    if payload is None:
+        return {"symbol": sym, "available": False, "walls": []}
+    return {"symbol": sym, "available": True, **payload}

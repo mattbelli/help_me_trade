@@ -18,6 +18,9 @@ from brokers.symbol_class import classify_symbol, rest_provider_for
         # crypto — internal slash, no leading slash.
         ("BTC/USD", "crypto"),
         ("ETH/USD", "crypto"),
+        # index — Schwab's "$" cash-index names (Alpaca carries none).
+        ("$SPX", "index"),
+        ("$ndx", "index"),
         # option — full OSI/OCC contract.
         ("AAPL240119C00190000", "option"),
         ("SPY251219P00450000", "option"),
@@ -42,6 +45,7 @@ def test_future_and_crypto_do_not_collide() -> None:
     ("sym", "provider"),
     [
         ("/ESU25", "schwab"),
+        ("$SPX", "schwab"),
         ("SPY", "alpaca"),
         ("BTC/USD", "alpaca"),
         ("AAPL240119C00190000", "alpaca"),

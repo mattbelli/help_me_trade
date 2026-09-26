@@ -574,3 +574,20 @@ def test_perception_reader_rejects_an_unknown_view() -> None:
     rows = _read_gex({"view": "vanna"}, db_path=Path("unused.db"))
     assert rows[0]["error"].startswith("unknown view")
     assert "profile" in rows[0]["views"]
+
+
+def test_chart_walls_keep_near_spot_strikes_ranked_by_gross() -> None:
+    # The board's biggest strike sits 20% out; a chart wall list must not spend a
+    # slot on it, and within the band the ranking is gross like strike_rows.
+    from signals.gamma_exposure import chart_walls
+
+    board = _board((
+        _leg("C", 9240, oi=500_000),
+        _leg("C", 7800, oi=2_000),
+        _leg("P", 7600, oi=6_000),
+        _leg("C", 7750, oi=500),
+    ))
+    out = chart_walls(board, limit=2)
+    assert [w["strike"] for w in out["walls"]] == [7600, 7800]
+    assert out["walls"][0]["net_b"] < 0 < out["walls"][1]["net_b"]
+    assert out["convention"]

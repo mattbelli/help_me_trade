@@ -9,6 +9,7 @@ import {
   type ChartTimeframe,
 } from "@/lib/chart-time";
 import { scheduleFrameWork } from "@/lib/frame-scheduler";
+import { canonicalSymbol } from "@/lib/index-symbols";
 import { useSymbolQuote } from "@/lib/use-symbol-quote";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { useChannelSymbol } from "@/lib/workspace/use-channel-store";
@@ -26,10 +27,11 @@ export function ChartWidget({ config }: WidgetProps) {
   const timeframe = resolveTimeframe(config.timeframe);
   const style = config.style ?? "candle";
 
-  const symbol =
+  const symbol = canonicalSymbol(
     channel !== "none"
       ? (channelSymbol ?? config.symbol ?? "SPY")
-      : (config.symbol ?? "SPY");
+      : (config.symbol ?? "SPY"),
+  );
 
   const {
     price: livePrice,
@@ -63,6 +65,7 @@ export function ChartWidget({ config }: WidgetProps) {
               symbol={symbol}
               compact
               showLevels={Boolean(config.showSessionNodes)}
+              showGammaWalls={Boolean(config.showGammaWalls)}
               showAlerts={config.showAlerts ?? true}
               showDrawings={config.showDrawings ?? true}
               showTagColumn={config.showTagColumn ?? true}

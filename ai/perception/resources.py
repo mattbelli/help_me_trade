@@ -1035,7 +1035,12 @@ def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]
     except (TypeError, ValueError):
         limit = 20
 
-    board = cached_board()
+    from signals.gamma_exposure import INDEXES
+
+    index = str(filters.get("index") or "SPX").strip().upper()
+    if index not in INDEXES:
+        return [{"error": f"unknown index {index!r}", "indexes": list(INDEXES)}]
+    board = cached_board(index=index)
     if board is None:
         return [{
             "unavailable": True,
@@ -1047,6 +1052,9 @@ def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]
         from db.gamma_exposure import percentiles
 
         row = summarize(board)
+        if index != "SPX":
+            # The snapshot store is SPX-only; ranking NDX against it would be wrong.
+            return [row]
         # Ranked against our OWN stored snapshots, which start the day the first one
         # was taken. The block reports its observation count either way so an absent
         # percentile reads as "not enough history yet", never as "unremarkable".
@@ -1066,7 +1074,7 @@ def _read_gex(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]
     context = dict(zip(
         _GEX_CONTEXT_KEYS,
         (
-            "SPX",
+            board.index,
             board.spot,
             board.oi_as_of,
             CONVENTION,
@@ -2195,6 +2203,7 @@ RESOURCES: dict[str, dict[str, Any]] = {
         "filters": {
             "view": "optional — summary (default) | strikes | expiries | profile",
             "limit": "optional int for strikes/expiries — default 20, max 50",
+            "index": "optional — SPX (default) | NDX",
         },
         "read": _read_gex,
     },

@@ -18,6 +18,8 @@ export type WidgetInstanceConfig = {
   aggregateOpen?: boolean;
   /** Chart studies toggled from the frame toolbar's Studies dropdown. */
   showSessionNodes?: boolean;
+  /** Chart: index dealer-gamma walls + flip (SPX/NDX-tracking symbols only). */
+  showGammaWalls?: boolean;
   studies?: string[];
   /** Chart: ETH (extended-hours) toggle — pre/post candles + session shading.
       Undefined = default ON for intraday; hidden/ignored on daily+ timeframes. */

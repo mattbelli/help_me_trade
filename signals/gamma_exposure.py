@@ -87,6 +87,13 @@ logger = logging.getLogger(__name__)
 # daily/weekly one; they are separate chains under one index and SPX carries the
 # larger standing OI (18.4M vs 5.4M on 2026-08-11).
 INDEX_ROOTS = ("SPX", "SPXW")
+# Every index we can price: its option roots and the OI store source holding them.
+# NDX (AM monthlies) + NDXP (PM dailies) mirror SPX/SPXW; their OI is its own
+# source so the SPX series never changed universe (tools/oi_refresh.py).
+INDEXES: dict[str, dict[str, Any]] = {
+    "SPX": {"roots": INDEX_ROOTS, "oi_source": "opra"},
+    "NDX": {"roots": ("NDX", "NDXP"), "oi_source": "opra_ndx"},
+}
 CONTRACT_MULTIPLIER = 100
 
 CONVENTION = (
@@ -143,6 +150,7 @@ class Board(NamedTuple):
     oi_as_of: str
     oi_as_of_age_days: int
     coverage: dict[str, Any]
+    index: str = "SPX"
 
 
 def _mid(snapshot: dict[str, Any]) -> float | None:
@@ -158,7 +166,9 @@ def _mid(snapshot: dict[str, Any]) -> float | None:
     return (float(bid) + float(ask)) / 2.0
 
 
-def build_board(*, broker: Any = None, now_et: datetime | None = None) -> Board | None:
+def build_board(
+    *, index: str = "SPX", broker: Any = None, now_et: datetime | None = None
+) -> Board | None:
     """Fetch both index chains, join standing OI, invert IV, return the priced board.
 
     None when the OI store or the chain is unavailable — a missing input must read
@@ -172,7 +182,8 @@ def build_board(*, broker: Any = None, now_et: datetime | None = None) -> Board 
     now_et = now_et or datetime.now(_ET)
     today = now_et.date()
 
-    oi_as_of, oi_map = oi_board(roots=INDEX_ROOTS)
+    spec = INDEXES[index]
+    oi_as_of, oi_map = oi_board(source=spec["oi_source"], roots=spec["roots"])
     if not oi_as_of or not oi_map:
         return None
 
@@ -183,7 +194,7 @@ def build_board(*, broker: Any = None, now_et: datetime | None = None) -> Board 
 
     raw: dict[tuple[str, str], list[tuple[str, float, dict[str, Any]]]] = defaultdict(list)
     quote_times: list[str] = []  # vendor ISO strings, compared lexicographically
-    for root in INDEX_ROOTS:
+    for root in spec["roots"]:
         # No expiry window and no strike band: see the module docstring — banding
         # this board was measured wrong by 2x, and the whole thing costs 2.3s.
         snapshot = broker.get_option_chain_snapshot(
@@ -287,17 +298,18 @@ def build_board(*, broker: Any = None, now_et: datetime | None = None) -> Board 
             "skipped_contracts": dict(skipped),
             "unpriced_open_interest": dict(unpriced_oi),
         },
+        index=index,
     )
 
 
-def cached_board(*, ttl: int = _CACHE_TTL_SECONDS) -> Board | None:
+def cached_board(*, index: str = "SPX", ttl: int = _CACHE_TTL_SECONDS) -> Board | None:
     """``build_board`` behind a short TTL so repeated questions cost one fetch."""
-    hit = _CACHE.get("board")
+    hit = _CACHE.get(index)
     if hit is not None and time.monotonic() - hit[0] < ttl:
         return hit[1]
-    board = build_board()
+    board = build_board(index=index)
     if board is not None:
-        _CACHE["board"] = (time.monotonic(), board)
+        _CACHE[index] = (time.monotonic(), board)
     return board
 
 
@@ -455,7 +467,7 @@ def summarize(board: Board) -> dict[str, Any]:
         })
 
     row: dict[str, Any] = {
-        "index": "SPX",
+        "index": board.index,
         "spot": board.spot,
         "spot_source": "options_parity",
         "quote_as_of": board.quote_as_of,
@@ -609,3 +621,63 @@ def profile_rows(board: Board, *, span_pct: float = 8.0, steps: int = 17) -> lis
             "net_gamma_usd_per_1pct_b": _billions(net_gamma_at(board.legs, spot, board.spot)),
         })
     return out
+
+
+# Walls further than this from spot never reach a chart: SPX's biggest strikes
+# (7000/8000) sit 10%+ away and would crowd the near ones out of a top-N list
+# while being off any intraday screen.
+_CHART_BAND_PCT = 8.0
+_CHART_WALLS: dict[str, tuple[Board, dict[str, Any]]] = {}
+
+
+def chart_walls(board: Board, *, limit: int = 8, band_pct: float = _CHART_BAND_PCT) -> dict[str, Any]:
+    """The near-spot strikes carrying the most gamma, plus the flip — chart levels.
+
+    Ranked by GROSS for the same reason as :func:`strike_rows`; ``net_b`` carries the
+    CONVENTION sign (positive = call-heavy, negative = put-heavy) so the chart can
+    colour it, and ``convention`` travels with the payload.
+    """
+    rows = [
+        r for r in strike_rows(board, limit=len(board.legs))
+        if abs(r["distance_pct"]) <= band_pct
+    ]
+    rows.sort(
+        key=lambda r: r["call_gamma_usd_per_1pct_b"] + r["put_gamma_usd_per_1pct_b"],
+        reverse=True,
+    )
+    flip, crossings = gamma_flip(board.legs, board.spot)
+    return {
+        "index": board.index,
+        "spot": board.spot,
+        "quote_as_of": board.quote_as_of,
+        "oi_as_of": board.oi_as_of,
+        "oi_as_of_age_days": board.oi_as_of_age_days,
+        "flip": flip,
+        "flip_crossings": crossings,
+        "walls": [
+            {
+                "strike": r["strike"],
+                "distance_pct": r["distance_pct"],
+                "net_b": r["net_gamma_usd_per_1pct_b"],
+                "gross_b": round(
+                    r["call_gamma_usd_per_1pct_b"] + r["put_gamma_usd_per_1pct_b"], 3
+                ),
+            }
+            for r in rows[:limit]
+        ],
+        "convention": CONVENTION,
+    }
+
+
+def cached_chart_walls(index: str = "SPX") -> dict[str, Any] | None:
+    """:func:`chart_walls` over :func:`cached_board`, recomputed only when the board
+    is — the flip search is ~65 passes over the board, too slow to repeat per chart."""
+    board = cached_board(index=index)
+    if board is None:
+        return None
+    hit = _CHART_WALLS.get(index)
+    if hit is not None and hit[0] is board:
+        return hit[1]
+    walls = chart_walls(board)
+    _CHART_WALLS[index] = (board, walls)
+    return walls

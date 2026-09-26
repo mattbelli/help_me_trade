@@ -207,6 +207,18 @@ async def test_on_equity_skips_tick_with_no_price() -> None:
 
 
 @pytest.mark.asyncio
+async def test_index_tick_moves_the_live_candle_equity_does_not() -> None:
+    """$SPX has no SIP trade stream — its level-one last must feed the minute-bar
+    builder (it sat frozen at the last REST bar). Equities keep their SIP prints."""
+    hub = SchwabMarketStreamHub()
+    hub._on_equity({"content": [{"key": "$SPX", "LAST_PRICE": 7713.66, "CLOSE_PRICE": 7764.64}]})
+    hub._on_equity(_labeled_equity_msg())
+    assert hub.bars.forming("$SPX").close == pytest.approx(7713.66)
+    assert hub.bars.forming("AAPL") is None
+    await _drain(hub)
+
+
+@pytest.mark.asyncio
 async def test_on_futures_reads_labeled_keys() -> None:
     hub = SchwabMarketStreamHub()
     hub._on_futures(

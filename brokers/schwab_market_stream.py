@@ -584,6 +584,12 @@ class SchwabMarketStreamHub(BaseMarketHub):
 
             prev = self._prev_prices.get(symbol)
             self._prev_prices[symbol] = price_f
+            if symbol.startswith("$"):
+                # Cash indices ($SPX) have no SIP trade stream: like futures, the
+                # level-one last is the print that moves the live candle.
+                completed = self._fold_print(symbol, price_f, 0.0, None)
+                if completed is not None:
+                    self._schedule_task(self._broadcast_bar(symbol, completed))
 
             # Schedule async follow-ups (broadcast + alerts) without blocking the
             # sync handler. schwab-py invokes us from inside its asyncio loop, so
