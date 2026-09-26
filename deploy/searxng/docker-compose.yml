@@ -15,11 +15,12 @@
 # recreate it without pinned DNS and the same failure comes back with our name
 # on it.
 #
-# Runs on 8586 so it coexists with odysseus's 8585: odysseus itself waits on that
-# container's healthcheck (`depends_on: condition: service_healthy`), so stopping
-# it would take down that project.
+# Since 2026-09-05 the shared gateway owns host ports 8586 and 8080, and forwards
+# searches to this backend over Docker's searxng_default network. All machines
+# share its cache and pacing. See ~/serv-files/search-gateway/README.md.
 #
 #   docker compose -f deploy/searxng/docker-compose.yml up -d
+#   docker compose -f ~/serv-files/search-gateway/compose.yml up -d
 #   curl -s 'http://127.0.0.1:8586/search?q=nvda&format=json' | head -c 300
 #
 # Then set SEARXNG_URL=http://127.0.0.1:8586 in .env and restart hmt-backend.
@@ -27,11 +28,10 @@
 
 services:
   searxng:
-    # Pinned, not :latest. The odysseus project measured 2026.6.2 crashing on
-    # boot with `KeyError: 'default_doi_resolver'` (upstream issue #1414); this
-    # tag is the one known to boot clean on this host. Bump deliberately, and
-    # verify with the curl above — not with `docker ps`.
-    image: docker.io/searxng/searxng:2026.5.31-7159b8aed
+    # Pinned after an isolated live comparison on 2026-09-05. The May build
+    # returned irrelevant Bing results and failed on several other engines.
+    # Verify upgrades with real queries, not only the container healthcheck.
+    image: docker.io/searxng/searxng@sha256:1ac1324bc7b23d7f076360f44fa8c41c310e7da7bed89493d5fd6847a3dd7a91
     container_name: hmt-searxng
     # ★ THE FIX. Without this the container inherits Docker's embedded resolver
     # and resolves nothing against this host's static resolv.conf.
@@ -51,8 +51,7 @@ services:
           sed "s|__SEARXNG_SECRET__|$$secret|g" /tmp/searxng-settings.yml.template > /etc/searxng/settings.yml
         fi
         exec /usr/local/searxng/entrypoint.sh
-    ports:
-      - "127.0.0.1:8586:8080"
+    # Internal-only backend: publishing it would allow clients to bypass pacing.
     volumes:
       - hmt-searxng-data:/etc/searxng
       - ./settings.yml:/tmp/searxng-settings.yml.template:ro,z
