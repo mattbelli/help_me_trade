@@ -97,8 +97,8 @@ _claude_slots = threading.BoundedSemaphore(CLAUDE_CONCURRENCY)
 
 PROMPTS_DIR = ROOT / "research" / "brief_prompts"
 _PERCEPTION = "Bash(uv run python tools/perception_query.py:*)"
-SPECIALIST_TOOLS = (_PERCEPTION, "Bash(bash tools/fc.sh:*)", "Read", "WebSearch", "WebFetch")
-JUDGE_TOOLS = (_PERCEPTION, "Read")
+SPECIALIST_TOOLS = (_PERCEPTION, "Bash(bash tools/fc.sh:*)", "Read", "Grep", "WebSearch", "WebFetch")
+JUDGE_TOOLS = (_PERCEPTION, "Read", "Grep")
 GRADER_TOOLS = ("Read",)
 _WEB_TOOLS = frozenset({"WebSearch", "WebFetch", "web_search", "fetch_url"})
 

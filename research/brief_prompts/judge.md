@@ -16,7 +16,7 @@ what deserves attention, and be honest about what doesn't.
 - The fact digests: `<<BRIEF_DIR>>/facts.md`.
 - The specialist memos: <<MEMOS>>
 <<MISSING>>
-You may check a number with `uv run python tools/perception_query.py …` (read-only). No web, no
+You may check a number with `uv run python tools/perception_query.py …` (read-only) or the Grep tool; pipes and other shell commands are refused. No web, no
 sub-agents, and do not write any file: your final message IS the output.
 
 ## House rules

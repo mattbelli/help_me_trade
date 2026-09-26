@@ -33,6 +33,7 @@ Close with one line per remaining candidate on why it did not make the top 8.
   --filter date=<<BOARD_KEY>> --filter symbol=X` returns one card as JSON).
 - **The web only for what we lack**, and **at most 5 web calls in total** (WebSearch, WebFetch or
   `bash tools/fc.sh`). Never the web for prices, OHLC, volume, technicals or levels: we hold them.
+- Only these commands run; anything else (pipes, `python3 -c`, shell `grep`/`wc`) is refused. Search the board and facts files with the Grep tool; narrow queries with `--filter`.
 - Work alone. No sub-agents. Do not write any file; your final message IS your output.
 
 ## House rules
