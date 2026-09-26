@@ -88,6 +88,7 @@ def test_list_resources_catalog() -> None:
         "dossier",
         "episodes",
         "bars",
+        "brief_board",
     }
     assert "description" in catalog["strategies"]
     assert "filters" in catalog["strategies"]

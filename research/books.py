@@ -771,4 +771,33 @@ def build_book_pack(book_id: str, *, db_path: Path = DEFAULT_DB_PATH) -> str:
         parts.append(_section("Your desk journal", lambda: _journal_section(book, db_path)))
     parts.append(_section("Market frame", lambda: _market_frame_section(db_path)))
     parts.append(_section("Upcoming earnings (held names)", lambda: _earnings_section(book, db_path)))
+    board_line = _brief_board_line(db_path)
+    if board_line:
+        parts.append(board_line)
     return "\n".join(parts)
+
+
+def _brief_board_line(db_path: Path) -> str | None:
+    """One line naming tonight's top brief-board names, when today's board exists."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # The stored board lives under the real data/ tree; a tmp/test db_path never reads it.
+    if db_path != DEFAULT_DB_PATH:
+        return None
+    try:
+        from research.brief.board import load_board
+
+        today = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+        board = load_board(today)
+        cards = ((board or {}).get("candidates") or {}).get("cards") or []
+    except Exception:  # noqa: BLE001 — an optional pointer never sinks the pack
+        logger.exception("book pack: brief board read failed")
+        return None
+    if not cards:
+        return None
+    names = ", ".join(f"{c['symbol']} ({'+'.join(c.get('angles') or [])})" for c in cards[:8])
+    return (
+        f"Tonight's brief board ({today}, top by angles lit): {names} — "
+        "`query brief_board` for the cards.\n"
+    )

@@ -1607,6 +1607,49 @@ def _read_social(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
     return get_trending(db_path=db_path, limit=limit)
 
 
+_BRIEF_SECTIONS = ("candidates", "index", "macro", "sectors", "events", "freshness")
+
+
+def _read_brief_board(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
+    """The stored nightly brief board (data/briefs/<date>/board.json) — read, never built."""
+    del db_path  # file-backed: tools/brief_board.py writes it nightly
+    from research.brief.board import load_board
+
+    day = str(filters.get("date") or "").strip() or None
+    section = str(filters.get("section") or "").strip().lower() or None
+    symbol = str(filters.get("symbol") or "").strip().upper() or None
+    if section is not None and section not in _BRIEF_SECTIONS:
+        return [{"error": f"unknown section {section!r}", "sections": list(_BRIEF_SECTIONS)}]
+    board = load_board(day)
+    if board is None:
+        return [{
+            "unavailable": True,
+            "date": day or "latest",
+            "note": "no board stored for that date — tools/brief_board.py builds one per session",
+        }]
+    head = {"et_date": board.get("et_date"), "generated_at": board.get("generated_at")}
+    cands = board.get("candidates") if isinstance(board.get("candidates"), dict) else {}
+    if section == "candidates" or symbol:
+        # One row per card so the result cap drops whole cards from the tail, never
+        # a card cut in half; cards are already ranked most-angles-first.
+        cards = [c for c in cands.get("cards") or [] if not symbol or c.get("symbol") == symbol]
+        return [{**head, **c} for c in cards] or [{**head, "symbol": symbol, "on_board": False}]
+    if section is not None:
+        return [{**head, section: board.get(section)}]
+    fresh = board.get("freshness") if isinstance(board.get("freshness"), dict) else {}
+    return [{
+        **head,
+        "note": board.get("note"),
+        "sections": list(_BRIEF_SECTIONS),
+        "candidates": [
+            {k: c.get(k) for k in ("symbol", "angles", "lanes", "why")}
+            for c in cands.get("cards") or []
+        ],
+        "lanes": cands.get("lanes") or board.get("candidates"),
+        "not_fresh": {k: v for k, v in fresh.items() if v.get("status") != "ok"},
+    }]
+
+
 # ⚠️ MAINTENANCE CONTRACT: when you add a new data source / feature to the app that the
 # copilot should be able to read, ADD AN ENTRY HERE (description + filters + a fail-soft
 # reader reusing the existing function). That one line is what makes the agent able to
@@ -2233,6 +2276,28 @@ RESOURCES: dict[str, dict[str, Any]] = {
         },
         "read": _read_bars,
     },
+    "brief_board": {
+        "description": (
+            "The nightly brief BOARD — the deterministic, code-built fact sheet the nightly "
+            "deep brief reasons over (no LLM wrote any of it). Up to 30 single-name "
+            "candidates, each lit by one or more lanes (attention, rare_flow, earnings, "
+            "abnormality, technical, news, social, held) with the angles counted and a "
+            "full card (price/RVOL/technicals/levels/fundamentals/option prints/tape/news/"
+            "social/insider buys); an index frame (SPX+NDX gex, OI walls, largest index "
+            "prints, index pressure, flow report, overnight GTH); a macro frame; 1m-10y "
+            "sector-ETF returns vs SPY; tomorrow's events; and a freshness footer that "
+            "flags every STALE source. PERCEPTION, NOT A VERDICT: a lane says which angle "
+            "lit a name, never a probability or a direction. No filter = an overview "
+            "(names, lanes, stale sources); pass `section` for one block or `symbol` for "
+            "one card. Built after the close, so check et_date/generated_at."
+        ),
+        "filters": {
+            "date": "optional YYYY-MM-DD — default the newest stored board",
+            "section": "optional — candidates | index | macro | sectors | events | freshness",
+            "symbol": "optional ticker — just that name's candidate card",
+        },
+        "read": _read_brief_board,
+    },
 }
 
 
@@ -2322,6 +2387,8 @@ _RESOURCE_ALIASES = {
     "unusual": "attention",
     "unusual_today": "attention",
     "attention_list": "attention",
+    "brief": "brief_board",
+    "nightly_brief": "brief_board",
 }
 
 
