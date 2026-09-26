@@ -16,3 +16,8 @@ pytest-timeout>=2.3.0
 tzdata>=2024.1  # Windows zoneinfo (ET market dates in chat prompt)
 msgpack>=1.0
 databento>=0.81.0  # OPRA live + historical; a HARD runtime dep once options_flow.provider=databento
+
+# TypeSafe "Jev" System One typed-judgment client (ai/llm/system_one.py).
+# PINNED exactly, unlike the >= lines above: pre-1.0 with a fast release cadence
+# (0.0.1a0 -> 0.5.7 -> 0.6.0 in six days), so a deploy must not silently jump a minor.
+typesafe-sdk==0.6.0

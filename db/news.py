@@ -193,10 +193,16 @@ def recent_news(
     symbol: str | None = None,
     symbols: list[str] | None = None,
     since: str | None = None,
+    until: str | None = None,
     limit: int = 50,
     db_path: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Newest-first news rows, optionally filtered to one symbol or a set."""
+    """Newest-first news rows, optionally filtered to one symbol or a set.
+
+    ``since``/``until`` are an ISO lower/upper bound on ``published_at``. Pass both
+    to read "the news as of one session" — a replay that omits ``until`` sees later
+    headlines and is looking ahead of the state it is reconstructing.
+    """
     resolved = _db_path(db_path)
     capped = max(1, min(int(limit), _RECENT_CAP))
     wanted: list[str] = []
@@ -216,6 +222,9 @@ def recent_news(
     if since:
         where.append("n.published_at >= ?")
         params.append(since)
+    if until:
+        where.append("n.published_at < ?")
+        params.append(until)
     if where:
         query += " WHERE " + " AND ".join(where)
     query += " ORDER BY n.published_at DESC LIMIT ?"

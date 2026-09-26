@@ -78,6 +78,15 @@ SECRET_AI_KEY_FIELDS = frozenset(
         "anthropic_api_key",
         "deepseek_api_key",
         "openrouter_api_key",
+        # TypeSafe / "Jev" (System One primitives) — a TYPED-JUDGMENT client, not a
+        # chat provider: it has no complete()/stream(), so it is deliberately absent
+        # from AI_PROVIDERS/VALID_PROVIDERS. Adding it there would let
+        # get_llm_provider_name() return it and _build_llm_client() silently fall
+        # through to MockLLM() — a stub chat brain. Key-only (no base_url/model
+        # triplet). It is listed HERE so mask_settings() masks it on every settings
+        # read: a key outside SECRET_KEYS is served in plaintext by GET /settings.
+        # Read it as get_resolved_ai_settings()["typesafe_api_key"].
+        "typesafe_api_key",
     }
 )
 
@@ -99,6 +108,9 @@ DEFAULT_AI_SETTINGS: dict[str, Any] = {
     "ollama_model": AI_PROVIDERS["ollama"]["default_model"],
     "lmstudio_base_url": AI_PROVIDERS["lmstudio"]["default_base_url"],
     "lmstudio_model": AI_PROVIDERS["lmstudio"]["default_model"],
+    # TypeSafe / "Jev". Key only — no provider/base_url/model triplet, because this
+    # is not a chat provider (see the SECRET_AI_KEY_FIELDS note above).
+    "typesafe_api_key": "",
     # Provider id -> model ids shown in chat picker; omit or null = show all discovered.
     "chat_enabled_models": {},
     "default_llm": {"provider": "deepseek", "model": ""},

@@ -275,6 +275,12 @@ def _env_defaults() -> dict[str, Any]:
             "ollama_model": os.environ.get(
                 "OLLAMA_MODEL", DEFAULT_AI_SETTINGS["ollama_model"]
             ).strip(),
+            # TypeSafe / "Jev" (System One typed-judgment primitive). Not a chat
+            # provider — there is no typesafe entry in AI_PROVIDERS. Layer order is
+            # defaults <- env <- saved file, and a saved empty string still wins: with
+            # `"typesafe_api_key": ""` in data/settings.json this env var is ignored
+            # (true for every key in this block). Set it in Settings, not here.
+            "typesafe_api_key": os.environ.get("TYPESAFE_API_KEY", "").strip(),
         },
         "research": {
             "searxng_url": os.environ.get("SEARXNG_URL", "").strip().rstrip("/"),
