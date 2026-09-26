@@ -1121,6 +1121,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
 
     if name == "create_price_alert":
         from db.chart_features import create_price_alert as db_create_price_alert
+        from signals.price_alert_sync import broadcast_price_alert_change
 
         symbol_raw = args.get("symbol")
         if not symbol_raw:
@@ -1139,16 +1140,23 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             return {"error": "direction must be one of: above, below, cross"}
         note = str(args.get("note", ""))
         repeat = bool(args.get("repeat", False))
-        return db_create_price_alert(
+        created = db_create_price_alert(
             symbol=str(symbol_raw),
             price=price_f,
             direction=direction,
             note=note,
             repeat=repeat,
         )
+        await broadcast_price_alert_change(
+            "created",
+            alert_id=int(created["id"]),
+            symbol=str(created["symbol"]),
+        )
+        return created
 
     if name == "update_price_alert":
         from db.chart_features import update_price_alert as db_update_price_alert
+        from signals.price_alert_sync import broadcast_price_alert_change
 
         alert_id_raw = args.get("id")
         if alert_id_raw is None:
@@ -1181,10 +1189,16 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
         )
         if updated is None:
             return {"error": "not found"}
+        await broadcast_price_alert_change(
+            "updated",
+            alert_id=alert_id,
+            symbol=str(updated["symbol"]),
+        )
         return updated
 
     if name == "delete_price_alert":
         from db.chart_features import delete_price_alert as db_delete_price_alert
+        from signals.price_alert_sync import broadcast_price_alert_change
 
         alert_id_raw = args.get("id")
         if alert_id_raw is None:
@@ -1195,6 +1209,7 @@ async def execute_tool(name: str, args: dict[str, Any]) -> Any:
             return {"error": "id must be an integer"}
         if not db_delete_price_alert(alert_id):
             return {"error": "not found"}
+        await broadcast_price_alert_change("deleted", alert_id=alert_id)
         return {"ok": True}
 
     if name == "create_watchlist":

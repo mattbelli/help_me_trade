@@ -79,12 +79,12 @@
    "num": 344,
    "id": "price-alert-cross-client-sync",
    "title": "Sync price alerts across web and phone in real time",
-   "lane": "in_progress",
+   "lane": "done",
    "type": "bug",
    "priority": "high",
    "owner": "codex",
-   "updated_at": "2026-09-04",
-   "notes": "Broadcast alert CRUD over the existing market socket; refresh web/mobile immediately; foreground catch-up and polling fallback.\n2026-09-04: 09-04 follow-up: HMT job_watchdog pushes were persisted but mobile Inbox only seeded once; add foreground/socket/tab catch-up and route generic unified push taps to Inbox. Exact lost push was attention_ledger stale; both remain unread server-side."
+   "updated_at": "2026-09-26",
+   "notes": "Broadcast alert CRUD over the existing market socket; refresh web/mobile immediately; foreground catch-up and polling fallback.\n2026-09-04: 09-04 follow-up: HMT job_watchdog pushes were persisted but mobile Inbox only seeded once; add foreground/socket/tab catch-up and route generic unified push taps to Inbox. Exact lost push was attention_ledger stale; both remain unread server-side.\n2026-09-26: 2026-09-26: committed (built 09-04, live since the 09-23 build / 09-25 backend restart). Every alert change (REST, chat tools, hub trigger) broadcasts price_alerts_changed over the market socket; web + phone refetch, plus foreground/reconnect catch-up and the mobile inbox refresh."
   },
   {
    "num": 343,

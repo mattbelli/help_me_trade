@@ -3,6 +3,10 @@
 import { useEffect } from "react";
 
 import { marketWsUrl, type ServerNotification } from "@/lib/api";
+import {
+  isPriceAlertsChangedMessage,
+  requestPriceAlertRefresh,
+} from "@/lib/price-alert-sync";
 import { requestAlertNotifications } from "@/lib/use-price-alert-monitor";
 
 import {
@@ -65,6 +69,11 @@ export function useNotificationStream({
         try {
           const msg = JSON.parse(event.data) as Record<string, unknown>;
 
+          if (isPriceAlertsChangedMessage(msg)) {
+            requestPriceAlertRefresh();
+            return;
+          }
+
           if (isNotificationMessage(msg)) {
             useNotificationStore
               .getState()
@@ -83,6 +92,11 @@ export function useNotificationStream({
         }
       };
 
+      ws.onopen = () => {
+        // Reconcile anything committed while this client was disconnected.
+        requestPriceAlertRefresh();
+      };
+
       ws.onclose = () => {
         if (cancelled) return;
         reconnectTimer = setTimeout(connect, RECONNECT_MS);
@@ -93,11 +107,18 @@ export function useNotificationStream({
       };
     }
 
+    const catchUpIfVisible = () => {
+      if (document.visibilityState === "visible") requestPriceAlertRefresh();
+    };
+    document.addEventListener("visibilitychange", catchUpIfVisible);
+    window.addEventListener("focus", catchUpIfVisible);
     connect();
 
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      document.removeEventListener("visibilitychange", catchUpIfVisible);
+      window.removeEventListener("focus", catchUpIfVisible);
       ws?.close();
     };
   }, [enabled]);

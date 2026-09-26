@@ -6,7 +6,9 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 
+import { getRecentNotifications } from '@/api/endpoints';
 import type { FeedNotification, MarketAlert } from '@/api/types';
 
 const MAX_ALERTS = 300;
@@ -21,6 +23,8 @@ interface AlertsValue {
   pushNotification: (notification: FeedNotification) => void;
   seed: (alerts: MarketAlert[]) => void;
   seedNotifications: (notifications: FeedNotification[]) => void;
+  /** Reconcile notifications missed while the app/socket was inactive. */
+  refreshNotifications: () => Promise<void>;
   readIds: Set<string>;
   isRead: (id: string) => boolean;
   markRead: (id: string) => void;
@@ -119,6 +123,28 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
     setNotifications(fresh.slice(0, MAX_ALERTS));
   }, []);
 
+  const refreshNotifications = useCallback(async () => {
+    try {
+      const response = await getRecentNotifications();
+      seedNotifications(response.notifications ?? []);
+    } catch {
+      // Best-effort catch-up. The live socket and pull-to-refresh remain available.
+    }
+  }, [seedNotifications]);
+
+  // A socket cannot receive notifications while iOS has suspended the app.
+  // Reconcile from the persistent server inbox on mount and every foreground.
+  useEffect(() => {
+    let wasActive = AppState.currentState === 'active';
+    void refreshNotifications();
+    const sub = AppState.addEventListener('change', (state) => {
+      const isActive = state === 'active';
+      if (isActive && !wasActive) void refreshNotifications();
+      wasActive = isActive;
+    });
+    return () => sub.remove();
+  }, [refreshNotifications]);
+
   const isRead = useCallback((id: string) => readIds.has(id), [readIds]);
   const markRead = useCallback((id: string) => setReadIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
   const markAllRead = useCallback(() => {
@@ -175,13 +201,14 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
       pushNotification,
       seed,
       seedNotifications,
+      refreshNotifications,
       readIds,
       isRead,
       markRead,
       markAllRead,
       clearRead,
     }),
-    [alerts, notifications, pushAlert, pushNotification, seed, seedNotifications, readIds, isRead, markRead, markAllRead, clearRead],
+    [alerts, notifications, pushAlert, pushNotification, seed, seedNotifications, refreshNotifications, readIds, isRead, markRead, markAllRead, clearRead],
   );
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>;
 }

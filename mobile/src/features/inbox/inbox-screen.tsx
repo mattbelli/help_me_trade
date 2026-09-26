@@ -115,7 +115,8 @@ export function InboxScreen() {
     ]),
   );
 
-  // Seed once from REST; live updates arrive via the store (WS).
+  // Seed this screen from REST; the provider also reconciles after foreground /
+  // reconnect so notifications delivered while iOS suspended us cannot vanish.
   useEffect(() => {
     if (seeded.current) return;
     seeded.current = true;
@@ -265,7 +266,12 @@ function NotificationRow({ item, onPress }: { item: Extract<Row_, { kind: 'notif
           <Row gap={spacing.sm}>
             <Badge label={category} tone={severityTone(notification.severity)} />
             {notification.body ? (
-              <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flex: 1 }}>
+              <Text
+                variant="caption"
+                color="textFaint"
+                numberOfLines={notification.kind === 'job_watchdog' ? 3 : 1}
+                style={{ flex: 1 }}
+              >
                 {notification.body}
               </Text>
             ) : null}

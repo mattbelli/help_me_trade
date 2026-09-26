@@ -7,7 +7,7 @@ with main — pure DB CRUD via ``db.sqlite``.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, BackgroundTasks, Body
 from fastapi.responses import JSONResponse
 
 from db.chart_features import (
@@ -21,6 +21,7 @@ from db.chart_features import (
     update_chart_drawing,
     update_price_alert,
 )
+from signals.price_alert_sync import broadcast_price_alert_change
 
 router = APIRouter(tags=["price-alerts", "drawings"])
 
@@ -31,7 +32,7 @@ def api_list_alerts(symbol: str | None = None):
 
 
 @router.post("/api/price-alerts")
-def api_create_alert(body: dict = Body(...)):
+def api_create_alert(background_tasks: BackgroundTasks, body: dict = Body(...)):
     symbol = str(body.get("symbol", "")).strip()
     price = body.get("price")
     direction = str(body.get("direction", "cross")).strip().lower()
@@ -51,11 +52,21 @@ def api_create_alert(body: dict = Body(...)):
     alert = create_price_alert(
         symbol=symbol, price=price_f, direction=direction, note=note, repeat=repeat
     )
+    background_tasks.add_task(
+        broadcast_price_alert_change,
+        "created",
+        alert_id=int(alert["id"]),
+        symbol=str(alert["symbol"]),
+    )
     return alert
 
 
 @router.put("/api/price-alerts/{alert_id}")
-def api_update_alert(alert_id: int, body: dict = Body(...)):
+def api_update_alert(
+    alert_id: int,
+    background_tasks: BackgroundTasks,
+    body: dict = Body(...),
+):
     price_f: float | None = None
     if body.get("price") is not None:
         try:
@@ -79,22 +90,39 @@ def api_update_alert(alert_id: int, body: dict = Body(...)):
     )
     if updated is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    background_tasks.add_task(
+        broadcast_price_alert_change,
+        "updated",
+        alert_id=alert_id,
+        symbol=str(updated["symbol"]),
+    )
     return updated
 
 
 @router.delete("/api/price-alerts/{alert_id}")
-def api_delete_alert(alert_id: int):
+def api_delete_alert(alert_id: int, background_tasks: BackgroundTasks):
     if not delete_price_alert(alert_id):
         return JSONResponse({"error": "Not found"}, status_code=404)
+    background_tasks.add_task(
+        broadcast_price_alert_change,
+        "deleted",
+        alert_id=alert_id,
+    )
     return {"ok": True}
 
 
 @router.post("/api/price-alerts/{alert_id}/trigger")
-def api_trigger_alert(alert_id: int):
+def api_trigger_alert(alert_id: int, background_tasks: BackgroundTasks):
     active = [a for a in list_price_alerts(active_only=True) if int(a["id"]) == alert_id]
     if not active:
         return JSONResponse({"error": "Not found or already triggered"}, status_code=404)
     mark_alert_triggered(alert_id, repeat=bool(active[0].get("repeat")))
+    background_tasks.add_task(
+        broadcast_price_alert_change,
+        "triggered",
+        alert_id=alert_id,
+        symbol=str(active[0]["symbol"]),
+    )
     return {"ok": True, "alert": active[0]}
 
 

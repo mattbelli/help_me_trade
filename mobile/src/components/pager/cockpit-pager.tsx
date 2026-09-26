@@ -51,13 +51,16 @@ export function CockpitPager() {
 
   const { token } = useAuth();
   const qc = useQueryClient();
-  const { pushAlert, pushNotification } = useAlerts();
+  const { pushAlert, pushNotification, refreshNotifications } = useAlerts();
   const { data: pending } = usePendingProposals();
   const pendingCount = pending?.proposals.length ?? 0;
 
   const goTo = useCallback((index: number) => pagerRef.current?.setPage(index), []);
 
-  usePush({ onOpenApprovals: () => goTo(INBOX_INDEX) });
+  usePush({
+    onOpenInbox: () => goTo(INBOX_INDEX),
+    onRefreshInbox: refreshNotifications,
+  });
   useLiveActivity({ onOpenApprovals: () => goTo(INBOX_INDEX) });
 
   // Live prices: subscribe the SELECTED watchlist's symbols and merge ticks
@@ -156,6 +159,15 @@ export function CockpitPager() {
     [flushQuotes],
   );
 
+  const refreshPriceAlerts = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ['price-alerts'] });
+  }, [qc]);
+
+  const catchUpAfterConnect = useCallback(() => {
+    refreshPriceAlerts();
+    void refreshNotifications();
+  }, [refreshNotifications, refreshPriceAlerts]);
+
   useEffect(
     () => () => {
       if (quoteFlushTimerRef.current != null) clearTimeout(quoteFlushTimerRef.current);
@@ -167,6 +179,8 @@ export function CockpitPager() {
     token,
     onAlert: pushAlert,
     onNotification: pushNotification,
+    onPriceAlertsChanged: refreshPriceAlerts,
+    onConnected: catchUpAfterConnect,
     onQuote,
     onProposal: () => {
       haptics.warning();
@@ -211,6 +225,7 @@ export function CockpitPager() {
           onPageSelected={(e) => {
             const next = e.nativeEvent.position;
             setPage(next);
+            if (next === INBOX_INDEX) void refreshNotifications();
             // Dedupe: the pager can emit onPageSelected more than once per settle;
             // only buzz on an actual page change.
             if (next !== lastPage.current) {

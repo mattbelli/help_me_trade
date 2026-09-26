@@ -52,6 +52,8 @@ type PushType =
 
 interface ProposalPushData {
   type?: PushType | (string & {});
+  kind?: PushType | (string & {});
+  notification_id?: string;
   proposal_id?: string;
   payload_hash?: string;
   expires_at?: string;
@@ -127,12 +129,19 @@ async function handleReject(data: ProposalPushData): Promise<void> {
   }
 }
 
-export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = {}) {
+interface UsePushOptions {
+  onOpenInbox?: () => void;
+  onRefreshInbox?: () => void | Promise<void>;
+}
+
+export function usePush({ onOpenInbox, onRefreshInbox }: UsePushOptions = {}) {
   const { token } = useAuth();
-  const onOpenRef = useRef(onOpenApprovals);
+  const onOpenRef = useRef(onOpenInbox);
+  const onRefreshRef = useRef(onRefreshInbox);
   useEffect(() => {
-    onOpenRef.current = onOpenApprovals;
-  }, [onOpenApprovals]);
+    onOpenRef.current = onOpenInbox;
+    onRefreshRef.current = onRefreshInbox;
+  }, [onOpenInbox, onRefreshInbox]);
 
   // Register category + device token whenever we have an authenticated session.
   useEffect(() => {
@@ -149,6 +158,16 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
 
   // Respond to taps / action buttons (warm + cold start), deduped across remounts.
   useEffect(() => {
+    function catchUpForData(data: ProposalPushData): void {
+      if (data.type === 'notification') {
+        void onRefreshRef.current?.();
+      }
+      const t = data.type === 'notification' ? data.kind : data.type;
+      if (t === 'price_alert') {
+        void queryClient.invalidateQueries({ queryKey: ['price-alerts'] });
+      }
+    }
+
     function dispatch(response: Notifications.NotificationResponse | null): void {
       if (!response) return;
       const key = response.notification.request.identifier;
@@ -166,11 +185,13 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
           void handleReject(data);
           break;
         default: {
-          // Body tap → deep-link. Trade + risk + missed pushes open Approvals (Inbox);
+          // Body tap → deep-link. Trade + risk + missed pushes open Inbox;
           // price alerts and fill reports jump to the symbol's detail screen; nightly
-          // book reports open the report viewer. Unknown / research_ready kinds have
-          // no mobile surface, so the banner just shows.
-          const t = data.type;
+          // book reports open the report viewer. Every unified notification first
+          // catches up the persisted feed; kinds without a dedicated route open Inbox.
+          const unifiedNotification = data.type === 'notification';
+          const t = unifiedNotification ? data.kind : data.type;
+          catchUpForData(data);
           if (
             t === 'trade_proposal' ||
             t === 'risk_breaker' ||
@@ -182,15 +203,25 @@ export function usePush({ onOpenApprovals }: { onOpenApprovals?: () => void } = 
             router.push(symbolRoute(data.symbol));
           } else if (t === 'report_ready' && data.report_id?.trim()) {
             router.push(`/report/${encodeURIComponent(data.report_id.trim())}`);
+          } else if (unifiedNotification) {
+            onOpenRef.current?.();
           }
         }
       }
     }
 
-    const sub = Notifications.addNotificationResponseReceivedListener(dispatch);
+    // Foreground delivery is another independent catch-up signal. Navigation is
+    // reserved for a tap; receipt alone only refreshes the stores behind Inbox.
+    const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
+      catchUpForData((notification.request.content.data ?? {}) as ProposalPushData);
+    });
+    const responseSub = Notifications.addNotificationResponseReceivedListener(dispatch);
     // Cold start: app launched by tapping a notification / action.
     void Notifications.getLastNotificationResponseAsync().then(dispatch);
 
-    return () => sub.remove();
+    return () => {
+      receivedSub.remove();
+      responseSub.remove();
+    };
   }, []);
 }

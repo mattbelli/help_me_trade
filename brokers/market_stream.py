@@ -544,10 +544,14 @@ class BaseMarketHub:
             **payload,
         }
         self._recent_alerts.append(enriched)
+        await self.broadcast_event({"type": "alert", **enriched})
+
+    async def broadcast_event(self, payload: dict[str, Any]) -> None:
+        """Push a transient control/event frame to every connected client."""
         dead: list[WebSocket] = []
         for ws in list(self._clients):
             try:
-                await ws.send_json({"type": "alert", **enriched})
+                await ws.send_json(payload)
             except Exception:
                 dead.append(ws)
         for ws in dead:
@@ -765,6 +769,15 @@ class BaseMarketHub:
             target = float(alert.get("price", 0.0) or 0.0)
             direction = str(alert.get("direction") or "cross")
             note = str(alert.get("note") or "")
+            from signals.price_alert_sync import price_alert_change_event
+
+            await self.broadcast_event(
+                price_alert_change_event(
+                    "triggered",
+                    alert_id=int(alert["id"]),
+                    symbol=symbol,
+                )
+            )
             from signals.notify import notify
 
             await notify(

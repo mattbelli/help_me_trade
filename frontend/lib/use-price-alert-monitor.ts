@@ -8,6 +8,7 @@ import {
   triggerPriceAlert,
   type PriceAlert,
 } from "@/lib/api";
+import { subscribePriceAlertRefresh } from "@/lib/price-alert-sync";
 
 export type TriggeredAlert = PriceAlert & { trigger_price?: number };
 
@@ -71,6 +72,18 @@ export function usePriceAlertMonitor({
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function sendSubscription() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const symbols = [...new Set(alertsRef.current.map((a) => a.symbol))];
+      // subscribe is replace-set; [] removes symbols after the last alert is deleted.
+      ws.send(JSON.stringify({ action: "subscribe", symbols }));
+    }
+
+    async function refreshAlerts() {
+      await loadAlerts();
+      if (!cancelled) sendSubscription();
+    }
+
     function handleTrigger(alert: PriceAlert, current: number) {
       const payload: TriggeredAlert = { ...alert, trigger_price: current };
       onTriggeredRef.current?.(payload);
@@ -105,14 +118,12 @@ export function usePriceAlertMonitor({
 
     function connect() {
       if (cancelled) return;
-      const symbols = [...new Set(alertsRef.current.map((a) => a.symbol))];
-      if (symbols.length === 0) return;
 
       ws = new WebSocket(marketWsUrl());
 
       ws.onopen = () => {
         if (cancelled) return;
-        ws?.send(JSON.stringify({ action: "subscribe", symbols }));
+        sendSubscription();
       };
 
       ws.onmessage = (event) => {
@@ -151,19 +162,17 @@ export function usePriceAlertMonitor({
     });
 
     const refresh = setInterval(() => {
-      loadAlerts().then(() => {
-        if (cancelled || !ws || ws.readyState !== WebSocket.OPEN) return;
-        const symbols = [...new Set(alertsRef.current.map((a) => a.symbol))];
-        if (symbols.length) {
-          ws.send(JSON.stringify({ action: "subscribe", symbols }));
-        }
-      });
+      void refreshAlerts();
     }, 30_000);
+    const unsubscribeRefresh = subscribePriceAlertRefresh(() => {
+      void refreshAlerts();
+    });
 
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       clearInterval(refresh);
+      unsubscribeRefresh();
       ws?.close();
     };
   }, [enabled, loadAlerts]);

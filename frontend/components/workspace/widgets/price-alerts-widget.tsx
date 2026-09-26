@@ -21,6 +21,7 @@ import {
   updatePriceAlert,
   type PriceAlert,
 } from "@/lib/api";
+import { subscribePriceAlertRefresh } from "@/lib/price-alert-sync";
 import { cn } from "@/lib/utils";
 import type { ChannelId } from "@/lib/workspace/channels";
 import { usePublishSymbol } from "@/lib/workspace/use-publish-symbol";
@@ -128,7 +129,11 @@ export function PriceAlertsWidget({ config, onConfigChange }: WidgetProps) {
   useEffect(() => {
     void load();
     const timer = setInterval(load, POLL_MS);
-    return () => clearInterval(timer);
+    const unsubscribe = subscribePriceAlertRefresh(() => void load());
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
   }, [load]);
 
   useEffect(() => {

@@ -31,6 +31,8 @@ export interface UseMarketWsOptions {
   token: string | null;
   onAlert?: (alert: MarketAlert) => void;
   onNotification?: (notification: FeedNotification) => void;
+  onPriceAlertsChanged?: () => void;
+  onConnected?: () => void;
   onQuote?: (quote: QuoteUpdate) => void;
   onProposal?: (proposalId: string) => void;
 }
@@ -99,11 +101,19 @@ interface WsNotificationMessage {
   dismissed_at?: string | null;
 }
 
+interface WsPriceAlertsChangedMessage {
+  type: 'price_alerts_changed';
+  action?: 'created' | 'updated' | 'deleted' | 'triggered';
+  alert_id?: number;
+  symbol?: string;
+}
+
 type WsMessage =
   | WsQuoteMessage
   | WsQuotesMessage
   | WsAlertMessage
   | WsNotificationMessage
+  | WsPriceAlertsChangedMessage
   | Record<string, unknown>;
 
 function toQuoteUpdate(symbol: string, p: Omit<WsQuoteMessage, 'type' | 'symbol'>): QuoteUpdate {
@@ -179,6 +189,8 @@ export function useMarketWs({
   token,
   onAlert,
   onNotification,
+  onPriceAlertsChanged,
+  onConnected,
   onQuote,
   onProposal,
 }: UseMarketWsOptions) {
@@ -194,6 +206,8 @@ export function useMarketWs({
 
   const onAlertRef = useRef(onAlert);
   const onNotificationRef = useRef(onNotification);
+  const onPriceAlertsChangedRef = useRef(onPriceAlertsChanged);
+  const onConnectedRef = useRef(onConnected);
   const onQuoteRef = useRef(onQuote);
   const onProposalRef = useRef(onProposal);
   const wsRef = useRef<WebSocket | null>(null);
@@ -206,9 +220,11 @@ export function useMarketWs({
   useEffect(() => {
     onAlertRef.current = onAlert;
     onNotificationRef.current = onNotification;
+    onPriceAlertsChangedRef.current = onPriceAlertsChanged;
+    onConnectedRef.current = onConnected;
     onQuoteRef.current = onQuote;
     onProposalRef.current = onProposal;
-  }, [onAlert, onNotification, onQuote, onProposal]);
+  }, [onAlert, onNotification, onPriceAlertsChanged, onConnected, onQuote, onProposal]);
 
   const subscribe = useCallback((symbols: string[]) => {
     // Remember it either way. serv sends a client NOTHING until it subscribes —
@@ -257,6 +273,11 @@ export function useMarketWs({
     function handleMessage(event: MessageEvent<string>) {
       try {
         const msg = JSON.parse(event.data) as WsMessage;
+
+        if (isRecord(msg) && msg.type === 'price_alerts_changed') {
+          onPriceAlertsChangedRef.current?.();
+          return;
+        }
 
         if (isRecord(msg) && msg.type === 'alert') {
           const raw = msg as unknown as WsAlertMessage & { kind?: unknown; type?: unknown };
@@ -364,6 +385,9 @@ export function useMarketWs({
         if (lastSymbolsRef.current.length > 0) {
           ws.send(JSON.stringify({ action: 'subscribe', symbols: lastSymbolsRef.current }));
         }
+        // The socket is lossy while backgrounded/disconnected. Let consumers
+        // reconcile authoritative REST state on every successful connection.
+        onConnectedRef.current?.();
         setConnected(true);
       };
 

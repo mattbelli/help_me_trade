@@ -638,3 +638,50 @@ async def test_watchlist_rename_by_name_and_unknown_ref(
     )
     assert "Unknown watchlist" in missing["error"]
     assert "Momentum" in missing["error"]
+
+
+@pytest.mark.asyncio
+async def test_price_alert_tools_broadcast_mutations(monkeypatch: pytest.MonkeyPatch) -> None:
+    import db.chart_features as chart_features
+    import signals.price_alert_sync as price_alert_sync
+
+    row = {
+        "id": 23,
+        "symbol": "AMAT",
+        "price": 450.76,
+        "direction": "below",
+        "note": "phone alert",
+        "repeat": 0,
+        "triggered": 0,
+    }
+    monkeypatch.setattr(chart_features, "create_price_alert", lambda **kwargs: row)
+    monkeypatch.setattr(chart_features, "update_price_alert", lambda *args, **kwargs: row)
+    monkeypatch.setattr(chart_features, "delete_price_alert", lambda alert_id: True)
+
+    changes: list[tuple[str, int, str | None]] = []
+
+    async def capture_change(
+        action: str,
+        *,
+        alert_id: int,
+        symbol: str | None = None,
+    ) -> None:
+        changes.append((action, alert_id, symbol))
+
+    monkeypatch.setattr(price_alert_sync, "broadcast_price_alert_change", capture_change)
+
+    created = await execute_tool(
+        "create_price_alert",
+        {"symbol": "AMAT", "price": 450.76, "direction": "below"},
+    )
+    updated = await execute_tool("update_price_alert", {"id": 23, "price": 451})
+    deleted = await execute_tool("delete_price_alert", {"id": 23})
+
+    assert created["id"] == 23
+    assert updated["id"] == 23
+    assert deleted == {"ok": True}
+    assert changes == [
+        ("created", 23, "AMAT"),
+        ("updated", 23, "AMAT"),
+        ("deleted", 23, None),
+    ]

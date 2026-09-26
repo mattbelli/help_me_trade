@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from brokers.market_stream import MarketStreamHub
@@ -10,6 +12,8 @@ from brokers.market_stream import MarketStreamHub
 @pytest.mark.asyncio
 async def test_price_alert_calls_notify_with_kind_and_push(monkeypatch) -> None:
     hub = MarketStreamHub()
+    broadcast = AsyncMock()
+    monkeypatch.setattr(hub, "broadcast_event", broadcast)
 
     triggered_alert = {
         "id": 42,
@@ -35,6 +39,14 @@ async def test_price_alert_calls_notify_with_kind_and_push(monkeypatch) -> None:
 
     await hub._check_price_alerts("AAPL", prev=199.0, current=200.5)
 
+    broadcast.assert_awaited_once_with(
+        {
+            "type": "price_alerts_changed",
+            "action": "triggered",
+            "alert_id": 42,
+            "symbol": "AAPL",
+        }
+    )
     assert len(notify_calls) == 1
     call = notify_calls[0]
     assert call["kind"] == "price_alert"

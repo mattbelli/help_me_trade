@@ -334,6 +334,11 @@ export function usePriceAlerts(symbol?: string) {
     queryFn: () => getPriceAlerts(symbol),
     enabled,
     staleTime: 30_000,
+    // Socket invalidations make normal cross-device sync immediate. Always
+    // reconcile on navigation/cold start, with a small fallback poll for a
+    // direct deep link where the cockpit's shared market socket is not mounted.
+    refetchOnMount: 'always',
+    refetchInterval: 20_000,
   });
 }
 

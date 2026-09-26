@@ -32,8 +32,17 @@ function RootLayoutInner() {
   // interval refetches (and they resume on return) — the REST-poll analog of the
   // market WS's own AppState pause.
   useEffect(() => {
+    let wasActive = AppState.currentState === 'active';
+    focusManager.setFocused(wasActive);
     const sub = AppState.addEventListener('change', (status) => {
-      focusManager.setFocused(status === 'active');
+      const isActive = status === 'active';
+      focusManager.setFocused(isActive);
+      if (isActive && !wasActive) {
+        // A backgrounded process cannot consume WS control frames. Reconcile
+        // immediately on resume; cold starts reconcile when the query mounts.
+        void queryClient.invalidateQueries({ queryKey: ['price-alerts'] });
+      }
+      wasActive = isActive;
     });
     return () => sub.remove();
   }, []);
