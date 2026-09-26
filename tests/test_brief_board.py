@@ -156,7 +156,7 @@ async def test_one_failing_section_leaves_the_rest(monkeypatch: pytest.MonkeyPat
     async def index(_d):
         return {"gex": {"SPX": {"oi_as_of": "2026-09-25", "net_gamma_usd_per_1pct_b": 1.0}}}
 
-    async def macro():
+    async def macro(_d):
         return {"market": {"error": "market: offline"}, "book_frame_md": "frame"}
 
     monkeypatch.setattr(bb, "_candidates_section", boom)

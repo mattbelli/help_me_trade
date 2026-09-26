@@ -405,7 +405,9 @@ def _vix_closes(db_path: Path) -> tuple[list[tuple[str, float]], str]:
     return closes[::-1][:5], rest_provider_for("$VIX")
 
 
-def _market_frame_section(db_path: Path) -> str:
+def _market_frame_section(db_path: Path, et_date: str | None = None) -> str:
+    """`et_date` (YYYY-MM-DD) pins the "today" lines to that session — the brief board
+    rebuilds past dates and weekends; the book pack passes nothing and reads today."""
     from datetime import date, timedelta
 
     from db.regime import recent_observations
@@ -469,7 +471,7 @@ def _market_frame_section(db_path: Path) -> str:
 
         # ET, not the box's UTC: between 20:00 ET and midnight serv is already on
         # tomorrow, and the pack would ask the calendar about the wrong day.
-        cal = event_calendar(_dt.now(_ET).date().isoformat())
+        cal = event_calendar(et_date or _dt.now(_ET).date().isoformat())
     except Exception:  # noqa: BLE001
         logger.exception("book pack event calendar read failed")
         cal = None
@@ -533,10 +535,11 @@ def _market_frame_section(db_path: Path) -> str:
         if not DEFAULT_RELEASES_DB_PATH.exists():
             today_exhibits = None
         else:
-            today_et = _dt.now(_ZoneInfo("America/New_York")).date().isoformat()
+            today_et = et_date or _dt.now(_ZoneInfo("America/New_York")).date().isoformat()
+            # A past date sits deeper than the 40 newest filings; peak season files hundreds.
             today_exhibits = [
                 r
-                for r in latest_releases(limit=40)
+                for r in latest_releases(limit=40 if et_date is None else 1000)
                 if (r.get("accepted_et") or "")[:10] == today_et
             ]
     except Exception:  # noqa: BLE001
@@ -565,7 +568,7 @@ def _market_frame_section(db_path: Path) -> str:
 
         # First fires only — the study object; p90 lights far more name-days
         # than the old draft rule, and repeats would double-count them.
-        fires = events_today(db_path=db_path, first_only=True)
+        fires = events_today(et_date, db_path=db_path, first_only=True)
         fires = sorted(
             fires,
             key=lambda e: (
@@ -599,7 +602,7 @@ def _market_frame_section(db_path: Path) -> str:
         from db.attention import list_rows as _attention_rows
 
         att = _attention_rows(
-            _dt.now(_zi("America/New_York")).date().isoformat(),
+            et_date or _dt.now(_zi("America/New_York")).date().isoformat(),
             min_quintile=3,
             min_angles=1,
             limit=500,

@@ -969,12 +969,13 @@ async def _market() -> dict[str, Any]:
     }
 
 
-async def _macro_section() -> dict[str, Any]:
+async def _macro_section(et_date: date) -> dict[str, Any]:
     from research.books import _market_frame_section
 
     return {
         "book_frame_md": await _guard(
-            "book market frame", asyncio.to_thread, _market_frame_section, DEFAULT_DB_PATH
+            "book market frame", asyncio.to_thread, _market_frame_section, DEFAULT_DB_PATH,
+            et_date.isoformat(),
         ),
         "market": await _guard("market", _market),
     }
@@ -1172,7 +1173,7 @@ async def abuild_board(et_date: date | None = None) -> dict[str, Any]:
     }
     board["candidates"] = await _guard("candidates", _candidates_section, et_date, nxt)
     board["index"] = await _guard("index", _index_section, et_date)
-    board["macro"] = await _guard("macro", _macro_section)
+    board["macro"] = await _guard("macro", _macro_section, et_date)
     board["sectors"] = await _guard("sectors", asyncio.to_thread, _sectors_section, et_date)
     board["events"] = await _guard("events", _events_section, et_date, nxt, board["macro"])
     board["freshness"] = await _guard("freshness", freshness, board, et_date)
