@@ -1680,6 +1680,9 @@ def render_board_md(board: dict[str, Any]) -> str:
                 out.append(f"| {lane} | {s['quota']} | {s['lit']} | "
                            f"{', '.join(s['admitted']) or '—'} | {s.get('newest')} |")
         out.append("")
+        order = (board.get("jev") or {}).get("order")
+        if order:
+            out += [f"Jev materiality order (typed read, perception): {', '.join(order)}", ""]
         for card in cands.get("cards") or []:
             out += _render_card(card)
 

@@ -475,7 +475,7 @@ class _Resp:
         return {"catalyst": "earnings", "lean": "two_sided"}[q]
 
     def score(self, q: str) -> float:
-        return 2.2 if "BIG" in self.state else 0.4
+        return 3.6 if "BIG" in self.state else 0.4
 
     def noul(self, q: str) -> float:
         return 0.8 if q == "explained" else 0.1
@@ -498,11 +498,11 @@ async def test_jev_tags_cards_and_renders_labels_not_numbers(monkeypatch: pytest
     cards = [{"symbol": "BIG", "angles": ["flow"], "lanes": ["rare_flow"]},
              {"symbol": "BAD", "angles": ["news"], "lanes": ["news"]}]
     summary = await jev.tag_cards(cards, bb._render_card)
-    assert summary == {"tagged": 1, "errors": 1, "model": ["jev-test"]}
-    assert cards[0]["jev"] == {"catalyst": "earnings", "materiality": "worth attention",
+    assert summary == {"tagged": 1, "errors": 1, "model": ["jev-test"], "order": ["BIG"]}
+    assert cards[0]["jev"] == {"catalyst": "earnings", "materiality": "major story",
                                "explained": True, "evidence_thin": False, "lean": "two_sided"}
     line = next(ln for ln in bb._render_card(cards[0]) if ln.startswith("- Jev"))
-    assert "worth attention" in line and "lean two_sided" in line
+    assert "major story" in line and "lean two_sided" in line
     assert not any(ch.isdigit() for ch in line)  # labels only, never a probability
     assert not any(ln.startswith("- Jev") for ln in bb._render_card(cards[1]))
 
@@ -514,4 +514,4 @@ async def test_jev_orders_headlines_and_falls_back(monkeypatch: pytest.MonkeyPat
     assert await jev.order_headlines(heads, 5) == heads  # no key: incoming order kept
     _fake_jev(monkeypatch)
     out = await jev.order_headlines(heads, 1)
-    assert out == [{"headline": "BIG war news", "symbols": ["SPY"], "jev_materiality": "a sector"}]
+    assert out == [{"headline": "BIG war news", "symbols": ["SPY"], "jev_materiality": "the market"}]

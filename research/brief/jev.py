@@ -22,12 +22,17 @@ logger = logging.getLogger(__name__)
 CONCURRENCY = 8
 HEADLINE_POOL = 60  # headlines scored per weekly board (after filler/dedupe)
 
+# Every board name is unusual by construction, so the rubric separates WHY: a 3-level
+# "routine / notable / worth attention" put all 26 names of 09-25 at "worth attention"
+# (1.71-1.92); these five spread the same board 0.81-3.20 (deal break top, held-only low).
 MATERIALITY = (
-    "Routine — nothing a trader would act on",
-    "Notable, but explained by the facts given",
-    "Worth a trader's attention for the next session",
+    "Routine for this name: nothing new, or a move the facts show is already fully priced",
+    "Unusual, but explained by one known event the market has already reacted to",
+    "A fresh catalyst whose effect is plausibly still being priced",
+    "A fresh story that several independent angles (flow, news, tape) agree on",
+    "A major story for this name, likely to drive the next several sessions",
 )
-_MATERIALITY_LABEL = ("routine", "notable", "worth attention")
+_MATERIALITY_LABEL = ("routine", "already priced", "fresh catalyst", "fresh + confirmed", "major story")
 
 CATALYSTS = {
     "earnings": "An earnings report or pre-announcement",
@@ -61,8 +66,8 @@ def _card_questions() -> dict[str, Any]:
     return {
         "catalyst": choice("What is the main catalyst behind this name lighting up?",
                            criteria=CATALYSTS),
-        "materiality": score("How material is this name for a swing trader deciding what to "
-                             "look at before the next session?", criteria=list(MATERIALITY)),
+        "materiality": score("How material is this name for a swing trader choosing what to "
+                             "research before the next session?", criteria=list(MATERIALITY)),
         "explained": noul("Is the activity explained by a specific fact on this card (a "
                           "headline, an earnings release, a filing)?"),
         "evidence_thin": noul("Are the facts on this card too thin to support any judgment?"),
@@ -91,6 +96,7 @@ async def tag_cards(cards: list[dict[str, Any]], render: Any) -> dict[str, Any]:
     questions = _card_questions()
     sem = asyncio.Semaphore(CONCURRENCY)
     models: set[str] = set()
+    raw: dict[str, float] = {}
 
     async def one(card: dict[str, Any]) -> None:
         async with sem:
@@ -101,6 +107,7 @@ async def tag_cards(cards: list[dict[str, Any]], render: Any) -> dict[str, Any]:
                 card["jev"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
                 return
         models.add(resp.model)
+        raw[card["symbol"]] = resp.score("materiality")
         card["jev"] = {
             "catalyst": resp.choice("catalyst"),
             "materiality": _level(resp.score("materiality"), _MATERIALITY_LABEL),
@@ -111,7 +118,9 @@ async def tag_cards(cards: list[dict[str, Any]], render: Any) -> dict[str, Any]:
 
     await asyncio.gather(*(one(c) for c in cards))
     errors = sum(1 for c in cards if "error" in (c.get("jev") or {}))
-    return {"tagged": len(cards) - errors, "errors": errors, "model": sorted(models)}
+    # The order is shown, the raw scores are not (a rubric position, but it reads as a number).
+    return {"tagged": len(cards) - errors, "errors": errors, "model": sorted(models),
+            "order": sorted(raw, key=lambda sym: -raw[sym])}
 
 
 async def order_headlines(headlines: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
