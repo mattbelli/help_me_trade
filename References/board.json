@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-25",
+ "updated_at": "2026-09-26",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 350,
+   "id": "deep-brief-weekly-nightly",
+   "title": "Deep brief: weekly (Sun 18:30 ET) + nightly lite (weekdays 20:30 ET), specialists → judge, A/B arms",
+   "lane": "in_progress",
+   "type": "feature",
+   "priority": "high",
+   "owner": "agent",
+   "updated_at": "2026-09-26",
+   "notes": "2026-09-26: Stages 1-3 landed on main (7f5279c7..HEAD). board (code) → DeepSeek fact digests → Opus 5.5 specialists (flows/macro/stocks/sectors) via headless claude on the founder's sub → Opus judge → scoped number check → register_idea (brief/weekly, brief/nightly, brief/considered) + evening_brief report + one push. Weekly adds shadow arms (DeepSeek, Opus one effort lower) + blind grader; tools/brief_scorecard.py. 09-25 dry run: 26 min, Opus won 7/8 blind pairs (DeepSeek won sectors). Remaining: first live weekly 09-27 + first nightly 09-28, then move to done."
+  },
   {
    "num": 349,
    "id": "schwab-partial-sell-day-pl-and-futures-equity",

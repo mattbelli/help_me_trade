@@ -26,6 +26,15 @@ Full record: BUILD_LOG 09-01 row + card #329.
 
 ---
 
+## ▶ 09-26 Deep brief (#350) — first live runs
+
+Full record: BUILD_LOG 09-26 row + card #350. Crontab: `tools/nightly_brief.sh` (weekly Sun, nightly Mon–Fri).
+- **⏳ First weekly, Sun 09-27 18:30 ET (22:30 UTC):** check `data/briefs/2026-09-25-weekly/run.json` (every step ok, futures `reopen` populated), the push arrived, and ideas registered under `brief/weekly`.
+- **⏳ First nightly lite, Mon 09-28 20:30 ET (00:30 UTC Tue):** same checks under `data/briefs/2026-09-28/`.
+- **⏳ After ~4 weekly runs (by 10-25):** read `tools/brief_scorecard.py`; decide sectors → DeepSeek and each seat's effort.
+
+---
+
 ## ▶ 08-25 Manual trading foundation (#342) — SHIPPED on main; deploy + founder pass owed
 
 Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDATION_SPEC.md`.
