@@ -118,9 +118,9 @@ def run_arm(spec: str, arm: str, effort: str | None, board: dict[str, Any],
     return res
 
 
-def run_specialists(board: dict[str, Any], brief_dir: Path, *, mode: str,
+def run_specialists(board: dict[str, Any], brief_dir: Path, *, specs: tuple[str, ...],
                     shadow: bool) -> dict[str, Any]:
-    jobs = [(spec, arm, effort) for spec in arms.MODES[mode]["specialists"]
+    jobs = [(spec, arm, effort) for spec in specs
             for arm, effort in arms.arms_for(spec, shadow=shadow)]
     jobs.sort(key=lambda j: j[1] != arms.PRODUCTION_ARM)  # production takes the first slots
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
@@ -245,17 +245,23 @@ def session_date(mode: str, now_et: datetime) -> date | None:
 
 def night(et_date: date, a: argparse.Namespace) -> int:
     mode = a.mode
-    shadow = arms.MODES[mode]["shadow"] or a.shadow
+    ab_only = getattr(a, "ab_only", False)
+    shadow = arms.MODES[mode]["shadow"] or a.shadow or ab_only
+    specs = tuple(arms.SPECIALISTS) if ab_only else arms.MODES[mode]["specialists"]
     brief_dir = BRIEFS_DIR / board_key(et_date.isoformat(), mode)
     run = Run(brief_dir, et_date.isoformat())
     run.data["options"] = {"mode": mode, "deliver": not a.no_deliver, "shadow": shadow,
-                           "only_board_facts": a.only_board_facts}
+                           "only_board_facts": a.only_board_facts, "ab_only": ab_only}
     what = f"{et_date} {mode}"
 
     t0 = time.monotonic()
     board = build_board(et_date, mode=mode)
     save_board(board, root=BRIEFS_DIR)
     cards = len((board.get("candidates") or {}).get("cards") or [])
+    # A run made after the next session opened can see what happened next (our stores
+    # hold later bars): its memos still grade fairly A-vs-B, but its forward calls don't count.
+    run.data["options"]["backfill"] = datetime.now(_ET).date().isoformat() >= str(
+        board.get("next_session") or "9999")
     run.step("board", t0, candidates=cards)
     if board_is_empty(board):
         deadman(f"{what}: the brief board is empty (no candidates, no index frame)")
@@ -270,12 +276,23 @@ def night(et_date: date, a: argparse.Namespace) -> int:
         return 0
 
     t0 = time.monotonic()
-    sessions = run_specialists(board, brief_dir, mode=mode, shadow=shadow)
+    sessions = run_specialists(board, brief_dir, specs=specs, shadow=shadow)
     for key, meta in sessions.items():
         run.session(key, meta)
     missing = [s for s in arms.MODES[mode]["specialists"]
                if not sessions.get(f"{s}_{arms.PRODUCTION_ARM}", {}).get("ok")]
     run.step("specialists", t0, missing_production=missing)
+
+    if ab_only:  # the model/effort test: every seat x every arm, graded; no judge, no delivery
+        t0 = time.monotonic()
+        run_grader(board, brief_dir, run)
+        run.step("grader", t0)
+        t0 = time.monotonic()
+        verify.check_night(brief_dir, arms.PRODUCTION_ARM)
+        run.step("number_check", t0)
+        run.data["finished_at"] = _now()
+        run.save()
+        return 0
 
     t0 = time.monotonic()
     judge = run_judge(board, brief_dir, missing, mode)
@@ -319,6 +336,8 @@ def main() -> int:
     p.add_argument("--no-deliver", action="store_true", help="skip register/save/push")
     p.add_argument("--shadow", action="store_true",
                    help="also run the A/B shadow arms + blind grader (off by default)")
+    p.add_argument("--ab-only", action="store_true",
+                   help="the A/B test alone: all four seats x all arms + grader; no judge, no delivery")
     p.add_argument("--only-board-facts", action="store_true", help="stop after the fact digests")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")

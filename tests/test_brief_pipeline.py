@@ -492,6 +492,19 @@ def test_nightly_lite_runs_flows_and_stocks_only(tmp_path: Path, monkeypatch: py
     assert "--filter date=2026-09-25 --filter" in specialist[specialist.index("-p") + 1]
 
 
+def test_ab_only_runs_every_seat_and_arm_with_no_judge(tmp_path: Path,
+                                                       monkeypatch: pytest.MonkeyPatch) -> None:
+    rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail=set(), mode="nightly", ab_only=True)
+    assert rc == 0 and pages == []
+    night = tmp_path / "2026-09-25"
+    assert len(list(night.glob("memo_*.md"))) == 4 * 3
+    prompts = [c[c.index("-p") + 1] for c in spawned if c[0] == "claude"]
+    assert not any("the JUDGE" in p for p in prompts)
+    assert sum("blind GRADER" in p for p in prompts) == 4 * 2
+    assert not (night / "brief.md").exists()
+    assert json.loads((night / "run.json").read_text())["options"]["ab_only"] is True
+
+
 # --- scoped number check ------------------------------------------------------------------
 
 

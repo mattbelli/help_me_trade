@@ -100,10 +100,13 @@ def collect(root: Path = BRIEFS_DIR, *, closes: Any = daily_close, series: Any =
             et_date = date.fromisoformat(night.name.removesuffix("-weekly"))
         except ValueError:
             continue
+        backfill = (((_load(night / "run.json") or {}).get("options")) or {}).get("backfill")
         for path in night.glob("calls_*.json"):
             spec, arm = path.stem.removeprefix("calls_").split("_", 1)
             r = rows[(spec, arm)]
             r["nights"].add(night.name)
+            if backfill:  # written with later data in reach: calls excluded from the hit rate
+                continue
             for call in _load(path) or []:
                 res = resolve_call(call, et_date, closes=closes, series=series, today=today)
                 if res["status"] in ("hit", "miss"):
