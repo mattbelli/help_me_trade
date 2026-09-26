@@ -153,7 +153,7 @@ async def test_one_failing_section_leaves_the_rest(monkeypatch: pytest.MonkeyPat
     async def boom(*_a):
         raise RuntimeError("reader down")
 
-    async def index(_d):
+    async def index(_d, _mode):
         return {"gex": {"SPX": {"oi_as_of": "2026-09-25", "net_gamma_usd_per_1pct_b": 1.0}}}
 
     async def macro(_d):
@@ -262,3 +262,175 @@ def test_fill_index_otm_uses_close_spot_and_store_sign() -> None:
     assert prints[0]["otm_pct_vs_close_spot"] == 10.0
     assert prints[1]["otm_pct_vs_close_spot"] == 10.0  # put below spot = OTM, positive
     assert "otm_pct_vs_close_spot" not in prints[2]
+
+
+# --- weekly board ---------------------------------------------------------------------------
+
+
+def test_week_sessions_and_stats() -> None:
+    assert bb.week_sessions(date(2026, 9, 25)) == [date(2026, 9, d) for d in (21, 22, 23, 24, 25)]
+    # Good Friday 2026-04-03: the week ending Thursday 04-02 reaches back to 03-27.
+    assert bb.week_sessions(date(2026, 4, 2))[0] == date(2026, 3, 27)
+    bars = [{"t": f"2026-09-{d:02d}T04:00:00Z", "o": 1, "h": 100 + d, "l": 90 + d, "c": 95 + d}
+            for d in (18, 21, 22, 23, 24, 25)]
+    w = bb.week_stats(bars, bb.week_sessions(date(2026, 9, 25)))
+    assert w["from"] == "2026-09-18" and w["to"] == "2026-09-25"
+    assert w["return_pct"] == round((120 / 113 - 1) * 100, 2)
+    assert (w["high"], w["low"], w["sessions_with_bars"]) == (125, 111, 5)
+
+
+def test_week_lanes_rank_multi_day_names_first() -> None:
+    per_day = {
+        "2026-09-23": _hits("OLD", "MULTI"),
+        "2026-09-24": {"error": "reader down"},
+        "2026-09-25": _hits("NEW", "MULTI"),
+    }
+    lane = bb.combine_days(per_day)
+    assert [h["symbol"] for h in lane["hits"]] == ["MULTI", "NEW", "OLD"]
+    assert lane["hits"][0]["sessions"] == ["2026-09-23", "2026-09-25"]
+    assert lane["hits"][0]["why"].startswith("[2026-09-23, 2026-09-25] lit MULTI")
+    assert lane["session_errors"] == {"2026-09-24": "reader down"}
+    assert "error" in bb.combine_days({"2026-09-25": {"error": "x"}})
+
+    lanes = {"rare_flow": lane, "news": bb.combine_days({"2026-09-25": _hits("NEW")})}
+    cands = bb.merge_lanes(lanes, _classify, quotas={"rare_flow": 2, "news": 3})
+    # Quota 2 admits the multi-day name first; NEW is admitted and gets news' angle too.
+    assert [c["symbol"] for c in cands] == ["NEW", "MULTI"]
+    assert cands[1]["sessions"] == ["2026-09-23", "2026-09-25"]
+    # Same angles: more sessions rank first.
+    tie = bb.merge_lanes({"rare_flow": lane}, _classify)
+    assert [c["symbol"] for c in tie] == ["MULTI", "NEW", "OLD"]
+    # The nightly shape (no sessions on hits) stays exactly as it was.
+    assert "sessions" not in bb.merge_lanes({"rare_flow": _hits("AAA")}, _classify)[0]
+
+
+def _fbars(start_utc: str, n: int, price: float, step: float = 0.0) -> list[dict]:
+    from datetime import datetime as dt
+
+    t0 = dt.fromisoformat(start_utc.replace("Z", "+00:00"))
+    return [{"ts": (t0 + timedelta(minutes=i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "open": price + i * step, "close": price + i * step} for i in range(n)]
+
+
+_WALLS = {"SPX": {"expiries": {"2026-10-16": [{"strike": 7500.0}, {"strike": 8000.0}]}},
+          "SPXW": {"expiries": {"2026-09-28": [{"strike": 7700.0}, {"strike": 7600.0}],
+                                "2026-09-29": [{"strike": 7650.0}]}}}
+
+
+def test_futures_reaction_basis_and_implied_level() -> None:
+    # Friday 2026-09-25 (EDT): cash close 16:00 ET = 20:00Z; Globex reopens Sunday 18:00 ET.
+    bars = (_fbars("2026-09-25T19:55:00Z", 5, 7800.0)          # into the cash close
+            + _fbars("2026-09-25T20:00:00Z", 60, 7801.0)        # 16:00-17:00 ET
+            + _fbars("2026-09-27T22:00:00Z", 31, 7760.0, -1.5))  # Sunday from the reopen
+    r = bb.futures_reaction(bars, date(2026, 9, 25), 7741.99)
+    assert r["at_cash_close"] == {"ts": "2026-09-25T19:59:00Z", "price": 7800.0}
+    assert r["reopen"] == {"ts": "2026-09-27T22:00:00Z", "open": 7760.0}
+    assert r["latest"]["price"] == 7715.0
+    assert r["basis"] == 58.01 and r["implied_cash"] == 7656.99
+    assert r["reopen_vs_close_pct"] == -0.51 and r["latest_vs_close_pct"] == -1.09
+    gex = {"spot": 7741.99, "gamma_flip_spot": 7668.84}
+    lv = bb.implied_vs_levels(r["implied_cash"], gex, _WALLS, ("SPX", "SPXW"))
+    assert lv["line"].startswith("implied 7,656.99 = below the 7,668.84 gamma flip (-0.15%)")
+    # Nearest expiry per root: SPX 7500/8000, SPXW 7600/7700 (09-29 not read).
+    assert (lv["oi_strike_below"], lv["oi_strike_above"]) == (7600.0, 7700.0)
+    assert lv["line"].endswith("between the top-OI strikes 7,600 and 7,700 (nearest expiry)")
+    assert "flip unavailable" in bb.implied_vs_levels(7656.99, {"error": "x"}, {}, ("NDX",))["line"]
+    assert "implied_cash" not in bb.futures_reaction(bars, date(2026, 9, 25), None)
+    assert "unavailable" in bb.futures_reaction(bars[10:], date(2026, 9, 25), 7741.99)
+
+
+def _futures_db(path: Path) -> Path:
+    import sqlite3
+
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE bars (symbol TEXT, timeframe TEXT, ts TEXT, open REAL, "
+                     "high REAL, low REAL, close REAL, volume REAL)")
+        for sym, px in (("/ES", 7800.0), ("/NQ", 27000.0)):
+            for b in _fbars("2026-09-25T19:58:00Z", 2, px) + _fbars("2026-09-27T22:00:00Z", 2, px - 40):
+                conn.execute("INSERT INTO bars VALUES (?,?,?,?,?,?,?,?)",
+                             (sym, "1Min", b["ts"], b["open"], 0, 0, b["close"], 1))
+    return path
+
+
+async def test_futures_section_is_fail_soft_when_schwab_is_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import brokers.schwab_market_data as smd
+
+    def down() -> None:
+        raise ConnectionError("schwab down")
+
+    monkeypatch.setattr(smd.SchwabMarketData, "from_settings", staticmethod(down))
+    db = _futures_db(tmp_path / "f.db")
+    gex = {"SPX": {"spot": 7741.99, "gamma_flip_spot": 7668.84,
+                   "priced_at": "2026-09-25T19:59:59.9Z"},
+           "NDX": {"error": "gex reader answered 'SPX' for index='NDX'"}}
+    out = await bb._futures_section(date(2026, 9, 25), gex, _WALLS, db)
+    assert out["refresh"].startswith("ConnectionError") and "stored bars" in out["note"]
+    assert out["/ES"]["implied_cash"] == 7741.99 - 40
+    assert "above the 7,668.84 gamma flip (+0.43%)" in out["/ES"]["levels"]["line"]
+    assert "implied_cash" not in out["/NQ"] and "NDX gex spot" in out["/NQ"]["no_implied"]
+    md = "\n".join(bb._render_futures(out))
+    assert "Schwab refresh failed" in md and "implied SPX 7,701.99" in md
+
+
+async def test_futures_refresh_is_one_pull_per_symbol(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import brokers.schwab_market_data as smd
+    import tools.futures_bars_archive as arch
+
+    pulls: list[tuple] = []
+
+    async def fake_pull(md, conn, symbol, timeframe, days_back, window_days):
+        pulls.append((symbol, timeframe, days_back, window_days))
+        return 0
+
+    monkeypatch.setattr(smd.SchwabMarketData, "from_settings", staticmethod(lambda: object()))
+    monkeypatch.setattr(arch, "_pull", fake_pull)
+    assert await bb.refresh_futures(_futures_db(tmp_path / "f.db")) is None
+    # days_back == window_days: _pull's loop makes exactly one request per symbol.
+    assert pulls == [("/ES", "1Min", 3, 3), ("/NQ", "1Min", 3, 3)]
+
+
+def test_weekend_headlines_rank_and_filter() -> None:
+    items = [
+        {"headline": "$100 Invested In Merck 5 Years Ago Would Be Worth This Much Today",
+         "symbols": ["MRK"], "published_at": "2026-09-26T10:00:00Z"},
+        {"headline": "If You Invested $100 In CrowdStrike Stock 5 Years Ago, You Would Have This Much",
+         "symbols": ["CRWD"], "published_at": "2026-09-26T12:00:00Z"},
+        {"headline": "Small cap files shelf", "symbols": ["ZZZ"], "published_at": "2026-09-26T11:00:00Z"},
+        {"headline": "AKAM deal detail", "symbols": ["AKAM"], "published_at": "2026-09-26T09:00:00Z"},
+        {"headline": "Trump rejects Iran ceasefire", "symbols": ["EIS", "EZU", "FXI", "ISRA", "KSA",
+                                                                 "LNGX", "SPY"],
+         "published_at": "2026-09-26T06:00:00Z"},
+        {"headline": "Trump rejects Iran ceasefire (UPDATED)", "symbols": ["SPY"],
+         "published_at": "2026-09-26T07:00:00Z"},
+        {"headline": "Court fight lost", "symbols": [], "published_at": "2026-09-25T21:05:00Z"},
+    ]
+    out = bb.rank_headlines(items, {"AKAM"})
+    assert out[0]["symbols"][0] == "SPY"  # the broad tag shows first
+    assert [h["headline"] for h in out] == [
+        "Trump rejects Iran ceasefire (UPDATED)", "Court fight lost", "AKAM deal detail",
+        "Small cap files shelf"]
+
+
+def test_weekly_board_storage_and_resource(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+
+    monkeypatch.setattr(bb, "BRIEFS_DIR", tmp_path)
+    nightly = _stored_board()
+    weekly = {**_stored_board(), "mode": "weekly",
+              "index": {"gex": {}, "futures": {"refresh": "ok", "caveat": "c",
+                                                "/ES": {"index": "SPX", "unavailable": "no bars"}}},
+              "weekend_news": {"headlines": [{"headline": "h"}]}}
+    assert bb.save_board(weekly).name == "2026-09-25-weekly"
+    assert bb.save_board(nightly).name == "2026-09-25"
+    assert bb.load_board()["mode"] == "weekly"  # Sunday's weekly is newer than Friday's nightly
+    assert bb.load_board("2026-09-25").get("mode") is None
+    idx = asyncio.run(query("brief_board", {"date": "2026-09-25-weekly", "section": "index"}))
+    assert idx["rows"][0]["index"]["futures"]["/ES"]["unavailable"] == "no bars"
+    wn = asyncio.run(query("brief_board", {"date": "2026-09-25-weekly", "section": "weekend_news"}))
+    assert wn["rows"][0]["weekend_news"]["headlines"][0]["headline"] == "h"
+    md = (tmp_path / "2026-09-25-weekly" / "board.md").read_text()
+    assert "(weekly" in md and "## Weekend headlines" in md

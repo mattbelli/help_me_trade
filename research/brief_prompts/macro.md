@@ -33,7 +33,7 @@ falsifiers.
   `uv run python tools/perception_query.py context <SYMBOL>` and
   `uv run python tools/perception_query.py query <resource> [--filter k=v]`
   (`uv run python tools/perception_query.py capabilities` lists every resource; `query brief_board
-  --filter date=<<DATE>> --filter symbol=X` returns one card as JSON).
+  --filter date=<<BOARD_KEY>> --filter symbol=X` returns one card as JSON).
 - **The web only for what we lack**, and **at most 5 web calls in total** (WebSearch, WebFetch or
   `bash tools/fc.sh`). Never the web for prices, OHLC, volume, technicals or levels: we hold them.
 - Work alone. No sub-agents. Do not write any file; your final message IS your output.

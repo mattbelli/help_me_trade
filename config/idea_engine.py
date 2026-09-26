@@ -36,8 +36,9 @@ for _book_origin in (
     "book:panel/risk",
 ):
     IDEA_COOLDOWN_MIN[_book_origin] = 1440
-# The nightly deep brief (research/brief/submit.py): one run per ET date, same backstop.
-IDEA_COOLDOWN_MIN["brief"] = 1440
+# The deep brief (research/brief/submit.py): one run per (mode, ET date), same backstop.
+IDEA_COOLDOWN_MIN["brief/nightly"] = 1440
+IDEA_COOLDOWN_MIN["brief/weekly"] = 1440
 IDEA_COOLDOWN_MIN["brief/considered"] = 1440
 
 # Path A horizon templates (spec §3), literal trading-day horizons so the grader

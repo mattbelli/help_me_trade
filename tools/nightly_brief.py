@@ -1,15 +1,22 @@
-"""The nightly deep brief, end to end.
+"""The deep brief, end to end, in two cadences (research/brief/arms.py MODES).
 
-board (code) -> DeepSeek fact digests -> 4 specialists (production Opus, plus shadow
-arms, all in parallel) -> Opus judge -> blind grader (shadow arms) -> number check
--> register ideas + evening_brief report + ONE phone push.
+board (code) -> DeepSeek fact digests -> specialists (production Opus, plus shadow
+arms on the weekly, all in parallel) -> Opus judge -> blind grader (weekly) -> number
+check -> register ideas + evening_brief report + ONE phone push.
 
-Everything lands in data/briefs/<date>/; run.json records per-step wall time and
-each Claude session's reported cost/usage. An empty board or a failed judge sends
-the ntfy dead-man and exits 2 (tools/nightly_brief.sh alarms on any other nonzero).
+- nightly (weekdays 20:30 ET): flows + stocks, top 3 for tomorrow. Briefs today's
+  session; a no-op on a non-trading day. Lands in data/briefs/<date>/.
+- weekly (Sunday 18:30 ET): all four specialists + shadows + grader, the week ahead.
+  Briefs the last completed session (Friday's, holiday-aware) with the week's lanes,
+  the weekend headlines and the futures' reaction. Lands in data/briefs/<date>-weekly/.
+
+run.json records per-step wall time and each Claude session's reported cost/usage.
+An empty board or a failed judge sends the ntfy dead-man and exits 2
+(tools/nightly_brief.sh alarms on any other nonzero).
 
 Usage:
-    python tools/nightly_brief.py                         # today ET; no-op on a non-trading day
+    python tools/nightly_brief.py                         # nightly, today ET
+    python tools/nightly_brief.py --mode weekly           # Friday's session on a weekend
     python tools/nightly_brief.py --date 2026-09-25 --no-deliver --no-shadow
     python tools/nightly_brief.py --only-board-facts
 """
@@ -37,6 +44,7 @@ from research.brief import arms, verify  # noqa: E402
 from research.brief.board import (  # noqa: E402
     BRIEFS_DIR,
     board_is_empty,
+    board_key,
     build_board,
     save_board,
 )
@@ -101,7 +109,8 @@ def run_arm(spec: str, arm: str, effort: str | None, board: dict[str, Any],
             meta = {"ok": False, "error": f"exit {code}: {(err or '').strip()[-500:]}"}
         meta["wall_s"] = round(time.monotonic() - t0, 1)
         return meta
-    prompt = arms.specialist_prompt(spec, board["et_date"], board["next_session"], brief_dir)
+    prompt = arms.specialist_prompt(spec, board["et_date"], board["next_session"], brief_dir,
+                                    board.get("mode") or "nightly")
     res = arms.run_claude(prompt, effort or "high", arms.SPECIALIST_TOOLS)
     if res["ok"]:
         res.update(arms.write_arm_outputs(brief_dir, spec, arm, res["text"], res["tool_texts"]))
@@ -109,8 +118,9 @@ def run_arm(spec: str, arm: str, effort: str | None, board: dict[str, Any],
     return res
 
 
-def run_specialists(board: dict[str, Any], brief_dir: Path, *, shadow: bool) -> dict[str, Any]:
-    jobs = [(spec, arm, effort) for spec in arms.SPECIALISTS
+def run_specialists(board: dict[str, Any], brief_dir: Path, *, mode: str,
+                    shadow: bool) -> dict[str, Any]:
+    jobs = [(spec, arm, effort) for spec in arms.MODES[mode]["specialists"]
             for arm, effort in arms.arms_for(spec, shadow=shadow)]
     jobs.sort(key=lambda j: j[1] != arms.PRODUCTION_ARM)  # production takes the first slots
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
@@ -127,17 +137,18 @@ def run_specialists(board: dict[str, Any], brief_dir: Path, *, shadow: bool) -> 
 # --- judge --------------------------------------------------------------------------------
 
 
-def run_judge(board: dict[str, Any], brief_dir: Path, missing: list[str]) -> dict[str, Any]:
-    memos = [brief_dir / f"memo_{s}_{arms.PRODUCTION_ARM}.md" for s in arms.SPECIALISTS
-             if s not in missing]
+def run_judge(board: dict[str, Any], brief_dir: Path, missing: list[str],
+              mode: str) -> dict[str, Any]:
+    memos = [brief_dir / f"memo_{s}_{arms.PRODUCTION_ARM}.md"
+             for s in arms.MODES[mode]["specialists"] if s not in missing]
     prompt = arms.render_prompt(
         "judge", date=board["et_date"], next_session=board["next_session"],
-        brief_dir=str(brief_dir),
+        brief_dir=str(brief_dir), **arms.judge_values(mode),
         memos=", ".join(f"`{p}`" for p in memos) or "(none — every specialist failed)",
         missing=(f"- **Missing tonight: {', '.join(missing)}** (the specialist session failed). "
                  "Say so in the brief and don't invent that seat's view.\n") if missing else "",
     )
-    res = arms.run_claude(prompt, arms.JUDGE_EFFORT, arms.JUDGE_TOOLS)
+    res = arms.run_claude(prompt, arms.MODES[mode]["judge_effort"], arms.JUDGE_TOOLS)
     if not res["ok"]:
         return res
     brief_md, picks = arms.split_json_block(res["text"])
@@ -222,19 +233,32 @@ def run_grader(board: dict[str, Any], brief_dir: Path, run: Run) -> dict[str, An
 # --- main ---------------------------------------------------------------------------------
 
 
+def session_date(mode: str, now_et: datetime) -> date | None:
+    """The session a run briefs. Nightly: today, None on a non-trading day. Weekly: the
+    last completed session (Friday's on a Sunday; Thursday's after a Friday holiday)."""
+    from trading.market_calendar import is_trading_day, last_closed_session
+
+    if mode == "weekly":
+        return last_closed_session(now_et)
+    return now_et.date() if is_trading_day(now_et.date()) else None
+
+
 def night(et_date: date, a: argparse.Namespace) -> int:
-    brief_dir = BRIEFS_DIR / et_date.isoformat()
+    mode = a.mode
+    shadow = arms.MODES[mode]["shadow"] and not a.no_shadow
+    brief_dir = BRIEFS_DIR / board_key(et_date.isoformat(), mode)
     run = Run(brief_dir, et_date.isoformat())
-    run.data["options"] = {"deliver": not a.no_deliver, "shadow": not a.no_shadow,
+    run.data["options"] = {"mode": mode, "deliver": not a.no_deliver, "shadow": shadow,
                            "only_board_facts": a.only_board_facts}
+    what = f"{et_date} {mode}"
 
     t0 = time.monotonic()
-    board = build_board(et_date)
+    board = build_board(et_date, mode=mode)
     save_board(board, root=BRIEFS_DIR)
     cards = len((board.get("candidates") or {}).get("cards") or [])
     run.step("board", t0, candidates=cards)
     if board_is_empty(board):
-        deadman(f"{et_date}: the brief board is empty (no candidates, no index frame)")
+        deadman(f"{what}: the brief board is empty (no candidates, no index frame)")
         return FAILED
 
     t0 = time.monotonic()
@@ -246,22 +270,22 @@ def night(et_date: date, a: argparse.Namespace) -> int:
         return 0
 
     t0 = time.monotonic()
-    sessions = run_specialists(board, brief_dir, shadow=not a.no_shadow)
+    sessions = run_specialists(board, brief_dir, mode=mode, shadow=shadow)
     for key, meta in sessions.items():
         run.session(key, meta)
-    missing = [s for s in arms.SPECIALISTS
+    missing = [s for s in arms.MODES[mode]["specialists"]
                if not sessions.get(f"{s}_{arms.PRODUCTION_ARM}", {}).get("ok")]
     run.step("specialists", t0, missing_production=missing)
 
     t0 = time.monotonic()
-    judge = run_judge(board, brief_dir, missing)
+    judge = run_judge(board, brief_dir, missing, mode)
     run.session("judge", judge)
     run.step("judge", t0, ok=judge["ok"])
     if not judge["ok"]:
-        deadman(f"{et_date}: the brief judge failed: {judge.get('error')}")
+        deadman(f"{what}: the brief judge failed: {judge.get('error')}")
         return FAILED
 
-    if not a.no_shadow:
+    if shadow:
         t0 = time.monotonic()
         run_grader(board, brief_dir, run)
         run.step("grader", t0)
@@ -279,7 +303,7 @@ def night(et_date: date, a: argparse.Namespace) -> int:
         from research.brief.submit import submit_brief
 
         t0 = time.monotonic()
-        result = asyncio.run(submit_brief(brief_dir))
+        result = asyncio.run(submit_brief(brief_dir, mode=mode))
         run.step("submit", t0, **result)
     run.data["finished_at"] = _now()
     run.save()
@@ -288,24 +312,29 @@ def night(et_date: date, a: argparse.Namespace) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--date", default=None, help="ET session YYYY-MM-DD (default: today ET)")
+    p.add_argument("--mode", choices=tuple(arms.MODES), default="nightly")
+    p.add_argument("--date", default=None,
+                   help="ET session YYYY-MM-DD (default: today for nightly, the last "
+                        "completed session for weekly)")
     p.add_argument("--no-deliver", action="store_true", help="skip register/save/push")
-    p.add_argument("--no-shadow", action="store_true", help="production arms only; no grader")
+    p.add_argument("--no-shadow", action="store_true",
+                   help="production arms only; no grader (the nightly never runs them)")
     p.add_argument("--only-board-facts", action="store_true", help="stop after the fact digests")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
     from trading.market_calendar import is_trading_day
 
-    et_date = date.fromisoformat(a.date) if a.date else datetime.now(_ET).date()
-    if not is_trading_day(et_date):
-        logger.info("%s is not a trading day; nothing to brief", et_date)
+    now_et = datetime.now(_ET)
+    et_date = date.fromisoformat(a.date) if a.date else session_date(a.mode, now_et)
+    if et_date is None or not is_trading_day(et_date):
+        logger.info("%s is not a trading day; nothing to brief", et_date or now_et.date())
         return 0
     try:
         return night(et_date, a)
     except Exception as exc:  # noqa: BLE001 — unattended: every crash pages
-        logger.exception("nightly brief crashed")
-        deadman(f"{et_date}: nightly brief crashed: {type(exc).__name__}: {exc}")
+        logger.exception("%s brief crashed", a.mode)
+        deadman(f"{et_date} {a.mode}: brief crashed: {type(exc).__name__}: {exc}")
         return FAILED
 
 

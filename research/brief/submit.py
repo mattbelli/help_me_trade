@@ -1,8 +1,9 @@
-"""Nightly brief delivery: register the judge's picks, save the report, ONE push.
+"""Brief delivery: register the judge's picks, save the report, ONE push.
 
-Idempotent per ET date: the report row (kind evening_brief, dedup_key nightly_brief)
-is the stamp, checked first; registration also dedupes on the idea ledger's own
-day-wide cooldown key, so a crash between the two steps can't double-register.
+Idempotent per (mode, ET date): the report row (kind evening_brief, dedup_key
+nightly_brief / weekly_brief) is the stamp, checked first; registration also dedupes
+on the idea ledger's own day-wide cooldown key, so a crash between the two steps
+can't double-register. Picks register as brief/nightly or brief/weekly.
 """
 
 from __future__ import annotations
@@ -14,12 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from db.base import DEFAULT_DB_PATH
+from research.brief.arms import MODES
 
 logger = logging.getLogger(__name__)
 
 REPORT_KIND = "evening_brief"
-DEDUP_KEY = "nightly_brief"
-ORIGIN = "brief"
 ORIGIN_CONSIDERED = "brief/considered"
 DEFAULT_HORIZON_SESSIONS = 5
 
@@ -53,7 +53,8 @@ def _register(item: dict[str, Any], origin: str, board: dict[str, Any],
         # dedup bucket on a re-run of the same night.
         "as_of": board.get("generated_at"),
         "plan_horizon": f"{horizon}d",
-        "source_ref": {"brief": board.get("et_date"), "rank": item.get("rank")},
+        "source_ref": {"brief": board.get("et_date"), "mode": board.get("mode") or "nightly",
+                       "rank": item.get("rank")},
         "db_path": db_path,
     }
     zone = item.get("entry_zone")
@@ -72,7 +73,8 @@ def _register(item: dict[str, Any], origin: str, board: dict[str, Any],
 def register_picks(picks: dict[str, Any], board: dict[str, Any], *,
                    db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     out: dict[str, Any] = {"registered": [], "skipped": []}
-    for origin, items in ((ORIGIN, picks.get("picks") or []),
+    origin_picks = MODES[board.get("mode") or "nightly"]["origin"]
+    for origin, items in ((origin_picks, picks.get("picks") or []),
                           (ORIGIN_CONSIDERED, picks.get("considered") or [])):
         for item in items:
             if not isinstance(item, dict):
@@ -88,18 +90,22 @@ def register_picks(picks: dict[str, Any], board: dict[str, Any], *,
     return out
 
 
-def push_title(picks: dict[str, Any], et_date: str) -> str:
+def push_title(picks: dict[str, Any], et_date: str, mode: str = "nightly") -> str:
+    title = MODES[mode]["title"]
     syms = [str(p.get("symbol")) for p in (picks.get("picks") or [])[:3] if p.get("symbol")]
-    return f"Nightly brief: {', '.join(syms)}" if syms else f"Nightly brief: {et_date}"
+    return f"{title}: {', '.join(syms)}" if syms else f"{title}: {et_date}"
 
 
-async def submit_brief(brief_dir: Path, *, db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
+async def submit_brief(brief_dir: Path, *, mode: str = "nightly",
+                       db_path: Path = DEFAULT_DB_PATH) -> dict[str, Any]:
     from db.reports import report_exists_for_day, save_report
     from research.book_driver import deliver_report
 
     board = json.loads((brief_dir / "board.json").read_text(encoding="utf-8"))
+    board["mode"] = mode
     et_date = board["et_date"]
-    if report_exists_for_day(REPORT_KIND, date.fromisoformat(et_date), dedup_key=DEDUP_KEY,
+    dedup_key = MODES[mode]["dedup_key"]
+    if report_exists_for_day(REPORT_KIND, date.fromisoformat(et_date), dedup_key=dedup_key,
                              db_path=db_path):
         return {"status": "skipped", "reason": "already_submitted"}
     body = (brief_dir / "brief.md").read_text(encoding="utf-8")
@@ -107,11 +113,11 @@ async def submit_brief(brief_dir: Path, *, db_path: Path = DEFAULT_DB_PATH) -> d
     picks = json.loads(picks_path.read_text(encoding="utf-8")) if picks_path.exists() else {}
     registration = register_picks(picks, board, db_path=db_path)
     report = save_report(
-        REPORT_KIND, "", push_title(picks, et_date), body,
-        {"et_date": et_date, "dedup_key": DEDUP_KEY, "status": "ok",
+        REPORT_KIND, "", push_title(picks, et_date, mode), body,
+        {"et_date": et_date, "mode": mode, "dedup_key": dedup_key, "status": "ok",
          "picks": picks.get("picks") or [], "considered": picks.get("considered") or [],
          "registered": registration["registered"], "skipped": registration["skipped"]},
         format="markdown", db_path=db_path,
     )
-    await deliver_report(report, "Nightly brief", db_path)
+    await deliver_report(report, MODES[mode]["title"], db_path)
     return {"status": "ok", "report_id": report["id"], **registration}

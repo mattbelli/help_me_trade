@@ -25,9 +25,62 @@ from typing import Any
 from db.base import ROOT
 
 SPECIALISTS = {"flows": "high", "macro": "xhigh", "stocks": "high", "sectors": "medium"}  # production Opus effort
-JUDGE_EFFORT = "max"
 GRADER_EFFORT = "high"
 SHADOW_ARMS = ("deepseek", "opus_lower")  # opus_lower = one effort step down; togglable
+
+# Cadence. WEEKLY (Sunday 18:30 ET, after the futures reopen): every specialist, the
+# shadow arms + grader, the judge at max, the week ahead. NIGHTLY lite (weekdays
+# 20:30 ET): flows + stocks production arms only, a cheaper judge, the top 3 for
+# tomorrow — keeps unusual activity fresh and ideas flowing into calibration.
+MODES: dict[str, dict[str, Any]] = {
+    "nightly": {
+        "specialists": ("flows", "stocks"),
+        "shadow": False,
+        "judge_effort": "high",
+        "title": "Nightly brief",
+        "dedup_key": "nightly_brief",
+        "origin": "brief/nightly",
+        "horizon": "tomorrow's session and the few after it (ideas of 1–5 sessions)",
+        "picks": "the top 3 names for tomorrow (fewer if fewer deserve it)",
+        "sections": ("The read", "Top picks", "Index and dealer positioning", "Events tomorrow",
+                     "Also considered", "Watch tomorrow"),
+        "judge_note": (
+            "Only the flows and stocks specialists run on the nightly brief. There is no "
+            "macro or sectors seat tonight by design; don't mention their absence."
+        ),
+        "specialist_note": (
+            "This is the NIGHTLY lite brief: only the flows and stocks specialists run "
+            "tonight, and the judge picks the top 3 names for tomorrow. Keep to what "
+            "matters for the next 1–5 sessions."
+        ),
+    },
+    "weekly": {
+        "specialists": tuple(SPECIALISTS),
+        "shadow": True,
+        "judge_effort": "max",
+        "title": "Weekly brief",
+        "dedup_key": "weekly_brief",
+        "origin": "brief/weekly",
+        "horizon": "the week ahead (ideas of about 5–20 sessions)",
+        "picks": "3–5 ranked names for the week ahead",
+        "sections": ("The read", "Top picks", "Index and dealer positioning",
+                     "Macro, rates and inflation", "Sectors", "Events next session",
+                     "Also considered", "Watch this week"),
+        "judge_note": (
+            "The board looks back across the whole week: each card lists the sessions that "
+            "lit it, its 5-session return and the week's range. Weigh names lit on several "
+            "days or by several angles above one-day wonders. The board also carries the "
+            "weekend headlines and the futures' first reaction since Friday's close."
+        ),
+        "specialist_note": (
+            "This is the WEEKLY deep brief, written Sunday evening. The board looks back "
+            "across the week's five sessions (each card says which sessions lit it, with "
+            "its 5-session return and range) and adds the weekend's headlines and the "
+            "futures' first reaction since the Friday close (index frame, `futures`). "
+            "Your horizon is the week ahead: calls of 5–20 sessions."
+        ),
+    },
+}
 
 PRODUCTION_ARM = "opus"
 OPUS_MODEL = "claude-opus-5-5"
@@ -48,6 +101,36 @@ SPECIALIST_TOOLS = (_PERCEPTION, "Bash(bash tools/fc.sh:*)", "Read", "WebSearch"
 JUDGE_TOOLS = (_PERCEPTION, "Read")
 GRADER_TOOLS = ("Read",)
 _WEB_TOOLS = frozenset({"WebSearch", "WebFetch", "web_search", "fetch_url"})
+
+
+_SECTION_TEXT = {
+    "The read": "3–5 sentences that stand alone: the regime, what the tape and positioning "
+                "say, and what matters most for {horizon}.",
+    "Top picks": "{picks}. For each: the angles that lit and **why they connect**, the bear "
+                 "case and invalidation, key levels (from the board), catalyst dates, "
+                 "confidence. Mark a name **watch-only** when the story is good but there is "
+                 "no clean structure to act on.",
+    "Index and dealer positioning": "",
+    "Macro, rates and inflation": "including the historical-analog view and where it breaks.",
+    "Also considered": "one line per name on why it didn't make the list.",
+    "Watch tomorrow": "the few things that would change the read, with their levels or times.",
+    "Watch this week": "the few things that would change the read, with their levels or dates.",
+}
+
+
+def judge_values(mode: str) -> dict[str, str]:
+    """The judge prompt's per-mode placeholders: specialists, the mode block, the sections."""
+    m = MODES[mode]
+    specs = list(m["specialists"])
+    lines = []
+    for i, name in enumerate(m["sections"], 1):
+        text = _SECTION_TEXT.get(name, "").format(horizon=m["horizon"], picks=m["picks"])
+        lines.append(f"{i}. `## {name}`" + (f" — {text}" if text else ""))
+    return {
+        "specialists": ", ".join(specs[:-1]) + f" and {specs[-1]}" if len(specs) > 1 else specs[0],
+        "mode_block": f"- Horizon: {m['horizon']}.\n- Picks: {m['picks']}.\n- {m['judge_note']}",
+        "sections": "\n".join(lines),
+    }
 
 
 def lower_effort(effort: str) -> str:
@@ -204,8 +287,11 @@ def write_arm_outputs(brief_dir: Path, spec: str, arm: str, text: str,
     return {"calls": len(calls), "memo_chars": len(memo)}
 
 
-def specialist_prompt(spec: str, et_date: str, next_session: str, brief_dir: Path) -> str:
-    return render_prompt(spec, date=et_date, next_session=next_session, brief_dir=str(brief_dir))
+def specialist_prompt(spec: str, et_date: str, next_session: str, brief_dir: Path,
+                      mode: str = "nightly") -> str:
+    prompt = render_prompt(spec, date=et_date, next_session=next_session,
+                           brief_dir=str(brief_dir), board_key=brief_dir.name)
+    return f"{prompt}\n\n## This run\n\n{MODES[mode]['specialist_note']}\n"
 
 
 # --- the DeepSeek arm (runs in its own process) ---------------------------------------------
@@ -250,9 +336,11 @@ def run_deepseek_arm(spec: str, et_date: str, next_session: str, brief_dir: Path
         tool_texts.append(text)
         return text
 
+    mode = str(json.loads((brief_dir / "board.json").read_text(encoding="utf-8")).get("mode")
+               or "nightly")
     messages = [
         LLMMessage(role="system", content=_DEEPSEEK_PREAMBLE
-                   + specialist_prompt(spec, et_date, next_session, brief_dir)),
+                   + specialist_prompt(spec, et_date, next_session, brief_dir, mode)),
         LLMMessage(role="user", content=f"{board_md}\n\n{facts_md}"),
     ]
     result = run_tool_loop(llm, messages, analyst_tool_specs(), execute,

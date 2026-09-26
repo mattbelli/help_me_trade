@@ -6,6 +6,7 @@ when the board is empty (no candidates AND no index frame).
 Usage:
     python tools/brief_board.py                 # the last closed session
     python tools/brief_board.py --date 2026-09-25 --stdout
+    python tools/brief_board.py --mode weekly    # the week's lanes + futures + weekend news
 """
 
 from __future__ import annotations
@@ -31,10 +32,11 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--date", default=None, help="ET session YYYY-MM-DD (default: last closed)")
     p.add_argument("--stdout", action="store_true", help="also print board.md")
+    p.add_argument("--mode", choices=("nightly", "weekly"), default="nightly")
     a = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
-    board = build_board(date.fromisoformat(a.date) if a.date else None)
+    board = build_board(date.fromisoformat(a.date) if a.date else None, mode=a.mode)
     out_dir = save_board(board)
     if a.stdout:
         print(render_board_md(board))

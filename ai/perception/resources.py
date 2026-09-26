@@ -1607,7 +1607,8 @@ def _read_social(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, An
     return get_trending(db_path=db_path, limit=limit)
 
 
-_BRIEF_SECTIONS = ("candidates", "index", "macro", "sectors", "events", "freshness")
+_BRIEF_SECTIONS = ("candidates", "index", "macro", "sectors", "events", "freshness",
+                   "weekend_news")
 
 
 def _read_brief_board(filters: dict[str, Any], *, db_path: Path) -> list[dict[str, Any]]:
@@ -2289,11 +2290,18 @@ RESOURCES: dict[str, dict[str, Any]] = {
             "flags every STALE source. PERCEPTION, NOT A VERDICT: a lane says which angle "
             "lit a name, never a probability or a direction. No filter = an overview "
             "(names, lanes, stale sources); pass `section` for one block or `symbol` for "
-            "one card. Built after the close, so check et_date/generated_at."
+            "one card. Built after the close, so check et_date/generated_at. The WEEKLY "
+            "board (date YYYY-MM-DD-weekly, built Sunday evening) runs the lanes over the "
+            "week's five sessions (cards list the sessions that lit them, their 5-session "
+            "return/range and the weekend's headlines), adds `weekend_news`, and its index "
+            "frame carries `futures`: /ES /NQ since the cash close and the SPX/NDX level they "
+            "imply vs the gamma flip and top-OI strikes."
         ),
         "filters": {
-            "date": "optional YYYY-MM-DD — default the newest stored board",
-            "section": "optional — candidates | index | macro | sectors | events | freshness",
+            "date": "optional YYYY-MM-DD (nightly) or YYYY-MM-DD-weekly — default the newest "
+                    "stored board",
+            "section": "optional — candidates | index | macro | sectors | events | freshness "
+                       "| weekend_news (weekly)",
             "symbol": "optional ticker — just that name's candidate card",
         },
         "read": _read_brief_board,

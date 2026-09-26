@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from research.brief import arms, facts, scorecard, submit, verify
+from research.brief.board import board_key
 from tools import nightly_brief as nb
 
 # --- number check -------------------------------------------------------------------------
@@ -227,7 +228,9 @@ def _write_night(d: Path) -> None:
     }))
 
 
-def test_submit_registers_once_and_pushes_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_registers_once_and_pushes_once_per_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import research.book_driver as driver
 
     pushes: list[dict[str, Any]] = []
@@ -236,26 +239,40 @@ def test_submit_registers_once_and_pushes_once(tmp_path: Path, monkeypatch: pyte
         pushes.append(report)
 
     monkeypatch.setattr(driver, "deliver_report", fake_deliver)
-    night, db = tmp_path / "2026-09-25", tmp_path / "t.db"
-    _write_night(night)
+    db = tmp_path / "t.db"
+    nightly, weekly = tmp_path / "2026-09-25", tmp_path / "2026-09-25-weekly"
+    _write_night(nightly)
+    _write_night(weekly)
+    # The Sunday weekly's board was built two days after Friday's nightly.
+    board = json.loads((weekly / "board.json").read_text())
+    (weekly / "board.json").write_text(json.dumps({**board, "generated_at": "2026-09-27T22:30:00+00:00"}))
 
-    first = asyncio.run(submit.submit_brief(night, db_path=db))
+    first = asyncio.run(submit.submit_brief(nightly, db_path=db))
     assert first["status"] == "ok"
     assert {(r["symbol"], r["origin"]) for r in first["registered"]} == {
-        ("XYZ", "brief"), ("ABC", "brief/considered")}
+        ("XYZ", "brief/nightly"), ("ABC", "brief/considered")}
     assert {r["symbol"] for r in first["skipped"]} == {"WAT", "NOL"}
     assert [p["title"] for p in pushes] == ["Nightly brief: XYZ, WAT"]
     assert pushes[0]["format"] == "markdown" and pushes[0]["kind"] == "evening_brief"
+    assert pushes[0]["payload"]["dedup_key"] == "nightly_brief"
 
-    second = asyncio.run(submit.submit_brief(night, db_path=db))
-    assert second == {"status": "skipped", "reason": "already_submitted"}
-    assert len(pushes) == 1
+    # Same ET date, other mode: its own dedup key and origin, so it lands too.
+    week = asyncio.run(submit.submit_brief(weekly, mode="weekly", db_path=db))
+    assert week["status"] == "ok"
+    assert ("XYZ", "brief/weekly") in {(r["symbol"], r["origin"]) for r in week["registered"]}
+    assert [p["title"] for p in pushes] == ["Nightly brief: XYZ, WAT", "Weekly brief: XYZ, WAT"]
+
+    for night, mode in ((nightly, "nightly"), (weekly, "weekly")):
+        again = asyncio.run(submit.submit_brief(night, mode=mode, db_path=db))
+        assert again == {"status": "skipped", "reason": "already_submitted"}
+    assert len(pushes) == 2
     with sqlite3.connect(db) as conn:
-        rows = conn.execute("SELECT symbol, origin, grading_basis FROM idea_outcomes ORDER BY symbol").fetchall()
-    assert rows == [("ABC", "brief/considered", "horizon_return"), ("XYZ", "brief", "plan")]
+        rows = conn.execute("SELECT symbol, origin, grading_basis FROM idea_outcomes "
+                            "WHERE symbol = 'XYZ' ORDER BY origin").fetchall()
+    assert rows == [("XYZ", "brief/nightly", "plan"), ("XYZ", "brief/weekly", "plan")]
     # A crash between registering and saving the report: re-registration dedupes.
-    again = submit.register_picks(json.loads((night / "picks.json").read_text()),
-                                  json.loads((night / "board.json").read_text()), db_path=db)
+    again = submit.register_picks(json.loads((nightly / "picks.json").read_text()),
+                                  json.loads((nightly / "board.json").read_text()), db_path=db)
     assert again["registered"] == []
 
 
@@ -345,14 +362,15 @@ def _fake_spawn(fail: set[str], spawned: list[list[str]]) -> Any:
     return spawn
 
 
-def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str], **opts: bool) -> tuple[int, list[str], list[list[str]]]:
+def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str],
+               mode: str = "weekly", **opts: bool) -> tuple[int, list[str], list[list[str]]]:
     pages: list[str] = []
     spawned: list[list[str]] = []
     monkeypatch.setattr(nb, "BRIEFS_DIR", tmp_path)
-    monkeypatch.setattr(nb, "build_board", lambda _d: dict(_BOARD))
+    monkeypatch.setattr(nb, "build_board", lambda _d, mode: {**_BOARD, "mode": mode})
 
     def save(board: dict[str, Any], *, root: Path) -> Path:
-        d = root / board["et_date"]
+        d = root / board_key(board["et_date"], board["mode"])
         d.mkdir(parents=True, exist_ok=True)
         (d / "board.json").write_text(json.dumps(board))
         (d / "board.md").write_text("# board\nSPX 6600.25\n")
@@ -363,7 +381,7 @@ def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str], 
                                                        "kept_total": 0, "dropped_total": 0})
     monkeypatch.setattr(nb, "deadman", pages.append)
     monkeypatch.setattr(arms, "_spawn", _fake_spawn(fail, spawned))
-    a = argparse.Namespace(no_deliver=True, no_shadow=False, only_board_facts=False)
+    a = argparse.Namespace(mode=mode, no_deliver=True, no_shadow=False, only_board_facts=False)
     for k, v in opts.items():
         setattr(a, k, v)
     return nb.night(date(2026, 9, 25), a), pages, spawned
@@ -374,7 +392,7 @@ def test_orchestrator_builds_the_brief_without_a_failed_specialist(
 ) -> None:
     rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail={"macro"})
     assert rc == 0 and pages == []
-    night = tmp_path / "2026-09-25"
+    night = tmp_path / "2026-09-25-weekly"
     brief = (night / "brief.md").read_text()
     assert brief.startswith("_Tonight's brief ran without the macro specialist")
     assert "70% chance" not in brief  # stripped
@@ -406,10 +424,178 @@ def test_orchestrator_judge_failure_is_nonzero_with_dead_man(
     rc, pages, _ = _run_night(tmp_path, monkeypatch, fail={"judge"}, no_shadow=True)
     assert rc == nb.FAILED
     assert len(pages) == 1 and "judge failed" in pages[0]
-    assert not (tmp_path / "2026-09-25" / "brief.md").exists()
+    assert not (tmp_path / "2026-09-25-weekly" / "brief.md").exists()
 
 
 def test_orchestrator_empty_board_pages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(nb, "board_is_empty", lambda _b: True)
     rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail=set())
     assert rc == nb.FAILED and "empty" in pages[0] and spawned == []
+
+
+# --- modes --------------------------------------------------------------------------------
+
+
+def test_session_date_per_mode() -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo("America/New_York")
+    sunday = datetime(2026, 9, 27, 18, 30, tzinfo=et)
+    assert nb.session_date("weekly", sunday) == date(2026, 9, 25)  # Friday
+    # Good Friday 2026-04-03 is an NYSE holiday: that weekend's weekly briefs Thursday.
+    assert nb.session_date("weekly", datetime(2026, 4, 5, 18, 30, tzinfo=et)) == date(2026, 4, 2)
+    assert nb.session_date("nightly", datetime(2026, 9, 25, 20, 30, tzinfo=et)) == date(2026, 9, 25)
+    assert nb.session_date("nightly", datetime(2026, 9, 26, 20, 30, tzinfo=et)) is None  # Saturday
+
+
+def test_nightly_on_a_non_trading_day_is_a_no_op(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    monkeypatch.setattr(nb, "night", lambda *_a: pytest.fail("ran on a Saturday"))
+    monkeypatch.setattr(sys, "argv", ["nightly_brief.py", "--date", "2026-09-26"])
+    assert nb.main() == 0
+
+
+def test_mode_routing_table() -> None:
+    nightly, weekly = arms.MODES["nightly"], arms.MODES["weekly"]
+    assert nightly["specialists"] == ("flows", "stocks") and not nightly["shadow"]
+    assert nightly["judge_effort"] == "high"
+    assert weekly["specialists"] == tuple(arms.SPECIALISTS) and weekly["shadow"]
+    assert weekly["judge_effort"] == "max"
+    assert {m["dedup_key"] for m in arms.MODES.values()} == {"nightly_brief", "weekly_brief"}
+    lite = arms.judge_values("nightly")
+    assert "## Macro" not in lite["sections"] and "## Sectors" not in lite["sections"]
+    assert lite["specialists"] == "flows and stocks" and "top 3" in lite["mode_block"]
+    assert "## Macro, rates and inflation" in arms.judge_values("weekly")["sections"]
+
+
+def test_nightly_lite_runs_flows_and_stocks_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail=set(), mode="nightly")
+    assert rc == 0 and pages == []
+    night = tmp_path / "2026-09-25"
+    assert sorted(p.name for p in night.glob("memo_*.md")) == ["memo_flows_opus.md",
+                                                               "memo_stocks_opus.md"]
+    assert len(spawned) == 2 + 1  # two production specialists + the judge; no shadows, no grader
+    judge = next(c for c in spawned if "the JUDGE" in c[c.index("-p") + 1])
+    prompt = judge[judge.index("-p") + 1]
+    assert judge[judge.index("--effort") + 1] == "high"
+    assert "Missing tonight" not in prompt and "## Sectors" not in prompt
+    assert "The flows and stocks specialists" in prompt
+    assert not (night / "grades.json").exists()
+    brief = (night / "brief.md").read_text()
+    assert not brief.startswith("_Tonight's brief ran without")
+    run = json.loads((night / "run.json").read_text())
+    assert run["options"]["mode"] == "nightly" and run["options"]["shadow"] is False
+    specialist = next(c for c in spawned if "FLOWS specialist" in c[c.index("-p") + 1])
+    assert "NIGHTLY lite brief" in specialist[specialist.index("-p") + 1]
+    assert "--filter date=2026-09-25 --filter" in specialist[specialist.index("-p") + 1]
+
+
+# --- scoped number check ------------------------------------------------------------------
+
+
+def _scoped_night(tmp_path: Path) -> Path:
+    board = {
+        "et_date": "2026-09-25",
+        "candidates": {"cards": [
+            {"symbol": "AAA", "day": {"close": 101.23}},
+            {"symbol": "BBB", "day": {"close": 55.5}},
+            {"symbol": "ET", "day": {"close": 18.4}},
+        ]},
+        "index": {"gex": {"SPX": {"spot": 7741.99, "gamma_flip_spot": 7668.84}}},
+        "macro": {"market": {"series": {"DGS10": {"value": 5.18}}}},
+    }
+    (tmp_path / "board.json").write_text(json.dumps(board))
+    (tmp_path / "facts.json").write_text(json.dumps({"names": {"BBB": {"facts": [
+        {"fact": "raised guidance", "number": "$4.2B"}]}}}))
+    (tmp_path / "tools_x.txt").write_text(
+        '{"symbol": "AAA", "technicals": {"sma200": 88.8}}\n\nweb page: oil at 91.25 a barrel')
+    return tmp_path
+
+
+def test_scoped_number_check_catches_a_number_next_to_the_wrong_ticker(tmp_path: Path) -> None:
+    corpus = verify.night_corpus(_scoped_night(tmp_path), [tmp_path / "tools_x.txt"])
+    un = lambda text: verify.unmatched_numbers(text, corpus)  # noqa: E731
+    assert un("AAA closed at 101.23, above its 200-day 88.8.") == []
+    assert un("BBB closed at 101.23.") == ["101.23"]  # AAA's close, printed next to BBB
+    assert un("BBB guided to $4.2B.") == [] and un("AAA guided to $4.2B.") == ["$4.2B"]
+    # No ticker anywhere: checked against the market scope (frames + unowned records).
+    assert un("The 10-year sits at 5.18 and oil at 91.25.") == []
+    assert un("SPX closed at 7,741.99, above the 7,668.84 flip.") == []
+    # A name's sentence may cite the macro frame.
+    assert un("AAA held up while the 10y hit 5.18.") == []
+    # Inherited from the bullet parent / the bold title.
+    assert un("**1. BBB — long**\n- Why:\n  - It closed at 101.23.") == ["101.23"]
+    assert un("**1. AAA — long**\n- Why:\n  - It closed at 101.23.") == []
+    # "16:00 ET" is a time zone, not Energy Transfer.
+    assert un("At 16:00 ET AAA printed 101.23.") == []
+    # Unscoped (no symbols) is the old global check.
+    glob = verify.build_index(jsons=[json.loads((tmp_path / "board.json").read_text())])
+    assert verify.unmatched_numbers("BBB closed at 101.23.", glob) == []
+
+
+def test_number_check_eval_counts_fakes(tmp_path: Path) -> None:
+    from research.brief import number_check_eval as ev
+
+    corpus = verify.night_corpus(_scoped_night(tmp_path), [tmp_path / "tools_x.txt"])
+    out = ev.evaluate("AAA closed at 101.23. BBB closed at 55.50.", corpus)
+    assert out["numbers"] == 2 and out["real_unmatched"] == []
+    assert all(f["matched"] == 0 and f["total"] == 2 for f in out["fakes"].values())
+
+
+# --- scorecard over both layouts ----------------------------------------------------------
+
+
+def test_scorecard_reads_nightly_and_weekly_dirs(tmp_path: Path) -> None:
+    call = {"claim": "c", "kind": "close", "subject": "SPY", "op": ">", "threshold": 100,
+            "horizon_sessions": 1}
+    nightly, weekly = tmp_path / "2026-09-24", tmp_path / "2026-09-25-weekly"
+    for d in (nightly, weekly):
+        d.mkdir()
+        (d / "calls_flows_opus.json").write_text(json.dumps([call]))
+    verdict = {"A": {"accuracy": 4}, "B": {"accuracy": 2}, "winner": "A"}
+    (weekly / "grades.json").write_text(json.dumps({"flows": [
+        {"shadow": "deepseek", "labels": {"A": "opus", "B": "deepseek"}, "verdict": verdict}]}))
+    rows = scorecard.collect(tmp_path, closes=lambda *_a: 101.0, series=lambda *_a: (None, None),
+                             today=date(2026, 10, 5))
+    opus = rows[("flows", "opus")]
+    assert opus["nights"] == {"2026-09-24", "2026-09-25-weekly"}
+    assert opus["graded"] == {"2026-09-25-weekly"} and opus["games"] == 1
+    assert opus["resolved"] == 2  # both runs' calls resolve
+    out = scorecard.render(rows)
+    assert "graded" in out
+
+
+# --- cron wrapper hour guard ---------------------------------------------------------------
+
+
+def _wrapper(tmp_path: Path, hour: str, *args: str) -> Any:
+    import subprocess
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "date").write_text(
+        '#!/bin/sh\nif [ "$1" = "+%H" ]; then echo "$FAKE_HOUR"; else exec /bin/date "$@"; fi\n')
+    # flock "fails" so a matching hour stops at the lock and never reaches Python.
+    (bin_dir / "flock").write_text("#!/bin/sh\nexit 1\n")
+    for f in bin_dir.iterdir():
+        f.chmod(0o755)
+    script = Path(__file__).resolve().parent.parent / "tools" / "nightly_brief.sh"
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_HOUR": hour, "TMPDIR": str(tmp_path)}
+    return subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True,
+                          timeout=30)
+
+
+def test_wrapper_hour_guard(tmp_path: Path) -> None:
+    other = _wrapper(tmp_path, "19", "--at-et-hour", "18", "--mode", "weekly")
+    assert other.returncode == 0 and other.stdout == ""  # the other DST slot: silent no-op
+    assert not (tmp_path / "hmt-brief-weekly.lock").exists()
+
+    match = _wrapper(tmp_path, "08", "--at-et-hour", "8", "--mode", "weekly")
+    assert match.returncode == 0 and "another weekly brief holds the lock" in match.stdout
+    assert (tmp_path / "hmt-brief-weekly.lock").exists()
+
+    nightly = _wrapper(tmp_path, "20", "--at-et-hour=20")
+    assert "another nightly brief holds the lock" in nightly.stdout
+    assert (tmp_path / "hmt-brief-nightly.lock").exists()

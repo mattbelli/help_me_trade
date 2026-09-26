@@ -1,4 +1,4 @@
-"""Print the nightly brief A/B scorecard: specialist x arm.
+"""Print the brief A/B scorecard: specialist x arm, over nightly and weekly runs.
 
 Grader win rate and mean scores, numbers not found in our data per memo, forward
 calls resolved against our daily bars / data/macro.db with a Wilson range, and
@@ -23,7 +23,8 @@ from research.brief.scorecard import collect, render  # noqa: E402
 def main() -> int:
     logging.basicConfig(level=logging.WARNING)
     rows = collect()
-    print(render(rows) if rows else "no scored nights yet (data/briefs/<date>/ is empty)")
+    print(render(rows) if rows else
+          "no scored runs yet (data/briefs/<date>/ and <date>-weekly/ are empty)")
     return 0
 
 

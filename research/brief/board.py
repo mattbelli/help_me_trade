@@ -8,6 +8,12 @@ becomes ``{"error": ...}`` in its own section and the rest of the board builds.
 
 Perception, not a verdict: lanes say WHY a name is on the board (which angle lit
 it), never how likely it is to move. Nothing here is a win% or a direction call.
+
+Two modes. The nightly board reads one session. The weekly board (Sunday evening)
+runs the same lanes over the week's five sessions and ranks names lit on several
+days first; each card adds its 5-session return and range and the weekend's
+headlines, and the index frame adds the futures' reaction since the cash close
+(refreshing /ES /NQ from Schwab first, one paced pull per symbol).
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import inspect
 import json
 import logging
 import re
+import sqlite3
 from calendar import monthrange
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
@@ -33,6 +40,11 @@ logger = logging.getLogger(__name__)
 _ET = ZoneInfo("America/New_York")
 BRIEFS_DIR = ROOT / "data" / "briefs"
 MAX_CANDIDATES = 30
+WEEK_SESSIONS = 5
+FUTURES_DB = ROOT / "data" / "futures_bars.db"
+FUTURES = {"/ES": "SPX", "/NQ": "NDX"}  # future -> the cash index it prices
+FUTURES_REFRESH_DAYS = 3
+WEEKEND_HEADLINES = 15
 
 # Lane -> how many NEW names it may admit, in admission-priority order. A name
 # already on the board still collects the lane's angle; the quota only caps how
@@ -113,6 +125,25 @@ def next_session(d: date) -> date:
     while not is_trading_day(d):
         d += timedelta(days=1)
     return d
+
+
+def week_sessions(et_date: date, n: int = WEEK_SESSIONS) -> list[date]:
+    """The n trading sessions ending on et_date, oldest first."""
+    from trading.market_calendar import is_trading_day
+
+    days, d = [], et_date
+    while len(days) < n:
+        if is_trading_day(d):
+            days.append(d)
+        d -= timedelta(days=1)
+    return days[::-1]
+
+
+def cash_close_utc(et_date: date) -> datetime:
+    """When et_date's cash session closed (13:00 ET on an early-close day)."""
+    from trading.market_calendar import is_early_close
+
+    return datetime.combine(et_date, time(13 if is_early_close(et_date) else 16), _ET).astimezone(UTC)
 
 
 def _session_bounds(et_date: date) -> tuple[str, str]:
@@ -619,8 +650,47 @@ def merge_lanes(
                 cand["lane_facts"][lane] = {k: v for k, v in hit.items() if k not in ("symbol", "why")}
     for cand in cands.values():
         cand["angles"] = sorted(set().union(*(LANE_ANGLES[lane] for lane in cand["lanes"])))
-    ranked = sorted(order, key=lambda s: (-len(cands[s]["angles"]), order.index(s)))
+        # Weekly: the sessions that lit the name, from any lane (nightly hits carry none).
+        sessions = set().union(*(f.get("sessions") or [] for f in cand["lane_facts"].values()))
+        if sessions:
+            cand["sessions"] = sorted(sessions)
+    ranked = sorted(order, key=lambda s: (-len(cands[s]["angles"]),
+                                          -len(cands[s].get("sessions") or []), order.index(s)))
     return [cands[s] for s in ranked[:cap]]
+
+
+def combine_days(per_day: dict[str, Any]) -> dict[str, Any]:
+    """{session: one lane's result} -> the lane over all those sessions.
+
+    Each hit is tagged with every session that lit it and keeps the newest session's
+    facts; names lit on more sessions rank first, then the newest session's own order.
+    """
+    hits: dict[str, dict[str, Any]] = {}
+    for day in sorted(per_day, reverse=True):
+        result = per_day[day]
+        if not isinstance(result, dict) or _is_error(result):
+            continue
+        for hit in result.get("hits") or []:
+            sym = str(hit.get("symbol") or "").strip().upper()
+            if sym:
+                hits.setdefault(sym, {**hit, "sessions": []})["sessions"].append(day)
+    ranked = sorted(hits.values(), key=lambda h: -len(h["sessions"]))
+    for h in ranked:
+        h["sessions"].sort()
+        h["why"] = f"[{', '.join(h['sessions'])}] {h.get('why')}"
+    results = [r for r in per_day.values() if isinstance(r, dict) and not _is_error(r)]
+    if not results:
+        return {"error": "; ".join(f"{d}: {r.get('error')}" for d, r in sorted(per_day.items())
+                                   if isinstance(r, dict))}
+    out: dict[str, Any] = {"hits": ranked, "newest": _newest([r.get("newest") for r in results])}
+    newest = per_day[max(per_day)]
+    for key in ("norms", "held_count"):  # per-name counts on the board's own session
+        if isinstance(newest, dict) and key in newest:
+            out[key] = newest[key]
+    errors = {d: r["error"] for d, r in per_day.items() if _is_error(r)}
+    if errors:
+        out["session_errors"] = errors
+    return out
 
 
 # --- candidate cards ----------------------------------------------------------------------
@@ -681,9 +751,35 @@ def _day_stats(bars: list[dict[str, Any]], et_date: date) -> dict[str, Any] | No
 _LEVEL_KEYS = ("poc", "vah", "val", "pdh", "pdl", "52wh", "52wl", "session_date")
 
 
+def week_stats(bars: list[dict[str, Any]], sessions: list[date]) -> dict[str, Any] | None:
+    """The week's return (last close vs the close before the first session) and range."""
+    first, last = sessions[0].isoformat(), sessions[-1].isoformat()
+    week = [b for b in bars if first <= str(b["t"])[:10] <= last]
+    prior = [b for b in bars if str(b["t"])[:10] < first]
+    if not week or not prior or not prior[-1]["c"]:
+        return None
+    hi, lo = max(b["h"] for b in week), min(b["l"] for b in week)
+    return {
+        "from": str(prior[-1]["t"])[:10],
+        "to": str(week[-1]["t"])[:10],
+        "return_pct": round((week[-1]["c"] / prior[-1]["c"] - 1) * 100, 2),
+        "high": hi,
+        "low": lo,
+        "range_pct": round((hi / lo - 1) * 100, 2) if lo else None,
+        "sessions_with_bars": len(week),
+    }
+
+
+def _weekend_news(symbol: str, since: str) -> list[dict[str, Any]]:
+    from db.news import recent_news
+
+    return [{"headline": n["headline"], "published_at": n["published_at"]}
+            for n in recent_news(symbol=symbol, since=since, limit=5)]
+
+
 async def _card(
     cand: dict[str, Any], et_date: date, insider: list[dict[str, Any]],
-    norms: dict[str, dict[str, Any]],
+    norms: dict[str, dict[str, Any]], mode: str = "nightly",
 ) -> dict[str, Any]:
     from ai.perception import build_symbol_context
 
@@ -742,13 +838,19 @@ async def _card(
         for i in insider
         if i.get("symbol") == sym
     ][:5]
+    if mode == "weekly":
+        if bars and bars[0].get("bars"):
+            card["week"] = week_stats(bars[0]["bars"], week_sessions(et_date))
+        since = cash_close_utc(et_date).strftime("%Y-%m-%dT%H:%M:%SZ")
+        news = await _guard(f"{sym} weekend news", _weekend_news, sym, since)
+        card["weekend_news"] = take("weekend_news", news)
     if not card["errors"]:
         del card["errors"]
     return card
 
 
-async def _candidates_section(et_date: date, nxt: date) -> dict[str, Any]:
-    lanes = {
+async def _day_lanes(et_date: date, nxt: date) -> dict[str, Any]:
+    return {
         "attention": await _guard("lane attention", _lane_attention, et_date),
         "rare_flow": await _guard("lane rare_flow", _lane_rare_flow, et_date),
         "earnings": await _guard("lane earnings", _lane_earnings, et_date, nxt),
@@ -758,6 +860,30 @@ async def _candidates_section(et_date: date, nxt: date) -> dict[str, Any]:
         "social": await _guard("lane social", _lane_social, et_date),
         "held": await _guard("lane held", _lane_held, et_date),
     }
+
+
+# Lanes whose source has no liquidity notion; on an earlier day of the week the
+# abnormality state (one session) can't answer the floor, so et_date's floor applies.
+_FLOORED_LANES = ("earnings", "news", "social")
+
+
+async def _week_lanes(et_date: date) -> dict[str, Any]:
+    """The same lanes run for each of the week's sessions, then combined per lane."""
+    per_day: dict[str, dict[str, Any]] = {}
+    liquid = _liquidity_floor(et_date.isoformat())
+    for day in week_sessions(et_date):
+        lanes = await _day_lanes(day, next_session(day))
+        if day != et_date:
+            for lane in _FLOORED_LANES:
+                if not _is_error(lanes[lane]):
+                    lanes[lane]["hits"] = [h for h in lanes[lane]["hits"] if liquid(h["symbol"])]
+        per_day[day.isoformat()] = lanes
+    return {lane: combine_days({d: lanes[lane] for d, lanes in per_day.items()})
+            for lane in LANE_QUOTAS}
+
+
+async def _candidates_section(et_date: date, nxt: date, mode: str = "nightly") -> dict[str, Any]:
+    lanes = await (_week_lanes(et_date) if mode == "weekly" else _day_lanes(et_date, nxt))
     candidates = merge_lanes(lanes)
 
     from db.filings import list_recent
@@ -773,7 +899,7 @@ async def _candidates_section(et_date: date, nxt: date) -> dict[str, Any]:
 
     async def one(cand: dict[str, Any]) -> dict[str, Any]:
         async with sem:
-            return await _card(cand, et_date, insider_rows, norms)
+            return await _card(cand, et_date, insider_rows, norms, mode)
 
     cards = await asyncio.gather(*(one(c) for c in candidates))
     summary = {}
@@ -787,8 +913,9 @@ async def _candidates_section(et_date: date, nxt: date) -> dict[str, Any]:
             "admitted": [c["symbol"] for c in candidates if c["lanes"][0] == lane],
             "newest": result.get("newest"),
         }
-        if "held_count" in result:
-            summary[lane]["held_count"] = result["held_count"]
+        for key in ("held_count", "session_errors"):
+            if key in result:
+                summary[lane][key] = result[key]
     return {"lanes": summary, "cards": list(cards)}
 
 
@@ -926,14 +1053,152 @@ def fill_index_otm(prints: list[dict[str, Any]], spots: dict[str, float]) -> Non
         p["otm_pct_vs_close_spot"] = round(sign * (p["strike"] / spot - 1) * 100, 2)
 
 
-async def _index_section(et_date: date) -> dict[str, Any]:
+# --- futures reaction (weekly) --------------------------------------------------------------
+
+_FUTURES_CAVEAT = (
+    "implied cash = latest futures price minus the basis at the cash close (futures at the "
+    "close minus the cash close, cash = the gex board's parity spot). The basis drifts with "
+    "rates and dividends and overnight futures trade is thin: a read of the reaction, not a "
+    "forecast of the open"
+)
+
+
+async def refresh_futures(db_path: Path) -> str | None:
+    """Top /ES /NQ 1Min bars up from Schwab: the archive fills at 06:40 UTC, so a Sunday
+    evening run has none of Sunday's bars yet. ONE paced pull per symbol, via the
+    archiver's own _pull. Returns the error, or None."""
+    from brokers.schwab_market_data import SchwabMarketData
+    from tools.futures_bars_archive import _pull
+
+    try:
+        md = SchwabMarketData.from_settings()
+        conn = sqlite3.connect(db_path)
+        try:
+            for sym in FUTURES:
+                await _pull(md, conn, sym, "1Min", FUTURES_REFRESH_DAYS, FUTURES_REFRESH_DAYS)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — Schwab down: use what the archive holds
+        logger.warning("brief board: futures refresh failed: %s", exc)
+        return f"{type(exc).__name__}: {exc}"
+    return None
+
+
+def _futures_bars(db_path: Path, symbol: str, since: datetime) -> list[dict[str, Any]]:
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            "SELECT ts, open, close FROM bars WHERE symbol = ? AND timeframe = '1Min' "
+            "AND ts >= ? ORDER BY ts", (symbol, since.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ).fetchall()
+    return [{"ts": ts, "open": o, "close": c} for ts, o, c in rows]
+
+
+def _ts(bar: dict[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(bar["ts"]).replace("Z", "+00:00"))
+
+
+def futures_reaction(bars: list[dict[str, Any]], et_date: date,
+                     cash_close: float | None) -> dict[str, Any]:
+    """One future's move since et_date's cash close, and the cash level it implies.
+
+    Bars are 1-min, ts = bar start (UTC). The price at the cash close is the close of
+    the bar that ends at it; the reopen is the first bar at/after 17:00 ET (Globex
+    halts 17:00-18:00 ET, all weekend on a Friday)."""
+    close_at = cash_close_utc(et_date)
+    halt = datetime.combine(et_date, time(17), _ET).astimezone(UTC)
+    at_close = [b for b in bars if close_at - timedelta(minutes=10) <= _ts(b) < close_at]
+    if not at_close:
+        return {"unavailable": f"no futures bar in the 10 minutes before the {et_date} cash close"}
+    ref = at_close[-1]["close"]
+    reopen = next((b for b in bars if _ts(b) >= halt), None)
+    latest = bars[-1]
+    out: dict[str, Any] = {
+        "at_cash_close": {"ts": at_close[-1]["ts"], "price": ref},
+        "reopen": {"ts": reopen["ts"], "open": reopen["open"]} if reopen else None,
+        "latest": {"ts": latest["ts"], "price": latest["close"]},
+        "reopen_vs_close_pct": round((reopen["open"] / ref - 1) * 100, 2) if reopen else None,
+        "latest_vs_close_pct": round((latest["close"] / ref - 1) * 100, 2),
+    }
+    if cash_close:
+        basis = ref - cash_close
+        out.update(cash_close=cash_close, basis=round(basis, 2),
+                   implied_cash=round(latest["close"] - basis, 2))
+    return out
+
+
+def implied_vs_levels(implied: float, gex: dict[str, Any], walls: dict[str, Any],
+                      roots: tuple[str, ...]) -> dict[str, Any]:
+    """Where the implied cash level sits against the gamma flip and the top-OI strikes
+    already on the board — plain positions, no support/resistance claim."""
+    out: dict[str, Any] = {}
+    words = [f"implied {implied:,.2f}"]
+    flip = gex.get("gamma_flip_spot") if _has_data(gex) else None
+    if flip:
+        side = "above" if implied > flip else "below"
+        out["vs_flip_pct"] = round((implied / flip - 1) * 100, 2)
+        words.append(f"= {side} the {flip:,.2f} gamma flip ({out['vs_flip_pct']:+.2f}%)")
+    else:
+        words.append("(gamma flip unavailable)")
+    strikes = sorted({r["strike"] for root in roots
+                      for rows in list(((walls or {}).get(root) or {}).get("expiries", {}).values())[:1]
+                      for r in rows if r.get("strike")})
+    below = [k for k in strikes if k <= implied]
+    above = [k for k in strikes if k > implied]
+    out["oi_strike_below"] = below[-1] if below else None
+    out["oi_strike_above"] = above[0] if above else None
+    if strikes:
+        lo, hi = out["oi_strike_below"], out["oi_strike_above"]
+        words.append(f"between the top-OI strikes {f'{lo:,g}' if lo else '—'} and "
+                     f"{f'{hi:,g}' if hi else '—'} (nearest expiry)")
+    out["line"] = " ".join(words)
+    return out
+
+
+def _cash_ref(gex: Any, et_date: date) -> float | None:
+    """The gex board's parity spot, only when it was priced on et_date's session."""
+    if not _has_data(gex) or not gex.get("spot") or not gex.get("priced_at"):
+        return None
+    return gex["spot"] if _et_day(gex["priced_at"]) == et_date.isoformat() else None
+
+
+async def _futures_section(et_date: date, gex: dict[str, Any], walls: Any,
+                           db_path: Path | None = None) -> dict[str, Any]:
+    db_path = db_path or FUTURES_DB
+    refresh = await refresh_futures(db_path)
+    since = datetime.combine(et_date, time(0), _ET).astimezone(UTC)
+    out: dict[str, Any] = {
+        "refresh": refresh or "ok",
+        "caveat": _FUTURES_CAVEAT,
+    }
+    if refresh:
+        out["note"] = f"Schwab refresh failed ({refresh}); using the stored bars"
+    walls = walls if _has_data(walls) else {}
+    for fut, index in FUTURES.items():
+        bars = _futures_bars(db_path, fut, since)
+        if not bars:
+            out[fut] = {"index": index, "unavailable": "no stored 1Min bars since the session"}
+            continue
+        g = (gex or {}).get(index)
+        r = {"index": index, **futures_reaction(bars, et_date, _cash_ref(g, et_date))}
+        if r.get("implied_cash") is not None:
+            roots = (index, f"{index}W") if index == "SPX" else (index, f"{index}P")
+            r["levels"] = implied_vs_levels(r["implied_cash"], g, walls, roots)
+        elif "unavailable" not in r:
+            r["no_implied"] = (f"no {index} cash close priced on {et_date} on the board "
+                               f"(the {index} gex spot is the cash reference)")
+        out[fut] = r
+    return out
+
+
+async def _index_section(et_date: date, mode: str = "nightly") -> dict[str, Any]:
     gex = {idx: await _guard(f"gex {idx}", _gex, idx) for idx in ("SPX", "NDX")}
     prints = await _guard("index prints", _index_prints, et_date)
     if not _is_error(prints):
         fill_index_otm(prints["prints"], {k: g.get("spot") for k, g in gex.items() if _has_data(g)})
+    walls = await _guard("oi_walls", _oi_walls, et_date)
     return {
         "gex": gex,
-        "oi_walls": await _guard("oi_walls", _oi_walls, et_date),
+        "oi_walls": walls,
         "prints": prints,
         "index_pressure": {
             w: await _guard(f"index_pressure {w}", _index_pressure, et_date, w)
@@ -941,10 +1206,55 @@ async def _index_section(et_date: date) -> dict[str, Any]:
         },
         "flow_report": await _guard("flow_report", _flow_report, et_date),
         "overnight_flow": await _guard("overnight_flow", _overnight_flow),
-        # data/futures_bars.db holds /ES /NQ, but nothing READS it yet (only the
-        # archiver writes it); a reader is a separate data task.
-        "futures": {"unavailable": "no futures-bars reader exists yet"},
+        "futures": (await _guard("futures", _futures_section, et_date, gex, walls)
+                    if mode == "weekly" else {"unavailable": "weekly board only"}),
     }
+
+
+# --- weekend headlines (weekly) ------------------------------------------------------------
+
+# Evergreen filler and machine roundups: never the story of a weekend.
+_FILLER = re.compile(r"\binvested\b.{0,25}\bin\b|would be worth|would have (?:made|this much)|"
+                     r"stocks moving in|trading halt|bulls and bears|stock whisper", re.IGNORECASE)
+_BROAD = frozenset({"SPY", "QQQ", "IWM", "DIA", "TLT", "IEF", "SHY", "HYG", "LQD", "GLD", "SLV",
+                    "USO", "UNG", "UUP", *SECTOR_ETFS})
+
+
+def rank_headlines(items: list[dict[str, Any]], board_symbols: set[str],
+                   limit: int = WEEKEND_HEADLINES) -> list[dict[str, Any]]:
+    """Market-wide first (untagged, or tagging a broad ETF), then the board's names, then
+    the rest; newest first within each; filler dropped; the same headline once.
+
+    The news store has no ranking of its own (newest-first only), hence this."""
+    def tier(n: dict[str, Any]) -> int:
+        syms = set(n.get("symbols") or [])
+        if not syms or syms & _BROAD:
+            return 0
+        return 1 if syms & board_symbols else 2
+
+    seen: set[str] = set()
+    out = []
+    newest_first = sorted(items, key=lambda n: str(n.get("published_at") or ""), reverse=True)
+    for n in sorted(newest_first, key=tier):
+        key = re.sub(r"\s*\((?:updated|corrected)\)\s*$", "", n["headline"].lower()).strip()
+        if _FILLER.search(n["headline"]) or key in seen:
+            continue
+        seen.add(key)
+        syms = sorted(n.get("symbols") or [], key=lambda x: x not in _BROAD | board_symbols)
+        out.append({"headline": n["headline"], "published_at": n.get("published_at"),
+                    "symbols": syms[:6]})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _weekend_headlines(et_date: date, board_symbols: set[str]) -> dict[str, Any]:
+    from db.news import recent_news
+
+    since = cash_close_utc(et_date).strftime("%Y-%m-%dT%H:%M:%SZ")
+    items = recent_news(since=since, limit=250)
+    return {"since": since, "stories_in_window": len(items),
+            "headlines": rank_headlines(items, board_symbols)}
 
 
 # --- macro frame --------------------------------------------------------------------------
@@ -1156,13 +1466,14 @@ def freshness(board: dict[str, Any], et_date: date) -> dict[str, Any]:
 # --- build / persist / load ---------------------------------------------------------------
 
 
-async def abuild_board(et_date: date | None = None) -> dict[str, Any]:
+async def abuild_board(et_date: date | None = None, mode: str = "nightly") -> dict[str, Any]:
     from trading.market_calendar import last_closed_session
 
     et_date = et_date or last_closed_session()
     nxt = next_session(et_date)
     board: dict[str, Any] = {
         "et_date": et_date.isoformat(),
+        "mode": mode,
         "next_session": nxt.isoformat(),
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "note": (
@@ -1171,8 +1482,12 @@ async def abuild_board(et_date: date | None = None) -> dict[str, Any]:
             "market, overnight_flow) reflect generated_at, not et_date."
         ),
     }
-    board["candidates"] = await _guard("candidates", _candidates_section, et_date, nxt)
-    board["index"] = await _guard("index", _index_section, et_date)
+    board["candidates"] = await _guard("candidates", _candidates_section, et_date, nxt, mode)
+    board["index"] = await _guard("index", _index_section, et_date, mode)
+    if mode == "weekly":
+        cards = _get(board, "candidates", "cards") or []
+        board["weekend_news"] = await _guard("weekend news", _weekend_headlines, et_date,
+                                             {c["symbol"] for c in cards})
     board["macro"] = await _guard("macro", _macro_section, et_date)
     board["sectors"] = await _guard("sectors", asyncio.to_thread, _sectors_section, et_date)
     board["events"] = await _guard("events", _events_section, et_date, nxt, board["macro"])
@@ -1180,9 +1495,15 @@ async def abuild_board(et_date: date | None = None) -> dict[str, Any]:
     return board
 
 
-def build_board(et_date: date | None = None) -> dict[str, Any]:
-    """The deterministic nightly board for `et_date` (default: the last CLOSED session)."""
-    return asyncio.run(abuild_board(et_date))
+def build_board(et_date: date | None = None, mode: str = "nightly") -> dict[str, Any]:
+    """The deterministic board for `et_date` (default: the last CLOSED session)."""
+    return asyncio.run(abuild_board(et_date, mode))
+
+
+def board_key(et_date: str, mode: str = "nightly") -> str:
+    """The board's directory under data/briefs/ (and its `date` in the brief_board
+    resource): the weekly board sits beside that Friday's nightly one, never on it."""
+    return f"{et_date}-weekly" if mode == "weekly" else et_date
 
 
 def _has_data(v: Any) -> bool:
@@ -1201,7 +1522,7 @@ def board_is_empty(board: dict[str, Any]) -> bool:
 
 
 def save_board(board: dict[str, Any], *, root: Path | None = None) -> Path:
-    out_dir = (root or BRIEFS_DIR) / board["et_date"]
+    out_dir = (root or BRIEFS_DIR) / board_key(board["et_date"], board.get("mode") or "nightly")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "board.json").write_text(json.dumps(board, indent=1, default=str), encoding="utf-8")
     (out_dir / "board.md").write_text(render_board_md(board), encoding="utf-8")
@@ -1209,12 +1530,13 @@ def save_board(board: dict[str, Any], *, root: Path | None = None) -> Path:
 
 
 def load_board(et_date: str | None = None, *, root: Path | None = None) -> dict[str, Any] | None:
-    """The stored board for `et_date` (YYYY-MM-DD), or the newest one; None if absent."""
+    """The stored board for `et_date` (YYYY-MM-DD, or YYYY-MM-DD-weekly), or the newest
+    one (a Sunday's weekly after that Friday's nightly); None if absent."""
     base = root or BRIEFS_DIR
     if et_date:
         path = base / et_date / "board.json"
     else:
-        days = sorted(p for p in base.glob("*/board.json")) if base.exists() else []
+        days = sorted(base.glob("*/board.json"), key=lambda p: p.parent.name) if base.exists() else []
         path = days[-1] if days else base / "_none_"
     if not path.exists():
         return None
@@ -1262,10 +1584,14 @@ def _print_line(p: dict[str, Any]) -> str:
 def _render_card(c: dict[str, Any]) -> list[str]:
     lines = [f"### {c['symbol']} — angles: {', '.join(c.get('angles') or [])} "
              f"(lanes: {', '.join(c.get('lanes') or [])})"]
+    if c.get("sessions"):
+        lines.append(f"- lit on {len(c['sessions'])} session(s): {', '.join(c['sessions'])}")
     for lane, why in (c.get("why") or {}).items():
         lines.append(f"- **{lane}**: {why}")
     if c.get("day"):
         lines.append(f"- day: {_kv(c['day'])}")
+    if c.get("week"):
+        lines.append(f"- week: {_kv(c['week'])}")
     if c.get("quote"):
         lines.append(f"- quote: {_kv(c['quote'])}")
     if c.get("rvol_intraday"):
@@ -1299,14 +1625,18 @@ def _render_card(c: dict[str, Any]) -> list[str]:
                          f"{_kv(c[f'{kind}_count_vs_norm'])}")
     if c.get("insider_buys_30d"):
         lines.append("- insider buys (30d): " + "; ".join(_kv(i) for i in c["insider_buys_30d"]))
+    if isinstance(c.get("weekend_news"), list) and c["weekend_news"]:
+        lines.append("- since the close:")
+        lines += [f"  - {n.get('published_at')} — {n.get('headline')}" for n in c["weekend_news"]]
     if c.get("errors"):
         lines.append(f"- _missing blocks: {_kv(c['errors'])}_")
     return lines + [""]
 
 
 def render_board_md(board: dict[str, Any]) -> str:
+    weekly = board.get("mode") == "weekly"
     out = [
-        f"# Brief board — {board.get('et_date')}",
+        f"# Brief board — {board.get('et_date')}" + (" (weekly: the week's sessions)" if weekly else ""),
         "",
         f"Generated {board.get('generated_at')} · next session {board.get('next_session')}",
         "",
@@ -1379,8 +1709,21 @@ def render_board_md(board: dict[str, Any]) -> str:
             "macro_window_share"))))
         if isinstance(ov, dict) and isinstance(ov.get("baseline"), dict):
             out.append(f"  - vs baseline: {_kv(ov['baseline'])}")
-        out.append(f"- **futures**: {_err_line(index.get('futures'))}")
+        out += _render_futures(index.get("futures"))
     out.append("")
+
+    if weekly:
+        out += ["## Weekend headlines", ""]
+        wn = board.get("weekend_news")
+        if _err_line(wn):
+            out.append(_err_line(wn) or "")
+        else:
+            out.append(f"_Since {wn.get('since')} ({wn.get('stories_in_window')} stories): "
+                       "market-wide first, then the board's names; filler dropped._")
+            out += [f"- {h.get('published_at')} — {h.get('headline')}"
+                    + (f" ({', '.join(h['symbols'])})" if h.get("symbols") else "")
+                    for h in wn.get("headlines") or []]
+        out.append("")
 
     out += ["## Macro frame", ""]
     macro = board.get("macro")
@@ -1460,6 +1803,33 @@ def render_board_md(board: dict[str, Any]) -> str:
             out.append(f"| {name} | {f.get('newest')} | {f.get('lag_sessions', '')} | "
                        f"{f['allowed_lag_sessions']} | {f['status']} |")
     return "\n".join(out) + "\n"
+
+
+def _render_futures(fut: Any) -> list[str]:
+    if _err_line(fut):
+        return [f"- **futures**: {_err_line(fut)}"]
+    out = ["- **futures since the cash close**" + (f" — _{fut['note']}_" if fut.get("note") else "")
+           + ":"]
+    for sym in FUTURES:
+        r = fut.get(sym) or {"unavailable": "not built"}
+        if _err_line(r):
+            out.append(f"  - {sym}: {_err_line(r)}")
+            continue
+        close, latest, reopen = r["at_cash_close"], r["latest"], r.get("reopen")
+        line = f"  - {sym}: {close['price']} at the cash close"
+        if reopen:
+            line += f"; reopened {reopen['open']} ({r['reopen_vs_close_pct']:+}%) at {reopen['ts']}"
+        line += f"; latest {latest['price']} ({r['latest_vs_close_pct']:+}%) at {latest['ts']}"
+        out.append(line)
+        if r.get("implied_cash") is not None:
+            out.append(f"    - {r['index']} cash close {r['cash_close']}, basis {r['basis']:+} → "
+                       f"implied {r['index']} {r['implied_cash']:,.2f}")
+            if r.get("levels"):
+                out.append(f"    - {r['levels']['line']}")
+        elif r.get("no_implied"):
+            out.append(f"    - _{r['no_implied']}_")
+    out.append(f"  - _{fut.get('caveat')}_")
+    return out
 
 
 _GEX_CONVENTION_MD = (
