@@ -245,8 +245,29 @@ describe("applyBarFrame — daily family", () => {
     expect(bars[1]).toMatchObject({ close: 1.7, high: 1.8, volume: 30 });
     expect(applyBarFrame(bars, dframe({ time: D0 + DAY, open: 1.7, close: 1.75 }), optsD()).kind).toBe("appended");
     expect(bars[2].time).toBe(D0 + DAY);
-    // minute frames never touch a daily chart
+  });
+
+  it("a minute frame widens the day the vendor opened — the Schwab lane sends no 1Day frame", () => {
+    const bars = daily();
+    const r = applyBarFrame(
+      bars,
+      frame({ time: D0 + 9 * 3_600_000, high: 1.9, low: 1.2, close: 1.85 }),
+      optsD(),
+    );
+    expect(r).toEqual({ kind: "replaced", index: 1 });
+    expect(bars).toHaveLength(2); // never a new daily bucket off a minute stamp
+    expect(bars[1]).toMatchObject({ open: 1.5, high: 1.9, low: 1.2, close: 1.85 });
+  });
+
+  it("a minute frame outside the last day's span is left to the refetch", () => {
+    const bars = daily();
     expect(applyBarFrame(bars, frame({ time: D0 + DAY }), optsD())).toEqual({ kind: "ignored" });
+    expect(applyBarFrame(bars, frame({ time: D0 - MIN }), optsD())).toEqual({ kind: "ignored" });
+    // Off-RTH prints stay out of a daily candle (showExt is false on daily+).
+    expect(
+      applyBarFrame(bars, frame({ time: D0 + 3_600_000, session: "post" }), optsD()),
+    ).toEqual({ kind: "ignored" });
+    expect(bars).toEqual(daily());
   });
 
   it("1Week: a daily frame inside the week widens the last bar; a new week appends", () => {

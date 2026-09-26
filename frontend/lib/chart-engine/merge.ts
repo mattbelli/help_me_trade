@@ -93,9 +93,11 @@ export function prependFetchedBars(
  * Fold one bar frame into the series in place. Returns what happened so the
  * caller can repaint (and, on a skipped bucket, kick a refetch for the hole).
  *
- * - `frame.timeframe` must match the series' family: 1Min frames drive every
+ * - `frame.timeframe` picks the series' family: 1Min frames drive every
  *   intraday chart (rolled up into the chart's bucket by UTC floor — the
- *   vendor's own alignment); 1Day frames drive 1Day/1Week/1Month.
+ *   vendor's own alignment); 1Day frames drive 1Day/1Week/1Month. A 1Min frame
+ *   also widens (never opens) the last bar of a daily+ chart, which is the only
+ *   thing moving a Schwab-fed daily candle — that lane sends no 1Day frame.
  * - Inside the last bucket: exact-interval charts (1Min ← 1Min, 1Day ← 1Day)
  *   REPLACE the bar — the frame is the authority. Coarser charts widen
  *   high/low, take the close, and grow volume by what the frames add on top
@@ -122,7 +124,9 @@ export function applyBarFrame(
     return { kind: "ignored" };
   }
   const isMinute = frame.timeframe === "1Min";
-  if (opts.intraday !== isMinute) return { kind: "ignored" };
+  // A 1Day frame carries nothing an intraday chart can use. The reverse is
+  // allowed: minute frames roll up into a daily+ bucket (see below).
+  if (opts.intraday && !isMinute) return { kind: "ignored" };
   if (isMinute && !opts.showExt && frame.session !== "regular") {
     return { kind: "ignored" };
   }
@@ -140,6 +144,17 @@ export function applyBarFrame(
   let bucket: number;
   if (exact) {
     bucket = frame.time;
+  } else if (isMinute && !opts.intraday) {
+    // Minute frames driving a daily+ chart. Alpaca sends its own `1Day` frames
+    // and those win (exact replace above), but the Schwab lane — every futures
+    // symbol — sends none, so /ES's daily candle sat frozen from the open while
+    // the header price ticked. The vendor owns where a daily bucket STARTS
+    // (04:00Z equities, 05:00Z futures), so a minute only ever widens the bar
+    // the vendor already opened; the next one arrives with the refetch.
+    if (frame.time < last.time || frame.time >= last.time + interval) {
+      return { kind: "ignored" };
+    }
+    bucket = last.time;
   } else if (isMinute) {
     bucket = frame.time - (frame.time % interval);
   } else if (frame.time < last.time) {
