@@ -97,6 +97,12 @@ TICK_CONFIRM_TOL = 0.05
 # corporate action — hold those prints unconditionally, corroborated or not.
 TICK_ABS_CEILING = 10.0
 TICK_BAND_PCT_TRADE = 0.03  # regular-session SIP prints >3% off last-admitted are suspect
+# Odd lots further than this from last-admitted are dropped outright (never held,
+# never corroborating). A 9-share TRF odd lot at $480.48 vs a ~$470.5 market
+# (AMAT 2026-09-23) fired a $479 price alert and drew a phantom chart wick. On
+# 3h of SIP tape 1% dropped exactly that one print on AMAT/NVDA/TSLA (+2.05%,
+# −4.7%, −4.6%) and ~1% of odd lots on thin names (a round lot re-centers).
+TICK_BAND_PCT_ODD_LOT = 0.01
 # Hold-streak escape hatch: the band reference only re-centers on ADMISSION, so a
 # genuine fast staircase (halt resume, thin-name catalyst) whose consecutive prints
 # differ >TICK_CONFIRM_TOL from each other could hold forever against a stale ref.
@@ -108,9 +114,9 @@ TRADE_HOLD_STREAK_MAX = 5
 # update-rules union). Prints carrying any of these are dropped before they can
 # touch QuoteState/alerts: they are legitimate tape entries that may sit far off
 # the live market (average-price, late/out-of-sequence, derivatively priced,
-# official open/close, ext-hours reports). Odd lots ("I") are intentionally KEPT:
-# they are Reg-NMS price-protected (print inside the NBBO) and dropping them
-# would visibly stale the watchlist between round-lot prints.
+# official open/close, ext-hours reports). Odd lots ("I") are intentionally KEPT
+# (51-87% of prints; round lots can sit minutes apart on thin names) but held to
+# the tighter TICK_BAND_PCT_ODD_LOT — they are NOT NBBO-protected.
 TRADE_EXCLUDE_CONDITIONS = frozenset(
     {"4", "7", "9", "B", "C", "G", "H", "M", "N", "P", "Q", "R", "T", "U", "V", "W", "Z"}
 )
@@ -1116,6 +1122,8 @@ class AlpacaMarketStreamHub(BaseMarketHub):
         ref = self._prev_prices.get(symbol)
         if ref is None and state and state.prev_close:
             ref = state.prev_close
+        if ref and conditions and "I" in conditions and abs(price_f / ref - 1) > TICK_BAND_PCT_ODD_LOT:
+            return
         # When an out-of-band print is admitted via corroboration, the HELD prior
         # print was real too — alerts must see the full swept path (prev → held →
         # current) or a level touched between them never fires. An UNCORROBORATED

@@ -281,6 +281,26 @@ async def test_uncorroborated_spike_revert_stays_silent(hub: AlpacaMarketStreamH
 
 
 @pytest.mark.asyncio
+async def test_off_market_odd_lot_dropped(hub: AlpacaMarketStreamHub) -> None:
+    """AMAT 2026-09-23: a 9-share TRF odd lot 2% through the market sat inside
+    the 3% round-lot band, fired a $479 alert and drew a phantom wick. Odd lots
+    get the 1% band and never hold/corroborate; near-market odd lots still flow."""
+    hub._quotes["AMAT"] = QuoteState(price=470.5, prev_close=470.0)
+    hub._prev_prices["AMAT"] = 470.5
+    alert = AsyncMock()
+    hub._check_price_alerts = alert  # type: ignore[method-assign]
+
+    await hub._on_trade(_trade_item("AMAT", 480.48, conditions=["@", "I"]))
+    assert hub._quotes["AMAT"].price == pytest.approx(470.5)
+    assert hub.bars.forming("AMAT") is None
+    assert "AMAT" not in hub._pending_trade
+    alert.assert_not_called()
+
+    await hub._on_trade(_trade_item("AMAT", 470.6, conditions=["@", "I"]))
+    assert hub._quotes["AMAT"].price == pytest.approx(470.6)
+
+
+@pytest.mark.asyncio
 async def test_hold_streak_escape_hatch_admits(hub: AlpacaMarketStreamHub) -> None:
     """MAJOR #2: a genuine staircase whose consecutive prints never corroborate
     must not freeze the price forever — the Nth consecutive hold admits."""
