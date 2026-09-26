@@ -381,8 +381,11 @@ async def test_baseline_overnight_series_prev_is_last_close(
     from datetime import datetime as _dt
     from datetime import timedelta
 
+    import brokers.market_clock
     from trading.market_hours import _ET
 
+    # Pre-open: a weekend run reads "closed", which keeps Friday's change (closes[-2]).
+    monkeypatch.setattr(brokers.market_clock, "market_session", lambda: "pre")
     today = _dt.now(_ET).date()
     _stub_bars_broker(
         monkeypatch,

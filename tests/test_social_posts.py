@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,6 +28,11 @@ from trading.market_hours import _ET
 _KNOWN = frozenset(
     {"TSLA", "AAPL", "NVDA", "MEME", "T", "PEG", "C", "BULL", "TECH", "SI", "D", "Q"}
 )
+# Overlap looks back 30 days from now: fixed dates aged out and broke CI (09-09).
+_RECENT_DAY = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+_RECENT_AT = f"{_RECENT_DAY}T12:00:00+00:00"
+_RECENT_AT_5 = f"{_RECENT_DAY}T12:05:00+00:00"
+_RECENT_BUCKET = f"{_RECENT_DAY}T08"
 
 
 @pytest.fixture
@@ -231,8 +236,8 @@ def test_single_ticker_overlap_frac_one(social_db: Path) -> None:
             {
                 "post_id": f"t3_ov_{i}",
                 "author": author,
-                "published_at": "2026-08-10T12:00:00+00:00",
-                "bucket": "2026-08-10T08",
+                "published_at": _RECENT_AT,
+                "bucket": _RECENT_BUCKET,
                 "title": f"${sym}",
                 "symbols": {sym},
                 "n_symbols": 1,
@@ -256,8 +261,8 @@ def test_overlap_below_min_authors_returns_empty(social_db: Path) -> None:
         {
             "post_id": "t3_few_a",
             "author": "/u/a",
-            "published_at": "2026-08-10T12:00:00+00:00",
-            "bucket": "2026-08-10T08",
+            "published_at": _RECENT_AT,
+            "bucket": _RECENT_BUCKET,
             "title": "$TSLA",
             "symbols": {"TSLA"},
             "n_symbols": 1,
@@ -269,8 +274,8 @@ def test_overlap_below_min_authors_returns_empty(social_db: Path) -> None:
         {
             "post_id": "t3_few_b",
             "author": "/u/a",
-            "published_at": "2026-08-10T12:05:00+00:00",
-            "bucket": "2026-08-10T08",
+            "published_at": _RECENT_AT_5,
+            "bucket": _RECENT_BUCKET,
             "title": "$NVDA",
             "symbols": {"NVDA"},
             "n_symbols": 1,
@@ -367,8 +372,8 @@ async def test_perception_social_resource_wired(social_db: Path) -> None:
         {
             "post_id": f"t3_perc_{i}",
             "author": f"/u/u{i}",
-            "published_at": "2026-08-10T12:00:00+00:00",
-            "bucket": "2026-08-10T08",
+            "published_at": _RECENT_AT,
+            "bucket": _RECENT_BUCKET,
             "title": "$TSLA",
             "symbols": {"TSLA"},
             "n_symbols": 1,
@@ -382,8 +387,8 @@ async def test_perception_social_resource_wired(social_db: Path) -> None:
         {
             "post_id": f"t3_perc_n_{i}",
             "author": f"/u/u{i}",
-            "published_at": "2026-08-10T12:00:00+00:00",
-            "bucket": "2026-08-10T08",
+            "published_at": _RECENT_AT,
+            "bucket": _RECENT_BUCKET,
             "title": "$NVDA",
             "symbols": {"NVDA"},
             "n_symbols": 1,
