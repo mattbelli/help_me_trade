@@ -1304,9 +1304,9 @@ class AlpacaAdapter:
         seen: set[str] = set()
         for raw in symbols:
             sym = raw.strip().upper()
-            # "/" = futures notation (e.g. /CL): Alpaca stocks endpoints 400
+            # "/" = futures (/CL) or crypto (BTC/USD): Alpaca stocks endpoints 400
             # the entire batch on one such symbol.
-            if sym and sym not in seen and not sym.startswith("/"):
+            if sym and sym not in seen and "/" not in sym:
                 seen.add(sym)
                 cleaned.append(sym)
 
@@ -1553,9 +1553,9 @@ class AlpacaAdapter:
         seen: set[str] = set()
         for raw in symbols:
             sym = raw.strip().upper()
-            # "/" = futures notation (e.g. /CL): one such symbol 400s the
+            # "/" = futures (/CL) or crypto (BTC/USD): one such symbol 400s the
             # whole 200-symbol snapshot chunk.
-            if sym and sym not in seen and not sym.startswith("/"):
+            if sym and sym not in seen and "/" not in sym:
                 seen.add(sym)
                 cleaned.append(sym)
         if not cleaned:
