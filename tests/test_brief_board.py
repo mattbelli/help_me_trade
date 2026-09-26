@@ -434,3 +434,23 @@ def test_weekly_board_storage_and_resource(tmp_path: Path, monkeypatch: pytest.M
     assert wn["rows"][0]["weekend_news"]["headlines"][0]["headline"] == "h"
     md = (tmp_path / "2026-09-25-weekly" / "board.md").read_text()
     assert "(weekly" in md and "## Weekend headlines" in md
+
+
+async def test_week_lanes_count_only_days_inside_the_quota(monkeypatch: pytest.MonkeyPatch) -> None:
+    # HABIT fires every day but never makes the day's top 4; RARE tops one day only.
+    async def day_lanes(day: date, _nxt: date) -> dict:
+        lanes = {lane: {"hits": [], "newest": None} for lane in bb.LANE_QUOTAS}
+        top = [{"symbol": f"T{day.day}{i}", "why": ""} for i in range(4)]
+        if day == date(2026, 9, 23):
+            top[0] = {"symbol": "RARE", "why": ""}
+        lanes["abnormality"]["hits"] = top + [{"symbol": "HABIT", "why": ""}]
+        lanes["held"]["hits"] = [{"symbol": f"H{day.day}", "why": ""}]
+        return lanes
+
+    monkeypatch.setattr(bb, "_day_lanes", day_lanes)
+    monkeypatch.setattr(bb, "_liquidity_floor", lambda _d: lambda _s: True)
+    out = await bb._week_lanes(date(2026, 9, 25))
+    syms = {h["symbol"]: h["sessions"] for h in out["abnormality"]["hits"]}
+    assert "HABIT" not in syms
+    assert syms["RARE"] == ["2026-09-23"]
+    assert [h["symbol"] for h in out["held"]["hits"]] == ["H25"]  # the board's session only

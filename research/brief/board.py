@@ -878,8 +878,19 @@ async def _week_lanes(et_date: date) -> dict[str, Any]:
                 if not _is_error(lanes[lane]):
                     lanes[lane]["hits"] = [h for h in lanes[lane]["hits"] if liquid(h["symbol"])]
         per_day[day.isoformat()] = lanes
-    return {lane: combine_days({d: lanes[lane] for d, lanes in per_day.items()})
-            for lane in LANE_QUOTAS}
+    # A day counts only if the name made that day's quota: the abnormality lane fires
+    # ~500 names a session, so "fired on 5 days" would rank the habitual names first.
+    # Held reads today's positions and state whatever the date, so it runs once.
+    out = {lane: combine_days({d: _top(lanes[lane], LANE_QUOTAS[lane]) for d, lanes in per_day.items()})
+           for lane in LANE_QUOTAS if lane != "held"}
+    out["held"] = per_day[et_date.isoformat()]["held"]
+    return out
+
+
+def _top(result: dict[str, Any], n: int) -> dict[str, Any]:
+    if _is_error(result):
+        return result
+    return {**result, "hits": (result.get("hits") or [])[:n]}
 
 
 async def _candidates_section(et_date: date, nxt: date, mode: str = "nightly") -> dict[str, Any]:
