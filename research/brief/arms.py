@@ -26,7 +26,7 @@ from db.base import ROOT
 
 SPECIALISTS = {"flows": "high", "macro": "xhigh", "stocks": "high", "sectors": "medium"}  # production Opus effort
 GRADER_EFFORT = "high"
-SHADOW_ARMS = ("deepseek", "opus_lower")  # opus_lower = one effort step down; togglable
+SHADOW_ARMS = ("opus", "opus_lower")  # opt-in A/B (--shadow); opus_lower = one effort step down
 
 # Cadence. WEEKLY (Sunday 18:30 ET, after the futures reopen): every specialist, the
 # shadow arms + grader, the judge at max, the week ahead. NIGHTLY lite (weekdays
@@ -82,7 +82,7 @@ MODES: dict[str, dict[str, Any]] = {
     },
 }
 
-PRODUCTION_ARM = "opus"
+PRODUCTION_ARM = "deepseek"  # founder 09-26: DeepSeek flash writes the memos; Opus judges
 OPUS_MODEL = "claude-opus-5-5"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
@@ -141,11 +141,10 @@ def lower_effort(effort: str) -> str:
 def arms_for(spec: str, *, shadow: bool = True) -> list[tuple[str, str | None]]:
     """[(arm, opus effort or None)] — production first."""
     effort = SPECIALISTS[spec]
-    arms: list[tuple[str, str | None]] = [(PRODUCTION_ARM, effort)]
-    if shadow:
-        for arm in SHADOW_ARMS:
-            arms.append((arm, lower_effort(effort) if arm == "opus_lower" else None))
-    return arms
+    def arm_effort(arm: str) -> str | None:  # the Opus effort per arm; None for DeepSeek
+        return {"opus": effort, "opus_lower": lower_effort(effort)}.get(arm)
+
+    return [(arm, arm_effort(arm)) for arm in (PRODUCTION_ARM, *(SHADOW_ARMS if shadow else ()))]
 
 
 def render_prompt(name: str, **values: str) -> str:

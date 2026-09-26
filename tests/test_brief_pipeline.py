@@ -114,8 +114,8 @@ def test_build_facts_is_fail_soft_per_name(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_effort_ladder_and_arms() -> None:
     assert arms.lower_effort("xhigh") == "high" and arms.lower_effort("low") == "low"
-    assert arms.arms_for("macro") == [("opus", "xhigh"), ("deepseek", None), ("opus_lower", "high")]
-    assert arms.arms_for("macro", shadow=False) == [("opus", "xhigh")]
+    assert arms.arms_for("macro") == [("deepseek", None), ("opus", "xhigh"), ("opus_lower", "high")]
+    assert arms.arms_for("macro", shadow=False) == [("deepseek", None)]
     cmd = arms.claude_cmd("PROMPT", "high", arms.SPECIALIST_TOOLS)
     assert cmd[:6] == ["claude", "--model", "claude-opus-5-5", "--effort", "high", "-p"]
     assert cmd[cmd.index("--allowedTools") + 1:] == list(arms.SPECIALIST_TOOLS)
@@ -143,7 +143,7 @@ def test_grader_labels_are_randomized_and_the_map_persisted(tmp_path: Path) -> N
         grades = nb.plan_grades(tmp_path)
         assert json.loads((tmp_path / "grades.json").read_text()) == grades
         for g in grades["flows"]:
-            assert sorted(g["labels"].values()) == sorted(["opus", g["shadow"]])
+            assert sorted(g["labels"].values()) == sorted([arms.PRODUCTION_ARM, g["shadow"]])
             text = (tmp_path / g["input"]).read_text()
             assert "deepseek" not in g["input"] and "opus" not in g["input"]
             assert text.index("# Memo A") < text.index(f"memo by {g['labels']['A']}")
@@ -363,9 +363,15 @@ def _fake_spawn(fail: set[str], spawned: list[list[str]]) -> Any:
 
 
 def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str],
-               mode: str = "weekly", **opts: bool) -> tuple[int, list[str], list[list[str]]]:
+               mode: str = "weekly", production: str = "opus",
+               **opts: bool) -> tuple[int, list[str], list[list[str]]]:
     pages: list[str] = []
     spawned: list[list[str]] = []
+    # Orchestration is exercised with an Opus production arm by default: its claude
+    # spawns carry the prompts these tests inspect. Production routing has its own test.
+    monkeypatch.setattr(arms, "PRODUCTION_ARM", production)
+    monkeypatch.setattr(arms, "SHADOW_ARMS", tuple(a for a in ("opus", "deepseek", "opus_lower")
+                                                   if a != production))
     monkeypatch.setattr(nb, "BRIEFS_DIR", tmp_path)
     monkeypatch.setattr(nb, "build_board", lambda _d, mode: {**_BOARD, "mode": mode})
 
@@ -490,6 +496,21 @@ def test_nightly_lite_runs_flows_and_stocks_only(tmp_path: Path, monkeypatch: py
     specialist = next(c for c in spawned if "FLOWS specialist" in c[c.index("-p") + 1])
     assert "NIGHTLY lite brief" in specialist[specialist.index("-p") + 1]
     assert "--filter date=2026-09-25 --filter" in specialist[specialist.index("-p") + 1]
+
+
+def test_production_specialists_are_deepseek_and_only_the_judge_is_opus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail=set(), mode="weekly",
+                                    production="deepseek")
+    assert rc == 0 and pages == []
+    night = tmp_path / "2026-09-25-weekly"
+    assert sorted(p.name for p in night.glob("memo_*.md")) == [
+        f"memo_{s}_deepseek.md" for s in sorted(arms.SPECIALISTS)]
+    claude = [c for c in spawned if c[0] == "claude"]
+    assert len(claude) == 1 and "the JUDGE" in claude[0][claude[0].index("-p") + 1]
+    assert "memo_flows_deepseek.md" in claude[0][claude[0].index("-p") + 1]
+    assert (night / "brief.md").exists()
 
 
 def test_ab_only_runs_every_seat_and_arm_with_no_judge(tmp_path: Path,
