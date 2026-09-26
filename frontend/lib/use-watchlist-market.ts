@@ -56,26 +56,54 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let sparkTimer: ReturnType<typeof setInterval> | null = null;
 
-    function mergeQuote(symbol: string, patch: Partial<WatchlistQuote>) {
-      setQuotes((prev) => ({
-        ...prev,
-        [symbol]: {
-          ...prev[symbol],
-          price: patch.price ?? prev[symbol]?.price ?? 0,
-          change_pct: patch.change_pct ?? prev[symbol]?.change_pct ?? 0,
-          sparkline: patch.sparkline ?? prev[symbol]?.sparkline ?? [],
-          // Carry the extended/overnight fields through — the displayed price uses these
-          // when the market_session is pre/post/overnight. Dropping them was why the web
-          // froze at the last REST refresh while the phone (which polls fast) stayed live.
-          ext_price: patch.ext_price ?? prev[symbol]?.ext_price ?? null,
-          ext_change_pct: patch.ext_change_pct ?? prev[symbol]?.ext_change_pct ?? null,
-          market_session: patch.market_session ?? prev[symbol]?.market_session,
-          // REST polls don't carry bid/ask, so the last WS values must survive
-          // the merge — carry them forward when a frame omits them.
-          bid: patch.bid ?? prev[symbol]?.bid ?? null,
-          ask: patch.ask ?? prev[symbol]?.ask ?? null,
-        },
-      }));
+    // One setState per tick re-rendered every watchlist row hundreds of times
+    // a second and starved the main thread; coalesce ticks to one flush per frame.
+    let pending: Record<string, Partial<WatchlistQuote>> = {};
+    let flushFrame: number | null = null;
+
+    function queueQuote(symbol: string, patch: Partial<WatchlistQuote>) {
+      const merged: Record<string, unknown> = { ...pending[symbol] };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v != null) merged[k] = v;
+      }
+      pending[symbol] = merged as Partial<WatchlistQuote>;
+      flushFrame ??= requestAnimationFrame(flushQuotes);
+    }
+
+    function flushQuotes() {
+      flushFrame = null;
+      const batch = pending;
+      pending = {};
+      setQuotes((prev) => {
+        const out = { ...prev };
+        for (const [symbol, patch] of Object.entries(batch)) {
+          out[symbol] = mergedQuote(prev, symbol, patch);
+        }
+        return out;
+      });
+    }
+
+    function mergedQuote(
+      prev: Record<string, WatchlistQuote>,
+      symbol: string,
+      patch: Partial<WatchlistQuote>,
+    ): WatchlistQuote {
+      return {
+        ...prev[symbol],
+        price: patch.price ?? prev[symbol]?.price ?? 0,
+        change_pct: patch.change_pct ?? prev[symbol]?.change_pct ?? 0,
+        sparkline: patch.sparkline ?? prev[symbol]?.sparkline ?? [],
+        // Carry the extended/overnight fields through — the displayed price uses these
+        // when the market_session is pre/post/overnight. Dropping them was why the web
+        // froze at the last REST refresh while the phone (which polls fast) stayed live.
+        ext_price: patch.ext_price ?? prev[symbol]?.ext_price ?? null,
+        ext_change_pct: patch.ext_change_pct ?? prev[symbol]?.ext_change_pct ?? null,
+        market_session: patch.market_session ?? prev[symbol]?.market_session,
+        // REST polls don't carry bid/ask, so the last WS values must survive
+        // the merge — carry them forward when a frame omits them.
+        bid: patch.bid ?? prev[symbol]?.bid ?? null,
+        ask: patch.ask ?? prev[symbol]?.ask ?? null,
+      };
     }
 
     function mergeQuotes(next: Record<string, WatchlistQuote>) {
@@ -142,7 +170,7 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
             setLoading(false);
           }
           if (msg.type === "quote" && msg.symbol) {
-            mergeQuote(msg.symbol, {
+            queueQuote(msg.symbol, {
               price: msg.price,
               change_pct: msg.change_pct,
               sparkline: msg.sparkline,
@@ -183,6 +211,7 @@ export function useWatchlistMarket({ symbols, enabled = true }: Options) {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (sparkTimer) clearInterval(sparkTimer);
+      if (flushFrame != null) cancelAnimationFrame(flushFrame);
       ws?.close();
     };
   }, [enabled, key]);

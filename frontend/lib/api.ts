@@ -207,23 +207,28 @@ export async function fetchSnapshot(): Promise<Snapshot> {
   return res.json();
 }
 
+// Formatters are built once: toLocaleString constructs a fresh Intl formatter on
+// every call, which dominated the positions table's per-tick render cost.
+const MONEY_FMT = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+const QTY_FMT = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 3,
+  useGrouping: false,
+});
+
 export function formatMoney(value: number): string {
-  return value.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return MONEY_FMT.format(value);
 }
 
 // Share quantity: whole shares show clean (48), fractional caps at 3 decimals
 // (0.871166 -> 0.871) with trailing zeros dropped. Display only — full precision
 // stays in the data.
 export function formatQty(value: number): string {
-  return value.toLocaleString(undefined, {
-    maximumFractionDigits: 3,
-    useGrouping: false,
-  });
+  return QTY_FMT.format(value);
 }
 
 export type PnlRange = "1D" | "3D" | "1W" | "1M" | "1Y" | "ALL";

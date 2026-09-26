@@ -164,22 +164,23 @@ function paperColumns(
   ];
 }
 
+const ENTERED_DATE_FMT = new Intl.DateTimeFormat("en-US", {
+  month: "2-digit",
+  day: "2-digit",
+  year: "numeric",
+});
+const ENTERED_TIME_FMT = new Intl.DateTimeFormat("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 // ISO timestamp → "07/16/2026 09:33" in the viewer's local time.
 function formatEntered(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const date = d.toLocaleDateString("en-US", {
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric",
-  });
-  const time = d.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  return `${date} ${time}`;
+  return `${ENTERED_DATE_FMT.format(d)} ${ENTERED_TIME_FMT.format(d)}`;
 }
 
 function sortPositions(
