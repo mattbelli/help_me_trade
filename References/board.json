@@ -54,6 +54,17 @@
    "notes": "Founder authorized backup cleanup: stop the optional raw equity-frame tee; preserve the 2026-08-18 replay reference plus five completed sessions on source and USB; cap re-downloadable weekly corpus snapshots at two.\n2026-09-15: Disabled the optional raw-frame tee; retained the 2026-08-18 replay fixture plus five complete sessions on serv and USB; removed 93.09 GiB from serv and 128.84 GiB from USB. The collector restarted cleanly, subscribes live, and reports rec frames=0. Shell syntax and retention smoke checks passed."
   },
   {
+   "num": 346,
+   "id": "watchlist-quiet-glide-and-stable-click-targets",
+   "title": "Watchlist quiet glide and stable click targets",
+   "lane": "done",
+   "type": "improvement",
+   "priority": "medium",
+   "owner": "agent",
+   "updated_at": "2026-09-26",
+   "notes": "Founder approved quiet vertical glide, two-second automatic ranking cadence, pointer hold with one-second leave grace, and removal of rank flashes. Keep existing value thresholds; header sorting remains immediate.\n2026-09-14: Implemented 550ms quiet vertical glide, two-second batching, pointer hold with one-second leave grace, fresh-quote sorting and transition cancellation cleanup. Typecheck, token check and 9 sort tests pass. Browser fixture checks pass for native scoped transitions, WAAPI fallback and reduced motion: live quotes during hold, leave grace, cadence and rapid header switches. Production build isolated from unrelated working-tree edits; founder trial pending.\n2026-09-14: Trial deployed to hmt-frontend from isolated HEAD + hook/CSS build; service active, root HTTP 200, live CSS checked. Unrelated working-tree edits excluded. Temporary dev server stopped. Founder live-session feedback pending before commit.\n2026-09-26: 2026-09-26: committed. Live since the 09-23 frontend build (founder has used it ~12 days); the trial rollback build in /tmp is obsolete. Founder to say if the 550ms glide / 2s cadence needs adjusting."
+  },
+  {
    "num": 345,
    "id": "schwab-position-change-accelerated-ledger-refres",
    "title": "Schwab position change → accelerated ledger refresh",

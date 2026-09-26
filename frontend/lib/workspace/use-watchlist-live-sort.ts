@@ -20,10 +20,14 @@ import {
   type SortValue,
 } from "@/lib/workspace/watchlist-sort";
 
-export const WATCHLIST_RANK_MS = 420;
+export const WATCHLIST_RANK_MS = 550;
+const LIVE_RANK_INTERVAL_MS = 2_000;
+const POINTER_LEAVE_GRACE_MS = 1_000;
 
 type ViewTransitionLike = {
+  ready: Promise<void>;
   finished: Promise<void>;
+  skipTransition: () => void;
 };
 
 type ViewTransitionHost = HTMLElement & {
@@ -36,20 +40,6 @@ function vtIdent(value: string): string {
 
 export function watchlistRowVtName(instanceId: string, symbol: string): string {
   return `wl-${vtIdent(instanceId)}-${vtIdent(symbol)}`;
-}
-
-function dirsFrom(
-  prev: readonly string[],
-  next: readonly string[],
-): Map<string, "up" | "down"> {
-  const prevIdx = new Map(prev.map((s, i) => [s, i]));
-  const dirs = new Map<string, "up" | "down">();
-  for (let i = 0; i < next.length; i++) {
-    const j = prevIdx.get(next[i]);
-    if (j == null || j === i) continue;
-    dirs.set(next[i], i < j ? "up" : "down");
-  }
-  return dirs;
 }
 
 function captureTops(
@@ -68,38 +58,31 @@ function playFlip(
   nodes: Map<string, HTMLElement>,
   firstTops: Map<string, number>,
   lastTops: Map<string, number>,
-): void {
+): Animation[] {
+  const animations: Animation[] = [];
   for (const [sym, el] of nodes) {
     const first = firstTops.get(sym);
     const last = lastTops.get(sym);
     if (first == null || last == null) continue;
-    const currentY = new DOMMatrix(getComputedStyle(el).transform).f;
-    const dy = first + currentY - last;
+    const dy = first - last;
     if (Math.abs(dy) < 1.5) continue;
 
-    for (const anim of el.getAnimations()) {
-      if (anim.id === "wl-flip") anim.cancel();
-    }
-
-    el.classList.remove("wl-rank-up", "wl-rank-down");
-    el.classList.add(dy > 0 ? "wl-rank-up" : "wl-rank-down");
-    const anim = el.animate(
-      [
-        { transform: `translateY(${dy}px)` },
-        { transform: "translateY(0px)" },
-      ],
-      {
-        id: "wl-flip",
-        duration: WATCHLIST_RANK_MS,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-        fill: "none",
-      },
-    );
-    void anim.finished.then(
-      () => el.classList.remove("wl-rank-up", "wl-rank-down"),
-      () => el.classList.remove("wl-rank-up", "wl-rank-down"),
+    animations.push(
+      el.animate(
+        [
+          { transform: `translateY(${dy}px)` },
+          { transform: "translateY(0px)" },
+        ],
+        {
+          id: "wl-flip",
+          duration: WATCHLIST_RANK_MS,
+          easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+          fill: "none",
+        },
+      ),
     );
   }
+  return animations;
 }
 
 export function useWatchlistLiveSort({
@@ -127,140 +110,173 @@ export function useWatchlistLiveSort({
 } {
   const reduceMotion = useReducedMotion();
   const [liveOrder, setLiveOrder] = useState<string[] | null>(null);
-  const [rankDirs, setRankDirs] = useState<Map<string, "up" | "down">>(
-    () => new Map(),
-  );
   const scopeRef = useRef<HTMLDivElement>(null);
   const nodesRef = useRef(new Map<string, HTMLElement>());
   const liveOrderRef = useRef<string[] | null>(null);
   const sortIdRef = useRef<string | null>(null);
-  const animatingRef = useRef(false);
-  const pendingRef = useRef<string[] | null>(null);
-  const flipTimerRef = useRef<number | null>(null);
+  const nextRankAtRef = useRef(0);
+  const resumeAtRef = useRef(0);
+  const pointerOverRef = useRef(false);
   const getValueRef = useRef(getValue);
-  const baseOrderRef = useRef(baseOrder);
-  getValueRef.current = getValue;
-  baseOrderRef.current = baseOrder;
-  liveOrderRef.current = liveOrder;
-
-  const registerRow = useCallback((symbol: string, el: HTMLLIElement | null) => {
-    if (el) nodesRef.current.set(symbol, el);
-    else nodesRef.current.delete(symbol);
-  }, []);
-
-  const commit = useCallback(
-    (next: string[]) => {
-      // When sort just engaged, liveOrder is still null but the DOM is showing
-      // baseOrder — that's the FLIP "first" and the VT old snapshot.
-      const prev = liveOrderRef.current ?? baseOrderRef.current;
-      if (ordersEqual(prev, next)) return;
-
-      if (animatingRef.current) {
-        pendingRef.current = next;
-        return;
-      }
-
-      const dirs = dirsFrom(prev, next);
-      const canAnimate =
-        pageActive && !reduceMotion && !isDragging && dirs.size > 0;
-
-      const apply = () => {
-        liveOrderRef.current = next;
-        flushSync(() => {
-          setRankDirs(dirs);
-          setLiveOrder(next);
-        });
-      };
-
-      const finish = () => {
-        animatingRef.current = false;
-        setRankDirs(new Map());
-        const queued = pendingRef.current;
-        pendingRef.current = null;
-        // Sort was cleared while we were in flight — drop the queued seat.
-        if (queued && sortIdRef.current) commit(queued);
-      };
-
-      if (!canAnimate) {
-        apply();
-        return;
-      }
-
-      const scope = scopeRef.current as ViewTransitionHost | null;
-      if (scope && typeof scope.startViewTransition === "function") {
-        animatingRef.current = true;
-        try {
-          const vt = scope.startViewTransition(apply);
-          void vt.finished.then(finish, finish);
-          return;
-        } catch {
-          animatingRef.current = false;
-        }
-      }
-
-      const scrolledX = (scrollerRef.current?.scrollLeft ?? 0) > 0;
-      if (scrolledX || !scope) {
-        apply();
-        return;
-      }
-
-      const firstTops = captureTops(nodesRef.current, scope);
-      animatingRef.current = true;
-      apply();
-      playFlip(nodesRef.current, firstTops, captureTops(nodesRef.current, scope));
-      if (flipTimerRef.current != null) window.clearTimeout(flipTimerRef.current);
-      flipTimerRef.current = window.setTimeout(finish, WATCHLIST_RANK_MS);
-    },
-    [isDragging, pageActive, reduceMotion, scrollerRef],
-  );
-
   useEffect(() => {
-    return () => {
-      if (flipTimerRef.current != null) window.clearTimeout(flipTimerRef.current);
-    };
-  }, []);
+    getValueRef.current = getValue;
+  }, [getValue]);
+
+  const registerRow = useCallback(
+    (symbol: string, el: HTMLLIElement | null) => {
+      if (el) nodesRef.current.set(symbol, el);
+      else nodesRef.current.delete(symbol);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!sortState || isDragging) {
       sortIdRef.current = null;
-      pendingRef.current = null;
-      animatingRef.current = false;
-      if (flipTimerRef.current != null) {
-        window.clearTimeout(flipTimerRef.current);
-        flipTimerRef.current = null;
-      }
-      if (liveOrderRef.current !== null) {
-        liveOrderRef.current = null;
-        setLiveOrder(null);
-        setRankDirs(new Map());
-      }
+      liveOrderRef.current = null;
+      setLiveOrder(null);
       return;
     }
 
+    let active = true;
+    let timer: number | undefined;
+    let transition: ViewTransitionLike | undefined;
+    let animations: Animation[] = [];
+    let animating = false;
     const sortId = `${sortState.key}:${sortState.dir}`;
-    const switched = sortIdRef.current !== sortId;
-    sortIdRef.current = sortId;
+    const scroller = scrollerRef.current;
+    // A header click may enable sorting with the pointer already inside.
+    pointerOverRef.current =
+      window.matchMedia("(any-hover: hover)").matches &&
+      (scroller?.matches(":hover") ?? false);
 
-    const current = reconcileOrder(
-      liveOrderRef.current ?? baseOrder,
-      baseOrder,
-    );
-    const next = switched
-      ? fullSort(current, getValueRef.current, sortState)
-      : stickySort(current, getValueRef.current, sortState);
-    commit(next);
-  }, [sortState, baseOrder, getValue, isDragging, commit]);
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!active || !pageActive || pointerOverRef.current || animating) return;
+      const due = Math.max(nextRankAtRef.current, resumeAtRef.current);
+      timer = window.setTimeout(rank, Math.max(0, due - Date.now()));
+    };
+
+    const finish = () => {
+      if (!active) return;
+      animating = false;
+      schedule();
+    };
+
+    const commit = (next: string[]) => {
+      const prev = liveOrderRef.current ?? baseOrder;
+      const apply = () => {
+        // An old browser snapshot must not restore a cleared sort or list.
+        if (!active) return;
+        sortIdRef.current = sortId;
+        liveOrderRef.current = next;
+        flushSync(() => setLiveOrder(next));
+      };
+      // Record an explicit sort even when its order matches the persisted list.
+      if (ordersEqual(prev, next)) {
+        sortIdRef.current = sortId;
+        if (liveOrderRef.current === null) apply();
+        return;
+      }
+
+      const scope = scopeRef.current as ViewTransitionHost | null;
+      if (!pageActive || reduceMotion || !scope) {
+        apply();
+        return;
+      }
+      if (typeof scope.startViewTransition === "function") {
+        animating = true;
+        try {
+          transition = scope.startViewTransition(apply);
+          // Rapid header clicks intentionally skip the previous snapshot.
+          void transition.ready.catch(() => {});
+          void transition.finished.then(finish, finish);
+          return;
+        } catch {
+          animating = false;
+        }
+      }
+      // Transforming the real rows would break the frozen symbol column here.
+      if ((scroller?.scrollLeft ?? 0) > 0) {
+        apply();
+        return;
+      }
+      const firstTops = captureTops(nodesRef.current, scope);
+      apply();
+      animations = playFlip(
+        nodesRef.current,
+        firstTops,
+        captureTops(nodesRef.current, scope),
+      );
+      animating = animations.length > 0;
+      if (animating) {
+        void Promise.allSettled(
+          animations.map((animation) => animation.finished),
+        ).then(finish);
+      }
+    };
+
+    function rank() {
+      if (!active) return;
+      const switched = sortIdRef.current !== sortId;
+      const current = reconcileOrder(
+        liveOrderRef.current ?? baseOrder,
+        baseOrder,
+      );
+      const held = pointerOverRef.current || Date.now() < resumeAtRef.current;
+      if (
+        switched ||
+        (!held && pageActive && Date.now() >= nextRankAtRef.current)
+      ) {
+        nextRankAtRef.current = Date.now() + LIVE_RANK_INTERVAL_MS;
+        commit(
+          switched
+            ? fullSort(current, getValueRef.current, sortState!)
+            : stickySort(current, getValueRef.current, sortState!),
+        );
+      } else if (!ordersEqual(current, liveOrderRef.current ?? baseOrder)) {
+        // Adds/removals still appear while automatic ranking is held.
+        commit(current);
+      }
+      schedule();
+    }
+
+    const enter = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      pointerOverRef.current = true;
+      window.clearTimeout(timer);
+    };
+    const leave = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      pointerOverRef.current = false;
+      resumeAtRef.current = Date.now() + POINTER_LEAVE_GRACE_MS;
+      schedule();
+    };
+    scroller?.addEventListener("pointerenter", enter);
+    scroller?.addEventListener("pointerleave", leave);
+    // Run outside the effect so FLIP can flush the new row layout synchronously.
+    // Header changes bypass the pointer hold and cadence, including mid-glide.
+    timer = window.setTimeout(rank, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      scroller?.removeEventListener("pointerenter", enter);
+      scroller?.removeEventListener("pointerleave", leave);
+      transition?.skipTransition();
+      for (const animation of animations) animation.cancel();
+    };
+  }, [sortState, baseOrder, isDragging, pageActive, reduceMotion, scrollerRef]);
 
   const rowVtStyle = useCallback(
-    (symbol: string): CSSProperties | undefined => {
-      if (!sortState) return undefined;
-      const dir = rankDirs.get(symbol);
-      return {
-        viewTransitionName: watchlistRowVtName(instanceId, symbol),
-        viewTransitionClass: dir ? `wl-row wl-row-${dir}` : "wl-row",
-      };
-    },
-    [instanceId, rankDirs, sortState],
+    (symbol: string): CSSProperties | undefined =>
+      sortState
+        ? {
+            viewTransitionName: watchlistRowVtName(instanceId, symbol),
+            viewTransitionClass: "wl-row",
+          }
+        : undefined,
+    [instanceId, sortState],
   );
 
   return {
