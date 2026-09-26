@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,10 @@ SESSION_TIMEOUT_S = 30 * 60
 DEEPSEEK_MAX_ROUNDS = 16
 DEEPSEEK_MAX_TOKENS = 32_000
 WEB_CALL_CAP = 5
+# Claude sessions at once on the founder's subscription: 8 specialists + up to 8 graders
+# all at once risks its rate limits. Queued sessions wait; their timeout starts on launch.
+CLAUDE_CONCURRENCY = 4
+_claude_slots = threading.BoundedSemaphore(CLAUDE_CONCURRENCY)
 
 PROMPTS_DIR = ROOT / "research" / "brief_prompts"
 _PERCEPTION = "Bash(uv run python tools/perception_query.py:*)"
@@ -136,8 +141,9 @@ def parse_stream(stdout: str) -> dict[str, Any]:
 
 def run_claude(prompt: str, effort: str, tools: tuple[str, ...], *,
                timeout: float = SESSION_TIMEOUT_S) -> dict[str, Any]:
-    t0 = time.monotonic()
-    code, out, err = _spawn(claude_cmd(prompt, effort, tools), timeout)
+    with _claude_slots:
+        t0 = time.monotonic()
+        code, out, err = _spawn(claude_cmd(prompt, effort, tools), timeout)
     res = parse_stream(out)
     res["wall_s"] = round(time.monotonic() - t0, 1)
     res["effort"] = effort

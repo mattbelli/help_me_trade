@@ -112,6 +112,7 @@ def run_arm(spec: str, arm: str, effort: str | None, board: dict[str, Any],
 def run_specialists(board: dict[str, Any], brief_dir: Path, *, shadow: bool) -> dict[str, Any]:
     jobs = [(spec, arm, effort) for spec in arms.SPECIALISTS
             for arm, effort in arms.arms_for(spec, shadow=shadow)]
+    jobs.sort(key=lambda j: j[1] != arms.PRODUCTION_ARM)  # production takes the first slots
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {f"{s}_{a}": pool.submit(run_arm, s, a, e, board, brief_dir) for s, a, e in jobs}
     out = {}
