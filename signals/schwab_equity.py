@@ -1,183 +1,101 @@
-"""Reconstruct a ~month daily equity curve for the real Schwab accounts.
+"""Schwab account-value history from recorded broker liquidation values.
 
-Schwab has no account-value history API, so we ANCHOR at the live liquidation
-value and walk backward through every cash flow (trades, deposits/withdrawals,
-dividends/interest) from the Transactions API. On a day the account ended fully
-in CASH, cash == account value, so the reconstructed point is **exact**. On a day
-with an overnight position we can't value the holding (margin/multipliers), so we
-**skip that day** (honest gap) rather than show a wrong figure.
-
-Flat/held status is walked backward from the current live position (the account
-is known-flat-or-not right now), so it never depends on incomplete pre-window
-history. The latest point always equals the real current balance.
+Transactions alone cannot reconstruct account equity while holdings change in
+value. Use the daily Schwab snapshots (including held days), and the latest
+successful account snapshot for today's endpoint. No historical values are
+invented before recording began, and incomplete aggregate days are omitted.
 """
 
 from __future__ import annotations
 
-import threading
-import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from imports.money import parse_dollar
+from db.base import DEFAULT_DB_PATH, connect
+from db.schwab_history import init_schwab_history_tables
 
 _ET = ZoneInfo("America/New_York")
-_CACHE_TTL = 90.0
-_EPS = Decimal("0.000001")
-_cache: dict = {}
-_lock = threading.Lock()
+_RANGE_DAYS = {"3D": 3, "1W": 7, "1M": 30, "1Y": 365}
 
 
-def _tx_et_date(tx: dict[str, Any]) -> str | None:
-    raw = tx.get("tradeDate") or tx.get("time") or tx.get("settlementDate") or ""
-    if not isinstance(raw, str) or not raw:
-        return None
-    try:
-        if "T" in raw:
-            return (
-                datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                .astimezone(_ET)
-                .date()
-                .isoformat()
-            )
-        return date.fromisoformat(raw[:10]).isoformat()
-    except ValueError:
-        return None
+def schwab_equity_curve(
+    account_id: str | None = None, *, days: int = 30, range_key: str | None = None
+) -> dict[str, Any]:
+    # Account refresh already has its own single-flight cache. The history read
+    # is local and cheap; a second curve cache only delays new balance captures.
+    return _compute(account_id, days, range_key=range_key)
 
 
-def _tx_cash(tx: dict[str, Any]) -> Decimal:
-    net = tx.get("netAmount")
-    if net is not None:
-        return parse_dollar(str(net))
-    total = Decimal("0")
-    for leg in tx.get("transferItems") or []:
-        if isinstance(leg, dict) and leg.get("amount") is not None:
-            total += parse_dollar(str(leg.get("amount")))
-    return total
-
-
-def _trade_legs(tx: dict[str, Any]):
-    """(symbol, signed_qty) for each security leg of a TRADE transaction."""
-    for leg in tx.get("transferItems") or []:
-        if not isinstance(leg, dict):
-            continue
-        instr = leg.get("instrument") or {}
-        if instr.get("assetType") in (None, "CURRENCY"):
-            continue
-        symbol = str(instr.get("uniformSymbol") or instr.get("symbol") or "")
-        amount = leg.get("amount")
-        if symbol and amount is not None:
-            yield symbol, parse_dollar(str(amount))
-
-
-def schwab_equity_curve(account_id: str | None = None, *, days: int = 30) -> dict[str, Any]:
-    """Daily equity points on FLAT (all-cash) days only, for a real Schwab account
-    (``schwab_<last4>``) or, when ``account_id`` is None, all real accounts."""
-    key = f"{account_id}|{days}"
-    now = time.time()
-    with _lock:
-        hit = _cache.get(key)
-        if hit and (now - hit[0]) < _CACHE_TTL:
-            return hit[1]
-    result = _compute(account_id, days)
-    with _lock:
-        _cache[key] = (now, result)
-    return result
-
-
-def _compute(account_id: str | None, days: int) -> dict[str, Any]:
+def _compute(
+    account_id: str | None,
+    days: int,
+    *,
+    range_key: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+    today: date | None = None,
+) -> dict[str, Any]:
     from brokers.schwab_accounts import get_schwab_accounts_sync
-    from brokers.schwab_auth import create_client
 
     live = get_schwab_accounts_sync()
-    if not live.get("authenticated"):
-        return {"authenticated": False, "points": []}
+    result: dict[str, Any] = {
+        "authenticated": bool(live.get("authenticated")),
+        "source": "schwab_snapshots",
+        "stale": bool(live.get("stale") or live.get("error")),
+        "history_start": None,
+        "history_end": None,
+        "points": [],
+    }
+    if not result["authenticated"]:
+        return result
     accounts = live.get("accounts", [])
     if account_id:
         accounts = [a for a in accounts if a.get("id") == account_id]
     if not accounts:
-        return {"authenticated": True, "points": []}
+        return result
 
-    client = create_client()
-    resp = client.get_account_numbers()
-    resp.raise_for_status()
-    last4_to_hash = {
-        str(a.get("accountNumber", ""))[-4:]: a.get("hashValue", "")
-        for a in resp.json()
-    }
+    ids = {a["id"] for a in accounts}
+    end = today or datetime.now(_ET).date()
+    init_schwab_history_tables(db_path)
+    placeholders = ",".join("?" for _ in ids)
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            f"SELECT snapshot_date, account_id, liquidation_value FROM schwab_account_daily "
+            f"WHERE account_id IN ({placeholders}) AND snapshot_date <= ? "
+            "ORDER BY snapshot_date",
+            (*sorted(ids), end.isoformat()),
+        ).fetchall()
 
-    end = datetime.now(_ET).date()
-    start = end - timedelta(days=days)
-    current_liq = sum(Decimal(str(a.get("liquidation_value") or 0)) for a in accounts)
+    by_day: dict[str, dict[str, Decimal]] = defaultdict(dict)
+    for row in rows:
+        if row["liquidation_value"] is not None:
+            by_day[row["snapshot_date"]][row["account_id"]] = Decimal(row["liquidation_value"])
 
-    # current holdings (anchor for the backward position walk)
-    current_pos: dict[tuple, Decimal] = defaultdict(lambda: Decimal("0"))
-    for acct in accounts:
-        for pos in acct.get("positions") or []:
-            current_pos[(acct["last4"], pos["symbol"])] += Decimal(str(pos.get("qty") or 0))
-
-    cash_delta: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    pos_delta: dict[str, dict[tuple, Decimal]] = defaultdict(
-        lambda: defaultdict(lambda: Decimal("0"))
-    )
-    for acct in accounts:
-        account_hash = last4_to_hash.get(acct.get("last4"))
-        if not account_hash:
-            continue
-        r = client.get_transactions(
-            account_hash,
-            start_date=datetime.combine(start, datetime.min.time()),
-            end_date=datetime.combine(end, datetime.max.time()),
-        )
-        r.raise_for_status()
-        for tx in r.json() or []:
-            day = _tx_et_date(tx)
-            if not day:
-                continue
-            cash_delta[day] += _tx_cash(tx)
-            if str(tx.get("type", "")).upper() == "TRADE":
-                for symbol, qty in _trade_legs(tx):
-                    pos_delta[day][(acct["last4"], symbol)] += qty
-
-    all_days = [
-        (start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)
+    current = {a["id"]: Decimal(str(a["liquidation_value"])) for a in accounts
+               if a.get("liquidation_value") is not None}
+    result["current_liquidation"] = float(sum(current.values()))
+    # A stale cache must never be relabelled as a new day's observation.
+    fetched_at = live.get("fetched_at")
+    fetched_today = fetched_at and datetime.fromtimestamp(fetched_at, _ET).date() == end
+    if not result["stale"] and fetched_today and current.keys() == ids:
+        by_day[end.isoformat()] = current
+    points = [
+        {"date": day, "equity": round(float(sum(values.values())), 2)}
+        for day, values in sorted(by_day.items())
+        if values.keys() == ids
     ]
-    points, skipped = _reconstruct_flat_days(
-        all_days, cash_delta, pos_delta, current_liq, current_pos
-    )
-    return {
-        "authenticated": True,
-        "current_liquidation": float(current_liq),
-        "days": days,
-        "skipped_held_days": skipped,
-        "points": points,
-    }
-
-
-def _reconstruct_flat_days(
-    all_days: list[str],
-    cash_delta: dict[str, Decimal],
-    pos_delta: dict[str, dict[tuple, Decimal]],
-    current_liq: Decimal,
-    current_pos: dict[tuple, Decimal],
-) -> tuple[list[dict[str, Any]], int]:
-    """Walk backward from today's anchor (current_liq / current_pos), emitting an
-    exact equity point only on days the account ended FLAT (no holdings); skip the
-    rest. Pure — unit-tested. Returns (points ascending, skipped_held_days)."""
-    running_eq = current_liq
-    running_pos = dict(current_pos)
-    points: list[dict[str, Any]] = []
-    skipped = 0
-    for day in reversed(all_days):
-        if all(abs(v) < _EPS for v in running_pos.values()):
-            points.append({"date": day, "equity": round(float(running_eq), 2)})
-        else:
-            skipped += 1
-        running_eq -= cash_delta.get(day, Decimal("0"))
-        for key, qty in pos_delta.get(day, {}).items():
-            running_pos[key] = running_pos.get(key, Decimal("0")) - qty
-    points.reverse()
-    return points, skipped
+    if points:
+        result["history_start"] = points[0]["date"]
+        result["history_end"] = points[-1]["date"]
+    if range_key == "1D":
+        # Daily observations, not an invented intraday series: previous close
+        # to latest balance. Keep the last available pair over weekends too.
+        points = points[-2:]
+    elif range_key != "ALL":
+        start = (end - timedelta(days=_RANGE_DAYS.get(range_key, days))).isoformat()
+        points = [p for p in points if p["date"] >= start]
+    result["points"] = points
+    return result

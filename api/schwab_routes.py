@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter
 
 from brokers.schwab_accounts import get_schwab_accounts
@@ -24,9 +26,13 @@ def schwab_history(account_id: str | None = None, limit: int = 400) -> dict:
 
 
 @router.get("/equity-curve")
-def schwab_equity(account_id: str | None = None, days: int = 30) -> dict:
+def schwab_equity(
+    account_id: str | None = None,
+    days: int = 30,
+    range: Literal["1D", "3D", "1W", "1M", "1Y", "ALL"] | None = None,
+) -> dict:
     """Daily equity curve for a real Schwab account (schwab_<last4>) or all real
-    (omitted / all_real). Exact points on flat all-cash days; hold days are gaps."""
+    (omitted / all_real), using recorded Schwab balances including holdings."""
     from signals.schwab_equity import schwab_equity_curve
 
     scope = (
@@ -34,4 +40,4 @@ def schwab_equity(account_id: str | None = None, days: int = 30) -> dict:
         if account_id in (None, "", "all", "all_real", "overview")
         else account_id
     )
-    return schwab_equity_curve(scope, days=max(1, min(days, 90)))
+    return schwab_equity_curve(scope, days=max(1, min(days, 3650)), range_key=range)
