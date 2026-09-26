@@ -11,7 +11,7 @@ import {
   type MouseEvent,
   type PointerEvent,
 } from "react";
-import ReactGridLayout, { type Layout } from "react-grid-layout/legacy";
+import ReactGridLayout, { type Layout, type LayoutItem } from "react-grid-layout/legacy";
 import { Bell, BellOff, Check, ChevronDown, Eye, Menu as MenuIcon, Plus, SlidersHorizontal, TrendingUp, X } from "lucide-react";
 
 import { useSnapshot } from "@/components/providers/snapshot-provider";
@@ -1149,6 +1149,7 @@ function WorkspacePageGrid({
   const updateLayout = useWorkspaceStore((s) => s.updateLayout);
   const updateWidgetConfig = useWorkspaceStore((s) => s.updateWidgetConfig);
   const removeWidget = useWorkspaceStore((s) => s.removeWidget);
+  const duplicateWidget = useWorkspaceStore((s) => s.duplicateWidget);
   const setGridCols = useWorkspaceStore((s) => s.setGridCols);
 
   const layout = page.layout;
@@ -1191,6 +1192,80 @@ function WorkspacePageGrid({
     [layout, updateLayout, page.id],
   );
 
+  // Alt arms a copy. Tracked on every drag event, not just mousedown, so
+  // pressing or releasing Alt mid-drag flips the gesture — and the ghost that
+  // marks the original's cell appears/disappears with it.
+  const altDragRef = useRef<string | null>(null);
+  const [copySourceId, setCopySourceId] = useState<string | null>(null);
+
+  const armCopy = useCallback(
+    (item: LayoutItem | null, event: Event) => {
+      const alt = (event as globalThis.MouseEvent).altKey === true;
+      const source = item ? layout.find((l) => l.i === item.i) : undefined;
+      // A single-instance widget can't be copied — never promise one.
+      const next =
+        alt && source && getWidgetDefinition(source.type)?.multiInstance
+          ? source.i
+          : null;
+      if (altDragRef.current === next) return; // re-render only on the flip
+      altDragRef.current = next;
+      setCopySourceId(next);
+    },
+    [layout],
+  );
+
+  const handleDragStart = useCallback(
+    (
+      _layout: Layout,
+      oldItem: LayoutItem | null,
+      _newItem: LayoutItem | null,
+      _placeholder: LayoutItem | null,
+      event: Event,
+    ) => armCopy(oldItem, event),
+    [armCopy],
+  );
+
+  const handleDrag = useCallback(
+    (
+      _layout: Layout,
+      oldItem: LayoutItem | null,
+      _newItem: LayoutItem | null,
+      _placeholder: LayoutItem | null,
+      event: Event,
+    ) => armCopy(oldItem, event),
+    [armCopy],
+  );
+
+  // Figma's alt-drag: the COPY lands where you let go and the original returns
+  // to the cell it came from (we simply don't persist the move). A
+  // single-instance widget can't be copied — duplicateWidget refuses and the
+  // gesture falls through to an ordinary move.
+  const handleDragStop = useCallback(
+    (nextLayout: Layout, oldItem: LayoutItem | null) => {
+      const sourceId = altDragRef.current;
+      altDragRef.current = null;
+      setCopySourceId(null);
+      const dropped = sourceId
+        ? nextLayout.find((cell) => cell.i === sourceId)
+        : undefined;
+      if (
+        sourceId &&
+        dropped &&
+        oldItem &&
+        (dropped.x !== oldItem.x || dropped.y !== oldItem.y) &&
+        duplicateWidget(sourceId, { x: dropped.x, y: dropped.y }, page.id)
+      ) {
+        return;
+      }
+      persistLayout(nextLayout);
+    },
+    [duplicateWidget, page.id, persistLayout],
+  );
+
+  const copySource = copySourceId
+    ? layout.find((item) => item.i === copySourceId)
+    : undefined;
+
   if (layout.length === 0) return null;
 
   return (
@@ -1221,7 +1296,9 @@ function WorkspacePageGrid({
         containerPadding={[0, 0]}
         compactType={null}
         preventCollision
-        onDragStop={persistLayout}
+        onDragStart={handleDragStart}
+        onDrag={handleDrag}
+        onDragStop={handleDragStop}
         onResizeStop={persistLayout}
         draggableHandle=".workspace-drag-handle"
         draggableCancel=".workspace-no-drag"
@@ -1236,12 +1313,37 @@ function WorkspacePageGrid({
             item={item}
             domId={`widget-${page.id}-${item.i}`}
             locked={locked}
-            flashing={active && item.i === flashingId}
+            flashing={
+              active && (item.i === flashingId || item.i === copySourceId)
+            }
             onConfigChange={(patch) => updateWidgetConfig(item.i, patch, page.id)}
             onRemove={() => removeWidget(item.i, page.id)}
           />
         ))}
       </ReactGridLayout>
+      {copySource ? (
+        // The cell the original snaps back to, marked while the copy rides the
+        // cursor. Solid + labelled so it never reads as the dashed accent
+        // placeholder that marks where the copy will land.
+        <div
+          aria-hidden
+          className="pointer-events-none absolute z-[2] flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--panel)] opacity-70"
+          style={{
+            left: copySource.x * (GRID_COL_TARGET_PX + GRID_MARGIN_PX),
+            top: copySource.y * (ROW_HEIGHT_PX + GRID_MARGIN_PX),
+            width:
+              copySource.w * GRID_COL_TARGET_PX +
+              (copySource.w - 1) * GRID_MARGIN_PX,
+            height:
+              copySource.h * ROW_HEIGHT_PX +
+              (copySource.h - 1) * GRID_MARGIN_PX,
+          }}
+        >
+          <span className="font-mono text-[length:var(--fs-micro)] uppercase tracking-[0.08em] text-[var(--c-accent)]">
+            original stays here
+          </span>
+        </div>
+      ) : null}
     </div>
     </PageActiveContext.Provider>
   );

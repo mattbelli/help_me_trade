@@ -678,6 +678,12 @@ export class ChartEngine {
 
   private onWheel = (e: WheelEvent): void => {
     if (this.bars.length === 0) return;
+    // A chart sits inside the scrollable workspace canvas, which has no visible
+    // scrollbar — so swallowing every wheel trapped the page the moment charts
+    // filled the viewport. Ctrl/⌘ zooms (that is also how the browser reports a
+    // trackpad pinch); a plain wheel belongs to the canvas. Dragging the time
+    // axis still zooms and double-click still resets.
+    if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
     const { x } = this.localPoint(e);
     const factor = Math.exp(-e.deltaY * WHEEL_ZOOM_RATE);

@@ -72,6 +72,13 @@ type WorkspaceState = {
   setVisibleRows: (rows: VisibleRows | null) => void;
   updateLayout: (layout: WorkspaceLayoutItem[], pageId?: string) => void;
   addWidget: (type: string) => boolean;
+  /** Alt-drag copy: clone `instanceId` at the dropped cell. Refuses for
+      single-instance widgets. */
+  duplicateWidget: (
+    instanceId: string,
+    at: { x: number; y: number },
+    pageId?: string,
+  ) => boolean;
   updateWidgetConfig: (
     instanceId: string,
     patch: Partial<WidgetInstanceConfig>,
@@ -672,6 +679,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       pickerOpen: false,
       focusRequest: { instanceId, nonce: Date.now() },
     });
+    persistPages({ pages: nextPages, activePageId });
+    return true;
+  },
+
+  duplicateWidget: (instanceId, at, pageId) => {
+    const { pages, activePageId } = get();
+    const targetId = pageId ?? activePageId;
+    const page = pages[targetId];
+    if (!page) return false;
+    const source = page.layout.find((item) => item.i === instanceId);
+    if (!source) return false;
+    if (!getWidgetDefinition(source.type)?.multiInstance) return false;
+
+    const copy: WorkspaceLayoutItem = {
+      ...source,
+      i: nextInstanceId(source.type, page.layout),
+      x: Math.max(0, at.x),
+      y: Math.max(0, at.y),
+      ...(source.config ? { config: { ...source.config } } : {}),
+    };
+    const merged = resolveLayoutOverlaps([...page.layout, copy]);
+    const nextPages = {
+      ...pages,
+      [targetId]: { ...page, layout: merged },
+    };
+    set({ pages: nextPages });
     persistPages({ pages: nextPages, activePageId });
     return true;
   },
