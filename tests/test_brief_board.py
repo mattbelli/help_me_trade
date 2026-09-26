@@ -454,3 +454,64 @@ async def test_week_lanes_count_only_days_inside_the_quota(monkeypatch: pytest.M
     assert "HABIT" not in syms
     assert syms["RARE"] == ["2026-09-23"]
     assert [h["symbol"] for h in out["held"]["hits"]] == ["H25"]  # the board's session only
+
+
+# --- Jev typed reads ------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _no_real_jev(monkeypatch: pytest.MonkeyPatch) -> None:
+    # This box has a real TypeSafe key: never let a board test reach the API.
+    monkeypatch.setattr("ai.llm.system_one.is_configured", lambda: False)
+
+
+class _Resp:
+    model = "jev-test"
+
+    def __init__(self, state: str) -> None:
+        self.state = state
+
+    def choice(self, q: str) -> str:
+        return {"catalyst": "earnings", "lean": "two_sided"}[q]
+
+    def score(self, q: str) -> float:
+        return 2.2 if "BIG" in self.state else 0.4
+
+    def noul(self, q: str) -> float:
+        return 0.8 if q == "explained" else 0.1
+
+
+def _fake_jev(monkeypatch: pytest.MonkeyPatch, fail: str = "") -> None:
+    async def asystem_one(state: str, _questions: dict) -> _Resp:
+        if fail and fail in state:
+            raise RuntimeError("boom")
+        return _Resp(state)
+
+    monkeypatch.setattr("ai.llm.system_one.is_configured", lambda: True)
+    monkeypatch.setattr("ai.llm.system_one.asystem_one", asystem_one)
+
+
+async def test_jev_tags_cards_and_renders_labels_not_numbers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.brief import jev
+
+    _fake_jev(monkeypatch, fail="BAD")
+    cards = [{"symbol": "BIG", "angles": ["flow"], "lanes": ["rare_flow"]},
+             {"symbol": "BAD", "angles": ["news"], "lanes": ["news"]}]
+    summary = await jev.tag_cards(cards, bb._render_card)
+    assert summary == {"tagged": 1, "errors": 1, "model": ["jev-test"]}
+    assert cards[0]["jev"] == {"catalyst": "earnings", "materiality": "worth attention",
+                               "explained": True, "evidence_thin": False, "lean": "two_sided"}
+    line = next(ln for ln in bb._render_card(cards[0]) if ln.startswith("- Jev"))
+    assert "worth attention" in line and "lean two_sided" in line
+    assert not any(ch.isdigit() for ch in line)  # labels only, never a probability
+    assert not any(ln.startswith("- Jev") for ln in bb._render_card(cards[1]))
+
+
+async def test_jev_orders_headlines_and_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    from research.brief import jev
+
+    heads = [{"headline": "small one", "symbols": []}, {"headline": "BIG war news", "symbols": ["SPY"]}]
+    assert await jev.order_headlines(heads, 5) == heads  # no key: incoming order kept
+    _fake_jev(monkeypatch)
+    out = await jev.order_headlines(heads, 1)
+    assert out == [{"headline": "BIG war news", "symbols": ["SPY"], "jev_materiality": "a sector"}]

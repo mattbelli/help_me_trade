@@ -1259,13 +1259,15 @@ def rank_headlines(items: list[dict[str, Any]], board_symbols: set[str],
     return out
 
 
-def _weekend_headlines(et_date: date, board_symbols: set[str]) -> dict[str, Any]:
+async def _weekend_headlines(et_date: date, board_symbols: set[str]) -> dict[str, Any]:
     from db.news import recent_news
+    from research.brief import jev
 
     since = cash_close_utc(et_date).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = recent_news(since=since, limit=250)
+    pool = rank_headlines(items, board_symbols, limit=jev.HEADLINE_POOL)
     return {"since": since, "stories_in_window": len(items),
-            "headlines": rank_headlines(items, board_symbols)}
+            "headlines": await jev.order_headlines(pool, WEEKEND_HEADLINES)}
 
 
 # --- macro frame --------------------------------------------------------------------------
@@ -1494,6 +1496,10 @@ async def abuild_board(et_date: date | None = None, mode: str = "nightly") -> di
         ),
     }
     board["candidates"] = await _guard("candidates", _candidates_section, et_date, nxt, mode)
+    if cards := _get(board, "candidates", "cards"):
+        from research.brief import jev
+
+        board["jev"] = await _guard("jev", jev.tag_cards, cards, _render_card)
     board["index"] = await _guard("index", _index_section, et_date, mode)
     if mode == "weekly":
         cards = _get(board, "candidates", "cards") or []
@@ -1639,6 +1645,11 @@ def _render_card(c: dict[str, Any]) -> list[str]:
     if isinstance(c.get("weekend_news"), list) and c["weekend_news"]:
         lines.append("- since the close:")
         lines += [f"  - {n.get('published_at')} — {n.get('headline')}" for n in c["weekend_news"]]
+    j = c.get("jev") or {}
+    if j and "error" not in j:
+        lines.append(f"- Jev (typed read, perception): catalyst {j['catalyst']} · {j['materiality']} · "
+                     f"explained by a fact here: {'yes' if j['explained'] else 'no'} · "
+                     f"evidence thin: {'yes' if j['evidence_thin'] else 'no'} · lean {j['lean']}")
     if c.get("errors"):
         lines.append(f"- _missing blocks: {_kv(c['errors'])}_")
     return lines + [""]
@@ -1730,8 +1741,10 @@ def render_board_md(board: dict[str, Any]) -> str:
             out.append(_err_line(wn) or "")
         else:
             out.append(f"_Since {wn.get('since')} ({wn.get('stories_in_window')} stories): "
-                       "market-wide first, then the board's names; filler dropped._")
+                       "most material first (Jev), else market-wide first, then the board's names; "
+                       "filler dropped._")
             out += [f"- {h.get('published_at')} — {h.get('headline')}"
+                    + (f" [{h['jev_materiality']}]" if h.get("jev_materiality") else "")
                     + (f" ({', '.join(h['symbols'])})" if h.get("symbols") else "")
                     for h in wn.get("headlines") or []]
         out.append("")
