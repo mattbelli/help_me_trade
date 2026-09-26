@@ -376,6 +376,35 @@ def _index_bars(sym: str, db_path: Path) -> list[dict[str, Any]]:
         return _load_cached(sym, start, end, "alpaca", DEFAULT_BARS_DB_PATH)
 
 
+def _vix_closes(db_path: Path) -> tuple[list[tuple[str, float]], str]:
+    """Last 5 daily $VIX closes (newest first) from the market-data router + its source.
+
+    FRED's VIXCLS runs 2-3 sessions behind (09-25 pack: through 09-22). The cash
+    index comes through the SAME router every chart uses, so when Alpaca ships index
+    data (announced 2026-09-02, not yet live) flipping `brokers/symbol_class.py`
+    SCHWAB_CLASSES moves this line with it — nothing here names a vendor.
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from brokers.factory import _create_market_data_provider, market_data_provider_name
+    from brokers.symbol_class import rest_provider_for
+
+    if db_path != DEFAULT_DB_PATH:  # same network guard as _index_bars
+        return [], ""
+
+    def fetch() -> list[Any]:
+        # A private provider on a private loop: the driver builds this pack inside
+        # the backend's running loop, whose cached clients are bound to it.
+        provider = _create_market_data_provider(market_data_provider_name())
+        return asyncio.run(provider.aget_stock_bars("$VIX", timeframe="1Day", days=10))
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        bars = pool.submit(fetch).result(timeout=30)
+    closes = [(b.time[:10], float(b.close)) for b in bars if b.close]
+    return closes[::-1][:5], rest_provider_for("$VIX")
+
+
 def _market_frame_section(db_path: Path) -> str:
     from datetime import date, timedelta
 
@@ -409,8 +438,18 @@ def _market_frame_section(db_path: Path) -> str:
         )
     else:
         lines.append("- regime: _unavailable_")
+    try:
+        vix_live, vix_source = _vix_closes(db_path)
+    except Exception:  # noqa: BLE001
+        logger.warning("book pack $VIX fetch failed, falling back to FRED", exc_info=True)
+        vix_live, vix_source = [], ""
     vix_obs = recent_observations("VIXCLS", limit=5, db_path=db_path)
-    if vix_obs:
+    if vix_live:
+        trail = " ← ".join(f"{v:.2f}" for _d, v in vix_live)
+        lines.append(
+            f"- VIX: {trail} (daily closes, newest first, through {vix_live[0][0]}; {vix_source})"
+        )
+    elif vix_obs:
         trail = " ← ".join(f"{v:.1f}" for _d, v in vix_obs)
         lines.append(f"- VIX: {trail} (newest first, through {vix_obs[0][0]})")
     else:
