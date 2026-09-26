@@ -120,7 +120,7 @@ CBOE_SERIES: dict[str, str] = {
 # matches on the same day is not coincidence, and their timestamps carry a
 # different timezone offset and stop ~16:02 ET rather than at the settle. Until
 # that is understood they would ship a wrong LEVEL wearing a confident percentile.
-CBOE_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
+CBOE_QUOTE_URL = "https://cdn-api.cboe.com/api/global/delayed_quotes/quotes/_{}.json"
 
 # FRED release id -> label. Scheduled events the tape actually reprices on, which
 # is a much shorter list than FRED's ~300 daily releases. Keyed by ID, not name,
@@ -226,7 +226,11 @@ def _fetch_cboe(index: str) -> list[tuple[str, str, float]]:
       - Cboe emits ``0.0`` placeholders freely elsewhere in this payload
         (``bid``/``ask``/``iv30``), and a volatility index is never 0 or negative.
     """
-    resp = httpx.get(CBOE_QUOTE_URL.format(index), timeout=_CBOE_TIMEOUT)
+    # follow_redirects: Cboe moved cdn. -> cdn-api. behind a 307 (~2026-09-23); the
+    # snapshot then failed every night. A future move of the same kind just works.
+    resp = httpx.get(
+        CBOE_QUOTE_URL.format(index), timeout=_CBOE_TIMEOUT, follow_redirects=True
+    )
     resp.raise_for_status()
     payload = resp.json()["data"]
     obs_date = str(payload.get("last_trade_time") or "")[:10]

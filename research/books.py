@@ -362,10 +362,23 @@ def _index_bars(sym: str, db_path: Path) -> list[dict[str, Any]]:
     if db_path != DEFAULT_DB_PATH:
         return []
     end = date.today()
-    return get_daily_bars(sym, end - timedelta(days=10), end)
+    start = end - timedelta(days=10)
+    try:
+        return get_daily_bars(sym, start, end)
+    except Exception:  # noqa: BLE001
+        # A network blip must not blank the index lines: the 09-25 pack printed
+        # "no daily bars" for SPY/QQQ/IWM during a 35-min home-internet outage while
+        # the cache held every bar through the prior session. The caller prints the
+        # bar date, so a cached bar can never pass as today's.
+        from research.bars import DEFAULT_BARS_DB_PATH, _load_cached
+
+        logger.warning("book pack index bars: live fetch failed for %s, using cache", sym)
+        return _load_cached(sym, start, end, "alpaca", DEFAULT_BARS_DB_PATH)
 
 
 def _market_frame_section(db_path: Path) -> str:
+    from datetime import date, timedelta
+
     from db.regime import recent_observations
     from db.reports import recent_reports_by_kind
     from signals.fusion.attention import hot_lane_rows
@@ -567,7 +580,13 @@ def _market_frame_section(db_path: Path) -> str:
         lines.append("- unusual today (attention join): _unavailable_")
 
     hot = hot_lane_rows(db_path=db_path)
-    if hot:
+    newest = max((str(r["last_qualified_at"] or "") for r in hot), default="")
+    stale_before = (date.today() - timedelta(days=3)).isoformat()
+    if hot and newest[:10] < stale_before:
+        # The lane stops updating when fusion is off (FUSION_ENABLED=0 since 08-17)
+        # but its rows stay put — listing them read as today's attention.
+        lines.append(f"- fusion hot lane: frozen since {newest[:10] or '?'} (fusion off) — not current")
+    elif hot:
         # Mechanical-idea attention first — "position" rows are mostly other
         # books' holdings and would otherwise crowd out the interesting names.
         hot = sorted(hot, key=lambda r: r["reason"] == "position")
