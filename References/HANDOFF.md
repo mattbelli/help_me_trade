@@ -31,7 +31,7 @@ Full record: BUILD_LOG 09-01 row + card #329.
 Full record: BUILD_LOG 09-26 row + card #350. Crontab: `tools/nightly_brief.sh` (weekly Sun, nightly Mon–Fri).
 - **⏳ First weekly, Sun 09-27 18:30 ET (22:30 UTC):** check `data/briefs/2026-09-25-weekly/run.json` (every step ok, futures `reopen` populated), the push arrived, and ideas registered under `brief/weekly`.
 - **⏳ First nightly lite, Mon 09-28 20:30 ET (00:30 UTC Tue):** same checks under `data/briefs/2026-09-28/`.
-- **⏳ After ~4 weekly runs (by 10-25):** read `tools/brief_scorecard.py`; decide sectors → DeepSeek and each seat's effort.
+- A/B arms are OFF by default (founder 09-26: not every week). One-off test: `tools/nightly_brief.py --mode weekly --shadow`; results in `tools/brief_scorecard.py`.
 
 ---
 

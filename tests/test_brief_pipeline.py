@@ -381,7 +381,7 @@ def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str],
                                                        "kept_total": 0, "dropped_total": 0})
     monkeypatch.setattr(nb, "deadman", pages.append)
     monkeypatch.setattr(arms, "_spawn", _fake_spawn(fail, spawned))
-    a = argparse.Namespace(mode=mode, no_deliver=True, no_shadow=False, only_board_facts=False)
+    a = argparse.Namespace(mode=mode, no_deliver=True, shadow=False, only_board_facts=False)
     for k, v in opts.items():
         setattr(a, k, v)
     return nb.night(date(2026, 9, 25), a), pages, spawned
@@ -390,7 +390,7 @@ def _run_night(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: set[str],
 def test_orchestrator_builds_the_brief_without_a_failed_specialist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail={"macro"})
+    rc, pages, spawned = _run_night(tmp_path, monkeypatch, fail={"macro"}, shadow=True)
     assert rc == 0 and pages == []
     night = tmp_path / "2026-09-25-weekly"
     brief = (night / "brief.md").read_text()
@@ -421,7 +421,7 @@ def test_orchestrator_builds_the_brief_without_a_failed_specialist(
 def test_orchestrator_judge_failure_is_nonzero_with_dead_man(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rc, pages, _ = _run_night(tmp_path, monkeypatch, fail={"judge"}, no_shadow=True)
+    rc, pages, _ = _run_night(tmp_path, monkeypatch, fail={"judge"})
     assert rc == nb.FAILED
     assert len(pages) == 1 and "judge failed" in pages[0]
     assert not (tmp_path / "2026-09-25-weekly" / "brief.md").exists()
@@ -461,7 +461,7 @@ def test_mode_routing_table() -> None:
     nightly, weekly = arms.MODES["nightly"], arms.MODES["weekly"]
     assert nightly["specialists"] == ("flows", "stocks") and not nightly["shadow"]
     assert nightly["judge_effort"] == "high"
-    assert weekly["specialists"] == tuple(arms.SPECIALISTS) and weekly["shadow"]
+    assert weekly["specialists"] == tuple(arms.SPECIALISTS) and not weekly["shadow"]  # A/B is opt-in
     assert weekly["judge_effort"] == "max"
     assert {m["dedup_key"] for m in arms.MODES.values()} == {"nightly_brief", "weekly_brief"}
     lite = arms.judge_values("nightly")

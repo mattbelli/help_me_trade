@@ -18,7 +18,7 @@
    "priority": "high",
    "owner": "agent",
    "updated_at": "2026-09-26",
-   "notes": "2026-09-26: Stages 1-3 landed on main (7f5279c7..HEAD). board (code) → DeepSeek fact digests → Opus 5.5 specialists (flows/macro/stocks/sectors) via headless claude on the founder's sub → Opus judge → scoped number check → register_idea (brief/weekly, brief/nightly, brief/considered) + evening_brief report + one push. Weekly adds shadow arms (DeepSeek, Opus one effort lower) + blind grader; tools/brief_scorecard.py. 09-25 dry run: 26 min, Opus won 7/8 blind pairs (DeepSeek won sectors). Remaining: first live weekly 09-27 + first nightly 09-28, then move to done."
+   "notes": "2026-09-26: Stages 1-3 landed on main (7f5279c7..HEAD). board (code) → DeepSeek fact digests → Opus 5.5 specialists (flows/macro/stocks/sectors) via headless claude on the founder's sub → Opus judge → scoped number check → register_idea (brief/weekly, brief/nightly, brief/considered) + evening_brief report + one push. Weekly adds shadow arms (DeepSeek, Opus one effort lower) + blind grader; tools/brief_scorecard.py. 09-25 dry run: 26 min, Opus won 7/8 blind pairs (DeepSeek won sectors). Remaining: first live weekly 09-27 + first nightly 09-28, then move to done.\n2026-09-26: 2026-09-26: founder: don't run the A/B arms every week. Shadow arms + grader are now opt-in (--shadow); weekly and nightly run production Opus only."
   },
   {
    "num": 349,

@@ -17,7 +17,7 @@ An empty board or a failed judge sends the ntfy dead-man and exits 2
 Usage:
     python tools/nightly_brief.py                         # nightly, today ET
     python tools/nightly_brief.py --mode weekly           # Friday's session on a weekend
-    python tools/nightly_brief.py --date 2026-09-25 --no-deliver --no-shadow
+    python tools/nightly_brief.py --date 2026-09-25 --no-deliver --shadow
     python tools/nightly_brief.py --only-board-facts
 """
 
@@ -245,7 +245,7 @@ def session_date(mode: str, now_et: datetime) -> date | None:
 
 def night(et_date: date, a: argparse.Namespace) -> int:
     mode = a.mode
-    shadow = arms.MODES[mode]["shadow"] and not a.no_shadow
+    shadow = arms.MODES[mode]["shadow"] or a.shadow
     brief_dir = BRIEFS_DIR / board_key(et_date.isoformat(), mode)
     run = Run(brief_dir, et_date.isoformat())
     run.data["options"] = {"mode": mode, "deliver": not a.no_deliver, "shadow": shadow,
@@ -317,8 +317,8 @@ def main() -> int:
                    help="ET session YYYY-MM-DD (default: today for nightly, the last "
                         "completed session for weekly)")
     p.add_argument("--no-deliver", action="store_true", help="skip register/save/push")
-    p.add_argument("--no-shadow", action="store_true",
-                   help="production arms only; no grader (the nightly never runs them)")
+    p.add_argument("--shadow", action="store_true",
+                   help="also run the A/B shadow arms + blind grader (off by default)")
     p.add_argument("--only-board-facts", action="store_true", help="stop after the fact digests")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")

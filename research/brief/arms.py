@@ -56,7 +56,7 @@ MODES: dict[str, dict[str, Any]] = {
     },
     "weekly": {
         "specialists": tuple(SPECIALISTS),
-        "shadow": True,
+        "shadow": False,  # the A/B arms are opt-in per run (--shadow), not every week
         "judge_effort": "max",
         "title": "Weekly brief",
         "dedup_key": "weekly_brief",
