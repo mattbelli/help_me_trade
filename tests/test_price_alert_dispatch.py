@@ -299,10 +299,11 @@ async def test_apply_extended_no_alert_on_flat_or_first_price(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_apply_extended_updates_state_and_payload() -> None:
+async def test_apply_extended_updates_state_and_payload(monkeypatch) -> None:
     """REST poller writes ext fields → next WS broadcast carries them."""
     from brokers.market_stream import _quote_payload
 
+    monkeypatch.setattr("brokers.market_clock.market_session", lambda: "overnight")
     hub = MarketStreamHub()
     await hub.apply_extended(
         "TSLA",
@@ -320,3 +321,20 @@ async def test_apply_extended_updates_state_and_payload() -> None:
     assert payload["ext_price"] == pytest.approx(382.50)
     assert payload["ext_change_pct"] == pytest.approx(0.42)
     assert payload["market_session"] == "overnight"
+
+
+@pytest.mark.asyncio
+async def test_payload_drops_ext_fields_from_a_past_session(monkeypatch) -> None:
+    """A weekend "closed" ext stamp must not headline Monday's regular session."""
+    from brokers.market_stream import _quote_payload
+
+    hub = MarketStreamHub()
+    await hub.apply_extended(
+        "$SPX", ext_price=7743.41, ext_change_pct=None,
+        market_session="closed", broadcast=False,
+    )
+    monkeypatch.setattr("brokers.market_clock.market_session", lambda: "regular")
+    payload = _quote_payload(hub._quotes["$SPX"])
+    assert payload["ext_price"] is None
+    assert payload["ext_change_pct"] is None
+    assert payload["market_session"] == "regular"

@@ -1362,6 +1362,14 @@ def _normalize_symbols(raw: Any) -> set[str]:
 
 
 def _quote_payload(state: QuoteState) -> dict[str, Any]:
+    from brokers.market_clock import market_session
+
+    # Ext fields are only refreshed by REST polls, so a symbol nobody polls keeps
+    # the last session's stamp forever — the weekend's "closed" + Friday-close
+    # ext_price headlined the $SPX chart all Monday (2026-09-28). Ext data stamped
+    # with a session that's no longer current is stale: drop it.
+    session = market_session()
+    fresh = state.market_session == session
     return {
         "price": state.price,
         "change_pct": state.change_pct,
@@ -1372,9 +1380,9 @@ def _quote_payload(state: QuoteState) -> dict[str, Any]:
         "ask_size": state.ask_size,
         "quote_ts": state.quote_ts,
         "volume": state.volume,
-        "ext_price": state.ext_price,
-        "ext_change_pct": state.ext_change_pct,
-        "market_session": state.market_session,
+        "ext_price": state.ext_price if fresh else None,
+        "ext_change_pct": state.ext_change_pct if fresh else None,
+        "market_session": session,
     }
 
 
