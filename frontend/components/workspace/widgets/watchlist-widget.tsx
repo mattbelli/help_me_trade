@@ -1500,6 +1500,7 @@ export function WatchlistWidget({
     useWatchlistLiveSort({
       sortState,
       baseOrder: symbols,
+      listKey: listId,
       getValue: getSortValue,
       isDragging,
       pageActive,

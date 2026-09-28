@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -88,6 +89,7 @@ function playFlip(
 export function useWatchlistLiveSort({
   sortState,
   baseOrder,
+  listKey,
   getValue,
   isDragging,
   pageActive,
@@ -96,6 +98,7 @@ export function useWatchlistLiveSort({
 }: {
   sortState: SortState | null;
   baseOrder: string[];
+  listKey: string | undefined;
   getValue: (sym: string) => SortValue;
   isDragging: boolean;
   pageActive: boolean;
@@ -114,6 +117,7 @@ export function useWatchlistLiveSort({
   const nodesRef = useRef(new Map<string, HTMLElement>());
   const liveOrderRef = useRef<string[] | null>(null);
   const sortIdRef = useRef<string | null>(null);
+  const sortedListRef = useRef<string | undefined>(undefined);
   const nextRankAtRef = useRef(0);
   const resumeAtRef = useRef(0);
   const pointerOverRef = useRef(false);
@@ -133,6 +137,7 @@ export function useWatchlistLiveSort({
   useEffect(() => {
     if (!sortState || isDragging) {
       sortIdRef.current = null;
+      sortedListRef.current = undefined;
       liveOrderRef.current = null;
       setLiveOrder(null);
       return;
@@ -163,24 +168,28 @@ export function useWatchlistLiveSort({
       schedule();
     };
 
-    const commit = (next: string[]) => {
+    const commit = (next: string[], instant = false) => {
       const prev = liveOrderRef.current ?? baseOrder;
       const apply = () => {
         // An old browser snapshot must not restore a cleared sort or list.
         if (!active) return;
         sortIdRef.current = sortId;
+        sortedListRef.current = listKey;
         liveOrderRef.current = next;
         flushSync(() => setLiveOrder(next));
       };
       // Record an explicit sort even when its order matches the persisted list.
       if (ordersEqual(prev, next)) {
         sortIdRef.current = sortId;
+        sortedListRef.current = listKey;
         if (liveOrderRef.current === null) apply();
         return;
       }
 
       const scope = scopeRef.current as ViewTransitionHost | null;
-      if (!pageActive || reduceMotion || !scope) {
+      // A list switch is a new set of rows, not a re-rank: gliding would
+      // cross-fade the old list's rows into the new one's.
+      if (instant || !pageActive || reduceMotion || !scope) {
         apply();
         return;
       }
@@ -218,7 +227,11 @@ export function useWatchlistLiveSort({
 
     function rank() {
       if (!active) return;
-      const switched = sortIdRef.current !== sortId;
+      // Switching lists re-sorts from scratch, bypassing the pointer hold like
+      // a header click — the selector menu closes with the cursor over the rows.
+      const relisted =
+        sortedListRef.current !== undefined && sortedListRef.current !== listKey;
+      const switched = relisted || sortIdRef.current !== sortId;
       const current = reconcileOrder(
         liveOrderRef.current ?? baseOrder,
         baseOrder,
@@ -233,6 +246,7 @@ export function useWatchlistLiveSort({
           switched
             ? fullSort(current, getValueRef.current, sortState!)
             : stickySort(current, getValueRef.current, sortState!),
+          relisted,
         );
       } else if (!ordersEqual(current, liveOrderRef.current ?? baseOrder)) {
         // Adds/removals still appear while automatic ranking is held.
@@ -256,17 +270,35 @@ export function useWatchlistLiveSort({
     scroller?.addEventListener("pointerleave", leave);
     // Run outside the effect so FLIP can flush the new row layout synchronously.
     // Header changes bypass the pointer hold and cadence, including mid-glide.
-    timer = window.setTimeout(rank, 0);
+    // Its own timer: a pointerenter (e.g. a menu closing over the rows) clears
+    // the cadence timer and must not swallow this pass.
+    const kickoff = window.setTimeout(rank, 0);
 
     return () => {
       active = false;
       window.clearTimeout(timer);
+      window.clearTimeout(kickoff);
       scroller?.removeEventListener("pointerenter", enter);
       scroller?.removeEventListener("pointerleave", leave);
       transition?.skipTransition();
       for (const animation of animations) animation.cancel();
     };
-  }, [sortState, baseOrder, isDragging, pageActive, reduceMotion, scrollerRef]);
+  }, [
+    sortState,
+    baseOrder,
+    listKey,
+    isDragging,
+    pageActive,
+    reduceMotion,
+    scrollerRef,
+  ]);
+
+  // The committed order lags a list change by one pass; never render symbols
+  // the current list no longer has.
+  const reconciledOrder = useMemo(
+    () => (liveOrder ? reconcileOrder(liveOrder, baseOrder) : null),
+    [liveOrder, baseOrder],
+  );
 
   const rowVtStyle = useCallback(
     (symbol: string): CSSProperties | undefined =>
@@ -280,7 +312,7 @@ export function useWatchlistLiveSort({
   );
 
   return {
-    liveOrder,
+    liveOrder: reconciledOrder,
     scopeRef,
     registerRow,
     rowVtStyle,
