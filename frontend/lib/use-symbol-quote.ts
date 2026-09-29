@@ -17,6 +17,7 @@ type WsQuoteFrame = {
   symbol?: string;
   quotes?: Record<string, WatchlistQuote>;
   price?: number;
+  change_pct?: number;
   live?: boolean;
   ext_price?: number | null;
   ext_change_pct?: number | null;
@@ -102,6 +103,7 @@ export function useSymbolQuote({ symbol, enabled = true }: Options) {
             setQuoteSymbol(normalized);
             if (msg.bar) setFormingBar(msg.bar);
             if (msg.price != null) setPrice(msg.price);
+            if (msg.change_pct != null) setChangePct(msg.change_pct);
             if (msg.ext_price !== undefined) setExtPrice(msg.ext_price);
             if (msg.ext_change_pct !== undefined) {
               setExtChangePct(msg.ext_change_pct);
