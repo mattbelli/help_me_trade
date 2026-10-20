@@ -385,6 +385,7 @@ fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_s
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn session(
     pairing: &Arc<Mutex<Pairing>>,
     args: &SidecarArgs,
