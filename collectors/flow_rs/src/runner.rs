@@ -209,9 +209,11 @@ impl Runner {
         if !trading_day {
             batch.clear();
         }
+        let mut shadows = HashMap::new();
         if let Some(pairing) = self.pairing.clone() {
             let (repairs, codes) = {
                 let mut p = pairing.lock().unwrap();
+                shadows = p.take_shadows();
                 (p.drain_repairs(), p.take_resolved())
             };
             // Late-enrichment repairs FIRST each cycle: anything queued during
@@ -307,6 +309,16 @@ impl Runner {
             if lab_open {
                 self.lab_write(&today_et, &lab_lines)?;
             }
+            // Stage-A shadow: score each print's Alpaca twin against the dbn
+            // direction just stamped. What's left in `shadows` is counted unclaimed.
+            if let Some(pairing) = &self.pairing {
+                let mut pr = pairing.lock().unwrap();
+                pr.shadow.roll(&today_et);
+                for p in batch.iter() {
+                    let sh = if p.print_id != 0 { shadows.remove(&p.print_id) } else { None };
+                    pr.shadow.add(p.direction, p.price * p.size as f64 * 100.0, sh);
+                }
+            }
             self.buffer.add(&batch);
             for p in &batch {
                 self.rolling.add_print(p);
@@ -318,6 +330,9 @@ impl Runner {
                     g.add_print(p, et_min, COVERAGE);
                 }
             }
+        }
+        if let (Some(pairing), false) = (&self.pairing, shadows.is_empty()) {
+            pairing.lock().unwrap().shadow.unclaimed += shadows.len() as u64;
         }
 
         let now_mono = now;

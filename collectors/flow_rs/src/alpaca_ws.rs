@@ -8,9 +8,15 @@
 //! in the Alpaca tape while the DBN tee kept feeding, so the matcher is RESET
 //! after each re-subscribe (counted, logged loudly) — mixed-epoch numbers would
 //! silently stop meaning "matched".
+//!
+//! Stage A of the Alpaca spine: the same socket also carries up to 1,000 quote
+//! subscriptions picked by `quotebook::QuoteBook` (re-ranked every 5 s; diffs go
+//! out through a writer task so the read loop never waits on a send). Every
+//! trade gets a shadow direction that rides the matcher to its dbn twin.
 
 use crate::calendar::is_trading_day;
 use crate::pairing::Pairing;
+use crate::quotebook::{in_quote_hours, QuoteBook, RERANK_EVERY_NS};
 use anyhow::{anyhow, bail, Result};
 use chrono::{Datelike, Duration as CDuration, NaiveTime, TimeZone};
 use chrono_tz::America::New_York;
@@ -29,6 +35,7 @@ const RECONNECT_BASE_SEC: f64 = 5.0;
 const RECONNECT_MAX_SEC: f64 = 120.0;
 const SWEEP_EVERY_SEC: u64 = 1;
 const STATS_EVERY_SEC: u64 = 60;
+const HEAT_PERSIST_EVERY_SEC: u64 = 60;
 
 pub fn now_ns() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as i64).unwrap_or(0)
@@ -145,6 +152,44 @@ pub struct SidecarArgs {
     pub gth_dir: Option<PathBuf>,
     /// Raw-frame tee, same format as the equity recorder (msgpack [recv_ns, frame] in zstd).
     pub record_dir: Option<PathBuf>,
+    /// Quote-book seed/persist file (`data/flow_quote_heat.json`).
+    pub heat_path: Option<PathBuf>,
+    /// Stage-A shadow minute lines → `<dir>/<ET date>.jsonl` (`data/flow_alpaca_shadow`).
+    pub shadow_dir: Option<PathBuf>,
+}
+
+/// The quote book plus its timers and files, owned by the sidecar task (never
+/// under the pairing lock, so a re-rank can't stall the spine's tee).
+struct QuoteLane {
+    book: QuoteBook,
+    heat_path: Option<PathBuf>,
+    shadow_dir: Option<PathBuf>,
+    last_rerank_ns: i64,
+    last_persist: tokio::time::Instant,
+}
+
+impl QuoteLane {
+    fn persist(&self) {
+        if let Some(p) = &self.heat_path {
+            if let Err(e) = self.book.save(p, now_ns()) {
+                eprintln!("pairing: quote heat save to {} failed: {e}", p.display());
+            }
+        }
+    }
+}
+
+type SubTx = tokio::sync::mpsc::UnboundedSender<Message>;
+
+fn quotes_msg(action: &str, syms: Vec<String>) -> Message {
+    Message::Binary(pack(&map(vec![("action", action.into()), ("quotes", Value::Array(syms.into_iter().map(Value::from).collect()))])))
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 fn frames(raw: &[u8]) -> Vec<Value> {
@@ -230,6 +275,13 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
             None
         }
     });
+    let mut lane = QuoteLane { book: QuoteBook::new(), heat_path: args.heat_path.clone(), shadow_dir: args.shadow_dir.clone(), last_rerank_ns: 0, last_persist: tokio::time::Instant::now() };
+    if let Some(p) = &lane.heat_path {
+        match lane.book.seed(p, now_ns()) {
+            Ok((kept, expired)) => eprintln!("pairing: quote book seeded {kept} contracts from {} ({expired} expired dropped)", p.display()),
+            Err(e) => eprintln!("pairing: quote book not seeded from {} ({e}) — opening with an empty book", p.display()),
+        }
+    }
     let mut backoff = RECONNECT_BASE_SEC;
     let mut connected_once = false;
     let mut sweep_tick = tokio::time::interval(Duration::from_secs(SWEEP_EVERY_SEC));
@@ -237,7 +289,7 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
     let mut last_stats = tokio::time::Instant::now();
     eprintln!("pairing: starting (matcher + wildcard codes sidecar)");
     loop {
-        match session(&pairing, &args, &mut gth, recorder.as_mut(), &mut connected_once, &mut sweep_tick, &mut last_stats).await {
+        match session(&pairing, &args, &mut gth, recorder.as_mut(), &mut connected_once, &mut sweep_tick, &mut last_stats, &mut lane).await {
             Ok(()) => {}
             Err(e) => {
                 {
@@ -257,36 +309,56 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
         let until = tokio::time::Instant::now() + Duration::from_secs_f64(backoff);
         while tokio::time::Instant::now() < until {
             sweep_tick.tick().await;
-            housekeeping(&pairing, &mut gth, &mut last_stats);
+            housekeeping(&pairing, &mut gth, &mut last_stats, &mut lane, None);
         }
         backoff = (backoff * 2.0).min(RECONNECT_MAX_SEC);
     }
     if let Some(g) = gth.as_mut() {
         g.flush();
     }
+    lane.persist();
     if let Some(r) = recorder.take() {
         let (f, d) = r.stop();
         eprintln!("pairing: Alpaca recorder frames={f} drops={d}");
     }
 }
 
-fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_stats: &mut tokio::time::Instant) {
+/// 1 s: matcher sweep, GTH flush, quote re-rank (RTH, every 5 s; the diff goes
+/// out on `sub_tx` when connected — disconnected, the next session re-sends the
+/// whole set), 60 s stats line + shadow minute line + heat persist.
+fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_stats: &mut tokio::time::Instant, lane: &mut QuoteLane, sub_tx: Option<&SubTx>) {
     let now = now_ns();
+    if now - lane.last_rerank_ns >= RERANK_EVERY_NS && in_quote_hours(now) {
+        lane.last_rerank_ns = now;
+        let (unsub, sub) = lane.book.rerank(now);
+        if let Some(tx) = sub_tx {
+            // unsubscribe first: the server-side set never exceeds the cap
+            if !unsub.is_empty() {
+                let _ = tx.send(quotes_msg("unsubscribe", unsub));
+            }
+            if !sub.is_empty() {
+                let _ = tx.send(quotes_msg("subscribe", sub));
+            }
+        }
+    }
     let stats_due = last_stats.elapsed() >= Duration::from_secs(STATS_EVERY_SEC);
     if stats_due {
         *last_stats = tokio::time::Instant::now();
     }
-    let line = {
+    let book_json = lane.book.json();
+    let (line, shadow_row) = {
         let mut p = pairing.lock().unwrap();
         p.sweep(now);
         if let Some(g) = gth.as_ref() {
             p.gth_stats = (g.written, g.dropped_non_session);
         }
+        p.book_json = book_json.clone();
         if stats_due {
             let g = gth.as_ref().map(|g| (g.written, g.dropped_non_session)).unwrap_or((0, 0));
-            Some(p.stats_line(g, rss_mb()))
+            let line = format!("{} | {} | {}", p.stats_line(g, rss_mb()), p.shadow.line(), lane.book.line());
+            (Some(line), Some((p.shadow.day.clone(), p.shadow.json())))
         } else {
-            None
+            (None, None)
         }
     };
     if let Some(g) = gth.as_mut() {
@@ -294,6 +366,22 @@ fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_s
     }
     if let Some(l) = line {
         eprintln!("{l}");
+    }
+    if let (Some((day, shadow)), Some(dir)) = (shadow_row, &lane.shadow_dir) {
+        if !day.is_empty() {
+            let row = serde_json::json!({"ts": now / 1_000_000_000, "shadow": shadow, "book": book_json});
+            let res = std::fs::create_dir_all(dir).and_then(|_| {
+                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(format!("{day}.jsonl")))?;
+                writeln!(f, "{row}")
+            });
+            if let Err(e) = res {
+                eprintln!("pairing: shadow line to {} failed: {e}", dir.display());
+            }
+        }
+    }
+    if lane.last_persist.elapsed() >= Duration::from_secs(HEAT_PERSIST_EVERY_SEC) {
+        lane.last_persist = tokio::time::Instant::now();
+        lane.persist();
     }
 }
 
@@ -305,6 +393,7 @@ async fn session(
     connected_once: &mut bool,
     sweep_tick: &mut tokio::time::Interval,
     last_stats: &mut tokio::time::Instant,
+    lane: &mut QuoteLane,
 ) -> Result<()> {
     let mut req = args.url.as_str().into_client_request()?;
     req.headers_mut().insert("Content-Type", "application/msgpack".parse()?);
@@ -338,8 +427,23 @@ async fn session(
             }
         }
     }
-    tx.send(Message::Binary(pack(&map(vec![("action", "subscribe".into()), ("trades", Value::Array(vec!["*".into()]))])))).await?;
-    eprintln!("pairing: subscribed trades=['*']");
+    // From here every send goes through the writer task: the read loop never
+    // waits on the socket's send side.
+    let (sub_tx, mut sub_rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let _writer = AbortOnDrop(tokio::spawn(async move {
+        while let Some(m) = sub_rx.recv().await {
+            if let Err(e) = tx.send(m).await {
+                eprintln!("pairing: sidecar send failed ({e}) — the read side will see the drop");
+                break;
+            }
+        }
+    }));
+    let _ = sub_tx.send(Message::Binary(pack(&map(vec![("action", "subscribe".into()), ("trades", Value::Array(vec!["*".into()]))]))));
+    let set = lane.book.set();
+    eprintln!("pairing: subscribed trades=['*'] + {} quotes", set.len());
+    if !set.is_empty() {
+        let _ = sub_tx.send(quotes_msg("subscribe", set));
+    }
     // The epoch boundary lives HERE, after re-subscribe: gap-fed dbn prints are
     // discarded rather than mis-ranked.
     if *connected_once {
@@ -349,11 +453,12 @@ async fn session(
     }
     *connected_once = true;
     let mut recorder = recorder;
+    let mut acks = 0u64; // every quote diff is acked with the full list; log the first two
     loop {
         tokio::select! {
             biased;
             _ = sweep_tick.tick() => {
-                housekeeping(pairing, gth, last_stats);
+                housekeeping(pairing, gth, last_stats, lane, Some(&sub_tx));
                 if pairing.lock().unwrap().stopping { return Ok(()); }
             }
             msg = rx.next() => {
@@ -375,17 +480,33 @@ async fn session(
                             let cents = (px * 100.0).round() as i64;
                             let size = sz as i64;
                             let cond = str_field(item, "c").unwrap_or("");
-                            p.on_alpaca(sym, t, cents, size, cond, now);
+                            let shadow = lane.book.on_trade(sym, t, cents, size);
+                            p.on_alpaca(sym, t, cents, size, cond, shadow, now);
                             if let Some(g) = gth.as_mut() {
                                 g.offer(sym, t, cents, size, cond, str_field(item, "x").unwrap_or(""));
                             }
                         }
+                        Some("q") => {
+                            let (Some(sym), Some(t)) = (str_field(item, "S"), field(item, "t").and_then(ts_ns)) else { continue };
+                            let (Some(bid), Some(ask)) = (field(item, "bp").and_then(num_f64), field(item, "ap").and_then(num_f64)) else { continue };
+                            lane.book.on_quote(sym, t, bid, ask);
+                        }
                         Some("subscription") => {
                             let wide = matches!(field(item, "trades"), Some(Value::Array(a)) if a.iter().any(|s| s.as_str() == Some("*")));
                             p.acked_wide = wide;
-                            eprintln!("pairing: subscription ack wide={wide}");
+                            let n_quotes = match field(item, "quotes") { Some(Value::Array(a)) => a.len(), _ => 0 };
+                            lane.book.m.acked_quotes = Some(n_quotes);
+                            acks += 1;
+                            if acks <= 2 {
+                                eprintln!("pairing: subscription ack wide={wide} quotes={n_quotes}");
+                            }
                         }
-                        Some("error") => eprintln!("pairing: server error: {item}"),
+                        Some("error") => {
+                            lane.book.m.server_errors += 1;
+                            if lane.book.m.server_errors <= 20 {
+                                eprintln!("pairing: server error #{}: {item}", lane.book.m.server_errors);
+                            }
+                        }
                         _ => {}
                     }
                 }

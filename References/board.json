@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-09-26",
+ "updated_at": "2026-10-20",
  "lanes": [
   "inbox",
   "founder",
@@ -9,6 +9,17 @@
   "done"
  ],
  "cards": [
+  {
+   "num": 351,
+   "id": "flow-alpaca-spine",
+   "title": "Flow collector → Alpaca spine (drop Databento): heat-following 1,000-quote book + tick fallback",
+   "lane": "in_progress",
+   "type": "build",
+   "priority": "P1",
+   "owner": "claude",
+   "updated_at": "2026-10-20",
+   "notes": "10-20: founder cancelling Databento $199/mo. Alpaca wildcard trades already = whole market (10-16: 14.31M vs dbn 14.32M). Loss = per-print direction (tcbbo pre-trade NBBO). Stage A = shadow: heat-following quote subs (cap 1,000, 300 gauge reserve) + timestamp-ordered pre-trade quote ring + tick fallback, agreement vs dbn_nbbo through the pairing matcher. Stage B = --spine alpaca. Phase 2 (after): nightly capture/OI/corpus rollup off Databento (Alpaca contracts OI lags ~3 sessions: 10-20 shows 10-15), retire pairing crons. Cancel Databento only after a verified full Alpaca-spine session. Brief: BRIEF_flow_alpaca_spine.md on branch flow-alpaca-spine (pipeline tree)."
+  },
   {
    "num": 350,
    "id": "deep-brief-weekly-nightly",

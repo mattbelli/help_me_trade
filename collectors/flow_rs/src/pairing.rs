@@ -22,6 +22,7 @@
 //!
 //! Every DBN print fed in is resolved exactly once; Alpaca prints are fuel.
 
+use crate::quotebook::{Shadow, ShadowStats};
 use std::collections::{HashMap, VecDeque};
 
 pub const TOL_NS: i64 = 100_000_000; // ±100 ms, Addendum E (tools/condition_labels.TOL_NS)
@@ -46,8 +47,9 @@ pub enum Why {
     Evicted,
 }
 
-/// (print_id, cond, why) — cond is "" for everything but Matched.
-pub type Resolution = (u64, String, Why);
+/// (print_id, cond, why, the Alpaca twin's shadow direction) — cond is "" and
+/// the shadow default for everything but Matched.
+pub type Resolution = (u64, String, Why, Shadow);
 
 #[derive(Default)]
 struct KeyState {
@@ -56,7 +58,7 @@ struct KeyState {
     pair_next: u64,
     /// k → Some((print_id, ts)) pending, None = tombstone (slot consumed).
     d_pend: HashMap<u64, Option<(u64, i64)>>,
-    a_pend: HashMap<u64, (String, i64)>,
+    a_pend: HashMap<u64, (String, i64, Shadow)>,
     last_ns: i64,
 }
 
@@ -131,11 +133,11 @@ impl Matcher {
         }
     }
 
-    pub fn on_alpaca_trade(&mut self, key: Key, ts_ns: i64, cond: &str, now_ns: i64, out: &mut Vec<Resolution>) {
+    pub fn on_alpaca_trade(&mut self, key: Key, ts_ns: i64, cond: &str, shadow: Shadow, now_ns: i64, out: &mut Vec<Resolution>) {
         let ks = self.key_state(&key, now_ns);
         let k = ks.a_next;
         ks.a_next += 1;
-        ks.a_pend.insert(k, (cond.to_string(), ts_ns));
+        ks.a_pend.insert(k, (cond.to_string(), ts_ns, shadow));
         self.pending_alpaca += 1;
         self.pending_alpaca_peak = self.pending_alpaca_peak.max(self.pending_alpaca);
         self.pair(&key, out);
@@ -147,7 +149,7 @@ impl Matcher {
             let k = ks.pair_next;
             ks.pair_next += 1;
             let entry = ks.d_pend.remove(&k).flatten();
-            let (cond, a_ts) = ks.a_pend.remove(&k).expect("a_pend has k < a_next");
+            let (cond, a_ts, shadow) = ks.a_pend.remove(&k).expect("a_pend has k < a_next");
             self.pending_alpaca -= 1;
             let Some((print_id, d_ts)) = entry else {
                 self.cond_after_expiry += 1; // slot expired before the twin arrived
@@ -156,10 +158,10 @@ impl Matcher {
             self.pending_dbn -= 1;
             if (a_ts - d_ts).abs() <= TOL_NS {
                 self.matched += 1;
-                out.push((print_id, cond, Why::Matched));
+                out.push((print_id, cond, Why::Matched, shadow));
             } else {
                 self.tolerance_rejects += 1;
-                out.push((print_id, String::new(), Why::Tolerance));
+                out.push((print_id, String::new(), Why::Tolerance, Shadow::default()));
             }
         }
     }
@@ -177,7 +179,7 @@ impl Matcher {
             let Some((print_id, _)) = slot.take() else { continue }; // already tombstoned
             self.pending_dbn -= 1;
             self.expired += 1;
-            out.push((print_id, String::new(), Why::Expired));
+            out.push((print_id, String::new(), Why::Expired, Shadow::default()));
         }
         if now_ns - self.last_gc_ns >= self.horizon_ns {
             self.last_gc_ns = now_ns;
@@ -187,7 +189,7 @@ impl Matcher {
                 for entry in ks.d_pend.into_values().flatten() {
                     self.pending_dbn -= 1;
                     self.expired += 1;
-                    out.push((entry.0, String::new(), Why::Expired));
+                    out.push((entry.0, String::new(), Why::Expired, Shadow::default()));
                 }
                 let n_a = ks.a_pend.len();
                 self.alpaca_orphans += n_a as u64;
@@ -204,7 +206,7 @@ impl Matcher {
             let Some((print_id, _)) = slot.take() else { continue };
             self.pending_dbn -= 1;
             self.evicted += 1;
-            out.push((print_id, String::new(), Why::Evicted));
+            out.push((print_id, String::new(), Why::Evicted, Shadow::default()));
         }
     }
 }
@@ -253,6 +255,11 @@ pub struct Pairing {
     a_lags_ms: Vec<f64>,
     /// (written, dropped_non_session) — mirrored in by the sidecar's housekeeping for the snapshot.
     pub gth_stats: (u64, u64),
+    /// Stage-A shadow: matched twins' Alpaca directions awaiting the runner,
+    /// the runner's scores, and the quote book's counters (mirrored in by housekeeping).
+    shadows: HashMap<u64, Shadow>,
+    pub shadow: ShadowStats,
+    pub book_json: serde_json::Value,
 }
 
 impl Default for Pairing {
@@ -284,6 +291,9 @@ impl Pairing {
             d_lags_ms: Vec::new(),
             a_lags_ms: Vec::new(),
             gth_stats: (0, 0),
+            shadows: HashMap::new(),
+            shadow: ShadowStats::default(),
+            book_json: serde_json::Value::Null,
         }
     }
 
@@ -309,14 +319,15 @@ impl Pairing {
         Some(arrival)
     }
 
-    pub fn on_alpaca(&mut self, sym: &str, t_ns: i64, cents: i64, size: i64, cond: &str, now_ns: i64) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn on_alpaca(&mut self, sym: &str, t_ns: i64, cents: i64, size: i64, cond: &str, shadow: Shadow, now_ns: i64) {
         self.alp_seen += 1;
         if self.a_lags_ms.len() < LAG_SAMPLE_MAX {
             self.a_lags_ms.push((now_ns - t_ns) as f64 / 1e6);
         }
         *self.a_roots.entry(root(sym)).or_default() += 1;
         let mut out = Vec::new();
-        self.m.on_alpaca_trade((sym.to_string(), cents, size), t_ns, cond, now_ns, &mut out);
+        self.m.on_alpaca_trade((sym.to_string(), cents, size), t_ns, cond, shadow, now_ns, &mut out);
         self.absorb(out, now_ns);
     }
 
@@ -336,11 +347,13 @@ impl Pairing {
     }
 
     fn absorb(&mut self, resolutions: Vec<Resolution>, now_ns: i64) {
-        for (print_id, cond, why) in resolutions {
+        for (print_id, cond, why, shadow) in resolutions {
             let attached = self.attached.remove(&print_id);
             if why != Why::Matched {
                 continue;
             }
+            // every matched twin's shadow; the runner claims what it still holds
+            self.shadows.insert(print_id, shadow);
             // Only matches carry a wait; print_id IS the print's arrival ns.
             let wait = now_ns - print_id as i64;
             let mut b = ENRICH_EDGES_NS.len();
@@ -380,6 +393,11 @@ impl Pairing {
         map
     }
 
+    /// Runner, top of each cycle (with `take_resolved`): matched twins' shadows.
+    pub fn take_shadows(&mut self) -> HashMap<u64, Shadow> {
+        std::mem::take(&mut self.shadows)
+    }
+
     /// Runner, after emitting events: print_id → event id backrefs.
     pub fn attach_events(&mut self, refs: Vec<(u64, String)>, now_ns: i64) {
         for (pid, ev) in refs {
@@ -399,6 +417,7 @@ impl Pairing {
         self.matcher_resets += 1;
         self.attached.clear();
         self.resolved.clear();
+        self.shadows.clear();
         dropped
     }
 
@@ -417,6 +436,7 @@ impl Pairing {
             "pending_dbn": m.pending_dbn, "pending_alpaca": m.pending_alpaca, "keys_peak": m.keys_peak,
             "acked_wide": self.acked_wide, "resets": self.matcher_resets, "reconnects": self.reconnects,
             "gth_written": gth.0, "gth_dropped": gth.1,
+            "shadow": self.shadow.json(), "quote_book": self.book_json,
         })
     }
 
@@ -480,12 +500,12 @@ mod tests {
             if *side == 0 {
                 m.on_dbn_print(d[*idx].0.clone(), *ts, *idx as u64, *ts, &mut out);
             } else {
-                m.on_alpaca_trade(a[*idx].0.clone(), *ts, a[*idx].2, *ts, &mut out);
+                m.on_alpaca_trade(a[*idx].0.clone(), *ts, a[*idx].2, Shadow::default(), *ts, &mut out);
             }
         }
         let last = ev.last().map(|e| e.0).unwrap_or(0);
         m.sweep(last + 10 * HORIZON_NS, &mut out);
-        for (pid, c, w) in out {
+        for (pid, c, w, _) in out {
             assert!(res.insert(pid, (c, w)).is_none(), "a print resolved twice");
         }
         (res, m)
@@ -529,13 +549,13 @@ mod tests {
         m.on_dbn_print(key(), 300 * MS, 1, 95 * MS, &mut out);
         assert!(out.is_empty());
         m.sweep(150 * MS, &mut out);
-        assert_eq!(out, vec![(0, String::new(), Why::Expired)]);
+        assert_eq!(out, vec![(0, String::new(), Why::Expired, Shadow::default())]);
         out.clear();
-        m.on_alpaca_trade(key(), 90 * MS, "a", 160 * MS, &mut out);
+        m.on_alpaca_trade(key(), 90 * MS, "a", Shadow::default(), 160 * MS, &mut out);
         assert!(out.is_empty());
         assert_eq!(m.cond_after_expiry, 1);
-        m.on_alpaca_trade(key(), 305 * MS, "b", 170 * MS, &mut out);
-        assert_eq!(out, vec![(1, "b".to_string(), Why::Matched)]);
+        m.on_alpaca_trade(key(), 305 * MS, "b", Shadow::default(), 170 * MS, &mut out);
+        assert_eq!(out, vec![(1, "b".to_string(), Why::Matched, Shadow::default())]);
     }
 
     #[test]
@@ -545,12 +565,12 @@ mod tests {
         for i in 0..3i64 {
             m.on_dbn_print((format!("K{i}"), 100, 1), i * MS, i as u64, i * MS, &mut out);
         }
-        assert_eq!(out, vec![(0, String::new(), Why::Evicted)]);
+        assert_eq!(out, vec![(0, String::new(), Why::Evicted, Shadow::default())]);
         assert_eq!((m.evicted, m.pending_dbn), (1, 2));
 
         let mut m = Matcher::new(100 * MS, MAX_PENDING);
         let mut out = Vec::new();
-        m.on_alpaca_trade(key(), 0, "a", 0, &mut out);
+        m.on_alpaca_trade(key(), 0, "a", Shadow::default(), 0, &mut out);
         assert_eq!(m.pending_alpaca, 1);
         m.sweep(150 * MS, &mut out);
         m.sweep(300 * MS, &mut out);
@@ -562,7 +582,7 @@ mod tests {
         let mut p = Pairing::new();
         let now = 1_000_000_000_000i64;
         // inline match: alpaca twin first, then the dbn print → resolved immediately
-        p.on_alpaca("SPXW260818C06400000", now, 250, 10, "f", now);
+        p.on_alpaca("SPXW260818C06400000", now, 250, 10, "f", Shadow::default(), now);
         let pid = p.on_dbn("SPXW260818C06400000", 2_500_000_000, 10, now, now + 5 * MS).unwrap();
         let codes = p.take_resolved();
         assert_eq!(codes.get(&pid).map(String::as_str), Some("f"));
@@ -570,13 +590,13 @@ mod tests {
         // late match after the event exists → repair queued
         let pid2 = p.on_dbn("SPXW260818C06400000", 2_500_000_000, 10, now + 1_000 * MS, now + 1_000 * MS).unwrap();
         p.attach_events(vec![(pid2, "of_x_swp_1".into())], now + 1_500 * MS);
-        p.on_alpaca("SPXW260818C06400000", now + 1_000 * MS, 250, 10, "g", now + 2_000 * MS);
+        p.on_alpaca("SPXW260818C06400000", now + 1_000 * MS, 250, 10, "g", Shadow::default(), now + 2_000 * MS);
         assert_eq!(p.drain_repairs(), vec!["of_x_swp_1".to_string()]);
         assert!(p.take_resolved().is_empty());
         // non-multileg late code → no repair
         let pid3 = p.on_dbn("SPXW260818C06400000", 2_500_000_000, 10, now + 3_000 * MS, now + 3_000 * MS).unwrap();
         p.attach_events(vec![(pid3, "of_x_swp_2".into())], now + 3_100 * MS);
-        p.on_alpaca("SPXW260818C06400000", now + 3_000 * MS, 250, 10, "a", now + 3_200 * MS);
+        p.on_alpaca("SPXW260818C06400000", now + 3_000 * MS, 250, 10, "a", Shadow::default(), now + 3_200 * MS);
         assert!(p.drain_repairs().is_empty());
         assert!(is_multileg("f") && is_multileg("s") && !is_multileg("a") && !is_multileg(""));
     }

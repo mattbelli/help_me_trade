@@ -15,6 +15,7 @@ mod print;
 mod pyfmt;
 mod rolling;
 mod pairing;
+mod quotebook;
 mod record;
 mod runner;
 mod stats;
@@ -172,6 +173,8 @@ fn main() -> Result<()> {
                     url: alpaca_ws::OPRA_WS_URL.to_string(),
                     gth_dir: Some(gth_dir),
                     record_dir: args.record_alpaca_dir,
+                    heat_path: Some(args.db.parent().map(|d| d.join("flow_quote_heat.json")).unwrap_or_else(|| PathBuf::from("data/flow_quote_heat.json"))),
+                    shadow_dir: Some(args.db.parent().map(|d| d.join("flow_alpaca_shadow")).unwrap_or_else(|| PathBuf::from("data/flow_alpaca_shadow"))),
                 })
             } else {
                 None
