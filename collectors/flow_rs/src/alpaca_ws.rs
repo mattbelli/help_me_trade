@@ -13,10 +13,17 @@
 //! subscriptions picked by `quotebook::QuoteBook` (re-ranked every 5 s; diffs go
 //! out through a writer task so the read loop never waits on a send). Every
 //! trade gets a shadow direction that rides the matcher to its dbn twin.
+//!
+//! Stage B (`flow_rs live --spine alpaca`): no dbn tape and no matcher — RTH
+//! trades go straight to the Runner (`live::Msg::AlpacaTrades`, one send per
+//! frame) carrying their native code and the pre-trade book; the quote book,
+//! heat file, GTH tape and recorder run as before.
 
 use crate::calendar::is_trading_day;
+use crate::live::Msg;
 use crate::pairing::Pairing;
-use crate::quotebook::{in_quote_hours, QuoteBook, RERANK_EVERY_NS};
+use crate::print::Dir;
+use crate::quotebook::{in_quote_hours, Quote, QuoteBook, QuoteHours, RERANK_EVERY_NS};
 use anyhow::{anyhow, bail, Result};
 use chrono::{Datelike, Duration as CDuration, NaiveTime, TimeZone};
 use chrono_tz::America::New_York;
@@ -36,6 +43,11 @@ const RECONNECT_MAX_SEC: f64 = 120.0;
 const SWEEP_EVERY_SEC: u64 = 1;
 const STATS_EVERY_SEC: u64 = 60;
 const HEAT_PERSIST_EVERY_SEC: u64 = 60;
+// Alpaca spine: a socket can sit ESTAB with no data (feed-can-be-healthy-and-dead),
+// and FeedLiveness only judges RTH — so ping, and reconnect when nothing (not
+// even a pong) has come back, at any hour, before the open finds it dead.
+const PING_EVERY_SEC: u64 = 20;
+const DEAD_AFTER_SEC: u64 = 60;
 
 pub fn now_ns() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as i64).unwrap_or(0)
@@ -156,12 +168,32 @@ pub struct SidecarArgs {
     pub heat_path: Option<PathBuf>,
     /// Stage-A shadow minute lines → `<dir>/<ET date>.jsonl` (`data/flow_alpaca_shadow`).
     pub shadow_dir: Option<PathBuf>,
+    /// The Alpaca spine: RTH trades → the live loop's Runner; None = the dbn
+    /// spine's pairing sidecar.
+    pub spine: Option<tokio::sync::mpsc::Sender<Msg>>,
+}
+
+/// One Alpaca wildcard trade for the Runner (Alpaca spine, 09:30–16:15 ET only).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlpacaPrint {
+    pub sym: String,
+    pub t_ns: i64,
+    pub price: f64,
+    pub size: i64,
+    pub exch: String,
+    pub cond: String,
+    /// The usable pre-trade book (latest quote with t < trade t, ≤ 5 s, 0 < bid < ask).
+    pub nbbo: Option<Quote>,
+    pub tick: Dir,
 }
 
 /// The quote book plus its timers and files, owned by the sidecar task (never
 /// under the pairing lock, so a re-rank can't stall the spine's tee).
 struct QuoteLane {
     book: QuoteBook,
+    /// Alpaca spine: trades feed the Runner, not the matcher.
+    spine: bool,
+    hours: QuoteHours,
     heat_path: Option<PathBuf>,
     shadow_dir: Option<PathBuf>,
     last_rerank_ns: i64,
@@ -189,6 +221,23 @@ struct AbortOnDrop(tokio::task::JoinHandle<()>);
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
         self.0.abort();
+    }
+}
+
+/// One wildcard trade: the quote book (heat, tick, pre-trade quote), then the
+/// Runner batch (Alpaca spine, RTH only) or the matcher (dbn spine), and the
+/// GTH tape (which keeps only the overnight session).
+#[allow(clippy::too_many_arguments)]
+fn on_trade(lane: &mut QuoteLane, p: &mut Pairing, gth: &mut Option<GthTape>, batch: &mut Vec<AlpacaPrint>, sym: &str, t: i64, px: f64, size: i64, cond: &str, exch: &str, now: i64) {
+    let cents = (px * 100.0).round() as i64;
+    let (shadow, book) = lane.book.on_trade(sym, t, cents, size);
+    if !lane.spine {
+        p.on_alpaca(sym, t, cents, size, cond, shadow, now);
+    } else if lane.hours.contains(t) {
+        batch.push(AlpacaPrint { sym: sym.to_string(), t_ns: t, price: px, size, exch: exch.to_string(), cond: cond.to_string(), nbbo: book, tick: shadow.tick });
+    }
+    if let Some(g) = gth.as_mut() {
+        g.offer(sym, t, cents, size, cond, exch);
     }
 }
 
@@ -275,7 +324,7 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
             None
         }
     });
-    let mut lane = QuoteLane { book: QuoteBook::new(), heat_path: args.heat_path.clone(), shadow_dir: args.shadow_dir.clone(), last_rerank_ns: 0, last_persist: tokio::time::Instant::now() };
+    let mut lane = QuoteLane { book: QuoteBook::new(), spine: args.spine.is_some(), hours: QuoteHours::default(), heat_path: args.heat_path.clone(), shadow_dir: args.shadow_dir.clone(), last_rerank_ns: 0, last_persist: tokio::time::Instant::now() };
     if let Some(p) = &lane.heat_path {
         match lane.book.seed(p, now_ns()) {
             Ok((kept, expired)) => eprintln!("pairing: quote book seeded {kept} contracts from {} ({expired} expired dropped)", p.display()),
@@ -287,9 +336,14 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
     let mut sweep_tick = tokio::time::interval(Duration::from_secs(SWEEP_EVERY_SEC));
     sweep_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_stats = tokio::time::Instant::now();
-    eprintln!("pairing: starting (matcher + wildcard codes sidecar)");
+    let mut lost_at = None;
+    if lane.spine {
+        eprintln!("alpaca spine: starting (wildcard trades → runner, quote book, GTH tape)");
+    } else {
+        eprintln!("pairing: starting (matcher + wildcard codes sidecar)");
+    }
     loop {
-        match session(&pairing, &args, &mut gth, recorder.as_mut(), &mut connected_once, &mut sweep_tick, &mut last_stats, &mut lane).await {
+        match session(&pairing, &args, &mut gth, recorder.as_mut(), &mut connected_once, &mut sweep_tick, &mut last_stats, &mut lane, &mut lost_at).await {
             Ok(()) => {}
             Err(e) => {
                 {
@@ -299,6 +353,7 @@ pub async fn run(pairing: Arc<Mutex<Pairing>>, args: SidecarArgs) {
                     }
                     p.reconnects += 1;
                 }
+                lost_at.get_or_insert_with(tokio::time::Instant::now);
                 eprintln!("pairing: sidecar stream error ({e:#}); reconnect in {backoff:.0}s — a 406 means another process holds the OPRA socket");
             }
         }
@@ -353,7 +408,11 @@ fn housekeeping(pairing: &Arc<Mutex<Pairing>>, gth: &mut Option<GthTape>, last_s
             p.gth_stats = (g.written, g.dropped_non_session);
         }
         p.book_json = book_json.clone();
-        if stats_due {
+        if stats_due && lane.spine {
+            let g = gth.as_ref().map(|g| (g.written, g.dropped_non_session)).unwrap_or((0, 0));
+            let line = format!("alpaca spine: {} | gth_w={} gth_drop={} acked_wide={} reconnects={} rss={:.0}MB", lane.book.line(), g.0, g.1, p.acked_wide, p.reconnects, rss_mb());
+            (Some(line), None)
+        } else if stats_due {
             let g = gth.as_ref().map(|g| (g.written, g.dropped_non_session)).unwrap_or((0, 0));
             let line = format!("{} | {} | {}", p.stats_line(g, rss_mb()), p.shadow.line(), lane.book.line());
             (Some(line), Some((p.shadow.day.clone(), p.shadow.json())))
@@ -395,6 +454,7 @@ async fn session(
     sweep_tick: &mut tokio::time::Interval,
     last_stats: &mut tokio::time::Instant,
     lane: &mut QuoteLane,
+    lost_at: &mut Option<tokio::time::Instant>,
 ) -> Result<()> {
     let mut req = args.url.as_str().into_client_request()?;
     req.headers_mut().insert("Content-Type", "application/msgpack".parse()?);
@@ -445,9 +505,12 @@ async fn session(
     if !set.is_empty() {
         let _ = sub_tx.send(quotes_msg("subscribe", set));
     }
+    if let (Some(tx), Some(at)) = (&args.spine, lost_at.take()) {
+        let _ = tx.send(Msg::Reconnected { gap_s: at.elapsed().as_secs_f64() }).await;
+    }
     // The epoch boundary lives HERE, after re-subscribe: gap-fed dbn prints are
     // discarded rather than mis-ranked.
-    if *connected_once {
+    if *connected_once && !lane.spine {
         let (d, a) = pairing.lock().unwrap().reset_matcher();
         let n = pairing.lock().unwrap().matcher_resets;
         eprintln!("pairing: MATCHER RESET #{n} after sidecar gap — new epoch; discarded pending d={d} a={a} (prints during the gap are unmeasured, never mismatched)");
@@ -455,6 +518,9 @@ async fn session(
     *connected_once = true;
     let mut recorder = recorder;
     let mut acks = 0u64; // every quote diff is acked with the full list; log the first two
+    let mut wide_acked = false; // the spine's liveness ack: once per session
+    let mut ping = tokio::time::interval(Duration::from_secs(PING_EVERY_SEC));
+    let mut last_rx = tokio::time::Instant::now();
     loop {
         tokio::select! {
             biased;
@@ -462,8 +528,15 @@ async fn session(
                 housekeeping(pairing, gth, last_stats, lane, Some(&sub_tx));
                 if pairing.lock().unwrap().stopping { return Ok(()); }
             }
+            _ = ping.tick(), if lane.spine => {
+                if last_rx.elapsed() > Duration::from_secs(DEAD_AFTER_SEC) {
+                    bail!("no frame and no pong for {:.0}s — the socket is open and dead", last_rx.elapsed().as_secs_f64());
+                }
+                let _ = sub_tx.send(Message::Ping(Vec::new()));
+            }
             msg = rx.next() => {
                 let Some(msg) = msg else { bail!("socket closed") };
+                last_rx = tokio::time::Instant::now();
                 let raw = match msg? {
                     Message::Binary(b) => b,
                     Message::Close(_) => bail!("server closed"),
@@ -472,43 +545,52 @@ async fn session(
                 if let Some(r) = recorder.as_deref_mut() { r.record(&raw); }
                 let now = now_ns();
                 let items = frames(&raw);
-                let mut p = pairing.lock().unwrap();
-                for item in &items {
-                    match str_field(item, "T") {
-                        Some("t") => {
-                            let (Some(sym), Some(t)) = (str_field(item, "S"), field(item, "t").and_then(ts_ns)) else { continue };
-                            let (Some(px), Some(sz)) = (field(item, "p").and_then(num_f64), field(item, "s").and_then(num_f64)) else { continue };
-                            let cents = (px * 100.0).round() as i64;
-                            let size = sz as i64;
-                            let cond = str_field(item, "c").unwrap_or("");
-                            let shadow = lane.book.on_trade(sym, t, cents, size);
-                            p.on_alpaca(sym, t, cents, size, cond, shadow, now);
-                            if let Some(g) = gth.as_mut() {
-                                g.offer(sym, t, cents, size, cond, str_field(item, "x").unwrap_or(""));
+                let mut batch = Vec::new();
+                let mut first_ack = false;
+                {
+                    let mut p = pairing.lock().unwrap();
+                    for item in &items {
+                        match str_field(item, "T") {
+                            Some("t") => {
+                                let (Some(sym), Some(t)) = (str_field(item, "S"), field(item, "t").and_then(ts_ns)) else { continue };
+                                let (Some(px), Some(sz)) = (field(item, "p").and_then(num_f64), field(item, "s").and_then(num_f64)) else { continue };
+                                let (cond, exch) = (str_field(item, "c").unwrap_or(""), str_field(item, "x").unwrap_or(""));
+                                on_trade(lane, &mut p, gth, &mut batch, sym, t, px, sz as i64, cond, exch, now);
                             }
-                        }
-                        Some("q") => {
-                            let (Some(sym), Some(t)) = (str_field(item, "S"), field(item, "t").and_then(ts_ns)) else { continue };
-                            let (Some(bid), Some(ask)) = (field(item, "bp").and_then(num_f64), field(item, "ap").and_then(num_f64)) else { continue };
-                            lane.book.on_quote(sym, t, bid, ask);
-                        }
-                        Some("subscription") => {
-                            let wide = matches!(field(item, "trades"), Some(Value::Array(a)) if a.iter().any(|s| s.as_str() == Some("*")));
-                            p.acked_wide = wide;
-                            let n_quotes = match field(item, "quotes") { Some(Value::Array(a)) => a.len(), _ => 0 };
-                            lane.book.m.acked_quotes = Some(n_quotes);
-                            acks += 1;
-                            if acks <= 2 {
-                                eprintln!("pairing: subscription ack wide={wide} quotes={n_quotes}");
+                            Some("q") => {
+                                let (Some(sym), Some(t)) = (str_field(item, "S"), field(item, "t").and_then(ts_ns)) else { continue };
+                                let (Some(bid), Some(ask)) = (field(item, "bp").and_then(num_f64), field(item, "ap").and_then(num_f64)) else { continue };
+                                lane.book.on_quote(sym, t, bid, ask);
                             }
-                        }
-                        Some("error") => {
-                            lane.book.m.server_errors += 1;
-                            if lane.book.m.server_errors <= 20 {
-                                eprintln!("pairing: server error #{}: {item}", lane.book.m.server_errors);
+                            Some("subscription") => {
+                                let wide = matches!(field(item, "trades"), Some(Value::Array(a)) if a.iter().any(|s| s.as_str() == Some("*")));
+                                p.acked_wide = wide;
+                                let n_quotes = match field(item, "quotes") { Some(Value::Array(a)) => a.len(), _ => 0 };
+                                lane.book.m.acked_quotes = Some(n_quotes);
+                                acks += 1;
+                                first_ack |= wide && !wide_acked;
+                                wide_acked |= wide;
+                                if acks <= 2 {
+                                    eprintln!("pairing: subscription ack wide={wide} quotes={n_quotes}");
+                                }
                             }
+                            Some("error") => {
+                                lane.book.m.server_errors += 1;
+                                if lane.book.m.server_errors <= 20 {
+                                    eprintln!("pairing: server error #{}: {item}", lane.book.m.server_errors);
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                }
+                if let Some(tx) = &args.spine {
+                    // the live loop's backpressure, as the dbn transport has it
+                    if first_ack && tx.send(Msg::Ack).await.is_err() {
+                        return Ok(());
+                    }
+                    if !batch.is_empty() && tx.send(Msg::AlpacaTrades(batch)).await.is_err() {
+                        return Ok(());
                     }
                 }
             }
@@ -544,6 +626,38 @@ mod tests {
         assert_eq!(body.lines().count(), 2);
         assert!(body.starts_with("{\"t\":"), "{body}");
         assert!(body.contains("\"c\":\"a\""));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn spine_routes_rth_trades_to_the_runner_and_overnight_to_gth_only() {
+        let dir = std::env::temp_dir().join(format!("gth_spine_test_{}", std::process::id()));
+        let mut gth = Some(GthTape::new(dir.clone()).unwrap());
+        let mut p = Pairing::new();
+        let mut lane = QuoteLane { book: QuoteBook::new(), spine: true, hours: QuoteHours::default(), heat_path: None, shadow_dir: None, last_rerank_ns: 0, last_persist: tokio::time::Instant::now() };
+        let et = |h, mi| New_York.with_ymd_and_hms(2026, 8, 18, h, mi, 0).unwrap().timestamp_nanos_opt().unwrap();
+        let sym = "SPXW260818C06400000";
+        let mut batch = Vec::new();
+        // heat it past the candidate line, re-rank it into a slot, quote it
+        lane.book.on_trade(sym, et(10, 0), 1_000, 100);
+        lane.book.rerank(et(10, 0));
+        lane.book.on_quote(sym, et(10, 1), 9.80, 10.00);
+        on_trade(&mut lane, &mut p, &mut gth, &mut batch, sym, et(10, 1) + 5, 10.00, 3, "a", "C", 0);
+        on_trade(&mut lane, &mut p, &mut gth, &mut batch, "SPY260918C00640000", et(10, 1) + 6, 1.25, 2, "", "X", 0);
+        assert_eq!(batch.len(), 2);
+        assert_eq!(batch[0].nbbo, Some(Quote { t_ns: et(10, 1), bid: 9.80, ask: 10.00 }));
+        assert_eq!((batch[0].cond.as_str(), batch[0].exch.as_str(), batch[0].price, batch[0].size), ("a", "C", 10.00, 3));
+        assert_eq!(batch[1].nbbo, None);
+        // 16:15 and overnight: GTH tape only (it keeps the 03:00 print), never the runner
+        on_trade(&mut lane, &mut p, &mut gth, &mut batch, sym, et(16, 15), 10.00, 1, "", "C", 0);
+        on_trade(&mut lane, &mut p, &mut gth, &mut batch, sym, et(3, 0), 10.00, 1, "", "C", 0);
+        assert_eq!(batch.len(), 2);
+        assert_eq!(gth.as_ref().unwrap().buf.len(), 1);
+        // the spine never feeds the matcher; the dbn spine's sidecar still does
+        assert_eq!(p.alp_seen, 0);
+        lane.spine = false;
+        on_trade(&mut lane, &mut p, &mut gth, &mut batch, sym, et(11, 0), 10.00, 1, "", "C", 0);
+        assert_eq!((p.alp_seen, batch.len()), (1, 2));
         let _ = std::fs::remove_dir_all(dir);
     }
 

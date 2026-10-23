@@ -31,6 +31,10 @@ const POOL_FLOOR_USD: f64 = 1_000.0; // a candidate decayed below this leaves th
 const RING: usize = 4;
 const STALE_NS: i64 = QUOTE_STALE_MS * 1_000_000;
 const BUCKET_EDGES_USD: [f64; 3] = [25_000.0, 100_000.0, 250_000.0];
+/// Alpaca spine: sign an unquoted print by the tick test (basis "tick")? Off —
+/// the 10-23 shadow measured tick vs dbn_nbbo at 67% agreement (25% undetermined)
+/// against 99.7% for the pre-trade quote, so an unquoted print stays undetermined.
+pub const TICK_FALLBACK: bool = false;
 pub const BUCKET_LABELS: [&str; 4] = ["lt25k", "25k_100k", "100k_250k", "ge250k"];
 
 fn decay(dt_ns: i64) -> f64 {
@@ -70,13 +74,38 @@ pub fn in_quote_hours(now_ns: i64) -> bool {
         && tod < NaiveTime::from_hms_opt(16, 15, 0).unwrap()
 }
 
+/// `in_quote_hours` per trade: one integer compare against the cached
+/// [09:30, 16:15) ET window of the trade's day (the Alpaca spine's Runner gate).
+#[derive(Default)]
+pub struct QuoteHours {
+    lo: i64,
+    hi: i64,
+}
+
+impl QuoteHours {
+    pub fn contains(&mut self, t_ns: i64) -> bool {
+        if self.lo <= t_ns && t_ns < self.hi {
+            return true;
+        }
+        if !in_quote_hours(t_ns) {
+            return false;
+        }
+        let day = New_York.timestamp_nanos(t_ns).date_naive();
+        let at = |h, m| New_York.from_local_datetime(&day.and_hms_opt(h, m, 0).unwrap()).single().and_then(|x| x.timestamp_nanos_opt());
+        if let (Some(lo), Some(hi)) = (at(9, 30), at(16, 15)) {
+            (self.lo, self.hi) = (lo, hi);
+        }
+        true
+    }
+}
+
 // --- the quote ring -----------------------------------------------------------------------------
 
-#[derive(Default, Clone, Copy, Debug)]
-struct Quote {
-    t_ns: i64,
-    bid: f64,
-    ask: f64,
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub struct Quote {
+    pub t_ns: i64,
+    pub bid: f64,
+    pub ask: f64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -108,7 +137,7 @@ impl Ring {
 
     /// The latest quote with `t < trade_t`, then judged like tcbbo's book:
     /// stale (> QUOTE_STALE_MS) or not 0 < bid < ask → no usable quote.
-    fn pre_trade(&self, trade_t: i64) -> Result<(f64, f64), Miss> {
+    fn pre_trade(&self, trade_t: i64) -> Result<Quote, Miss> {
         if self.n == 0 {
             return Err(Miss::NoRing);
         }
@@ -119,7 +148,7 @@ impl Ring {
         if !(0.0 < q.bid && q.bid < q.ask) {
             return Err(Miss::BadBook);
         }
-        Ok((q.bid, q.ask))
+        Ok(*q)
     }
 
     /// The ordering check: the latest-ARRIVED quote, whatever its timestamp.
@@ -245,7 +274,8 @@ impl QuoteBook {
     }
 
     /// Per Alpaca trade, O(1): heat + candidacy, tick test, pre-trade quote.
-    pub fn on_trade(&mut self, sym: &str, t_ns: i64, cents: i64, size: i64) -> Shadow {
+    /// Returns the shadow directions and the usable pre-trade book itself.
+    pub fn on_trade(&mut self, sym: &str, t_ns: i64, cents: i64, size: i64) -> (Shadow, Option<Quote>) {
         self.roll_day(t_ns);
         let prem = (cents * size) as f64; // $ = price × size × 100 = cents × size
         if !self.contracts.contains_key(sym) {
@@ -272,6 +302,7 @@ impl QuoteBook {
             c.tick = tick;
         }
         let px = cents as f64 / 100.0;
+        let mut book = None;
         let (quote, arrival) = match self.slots.get(sym) {
             None => {
                 self.m.no_ring += 1;
@@ -279,9 +310,10 @@ impl QuoteBook {
             }
             Some(s) => {
                 let quote = match s.ring.pre_trade(t_ns) {
-                    Ok((b, a)) => {
+                    Ok(q) => {
                         self.m.usable += 1;
-                        Some(classify_direction(px, b, a))
+                        book = Some(q);
+                        Some(classify_direction(px, q.bid, q.ask))
                     }
                     Err(miss) => {
                         match miss {
@@ -296,7 +328,7 @@ impl QuoteBook {
                 (quote, s.ring.latest_arrived(t_ns).map(|(b, a)| classify_direction(px, b, a)))
             }
         };
-        Shadow { quote, arrival, tick }
+        (Shadow { quote, arrival, tick }, book)
     }
 
     pub fn on_quote(&mut self, sym: &str, t_ns: i64, bid: f64, ask: f64) {
@@ -600,6 +632,12 @@ mod tests {
         New_York.with_ymd_and_hms(2026, 8, 18, 10, 0, 0).unwrap().timestamp_nanos_opt().unwrap()
     }
 
+    impl Ring {
+        fn pt(&self, trade_t: i64) -> Result<(f64, f64), Miss> {
+            self.pre_trade(trade_t).map(|q| (q.bid, q.ask))
+        }
+    }
+
     fn ring(qs: &[(i64, f64, f64)]) -> Ring {
         let mut r = Ring::default();
         for &(t_ns, bid, ask) in qs {
@@ -612,28 +650,28 @@ mod tests {
     fn ring_picks_latest_pre_trade_by_timestamp_not_arrival() {
         // the quote the trade caused (t=105) arrived AFTER an older one but before the trade msg
         let r = ring(&[(90, 1.00, 1.10), (100, 1.05, 1.15), (105, 1.10, 1.20)]);
-        assert_eq!(r.pre_trade(103), Ok((1.05, 1.15)));
+        assert_eq!(r.pt(103), Ok((1.05, 1.15)));
         assert_eq!(r.latest_arrived(103), Some((1.10, 1.20)));
         // out-of-order arrival: max by t, not by position
         let r = ring(&[(100, 1.05, 1.15), (90, 1.00, 1.10)]);
-        assert_eq!(r.pre_trade(103), Ok((1.05, 1.15)));
+        assert_eq!(r.pt(103), Ok((1.05, 1.15)));
         // equal timestamp is not "before"
-        assert_eq!(ring(&[(103, 1.0, 1.1)]).pre_trade(103), Err(Miss::NoneBefore));
-        assert_eq!(Ring::default().pre_trade(103), Err(Miss::NoRing));
+        assert_eq!(ring(&[(103, 1.0, 1.1)]).pt(103), Err(Miss::NoneBefore));
+        assert_eq!(Ring::default().pt(103), Err(Miss::NoRing));
         // ring keeps only the last RING by arrival
         let r = ring(&[(1, 1.0, 1.1), (200, 1.0, 1.1), (201, 1.0, 1.1), (202, 1.0, 1.1), (203, 1.0, 1.1)]);
-        assert_eq!(r.pre_trade(100), Err(Miss::NoneBefore));
+        assert_eq!(r.pt(100), Err(Miss::NoneBefore));
     }
 
     #[test]
     fn ring_rejects_stale_crossed_and_zero_books() {
-        assert_eq!(ring(&[(0, 1.0, 1.1)]).pre_trade(STALE_NS + 1), Err(Miss::Stale));
-        assert_eq!(ring(&[(0, 1.0, 1.1)]).pre_trade(STALE_NS), Ok((1.0, 1.1)));
-        assert_eq!(ring(&[(0, 1.1, 1.0)]).pre_trade(1), Err(Miss::BadBook));
-        assert_eq!(ring(&[(0, 1.0, 1.0)]).pre_trade(1), Err(Miss::BadBook));
-        assert_eq!(ring(&[(0, 0.0, 0.05)]).pre_trade(1), Err(Miss::BadBook));
+        assert_eq!(ring(&[(0, 1.0, 1.1)]).pt(STALE_NS + 1), Err(Miss::Stale));
+        assert_eq!(ring(&[(0, 1.0, 1.1)]).pt(STALE_NS), Ok((1.0, 1.1)));
+        assert_eq!(ring(&[(0, 1.1, 1.0)]).pt(1), Err(Miss::BadBook));
+        assert_eq!(ring(&[(0, 1.0, 1.0)]).pt(1), Err(Miss::BadBook));
+        assert_eq!(ring(&[(0, 0.0, 0.05)]).pt(1), Err(Miss::BadBook));
         // the latest pre-trade book is the one judged — an older good one does not rescue it
-        assert_eq!(ring(&[(0, 1.0, 1.1), (5, 1.2, 1.1)]).pre_trade(10), Err(Miss::BadBook));
+        assert_eq!(ring(&[(0, 1.0, 1.1), (5, 1.2, 1.1)]).pt(10), Err(Miss::BadBook));
         assert_eq!(ring(&[(0, 1.1, 1.0)]).latest_arrived(1), None);
         assert_eq!(ring(&[(STALE_NS + 10, 1.0, 1.1)]).latest_arrived(0), None);
     }
@@ -645,10 +683,11 @@ mod tests {
         b.slots.insert("SPY260818C00640000".into(), Slot { since_ns: t, ring: Ring::default() });
         b.on_quote("SPY260818C00640000", t, 1.00, 1.10);
         b.on_quote("SPY260818C00640000", t + 2, 1.10, 1.20); // caused by the trade, arrived first
-        let s = b.on_trade("SPY260818C00640000", t + 1, 110, 10);
+        let (s, q) = b.on_trade("SPY260818C00640000", t + 1, 110, 10);
         assert_eq!(s.quote, Some(Dir::Buy)); // at the pre-trade ask
         assert_eq!(s.arrival, Some(Dir::Sell)); // at the post-trade bid
-        assert_eq!(b.on_trade("QQQ260818C00500000", t, 100, 1).quote, None);
+        assert_eq!(q, Some(Quote { t_ns: t, bid: 1.00, ask: 1.10 }));
+        assert_eq!(b.on_trade("QQQ260818C00500000", t, 100, 1), (Shadow::default(), None));
         assert_eq!((b.m.usable, b.m.no_ring), (1, 1));
     }
 
@@ -657,19 +696,19 @@ mod tests {
         let mut b = QuoteBook::new();
         let sym = "SPY260821C00640000";
         let t = t0();
-        let ticks: Vec<Dir> = [100, 100, 105, 105, 103, 103, 103, 110].iter().enumerate().map(|(i, c)| b.on_trade(sym, t + i as i64, *c, 1).tick).collect();
+        let ticks: Vec<Dir> = [100, 100, 105, 105, 103, 103, 103, 110].iter().enumerate().map(|(i, c)| b.on_trade(sym, t + i as i64, *c, 1).0.tick).collect();
         use Dir::*;
         assert_eq!(ticks, vec![Undetermined, Undetermined, Buy, Buy, Sell, Sell, Sell, Buy]);
         // per contract
-        assert_eq!(b.on_trade("SPY260821P00600000", t + 10, 50, 1).tick, Undetermined);
+        assert_eq!(b.on_trade("SPY260821P00600000", t + 10, 50, 1).0.tick, Undetermined);
         // next ET day: first print undetermined again, then normal
         let t1 = t + 24 * 3600 * S;
-        assert_eq!(b.on_trade(sym, t1, 120, 1).tick, Undetermined);
-        assert_eq!(b.on_trade(sym, t1 + 1, 120, 1).tick, Undetermined);
-        assert_eq!(b.on_trade(sym, t1 + 2, 115, 1).tick, Sell);
+        assert_eq!(b.on_trade(sym, t1, 120, 1).0.tick, Undetermined);
+        assert_eq!(b.on_trade(sym, t1 + 1, 120, 1).0.tick, Undetermined);
+        assert_eq!(b.on_trade(sym, t1 + 2, 115, 1).0.tick, Sell);
         // a late print stamped yesterday does not roll the day back
         let _ = b.on_trade(sym, t + 3600 * S, 200, 1);
-        assert_eq!(b.on_trade(sym, t1 + 3, 115, 1).tick, Sell);
+        assert_eq!(b.on_trade(sym, t1 + 3, 115, 1).0.tick, Sell);
     }
 
     fn heat(b: &mut QuoteBook, sym: &str, t: i64, usd: i64) {

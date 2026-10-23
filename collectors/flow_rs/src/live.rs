@@ -7,6 +7,11 @@
 //! wall clock — the same split as Python (databento's client thread vs `sweep_loop`).
 //! Liveness is judged on DATA, never on the socket's opinion of itself, exactly as
 //! the Python module documents: SILENCE 90s / ACK 60s / STALL 300s.
+//!
+//! `--spine alpaca`: no Databento socket. The Alpaca sidecar is the transport —
+//! it sends `Msg::AlpacaTrades` (RTH prints), `Ack` (trades `*` acked) and
+//! `Reconnected` down the same channel, and the same FeedLiveness rules judge
+//! it (data_msgs = Alpaca trades).
 
 use crate::calendar::is_market_open;
 use crate::runner::{today_et, Runner};
@@ -29,6 +34,8 @@ const CHANNEL_CAP: usize = 1 << 18;
 
 pub struct LiveArgs {
     pub key: String,
+    /// The Alpaca spine: `sidecar` is the transport, `key`/`replay_from`/`record` unused.
+    pub alpaca_spine: bool,
     /// Intraday replay start (epoch seconds). ⚠️ Measured 2026-08-17: the gateway
     /// replays ALL_SYMBOLS **interleaved per instrument, NOT in time order** (the
     /// 40th percentile record sat at 13:34, the 70th at 13:56, then back), so no
@@ -81,7 +88,7 @@ impl Recorder {
 
 /// What the transport hands the main loop. Prints carry exactly the fields
 /// `_on_record` reads off a tcbbo record.
-enum Msg {
+pub enum Msg {
     Print {
         instrument_id: u32,
         ts_event: u64,
@@ -96,6 +103,8 @@ enum Msg {
         instrument_id: u32,
         raw_symbol: String,
     },
+    /// The Alpaca spine: one frame's RTH trades.
+    AlpacaTrades(Vec<crate::alpaca_ws::AlpacaPrint>),
     Ack,
     SlowReader,
     SkippedByGateway,
@@ -435,22 +444,36 @@ pub fn run(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
 
 async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
     let (tx, mut rx) = mpsc::channel::<Msg>(CHANNEL_CAP);
-    let transport_task = tokio::spawn(transport(
-        args.key.clone(),
-        args.replay_from,
-        args.record.clone(),
-        tx,
-    ));
-
+    let mut transport_task = None;
     // Pairing sidecar: a task the spine never waits on; the runner tees every
-    // print into the shared matcher and pulls resolved codes each cycle.
+    // print into the shared matcher and pulls resolved codes each cycle. On the
+    // Alpaca spine it IS the transport and the Pairing only carries its shared
+    // state (stop flag, ack, reconnects, quote-book + GTH counters).
     let mut sidecar_task = None;
-    if let Some(sc) = args.sidecar {
+    let mut sidecar_state = None;
+    if args.alpaca_spine {
+        runner.quote_basis = crate::runner::ALPACA_QUOTE_BASIS;
+        eprintln!("dbn live: spine=alpaca — no Databento connection; Alpaca OPRA trades['*'] + quote book feed the runner");
+    } else {
+        transport_task = Some(tokio::spawn(transport(
+            args.key.clone(),
+            args.replay_from,
+            args.record.clone(),
+            tx.clone(),
+        )));
+    }
+    if let Some(mut sc) = args.sidecar {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let pairing = std::sync::Arc::new(std::sync::Mutex::new(crate::pairing::Pairing::new()));
-        runner.pairing = Some(pairing.clone());
+        if args.alpaca_spine {
+            sc.spine = Some(tx.clone());
+        } else {
+            runner.pairing = Some(pairing.clone());
+        }
+        sidecar_state = Some(pairing.clone());
         sidecar_task = Some(tokio::spawn(crate::alpaca_ws::run(pairing, sc)));
     }
+    drop(tx); // the channel closes when every transport is gone
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
@@ -520,8 +543,14 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                     let rate_60: u64 = sec_ring.iter().sum();
                     minutes.observe(now_s, this_sec, &sec_hist);
                     let pairing = runner.pairing.as_ref().map(|p| { let p = p.lock().unwrap(); p.snapshot_json(p.gth_stats) });
+                    let book = match (&sidecar_state, args.alpaca_spine) {
+                        (Some(p), true) => { let p = p.lock().unwrap(); serde_json::json!({"quote_book": p.book_json, "gth_written": p.gth_stats.0, "gth_dropped": p.gth_stats.1, "acked_wide": p.acked_wide}) }
+                        _ => serde_json::Value::Null,
+                    };
+                    let st = &runner.stats;
                     let v = serde_json::json!({
                         "name": "flow",
+                        "spine": if args.alpaca_spine { "alpaca" } else { "dbn" },
                         "ts": now,
                         "pid": std::process::id(),
                         "uptime_s": (now - started_wall).round(),
@@ -542,6 +571,8 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                         "flow_events": runner.stats.events_written, "minute_rows": runner.stats.minute_rows_written,
                         "coded": runner.stats.prints_coded, "repairs": runner.stats.repairs_applied,
                         "pairing": pairing,
+                        "alpaca_spine": book,
+                        "directed": { "prints": st.prints_directed, "usd_pct": if st.usd > 0.0 { (1000.0 * st.usd_directed / st.usd).round() / 10.0 } else { 0.0 } },
                         "rss_mb": rss_mb(),
                     });
                     w.write(&v);
@@ -550,10 +581,11 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                 if let Some(rate) = live.take_rate(mono) {
                     if open || args.replay_from.is_some() {
                         eprintln!(
-                            "dbn live: {rate:.1} prints/min (data_msgs={} prints={} mapped={} acks={} slow={} dropped={} unresolved_syms={} no_meta={} reconnects={} gap_s={:.1} events={} minute_rows={} coded={} repairs={})",
+                            "dbn live: {rate:.1} prints/min (data_msgs={} prints={} mapped={} acks={} slow={} dropped={} unresolved_syms={} no_meta={} reconnects={} gap_s={:.1} events={} minute_rows={} coded={} repairs={} directed={:.1}%$)",
                             c.data_msgs, runner.stats.prints, runner.mapped(), c.acks, c.slow, c.skipped, c.sym_fail,
                             runner.stats.skipped_no_meta, c.reconnects, c.gap_s, runner.stats.events_written, runner.stats.minute_rows_written,
-                            runner.stats.prints_coded, runner.stats.repairs_applied
+                            runner.stats.prints_coded, runner.stats.repairs_applied,
+                            100.0 * runner.stats.usd_directed / runner.stats.usd.max(1e-9)
                         );
                     }
                 }
@@ -578,6 +610,24 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
                         runner.on_record(instrument_id, ts_event, ts_recv, price, size, publisher_id, bid_px, ask_px, today);
                     }
                     Some(Msg::Map { instrument_id, raw_symbol }) => runner.map_symbol(instrument_id, &raw_symbol),
+                    Some(Msg::AlpacaTrades(batch)) => {
+                        if c.data_msgs == 0 {
+                            if let Some(a) = batch.first() {
+                                eprintln!("dbn live: first Alpaca RTH trade t={} ({})", a.t_ns, crate::pyfmt::iso_from_unix(a.t_ns as f64 / 1e9));
+                            }
+                        }
+                        c.data_msgs += batch.len() as u64;
+                        let w = wall();
+                        if let Some(a) = batch.first() {
+                            let lag = w * 1000.0 - a.t_ns as f64 / 1e6;
+                            sec_hist.add(lag);
+                            day_hist.add(lag);
+                        }
+                        let today = today_et(w.floor() as i64);
+                        for a in batch {
+                            runner.on_alpaca(a, today);
+                        }
+                    }
                     Some(Msg::Ack) => c.acks += 1,
                     Some(Msg::SlowReader) => {
                         c.slow += 1;
@@ -611,10 +661,13 @@ async fn run_async(runner: &mut Runner, args: LiveArgs) -> Result<i32> {
             }
         }
     }
-    transport_task.abort();
-    if let Some(p) = &runner.pairing {
+    if let Some(t) = transport_task {
+        t.abort();
+    }
+    if let Some(p) = &sidecar_state {
         p.lock().unwrap().stopping = true;
     }
+    drop(rx); // a spine sidecar parked on a full channel sees the close and stops
     if let Some(t) = sidecar_task {
         // lets the sidecar flush the GTH tape + recorder (its sweep tick sees `stopping`)
         let _ = tokio::time::timeout(Duration::from_secs(3), t).await;

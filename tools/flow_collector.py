@@ -243,16 +243,32 @@ async def _main_rust_spine() -> int:
             FLOW_RS_BIN,
         )
         return 2
-    if not str(os.environ.get("DATABENTO_API_KEY") or "").strip():
+    argv = [str(FLOW_RS_BIN), "live", "--db", str(DEFAULT_DB_PATH)]
+    env = dict(os.environ)
+    pairing = False
+    # OPTIONS_FLOW_SPINE=alpaca (Stage B, 2026-10-23): Alpaca wildcard trades +
+    # the quote book ARE the spine — no Databento socket or key; Alpaca creds
+    # are required (env, never argv). Anything else = the dbn spine as before.
+    alpaca_spine = os.environ.get("OPTIONS_FLOW_SPINE", "").strip().lower() == "alpaca"
+    if alpaca_spine:
+        from config.settings import alpaca_config
+
+        cfg = alpaca_config()
+        ap_key = str(cfg.get("api_key_id") or "").strip()
+        ap_secret = str(cfg.get("api_secret_key") or "").strip()
+        if not ap_key or not ap_secret:
+            logger.error("OPTIONS_FLOW_SPINE=alpaca but Alpaca credentials are missing — the Rust spine cannot start")
+            return 2
+        argv += ["--spine", "alpaca"]
+        env["APCA_API_KEY_ID"] = ap_key
+        env["APCA_API_SECRET_KEY"] = ap_secret
+    elif not str(os.environ.get("DATABENTO_API_KEY") or "").strip():
         logger.error("DATABENTO_API_KEY unset — the Rust spine cannot start")
         return 2
     # Pairing (stage 2, 2026-08-18): the binary runs the Alpaca wildcard-trades
     # sidecar itself (matcher + in-place codes + late repairs + GTH tape) —
     # `--pairing`, creds via env, never argv. Same flag as the Python spine.
-    argv = [str(FLOW_RS_BIN), "live", "--db", str(DEFAULT_DB_PATH)]
-    env = dict(os.environ)
-    pairing = False
-    if _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
+    if not alpaca_spine and _flag("OPTIONS_FLOW_PAIRING_SHADOW"):
         from config.settings import alpaca_config
 
         cfg = alpaca_config()
@@ -267,8 +283,8 @@ async def _main_rust_spine() -> int:
             logger.warning("OPTIONS_FLOW_PAIRING_SHADOW set but Alpaca credentials missing — codes + GTH tape OFF")
 
     proc = await asyncio.create_subprocess_exec(*argv, env=env)
-    logger.info("flow collector (rust spine): %s live pid=%s db=%s pairing=%s; poll every %ss",
-                FLOW_RS_BIN.name, proc.pid, DEFAULT_DB_PATH, pairing, POLL_SECONDS)
+    logger.info("flow collector (rust spine): %s live pid=%s db=%s spine=%s pairing=%s; poll every %ss",
+                FLOW_RS_BIN.name, proc.pid, DEFAULT_DB_PATH, "alpaca" if alpaca_spine else "dbn", pairing, POLL_SECONDS)
 
     runner = OptionsFlowRunner(watchlist_symbols=watchlist_symbols)
     backhalf = BackHalf()

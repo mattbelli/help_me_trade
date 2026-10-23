@@ -3,6 +3,7 @@
 //!     virtual clock, diffed against Python with `tools/flow_ab.py` (stage 1);
 //!   `flow_rs live`   — the Databento live socket, wall clock, liveness +
 //!     reconnect + stats line (stage 3). Contract: `References/FLOW_COLLECTOR_RS_SPEC.md`.
+//!     `--spine alpaca`: the Alpaca OPRA wildcard trades + quote book instead (no Databento).
 
 mod calendar;
 mod db;
@@ -24,7 +25,7 @@ mod sweeps;
 use anyhow::{Context, Result};
 use chrono::{NaiveDate, NaiveTime, TimeZone};
 use chrono_tz::America::New_York;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use dbn::decode::{DbnMetadata, DecodeRecordRef};
 use dbn::{Cmbp1Msg, InstrumentDefMsg};
 use std::collections::HashMap;
@@ -47,13 +48,25 @@ enum Cmd {
     Live(LiveCli),
 }
 
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum Spine {
+    /// Databento OPRA tcbbo (every print with its pre-trade NBBO)
+    Dbn,
+    /// Alpaca OPRA wildcard trades, signed by the heat-allocated 1,000-contract quote book
+    Alpaca,
+}
+
 #[derive(Parser, Debug)]
 struct LiveCli {
     /// trading.db to write (production: data/trading.db)
     #[arg(long)]
     db: PathBuf,
-    /// Databento API key (default: $DATABENTO_API_KEY)
-    #[arg(long, env = "DATABENTO_API_KEY", hide_env_values = true)]
+    /// Print source: dbn (Databento tcbbo) or alpaca (wildcard trades + quote book;
+    /// needs APCA_API_KEY_ID / APCA_API_SECRET_KEY, no Databento key)
+    #[arg(long, value_enum, default_value = "dbn")]
+    spine: Spine,
+    /// Databento API key (default: $DATABENTO_API_KEY; dbn spine only)
+    #[arg(long, env = "DATABENTO_API_KEY", default_value = "", hide_env_values = true)]
     key: String,
     /// Intraday replay start, RFC3339 (≤~24h back; the floor snaps to a UTC
     /// midnight). Transport SMOKE test only: the gateway replays interleaved per
@@ -80,6 +93,9 @@ struct LiveCli {
     alpaca_key: String,
     #[arg(long, env = "APCA_API_SECRET_KEY", default_value = "", hide_env_values = true)]
     alpaca_secret: String,
+    /// Alpaca OPRA websocket (override = a local fake for smoke runs; never a 2nd real socket)
+    #[arg(long, default_value = alpaca_ws::OPRA_WS_URL, hide = true)]
+    alpaca_url: String,
     /// UI stats snapshot dir (default: <db dir>/collector_stats) — flow.json every second.
     #[arg(long)]
     stats_dir: Option<PathBuf>,
@@ -157,10 +173,21 @@ fn main() -> Result<()> {
                 .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|d| d.timestamp()))
                 .transpose()
                 .context("--replay-from must be RFC3339, e.g. 2026-08-17T13:30:00Z")?;
+            let alpaca_spine = args.spine == Spine::Alpaca;
+            if alpaca_spine {
+                if args.alpaca_key.is_empty() || args.alpaca_secret.is_empty() {
+                    anyhow::bail!("--spine alpaca needs APCA_API_KEY_ID / APCA_API_SECRET_KEY");
+                }
+                if replay_from.is_some() || args.record.is_some() {
+                    anyhow::bail!("--replay-from / --record are Databento-only (use --record-alpaca-dir)");
+                }
+            } else if args.key.is_empty() {
+                anyhow::bail!("the dbn spine needs --key or DATABENTO_API_KEY");
+            }
             let lab_dir = lab_dir_for(&args.db, args.lab_dir.clone());
             let db = db::Db::open(&args.db)?;
-            let mut runner = runner::Runner::new(HashMap::with_capacity(2_200_000), db, lab_dir);
-            let sidecar = if args.pairing {
+            let mut runner = runner::Runner::new(HashMap::with_capacity(if alpaca_spine { 0 } else { 2_200_000 }), db, lab_dir);
+            let sidecar = if args.pairing || alpaca_spine {
                 if args.alpaca_key.is_empty() || args.alpaca_secret.is_empty() {
                     anyhow::bail!("--pairing needs APCA_API_KEY_ID / APCA_API_SECRET_KEY");
                 }
@@ -170,11 +197,13 @@ fn main() -> Result<()> {
                 Some(alpaca_ws::SidecarArgs {
                     key: args.alpaca_key,
                     secret: args.alpaca_secret,
-                    url: alpaca_ws::OPRA_WS_URL.to_string(),
+                    url: args.alpaca_url,
                     gth_dir: Some(gth_dir),
                     record_dir: args.record_alpaca_dir,
                     heat_path: Some(args.db.parent().map(|d| d.join("flow_quote_heat.json")).unwrap_or_else(|| PathBuf::from("data/flow_quote_heat.json"))),
-                    shadow_dir: Some(args.db.parent().map(|d| d.join("flow_alpaca_shadow")).unwrap_or_else(|| PathBuf::from("data/flow_alpaca_shadow"))),
+                    // the shadow scores Alpaca against dbn — nothing to score on the Alpaca spine
+                    shadow_dir: if alpaca_spine { None } else { Some(args.db.parent().map(|d| d.join("flow_alpaca_shadow")).unwrap_or_else(|| PathBuf::from("data/flow_alpaca_shadow"))) },
+                    spine: None,
                 })
             } else {
                 None
@@ -183,6 +212,7 @@ fn main() -> Result<()> {
                 &mut runner,
                 live::LiveArgs {
                     key: args.key,
+                    alpaca_spine,
                     replay_from,
                     for_secs: args.for_secs,
                     record: args.record,

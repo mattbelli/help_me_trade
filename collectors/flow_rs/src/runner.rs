@@ -22,6 +22,7 @@ use std::path::PathBuf;
 pub const PX_SCALE: f64 = 1e9;
 pub const UNDEF_PX: i64 = i64::MAX;
 pub const QUOTE_BASIS: &str = "dbn_nbbo";
+pub const ALPACA_QUOTE_BASIS: &str = "alpaca_nbbo";
 pub const QUOTE_STALE_MS: i64 = 5_000;
 pub const COVERAGE: &str = "market_wide";
 
@@ -35,6 +36,10 @@ pub struct Stats {
     pub minute_rows_written: u64,
     pub prints_coded: u64,
     pub repairs_applied: u64,
+    /// Cycled prints / premium, and how much of each got a direction.
+    pub prints_directed: u64,
+    pub usd: f64,
+    pub usd_directed: f64,
 }
 
 pub struct Runner {
@@ -59,6 +64,8 @@ pub struct Runner {
     pub pairing: Option<std::sync::Arc<std::sync::Mutex<crate::pairing::Pairing>>>,
     /// print_id → event id backrefs for blocks emitted this cycle (sweeps keep theirs in the buffer).
     block_backrefs: Vec<(u64, String)>,
+    /// `direction_basis` for a quote-signed print: QUOTE_BASIS, or ALPACA_QUOTE_BASIS on the Alpaca spine.
+    pub quote_basis: &'static str,
 }
 
 fn et_of(secs: i64) -> chrono::DateTime<chrono_tz::Tz> {
@@ -91,6 +98,7 @@ impl Runner {
             db,
             pairing: None,
             block_backrefs: Vec::new(),
+            quote_basis: QUOTE_BASIS,
             pid: std::process::id() as i64,
             stats: Stats {
                 records: 0,
@@ -102,6 +110,9 @@ impl Runner {
                 minute_rows_written: 0,
                 prints_coded: 0,
                 repairs_applied: 0,
+                prints_directed: 0,
+                usd: 0.0,
+                usd_directed: 0.0,
             },
         }
     }
@@ -192,6 +203,46 @@ impl Runner {
         self.stats.prints += 1;
     }
 
+    /// The Alpaca spine's `on_record`: a wildcard trade (RTH only — the sidecar
+    /// gates) with its native condition code and the pre-trade book from the
+    /// quote ring. No pairing, so print_id stays 0.
+    pub fn on_alpaca(&mut self, a: crate::alpaca_ws::AlpacaPrint, today: NaiveDate) {
+        self.stats.records += 1;
+        let Some(meta) = meta_from_occ(&a.sym, today) else {
+            self.stats.skipped_no_meta += 1;
+            return;
+        };
+        if a.price <= 0.0 || a.size <= 0 {
+            return;
+        }
+        let (direction, basis) = match (a.nbbo, crate::quotebook::TICK_FALLBACK) {
+            (None, true) if a.tick != Dir::Undetermined => (a.tick, "tick"),
+            _ => (Dir::Undetermined, "none"),
+        };
+        self.pending.push(Print {
+            print_id: 0,
+            occ: meta.occ,
+            underlying: meta.underlying,
+            right: meta.right,
+            strike: meta.strike,
+            expiry: meta.expiry,
+            dte: meta.dte,
+            ts_ms: a.t_ns.div_euclid(1_000_000),
+            price: a.price,
+            size: a.size,
+            exchange: a.exch,
+            conditions: if a.cond.is_empty() { Vec::new() } else { vec![a.cond] },
+            nbbo: a.nbbo.map(|q| (q.bid, q.ask, q.t_ns.div_euclid(1_000_000))),
+            direction,
+            basis,
+            mid_side: "unclassified",
+            spread_leg: false,
+            likely_spread: false,
+        });
+        self.stats.prints += 1;
+        self.stats.prints_coded += 1;
+    }
+
     fn insert(&mut self, events: &[Event]) -> Result<()> {
         self.stats.events_written += events.len() as u64;
         self.db.insert_events(events, minutes_into_session)
@@ -262,7 +313,7 @@ impl Runner {
                         p.direction = classify_direction(p.price, bid, ask);
                         p.mid_side = classify_midpoint(p.price, bid, ask);
                         if p.direction != Dir::Undetermined {
-                            p.basis = QUOTE_BASIS;
+                            p.basis = self.quote_basis;
                         }
                     }
                 }
@@ -317,6 +368,14 @@ impl Runner {
                 for p in batch.iter() {
                     let sh = if p.print_id != 0 { shadows.remove(&p.print_id) } else { None };
                     pr.shadow.add(p.direction, p.price * p.size as f64 * 100.0, sh);
+                }
+            }
+            for p in &batch {
+                let usd = p.premium();
+                self.stats.usd += usd;
+                if p.direction != Dir::Undetermined {
+                    self.stats.prints_directed += 1;
+                    self.stats.usd_directed += usd;
                 }
             }
             self.buffer.add(&batch);
@@ -470,4 +529,56 @@ impl Runner {
 pub fn today_et(now: i64) -> NaiveDate {
     let d = et_of(now);
     NaiveDate::from_ymd_opt(d.year(), d.month(), d.day()).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alpaca_ws::AlpacaPrint;
+    use crate::quotebook::Quote;
+
+    /// A scratch DB with the tables `Db::open` checks for (no event is written here).
+    fn scratch(tag: &str) -> (PathBuf, Runner) {
+        let dir = std::env::temp_dir().join(format!("runner_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        let c = rusqlite::Connection::open(&path).unwrap();
+        for t in ["options_flow_events", "bus_ingest_sequences", "index_pressure_minutes", "index_pressure_days"] {
+            c.execute(&format!("CREATE TABLE {t} (x)"), []).unwrap();
+        }
+        let r = Runner::new(HashMap::new(), Db::open(&path).unwrap(), dir.join("lab"));
+        (dir, r)
+    }
+
+    #[test]
+    fn alpaca_prints_sign_on_the_pre_trade_quote_or_stay_undetermined() {
+        let (dir, mut r) = scratch("alpaca");
+        r.quote_basis = ALPACA_QUOTE_BASIS;
+        // Tue 2026-08-18 09:45 ET — inside the print-lab window, so the lab row shows the stamp
+        let t = New_York.with_ymd_and_hms(2026, 8, 18, 9, 45, 0).unwrap().timestamp_nanos_opt().unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 8, 18).unwrap();
+        let a = |sym: &str, price, nbbo| AlpacaPrint { sym: sym.into(), t_ns: t, price, size: 2, exch: "C".into(), cond: "a".into(), nbbo, tick: Dir::Buy };
+        r.on_alpaca(a("ABC260918C00100000", 1.10, Some(Quote { t_ns: t - 1_000_000, bid: 1.00, ask: 1.10 })), today);
+        r.on_alpaca(a("ABC260918P00100000", 1.00, Some(Quote { t_ns: t - 1_000_000, bid: 1.00, ask: 1.10 })), today);
+        r.on_alpaca(a("ABC260918C00105000", 1.10, None), today); // unquoted: tick says buy, TICK_FALLBACK is off
+        r.on_alpaca(a("BAD", 1.10, None), today);
+        assert_eq!((r.stats.prints, r.stats.skipped_no_meta), (3, 1));
+        r.cycle((t / 1_000_000_000 + 1) as f64).unwrap();
+        let lab = std::fs::read_to_string(dir.join("lab").join("2026-08-18.jsonl")).unwrap();
+        let rows: Vec<serde_json::Value> = lab.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let got: Vec<(&str, &str, &str)> = rows.iter().map(|v| (v["occ"].as_str().unwrap(), v["dir"].as_str().unwrap(), v["basis"].as_str().unwrap())).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("ABC260918C00100000", "buy_side", "alpaca_nbbo"),
+                ("ABC260918P00100000", "sell_side", "alpaca_nbbo"),
+                ("ABC260918C00105000", "undetermined", "none"),
+            ]
+        );
+        assert_eq!(rows[0]["q_ts_ms"], serde_json::json!(t / 1_000_000 - 1));
+        assert_eq!(rows[2]["bid"], serde_json::Value::Null);
+        assert_eq!(r.stats.prints_directed, 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

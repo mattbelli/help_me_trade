@@ -41,7 +41,7 @@ pub struct Print {
     pub nbbo: Option<(f64, f64, i64)>,
     // stamped by the sweep cycle
     pub direction: Dir,
-    pub basis: &'static str,    // "dbn_nbbo" | "none"
+    pub basis: &'static str,    // "dbn_nbbo" | "alpaca_nbbo" | "tick" | "none"
     pub mid_side: &'static str, // buy | sell | unclassified | wide_spread
     pub spread_leg: bool,
     pub likely_spread: bool,
