@@ -30,9 +30,9 @@ tar -czf "$DEST/hmt-config-$STAMP.tar.gz" \
   -C "$DATA" settings.json schwab_account_labels.json imports \
   || fail "config tarball errored"
 
-# Retain the last 14 daily snapshots (DB + config).
-find "$DEST" -maxdepth 1 -name 'trading-*.db' -mtime +14 -delete
-find "$DEST" -maxdepth 1 -name 'hmt-config-*.tar.gz' -mtime +14 -delete
+# Retain the last 7 daily snapshots (DB + config).
+find "$DEST/" -maxdepth 1 -name 'trading-*.db' -mtime +6 -delete
+find "$DEST/" -maxdepth 1 -name 'hmt-config-*.tar.gz' -mtime +6 -delete
 
 # --- OFF-BOX COPY ---------------------------------------------------------------
 # RETIRED 2026-08-20: mattpc used to PULL this directory nightly at 03:30 over

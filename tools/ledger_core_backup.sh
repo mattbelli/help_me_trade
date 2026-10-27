@@ -55,7 +55,7 @@ command -v "$RCLONE" >/dev/null || fail "rclone missing at $RCLONE"
   || fail "rclone remote '${REMOTE%%:*}' is not configured — run: rclone config"
 
 # --- 1. Pick the verified static snapshot (never the live DB) ----------------------
-SNAP="$(find "$SRC_DIR" -maxdepth 1 -name 'trading-*.db' -mmin -1800 2>/dev/null | sort | tail -1)"
+SNAP="$(find "$SRC_DIR/" -maxdepth 1 -name 'trading-*.db' -mmin -1800 2>/dev/null | sort | tail -1)"
 [ -n "$SNAP" ] || fail "no trading-*.db snapshot under 30h old in $SRC_DIR — the 03:00 backup is dead"
 
 rm -rf "$STAGE"; mkdir -p "$STAGE" || fail "cannot create $STAGE"

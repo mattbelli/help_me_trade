@@ -75,7 +75,7 @@ prune_raw_tapes() {
   [ -d "$dir" ] || return 0
   today_et="$(TZ=America/New_York date +%F)"
   mapfile -t complete < <(
-    find "$dir" -maxdepth 1 -type f -name '????-??-??.mpk.zst' \
+    find "$dir/" -maxdepth 1 -type f -name '????-??-??.mpk.zst' \
       -size +"${RAW_TAPE_MIN_BYTES}"c -printf '%f\n' |
       awk -v today="$today_et" '$0 < today {print}' | sort
   )
@@ -131,9 +131,10 @@ for db in "$SRC"/data/*.db; do
   # WAL checkpoint and can spin forever against this slow drive. Prefer the
   # static, already-integrity-checked 03:00 snapshot (deploy/backup-db.sh)
   # when one is fresh (<48h); fall back to a live .backup if it isn't.
+  # Trailing slash: ~/backups is a symlink (since 10-20) and find won't enter it without one.
   snap=""
   if [ "$name" = "trading" ]; then
-    snap="$(find /home/mbelli/backups -maxdepth 1 -name 'trading-*.db' \
+    snap="$(find /home/mbelli/backups/ -maxdepth 1 -name 'trading-*.db' \
             -mmin -2880 2>/dev/null | sort | tail -1)"
   fi
   ok=true
@@ -151,8 +152,10 @@ for db in "$SRC"/data/*.db; do
 done
 
 # --- 2. Data mirror, then explicit raw-tape retention -------------------------------
-if ! rsync -a --no-perms --no-owner --no-group --omit-dir-times \
-  --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' --exclude '*.part' \
+# Cold dirs (equity_tape_raw, order_grain_null*) are symlinks into /mnt/spare since 10-20:
+# --copy-unsafe-links mirrors their contents. databento/ links to /mnt/backup itself -- skip it.
+if ! rsync -a --copy-unsafe-links --no-perms --no-owner --no-group --omit-dir-times \
+  --exclude '/databento' --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' --exclude '*.part' \
   "$SRC/data/" "$DST/data/"; then
   echo "ERROR: data rsync failed"
   errors=$((errors + 1))
