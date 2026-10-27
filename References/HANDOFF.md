@@ -92,6 +92,13 @@ Full record: BUILD_LOG 08-25 row + card #342 + `References/MANUAL_TRADING_FOUNDA
   `tests/test_approval_auth.py`. Full fix later = Secure-Enclave-backed key (needs a native module); this
   round's key is Keychain this-device-only, which already defeats "whoever holds the token can approve".
 
+## ▶ 10-27 Flow collector on the Alpaca spine (#351) — see BUILD_LOG 10-27
+`.env` `OPTIONS_FLOW_SPINE=alpaca` (Databento is gone; the dbn spine now dies at auth). Watch the 60 s `dbn live:` line's `directed=` (% of premium with a side) and the `alpaca spine:` line. Open:
+- ⏳ **first live RTH session on the Alpaca spine** — directed% vs the 32% shadow estimate; GTH tape filling overnight.
+- ▶ **coverage gap:** 68% of premium unsigned — allocation tuning on the tcbbo corpus, or a REST snapshot lane.
+- ▶ **UI copy:** `AT_PRINT_BASES` in options-flow-widget lacks `alpaca_nbbo`; feed panel title 'OPRA · Databento'.
+- ▶ **Phase 2:** nightly capture/OI/corpus rollup + pairing crons still assume Databento — inventory and retire.
+
 ## ▶ 08-18 Rust flow collector (#331) — **LIVE IN PRODUCTION since 10:31 ET 08-18; pairing (stage 2) LIVE since 11:40 ET**
 `hmt-flow-collector` runs `OPTIONS_FLOW_RUST_SPINE=1` (flag in `.env`): `flow_rs live --pairing` owns the
 Databento socket + detectors + writes AND the Alpaca wildcard-trades sidecar (condition codes stamped

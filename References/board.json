@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-10-23",
+ "updated_at": "2026-10-27",
  "lanes": [
   "inbox",
   "founder",
@@ -17,8 +17,8 @@
    "type": "build",
    "priority": "P1",
    "owner": "claude",
-   "updated_at": "2026-10-23",
-   "notes": "10-20: founder cancelling Databento $199/mo. Alpaca wildcard trades already = whole market (10-16: 14.31M vs dbn 14.32M). Loss = per-print direction (tcbbo pre-trade NBBO). Stage A = shadow: heat-following quote subs (cap 1,000, 300 gauge reserve) + timestamp-ordered pre-trade quote ring + tick fallback, agreement vs dbn_nbbo through the pairing matcher. Stage B = --spine alpaca. Phase 2 (after): nightly capture/OI/corpus rollup off Databento (Alpaca contracts OI lags ~3 sessions: 10-20 shows 10-15), retire pairing crons. Cancel Databento only after a verified full Alpaca-spine session. Brief: BRIEF_flow_alpaca_spine.md on branch flow-alpaca-spine (pipeline tree).\n2026-10-23: 10-23 Stage B built (unmerged, undeployed): flow_rs live --spine alpaca — Alpaca RTH [09:30,16:15) trades feed Runner directly (native c code, x letter, pre-trade quote ring → basis alpaca_nbbo; unquoted → none, TICK_FALLBACK=false per shadow tick 67% agree); no Databento socket/key; same FeedLiveness; OPTIONS_FLOW_SPINE=alpaca in tools/flow_collector.py. Shadow 10-23: quote on 32% of premium, 99.7% agree. Open: frontend AT_PRINT_BASES lacks alpaca_nbbo (tooltip says 'polled quote'); feed panel titled 'OPRA · Databento'."
+   "updated_at": "2026-10-27",
+   "notes": "10-20: founder cancelling Databento $199/mo. Alpaca wildcard trades already = whole market (10-16: 14.31M vs dbn 14.32M). Loss = per-print direction (tcbbo pre-trade NBBO). Stage A = shadow: heat-following quote subs (cap 1,000, 300 gauge reserve) + timestamp-ordered pre-trade quote ring + tick fallback, agreement vs dbn_nbbo through the pairing matcher. Stage B = --spine alpaca. Phase 2 (after): nightly capture/OI/corpus rollup off Databento (Alpaca contracts OI lags ~3 sessions: 10-20 shows 10-15), retire pairing crons. Cancel Databento only after a verified full Alpaca-spine session. Brief: BRIEF_flow_alpaca_spine.md on branch flow-alpaca-spine (pipeline tree).\n2026-10-23: 10-23 Stage B built (unmerged, undeployed): flow_rs live --spine alpaca — Alpaca RTH [09:30,16:15) trades feed Runner directly (native c code, x letter, pre-trade quote ring → basis alpaca_nbbo; unquoted → none, TICK_FALLBACK=false per shadow tick 67% agree); no Databento socket/key; same FeedLiveness; OPTIONS_FLOW_SPINE=alpaca in tools/flow_collector.py. Shadow 10-23: quote on 32% of premium, 99.7% agree. Open: frontend AT_PRINT_BASES lacks alpaca_nbbo (tooltip says 'polled quote'); feed panel titled 'OPRA · Databento'.\n2026-10-27: 2026-10-27: Databento cut 10-26 00:17 UTC → collector crash-looped, flow dark 10-26. Stage B merged to main + deployed with OPTIONS_FLOW_SPINE=alpaca. Next: first-RTH directed% check; coverage gap; UI copy; Phase 2 Databento-dependent crons."
   },
   {
    "num": 350,
