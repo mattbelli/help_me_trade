@@ -23,6 +23,7 @@ from typing import Any
 
 from schwab.streaming import StreamClient
 
+from brokers.bar_builder import Bar
 from brokers.errors import BrokerError
 from brokers.market_clock import market_session
 from brokers.market_stream import (
@@ -92,6 +93,7 @@ _FUTURES_FIELDS = [
 # which silently drops every tick. These constants make the access key explicit.
 _EQ = StreamClient.LevelOneEquityFields
 _FUT = StreamClient.LevelOneFuturesFields
+_CHART = StreamClient.ChartFuturesFields
 _ACCT = StreamClient.AccountActivityFields
 
 
@@ -348,6 +350,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 # Register handlers BEFORE login
                 stream.add_level_one_equity_handler(self._on_equity)
                 stream.add_level_one_futures_handler(self._on_futures)
+                stream.add_chart_futures_handler(self._on_chart_futures)
                 stream.add_account_activity_handler(self._on_account_activity)
 
                 await stream.login()
@@ -368,6 +371,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                     await stream.level_one_futures_subs(
                         init_fut, fields=_FUTURES_FIELDS
                     )
+                    await stream.chart_futures_subs(init_fut)
                 await self._subscribe_account_activity(stream)
 
                 while self._running:
@@ -421,6 +425,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 await stream.level_one_equity_unsubs(rm_eq)
             if rm_fut:
                 await stream.level_one_futures_unsubs(rm_fut)
+                await stream.chart_futures_unsubs(rm_fut)
 
         if pending_add:
             add_eq, add_fut = _partition_symbols(pending_add)
@@ -434,6 +439,7 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 await stream.level_one_futures_add(
                     add_fut, fields=_FUTURES_FIELDS
                 )
+                await stream.chart_futures_add(add_fut)
 
     async def _subscribe_account_activity(self, stream: StreamClient) -> bool:
         """Subscribe without making account activity a market-data dependency.
@@ -604,13 +610,25 @@ class SchwabMarketStreamHub(BaseMarketHub):
             if not symbol:
                 continue
             last = item.get(_FUT.LAST_PRICE.name)
+            vol_raw = item.get(_FUT.TOTAL_VOLUME.name)
             if last is None:
+                # Level-one sends changed fields only: a trade at the unchanged
+                # last moves TOTAL_VOLUME alone. Fold it as a print at that last
+                # so a new minute opens where it really traded (measured
+                # 2026-10-27: 11:03 opened 2 ticks late without this).
+                state = self._quotes.get(symbol)
+                prev = self._prev_prices.get(symbol)
+                if state is not None and prev is not None and vol_raw is not None:
+                    if float(vol_raw) > state.volume:
+                        completed = self._fold_print(symbol, prev, 0.0, None)
+                        if completed is not None:
+                            self._schedule_task(self._broadcast_bar(symbol, completed))
+                    state.volume = float(vol_raw)
                 continue
             price_f = float(last)
 
             bid_raw = item.get(_FUT.BID_PRICE.name)
             ask_raw = item.get(_FUT.ASK_PRICE.name)
-            vol_raw = item.get(_FUT.TOTAL_VOLUME.name)
             chg_pct_raw = item.get(_FUT.FUTURE_CHANGE_PERCENT.name)
             close_raw = item.get(_FUT.CLOSE_PRICE.name)
 
@@ -625,10 +643,11 @@ class SchwabMarketStreamHub(BaseMarketHub):
                 continue
 
             state.price = price_f
-            # Futures have no SIP trade stream here — the level-one last is
-            # the print. Receipt-time bucketed, sizeless; the vendor bar wins
-            # on the next /api/bars refresh as with equities. Sync handler:
-            # fold now, fan the completed-minute frame off like a tick.
+            # Futures have no SIP trade stream here — the level-one last (a ~1Hz
+            # conflated snapshot) is the print for the FORMING minute.
+            # Receipt-time bucketed, sizeless; Schwab's CHART_FUTURES candle
+            # replaces it ~2-3s after the minute closes (_on_chart_futures).
+            # Sync handler: fold now, fan the completed-minute frame off.
             completed = self._fold_print(symbol, price_f, 0.0, None)
             if completed is not None:
                 self._schedule_task(self._broadcast_bar(symbol, completed))
@@ -656,6 +675,29 @@ class SchwabMarketStreamHub(BaseMarketHub):
             self._prev_prices[symbol] = price_f
 
             self._schedule_post_tick(symbol, prev, price_f)
+
+    def _on_chart_futures(self, msg: dict[str, Any]) -> None:
+        """CHART_FUTURES handler: Schwab's own finished minute (the bar
+        thinkorswim draws), sent once ~2-3s after each minute closes — never
+        mid-minute (measured 2026-10-27). Seal it over our level-one copy."""
+        for item in msg.get("content", []):
+            symbol = str(item.get("key", "")).upper()
+            t = item.get(_CHART.CHART_TIME_MILLIS.name)
+            o = item.get(_CHART.OPEN_PRICE.name)
+            h = item.get(_CHART.HIGH_PRICE.name)
+            lo = item.get(_CHART.LOW_PRICE.name)
+            c = item.get(_CHART.CLOSE_PRICE.name)
+            if not symbol or None in (t, o, h, lo, c):
+                continue
+            bar = Bar(
+                int(t),
+                float(o),
+                float(h),
+                float(lo),
+                float(c),
+                float(item.get(_CHART.VOLUME.name) or 0.0),
+            )
+            self._schedule_task(self._ingest_vendor_bar(symbol, bar))
 
     def _schedule_post_tick(
         self, symbol: str, prev: float | None, current: float, *, ext: bool = False

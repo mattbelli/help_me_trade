@@ -130,11 +130,15 @@ async def test_futures_only_pending_add_still_subscribes() -> None:
         async def level_one_futures_add(self, symbols, *, fields=None):
             self.futures.extend(symbols)
 
+        async def chart_futures_add(self, symbols):
+            self.charts = list(symbols)
+
     hub = SchwabMarketStreamHub()
     hub._pending_add.add("/MNQ")
     stream = RecordingStream()
     await hub._apply_stream_changes(stream)
     assert stream.futures == ["/MNQ"]
+    assert stream.charts == ["/MNQ"]
 
 
 def _labeled_equity_msg() -> dict:
@@ -369,3 +373,56 @@ async def test_ext_alert_fires_and_dedups_with_rest_poll(monkeypatch) -> None:
         "SPY", ext_price=731.5, ext_change_pct=0.48, market_session="post"
     )
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_futures_volume_only_update_opens_minute_at_unchanged_last(monkeypatch) -> None:
+    """Level-one sends changed fields only: a trade at the unchanged last arrives
+    as TOTAL_VOLUME alone. The new minute must open THERE, not at the first
+    changed price seconds later (measured 2026-10-27, /ES 11:03)."""
+    clock = [1_000_000_079.9]
+    monkeypatch.setattr("brokers.market_stream.time.time", lambda: clock[0])
+    hub = SchwabMarketStreamHub()
+    hub._on_futures({"content": [{"key": "/ES", "LAST_PRICE": 7753.75, "TOTAL_VOLUME": 100}]})
+    clock[0] = 1_000_000_081.0  # next minute: same price, volume moved
+    hub._on_futures({"content": [{"key": "/ES", "TOTAL_VOLUME": 105}]})
+    clock[0] = 1_000_000_084.0
+    hub._on_futures({"content": [{"key": "/ES", "LAST_PRICE": 7754.25, "TOTAL_VOLUME": 110}]})
+    bar = hub.bars.forming("/ES")
+    assert bar.time == 1_000_000_080_000  # minute-aligned
+    assert bar.open == pytest.approx(7753.75)
+    assert bar.close == pytest.approx(7754.25)
+    # Volume-only with no live last yet (baseline price only) folds nothing.
+    hub._quotes["/NQ"] = QuoteState(price=27000.0)
+    hub._on_futures({"content": [{"key": "/NQ", "TOTAL_VOLUME": 5}]})
+    assert hub.bars.forming("/NQ") is None
+    await _drain(hub)
+
+
+@pytest.mark.asyncio
+async def test_chart_futures_candle_seals_our_minute() -> None:
+    """Schwab's CHART_FUTURES minute replaces our level-one copy, final."""
+    hub = SchwabMarketStreamHub()
+    hub._on_futures({"content": [{"key": "/ES", "LAST_PRICE": 7756.5}]})
+    t = hub.bars.forming("/ES").time
+    hub._on_chart_futures(
+        {
+            "content": [
+                {
+                    "key": "/ES",
+                    "CHART_TIME_MILLIS": t,
+                    "OPEN_PRICE": 7757,
+                    "HIGH_PRICE": 7757.75,
+                    "LOW_PRICE": 7754.5,
+                    "CLOSE_PRICE": 7755,
+                    "VOLUME": 3351,
+                }
+            ]
+        }
+    )
+    await _drain(hub)
+    bar = hub.bars.forming("/ES")
+    assert bar.final
+    assert (bar.open, bar.high, bar.low, bar.close, bar.volume) == (
+        7757.0, 7757.75, 7754.5, 7755.0, 3351.0
+    )
