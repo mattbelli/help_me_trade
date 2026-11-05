@@ -132,6 +132,8 @@ def _register_background_jobs() -> None:
         # Marked alive by the news websocket on every receive/idle tick — a
         # stale heartbeat means the socket is actually dead, not quiet news.
         ("news_stream", 300.0, lambda: _NEWS_STREAM_ENABLED),
+        # Marked only after a REST sweep succeeded — Benzinga's only lane.
+        ("news_poll", 300.0, lambda: _NEWS_STREAM_ENABLED),
     ]
     for name, interval_s, enabled in heartbeat_jobs:
         register_job(

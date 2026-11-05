@@ -7,7 +7,7 @@ reference rolls to the last completed close (2026-08-17).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,8 +25,8 @@ def _series(last_day: datetime, closes: list[float]) -> list[StockBar]:
     """Daily bars ending on ``last_day`` (ET midnight stamps like the vendor)."""
     out = []
     for i, c in enumerate(reversed(closes)):
-        d = last_day - timedelta(days=i)
-        out.append(_bar(d.strftime("%Y-%m-%dT04:00:00Z"), c))
+        midnight = (last_day - timedelta(days=i)).replace(hour=0, minute=0, second=0)
+        out.append(_bar(midnight.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), c))
     return list(reversed(out))
 
 

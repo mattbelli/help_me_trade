@@ -274,15 +274,9 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_equity_tape_flush_loop()),
     ]
     if _NEWS_STREAM_ENABLED:
-        from signals.news_stream import news_stream_loop
+        from signals.news_stream import start_news_lanes
 
-        background_tasks.append(
-            asyncio.create_task(
-                news_stream_loop(
-                    mark_alive=lambda: mark_alive("news_stream")
-                )
-            )
-        )
+        background_tasks.extend(start_news_lanes(mark_alive))
     if _OPTIONS_FLOW_ENABLED and _OPTIONS_FLOW_STREAM_ENABLED:
         if _OPTIONS_FLOW_EXTERNAL_COLLECTOR:
             logger.info(

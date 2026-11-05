@@ -2224,3 +2224,28 @@ class AlpacaAdapter:
             return []
         items = data.get("news") if isinstance(data, dict) else None
         return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+    def get_news_since(self, start: str, *, max_pages: int = 200) -> list[dict]:
+        """Every news item created at/after ``start``, newest-first, across pages.
+
+        Raises on a vendor failure (unlike ``get_news``) so a caller can tell
+        "REST is down" from "nothing new". One page is not enough: a fiscal.ai
+        burst (212 items/min measured) pushes older Benzinga items off page one.
+        """
+        items: list[dict] = []
+        params: dict[str, Any] = {"limit": 50, "sort": "desc", "start": start}
+        for _ in range(max_pages):
+            data = self._get_data("/v1beta1/news", params=params)
+            page = data.get("news")
+            if isinstance(page, list):
+                items.extend(i for i in page if isinstance(i, dict))
+            token = data.get("next_page_token")
+            if not token:
+                return items
+            params = {**params, "page_token": token}
+        logger.warning(
+            "get_news_since(%s): stopped at %d pages; older items not fetched",
+            start,
+            max_pages,
+        )
+        return items

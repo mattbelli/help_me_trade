@@ -1881,9 +1881,9 @@ RESOURCES: dict[str, dict[str, Any]] = {
     },
     "news": {
         "description": (
-            "Recent watchlist headlines (Alpaca/Benzinga news store, realtime "
-            "websocket-fed, deduped by story id). Headlines only — no "
-            "sentiment scores."
+            "Recent watchlist headlines (Alpaca news store: Benzinga via a "
+            "15s REST poll, can run minutes behind; fiscal.ai via websocket; "
+            "deduped by story id). Headlines only — no sentiment scores."
         ),
         "filters": {
             "symbol": "optional — filter to one ticker",

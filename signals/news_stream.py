@@ -1,15 +1,19 @@
-"""Realtime Alpaca news stream → ``db.news`` (perception substrate, Mode A).
+"""Alpaca news → ``db.news`` (perception substrate, Mode A): two lanes, one store.
 
-One websocket to ``v1beta2/news`` (its own connection budget — separate from
-the single-connection stocks stream), subscribed to ``*``: every Benzinga
-headline upserts into ``news_items`` the moment it publishes. A REST backfill
-on startup warms the store so the UI is never empty after a restart. Facts
-about published headlines — never a signal; the bus catalyst-dot wiring is its
-own later round (FUSION_EVIDENCE_BUS_SPEC §2.9).
+- WEBSOCKET (``v1beta1/news``, its own connection budget — separate from the
+  single-connection stocks stream), subscribed to ``*``.
+- REST POLL: a sweep of the recent window every ``_REST_POLL_SEC``. Required, not
+  a backup: since 2026-10-21 12:43 UTC the socket carries ONLY fiscal.ai.
+  Benzinga still publishes but reaches us by REST alone (measured 11-05: fresh
+  socket 0 of 18 Benzinga items, all 87 fiscal.ai). Both lanes upsert by story
+  id, so if Benzinga returns to the socket the poll simply finds nothing new.
 
-Liveness: marks the ``news_stream`` heartbeat job on every receive INCLUDING
-idle timeouts — proof-of-life is "the socket is connected", not "news arrived"
-(overnight gaps are normal; a dead socket is not).
+Facts about published headlines — never a signal.
+
+Liveness: ``news_stream`` is marked on every receive INCLUDING idle timeouts, so
+it proves "the socket is connected" and NOTHING about which sources it carries
+(it stayed green through the whole Benzinga loss). ``news_poll`` is marked only
+when a REST sweep actually succeeded.
 """
 
 from __future__ import annotations
@@ -18,13 +22,20 @@ import asyncio
 import json
 import logging
 import os
+from datetime import UTC, datetime, timedelta
 
 import websockets
 
 from brokers.alpaca import AlpacaAdapter
 from brokers.factory import get_broker
 from config.settings import alpaca_config, broker_is_configured
-from db.news import init_db, normalize_news_item, upsert_news_item
+from db.news import (
+    init_db,
+    known_news_ids,
+    latest_published_at,
+    normalize_news_item,
+    upsert_news_item,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +43,13 @@ logger = logging.getLogger(__name__)
 NEWS_WS_URL = "wss://stream.data.alpaca.markets/v1beta1/news"
 _RECONNECT_BASE_SEC = 2.0
 _RECONNECT_MAX_SEC = 60.0
+_REST_POLL_SEC = 15.0
+# REST itself lands in batches: Benzinga appears on a 5-minute clock (measured
+# 11-05: 16:31:05, 16:36:05, 16:41:05, 16:46:05; max 292s after created_at), so
+# every sweep re-reads a window wider than that lag.
+_REST_OVERLAP = timedelta(minutes=15)
+# How far the first sweep after a start may reach back to fill an outage.
+_REST_STARTUP_MAX = timedelta(days=3)
 
 
 def news_stream_enabled() -> bool:
@@ -52,17 +70,64 @@ def _store_items(raw_items: list[dict]) -> int:
     return stored
 
 
-async def _backfill_once() -> None:
-    """One REST page of the global feed so a fresh store isn't empty."""
+def _iso_z(when: datetime) -> str:
+    return when.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _first_sweep_start(now: datetime) -> str:
+    """Back to the newest stored row (fills a restart/outage gap), capped."""
+    floor = now - _REST_STARTUP_MAX
+    latest = latest_published_at()
+    if not latest:
+        return _iso_z(floor)
     try:
-        broker = get_broker("alpaca")
-        if not isinstance(broker, AlpacaAdapter):
-            return
-        items = await asyncio.to_thread(broker.get_news, None, limit=50)
-        stored = await asyncio.to_thread(_store_items, items)
-        logger.info("news_stream: REST backfill stored %d items", stored)
-    except Exception:
-        logger.warning("news_stream: REST backfill failed", exc_info=True)
+        newest = datetime.fromisoformat(latest)
+    except ValueError:
+        return _iso_z(floor)
+    return _iso_z(max(floor, newest - _REST_OVERLAP))
+
+
+def _sweep_rest(broker: AlpacaAdapter, start: str) -> int:
+    """Store REST items from ``start`` we don't have yet; returns how many."""
+    items = broker.get_news_since(start)
+    known = known_news_ids([str(i["id"]) for i in items if i.get("id") is not None])
+    return _store_items([i for i in items if str(i.get("id")) not in known])
+
+
+async def news_rest_poll_loop(mark_alive=None) -> None:
+    """Long-running REST lane; the only path Benzinga reaches the store by."""
+    if not news_stream_enabled():
+        return
+    await asyncio.to_thread(init_db)
+    start = await asyncio.to_thread(_first_sweep_start, datetime.now(UTC))
+    while True:
+        if broker_is_configured("alpaca"):
+            try:
+                broker = get_broker("alpaca")
+                if not isinstance(broker, AlpacaAdapter):
+                    return
+                stored = await asyncio.to_thread(_sweep_rest, broker, start)
+                if stored:
+                    logger.info("news_poll: stored %d new items", stored)
+                if mark_alive is not None:
+                    mark_alive()
+                start = _iso_z(datetime.now(UTC) - _REST_OVERLAP)
+            except Exception:
+                # Keep ``start``: a failed first sweep must not lose the outage gap.
+                logger.warning("news_poll: sweep failed", exc_info=True)
+        await asyncio.sleep(_REST_POLL_SEC)
+
+
+def start_news_lanes(mark_alive) -> list[asyncio.Task]:
+    """Both lanes as tasks, each marking its own heartbeat job."""
+    return [
+        asyncio.create_task(
+            news_stream_loop(mark_alive=lambda: mark_alive("news_stream"))
+        ),
+        asyncio.create_task(
+            news_rest_poll_loop(mark_alive=lambda: mark_alive("news_poll"))
+        ),
+    ]
 
 
 async def _handshake(ws) -> None:
@@ -109,7 +174,6 @@ async def news_stream_loop(mark_alive=None) -> None:
         logger.info("news_stream: disabled (NEWS_STREAM_ENABLED)")
         return
     await asyncio.to_thread(init_db)
-    await _backfill_once()
 
     backoff = _RECONNECT_BASE_SEC
     while True:
@@ -157,7 +221,7 @@ async def news_stream_loop(mark_alive=None) -> None:
                         # open) must never escape into the outer except and
                         # tear down a healthy socket — that was 6-25 needless
                         # reconnects/day since 07-23. Drop the batch and move
-                        # on; the REST backfill covers gaps on reconnect.
+                        # on; the REST poll re-reads the recent window.
                         try:
                             await asyncio.to_thread(_store_items, news_items)
                         except Exception:

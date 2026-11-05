@@ -15,6 +15,8 @@ budget ~150 lines: over budget = prune debt, prune before appending.*
 
 ---
 
+- ⏳ **11-05, founder decision: backfill Benzinga 10-21 to 11-05 11:48 ET?** (~12k rows, estimate; too old to mint catalyst dots). `news_items` is missing it, so fusion's catalyst lane ran on fiscal.ai alone in that window; treat it as its own news cohort. Row: BUILD_LOG 2026-11-05, #352.
+
 ## ▶ 09-01 flow_rs has the same silent-stall blind spot equity_rs just fixed
 
 Full record: BUILD_LOG 09-01 row + card #329.

@@ -173,6 +173,25 @@ def upsert_news_item(item: dict[str, Any], db_path: Path | None = None) -> None:
         )
 
 
+def known_news_ids(ids: list[str], db_path: Path | None = None) -> set[str]:
+    """The subset of ``ids`` already stored."""
+    if not ids:
+        return set()
+    placeholders = ",".join("?" for _ in ids)
+    with _connect(_db_path(db_path)) as conn:
+        rows = conn.execute(
+            f"SELECT id FROM news_items WHERE id IN ({placeholders})", ids
+        ).fetchall()
+    return {str(row["id"]) for row in rows}
+
+
+def latest_published_at(db_path: Path | None = None) -> str | None:
+    """``published_at`` of the newest stored row, or None for an empty store."""
+    with _connect(_db_path(db_path)) as conn:
+        row = conn.execute("SELECT MAX(published_at) AS m FROM news_items").fetchone()
+    return row["m"] if row else None
+
+
 def _row_to_item(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
